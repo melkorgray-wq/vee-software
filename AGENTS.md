@@ -2,7 +2,7 @@
 
 ## Project stage and scope
 
-VEE Software is in solution discovery and Software Alpha design. The architecture is **Proposed**; no runnable application exists. The ontology is a working model. Do not pretend that proposed or deferred decisions are settled.
+VEE Software is in solution discovery and Software Alpha design. A runnable technical architecture spike exists, but no functional Software Alpha exists. The architecture remains **Proposed**, and the ontology is a working model. Do not pretend that proposed or deferred decisions are settled.
 
 ## Source-of-truth hierarchy
 
