@@ -12,7 +12,7 @@ That article is conceptual background, not a software specification. This docume
 
 ## Current stage
 
-The project is in solution discovery and Software Alpha design. No runnable application exists yet. The technical architecture is **Proposed**, and the ontology is evolving.
+The project is in solution discovery and Software Alpha design. The repository contains a runnable technical architecture spike, not a functional Alpha. The spike does not validate the product ontology. The technical architecture remains **Proposed**, and the ontology is evolving.
 
 ## Software Alpha boundary
 

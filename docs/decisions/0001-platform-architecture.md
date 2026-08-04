@@ -13,6 +13,12 @@ The product requires browser access first, future desktop and mobile clients, a 
 
 Propose a TypeScript, pnpm-workspace architecture with shared framework-independent packages, explicit HTTP contracts, platform-appropriate clients, and PostgreSQL persistence. This is not accepted yet: it must be tested against an initial domain model and interaction prototype before acceptance.
 
+## Validation status
+
+The executable technical spike validates pnpm workspace operation; the Node.js and TypeScript toolchain; the React and Vite build; TanStack Router integration; TanStack Query API access; read-only React Flow rendering; a Fastify API; OpenAPI generation; shared transport-contract consumption; and automated quality gates.
+
+It does not validate the VEE domain model, editing interactions, persistence, PostgreSQL, Drizzle, Supabase, authentication or authorization, Tauri, Expo or React Native, offline behavior, realtime collaboration, deployment, production performance, or accessibility of a real graph editor. This limited tooling evidence is not sufficient to accept this ADR.
+
 ## Platform trajectory
 
 Begin with a browser application. Later support Windows, macOS, and Linux desktop clients and Android and iOS mobile clients. All clients share identity, persisted data, domain and validation rules, API and permission contracts, import/export semantics, and schema versions. Shared contracts do not require identical interfaces or full mobile graph-editor parity.
