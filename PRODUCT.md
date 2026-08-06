@@ -12,7 +12,7 @@ That article is conceptual background, not a software specification. This docume
 
 ## Current stage
 
-The project is in solution discovery and Software Alpha design. The repository contains a runnable technical architecture spike, not a functional Alpha. The spike does not validate the product ontology. The technical architecture remains **Proposed**, and the ontology is evolving.
+The project is in solution discovery and Software Alpha design. The repository contains a runnable in-memory domain and interaction spike, not a functional Alpha. It tests separation between entity, epistemic annotation, view, placement, rendering, and UI state. It does not validate the final ontology or implement relationships or persistence. The technical architecture remains **Proposed**, and the ontology is evolving.
 
 ## Software Alpha boundary
 

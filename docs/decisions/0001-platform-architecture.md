@@ -15,9 +15,9 @@ Propose a TypeScript, pnpm-workspace architecture with shared framework-independ
 
 ## Validation status
 
-The executable technical spike validates pnpm workspace operation; the Node.js and TypeScript toolchain; the React and Vite build; TanStack Router integration; TanStack Query API access; read-only React Flow rendering; a Fastify API; OpenAPI generation; shared transport-contract consumption; and automated quality gates.
+The executable spike validates pnpm workspace operation; the Node.js and TypeScript toolchain; the React and Vite build; TanStack Router integration; TanStack Query API access; a Fastify API; OpenAPI generation; shared transport-contract consumption; and automated quality gates. It now also tests a framework-independent domain package; separation between entity and visual placement; separation between entity and epistemic annotation; derivation of React Flow nodes from domain state; and in-memory entity creation, selection, inspector editing, and node movement. Exactly one annotation per entity is a provisional interaction assumption for this spike, not a settled ontology decision.
 
-It does not validate the VEE domain model, editing interactions, persistence, PostgreSQL, Drizzle, Supabase, authentication or authorization, Tauri, Expo or React Native, offline behavior, realtime collaboration, deployment, production performance, or accessibility of a real graph editor. This limited tooling evidence is not sufficient to accept this ADR.
+It does not validate the final ontology, relationship semantics, multiple epistemic claims per subject, persistence, import or export, PostgreSQL, Drizzle, Supabase, authentication, authorization, collaboration, offline behavior, undo or redo, production graph-editor accessibility, or production performance. It also does not validate Tauri, Expo or React Native, or deployment. This limited spike evidence is not sufficient to accept this ADR.
 
 ## Platform trajectory
 
