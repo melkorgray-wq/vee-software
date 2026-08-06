@@ -17,6 +17,7 @@ section { margin: 2rem 0; padding: 1rem; border: 1px solid var(--border-subtle);
 button, input, select, textarea { font: inherit; }
 button { border: 1px solid var(--border-soft); border-radius: .35rem; padding: .65rem .9rem; color: var(--color-foreground); background: var(--surface-3); cursor: pointer; }
 button.primary { background: var(--color-primary); border-color: var(--color-primary); color: #fff; font-weight: 650; }
+button:disabled { cursor: not-allowed; opacity: .5; }
 :focus-visible { outline: 3px solid var(--color-accent); outline-offset: 3px; }
 .map-page { max-width: none; padding: 1rem; min-height: 100vh; }
 .map-header { display: flex; gap: 1.5rem; align-items: center; justify-content: space-between; padding: .5rem .25rem 1rem; }
@@ -32,6 +33,14 @@ button.primary { background: var(--color-primary); border-color: var(--color-pri
 .inspector label span { font-weight: 400; color: rgba(255,255,255,.65); }
 .inspector input, .inspector select, .inspector textarea { width: 100%; min-width: 0; border: 1px solid var(--border-subtle); border-radius: .25rem; padding: .65rem; color: var(--color-foreground); background: var(--surface-solid-2); }
 .inspector textarea { min-height: 6rem; resize: vertical; }
+.inspector fieldset { min-width: 0; margin: 0; padding: .8rem; border: 1px solid var(--border-subtle); }
+.inspector legend { padding: 0 .35rem; font-weight: 650; }
+.choice-row { display: flex; flex-wrap: wrap; gap: .5rem; }
+.choice-row button[aria-pressed="true"] { border-color: var(--color-primary); background: rgba(255,72,0,.22); }
+.inspector label.checkbox { display: flex; align-items: center; grid-template-columns: auto 1fr; margin-top: .55rem; font-weight: 400; }
+.inspector label.checkbox input { width: auto; }
+.dependency-message { color: var(--color-accent); }
+.immutable-note { color: rgba(255,255,255,.65); }
 .actions { display: flex; flex-wrap: wrap; gap: .6rem; }
 .status-message { color: var(--color-success); }
 .react-flow__node.map-node { width: 13rem; border: 1px solid var(--border-soft); border-radius: .4rem; padding: .8rem; color: var(--color-foreground); background: var(--surface-solid-2); }

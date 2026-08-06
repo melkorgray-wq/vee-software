@@ -12,7 +12,7 @@ That article is conceptual background, not a software specification. This docume
 
 ## Current stage
 
-The project is in solution discovery and Software Alpha design. The repository contains a runnable in-memory domain and interaction spike, not a functional Alpha. It tests separation between entity, epistemic annotation, view, placement, rendering, and UI state. It does not validate the final ontology or implement relationships or persistence. The technical architecture remains **Proposed**, and the ontology is evolving.
+The project is in solution discovery and Software Alpha design. The repository contains a runnable in-memory domain and interaction spike, not a functional Alpha. It tests separation between entity, typed relationship, epistemic annotation, view, placement, rendering, and UI state. It does not validate the final ontology or implement persistence. The technical architecture remains **Proposed**, and the ontology is evolving.
 
 ## Software Alpha boundary
 
@@ -30,20 +30,22 @@ Customer Journey and Jobs To Be Done may be descriptive lenses or metadata. They
 
 ## Current working concepts
 
-The current provisional bridge is:
+The current provisional Business side chain is:
 
-`Customer phenomenon ↔ Touchpoint ↔ Offer ↔ Product`
+`Product — packaged as → Offer — presented at → Touchpoint`
 
 It is a working model, not a fixed ontology:
 
-- **Customer phenomenon:** a need, circumstance, behavior, experience, or other customer-side occurrence, recorded with its source and status rather than assumed meaning.
-- **Touchpoint:** a concrete interaction surface between customer and business sides, such as a particular button, form, page section, advertisement, social post, product card, consultation fragment, or bot branch.
+- **Customer phenomenon:** the only currently exposed provisional Client side type. The complete Client side ontology remains open.
+- **Touchpoint:** a concrete interaction surface. Its required **Located in** property names the Asset or environment containing it; Asset is not a graph entity.
 - **Offer:** a business-side proposition presented for an exchange; intent associated with an offer is not outcome evidence.
 - **Product:** the good, service, or experience involved in a potential or actual value exchange.
 - **Relationship:** an explicit typed association between domain entities. Rendering one does not prove causality.
 - **Epistemic status:** the kind or standing of a claim, including the minimum distinctions listed above.
 - **View:** a selected perspective on domain information, potentially filtered or arranged for a purpose.
 - **Placement:** view-specific visual information for an entity or relationship; it is not an intrinsic property of the entity.
+
+Epistemic annotations remain separate knowledge-layer records for claims, evidence, provenance, and knowledge assertions. Creating an entity does not automatically create an epistemic annotation.
 
 No comprehensive property schema is established here.
 
