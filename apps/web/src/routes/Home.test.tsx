@@ -5,8 +5,8 @@ import { createMemoryHistory, RouterProvider } from '@tanstack/react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { router } from '../router';
 
-vi.mock('./RendererSpike', () => ({
-  RendererSpike: () => <h1>Read-only renderer check</h1>,
+vi.mock('./MapSpike', () => ({
+  MapSpike: () => <h1>Domain and interaction spike</h1>,
 }));
 
 function renderApp() {
@@ -18,7 +18,7 @@ function renderApp() {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('home route', () => {
-  it('shows the spike, loading and healthy states, and renderer navigation', async () => {
+  it('shows the spike, loading and healthy states, and map navigation', async () => {
     let resolveFetch!: (value: Response) => void;
     vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { resolveFetch = resolve; })));
     renderApp();
@@ -26,8 +26,8 @@ describe('home route', () => {
     expect(screen.getByText('Checking the API…')).toBeInTheDocument();
     resolveFetch(new Response(JSON.stringify({ status: 'ok', service: 'vee-api', apiVersion: 'v1' })));
     expect(await screen.findByText('Healthy: vee-api (v1)')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('link', { name: 'Open the renderer spike' }));
-    expect(await screen.findByRole('heading', { name: 'Read-only renderer check' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('link', { name: 'Open the domain and interaction spike' }));
+    expect(await screen.findByRole('heading', { name: 'Domain and interaction spike' })).toBeInTheDocument();
   });
 
   it('shows an explicit unavailable state', async () => {
