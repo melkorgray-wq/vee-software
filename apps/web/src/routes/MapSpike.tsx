@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from 'react';
-import { Background, Controls, ReactFlow, type Node } from '@xyflow/react';
+import { Background, Controls, Handle, Position, ReactFlow, type Node } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { addEntity, createEmptyMapDocument, movePlacement, updateEntity, type MapDocument, type ProvisionalEntityKind } from '@vee/domain';
-import { deriveMapNodes, KIND_LABELS, type MapNodeData } from '../map-adapter';
+import { deriveMapEdges, deriveMapNodes, KIND_LABELS, type MapNodeData } from '../map-adapter';
 import { Link } from '../router';
 
 const VIEW_ID = 'spike-view';
@@ -27,7 +27,7 @@ function DependencyFields({ draft, setDraft, document }: { draft: Draft; setDraf
 }
 
 function MapNode({ data }: { data: MapNodeData }) {
-  return <div className="node-content"><strong>{data.title}</strong><span>{data.kindLabel}</span></div>;
+  return <div className="node-content"><Handle type="target" position={Position.Left} isConnectable={false} /><strong>{data.title}</strong><span>{data.kindLabel}</span><Handle type="source" position={Position.Right} isConnectable={false} /></div>;
 }
 
 export function MapSpike() {
@@ -38,6 +38,7 @@ export function MapSpike() {
   const [editDraft, setEditDraft] = useState<Draft | null>(null);
   const [message, setMessage] = useState('');
   const nodes = deriveMapNodes(document, VIEW_ID, selectedId).map(node => ({ ...node, type: 'mapNode' }));
+  const edges = deriveMapEdges(document);
   const selected = selectedId ? document.entities.find(({ id }) => id === selectedId) : undefined;
 
   function draftFor(entityId: string): Draft | null {
@@ -85,7 +86,7 @@ export function MapSpike() {
     <div className="editor-layout">
       <section className="canvas-panel" aria-label="In-memory VEE map editor">
         {document.entities.length === 0 && <div className="empty-state"><h2>Start an empty map</h2><p>Begin by adding a business-side or client-side element.</p><button onClick={() => setMode('create')}>Add element</button></div>}
-        <ReactFlow<Node<MapNodeData>> aria-label="Map canvas" nodes={nodes} edges={[]} nodeTypes={{ mapNode: MapNode }} fitView nodesConnectable={false} edgesFocusable={false} deleteKeyCode={null} multiSelectionKeyCode={null}
+        <ReactFlow<Node<MapNodeData>> aria-label="Map canvas" nodes={nodes} edges={edges} nodeTypes={{ mapNode: MapNode }} fitView nodesConnectable={false} edgesFocusable={false} deleteKeyCode={null} multiSelectionKeyCode={null}
           onPaneClick={() => select(null)} onNodeClick={(_, node) => select(node.id)} onNodeDragStop={(_, node: Node<MapNodeData>) => setDocument(current => movePlacement(current, { entityId: node.id, viewId: VIEW_ID, x: node.position.x, y: node.position.y }))}>
           <Background color="rgba(255,255,255,.12)" /><Controls showInteractive={false} />
         </ReactFlow>

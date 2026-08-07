@@ -4,9 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MapSpike } from './MapSpike';
 
 vi.mock('@xyflow/react', () => ({
-  ReactFlow: ({ nodes, onNodeClick, onPaneClick, onNodeDragStop }: { nodes: Array<{ id: string; data: { title: string; kindLabel: string } }>; onNodeClick: (event: unknown, node: unknown) => void; onPaneClick: () => void; onNodeDragStop: (event: unknown, node: unknown) => void }) =>
-    <div aria-label="Map canvas"><button onClick={onPaneClick}>Clear selection</button>{nodes.map(node => <div key={node.id}><button onClick={() => onNodeClick({}, node)}>{node.data.title}</button><span>{node.data.kindLabel}</span><button onClick={() => onNodeDragStop({}, { ...node, position: { x: 100, y: 200 } })}>Drag {node.data.title}</button></div>)}</div>,
+  ReactFlow: ({ nodes, edges, onNodeClick, onPaneClick, onNodeDragStop }: { nodes: Array<{ id: string; data: { title: string; kindLabel: string } }>; edges: Array<{ id: string; label: string }>; onNodeClick: (event: unknown, node: unknown) => void; onPaneClick: () => void; onNodeDragStop: (event: unknown, node: unknown) => void }) =>
+    <div aria-label="Map canvas"><button onClick={onPaneClick}>Clear selection</button>{nodes.map(node => <div key={node.id}><button onClick={() => onNodeClick({}, node)}>{node.data.title}</button><span>{node.data.kindLabel}</span><button onClick={() => onNodeDragStop({}, { ...node, position: { x: 100, y: 200 } })}>Drag {node.data.title}</button></div>)}{edges.map(edge => <span key={edge.id}>{edge.label}</span>)}</div>,
   Background: () => null, Controls: () => null,
+  Handle: () => null, MarkerType: { ArrowClosed: 'arrowclosed' }, Position: { Left: 'left', Right: 'right' },
 }));
 vi.mock('../router', () => ({ Link: ({ children }: { children: React.ReactNode }) => <a href="/">{children}</a> }));
 
@@ -45,6 +46,7 @@ describe('side-aware map workflow', () => {
     await openCreate(user); await user.click(screen.getByRole('button', { name: 'Business side' })); await user.click(screen.getByRole('button', { name: 'Touchpoint' }));
     await user.type(screen.getByLabelText('Title'), 'Checkout'); await user.click(screen.getByLabelText('Subscription')); await user.type(screen.getByLabelText('Located in'), 'The Quiet Orbit website');
     await user.click(screen.getByRole('button', { name: 'Create element' }));
+    expect(screen.getByText('packaged as')).toBeInTheDocument(); expect(screen.getByText('presented at')).toBeInTheDocument();
     const inspector = screen.getByRole('complementary'); expect(within(inspector).getByText(/type and side cannot be changed/)).toBeInTheDocument();
     expect(within(inspector).queryByRole('button', { name: 'Client side' })).not.toBeInTheDocument();
     await user.clear(within(inspector).getByLabelText('Title')); await user.type(within(inspector).getByLabelText('Title'), 'Payment page');

@@ -43,9 +43,9 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .immutable-note { color: rgba(255,255,255,.65); }
 .actions { display: flex; flex-wrap: wrap; gap: .6rem; }
 .status-message { color: var(--color-success); }
-.react-flow__node.map-node { width: 13rem; border: 1px solid var(--border-soft); border-radius: .4rem; padding: .8rem; color: var(--color-foreground); background: var(--surface-solid-2); }
+.react-flow__node.map-node { display: grid; place-items: center; width: 8.5rem; height: 8.5rem; border: 1px solid var(--border-soft); border-radius: 50%; padding: 1rem; color: var(--color-foreground); background: var(--surface-solid-2); text-align: center; }
 .react-flow__node.map-node.selected { border: 2px solid var(--color-primary); box-shadow: 0 0 0 3px rgba(255,72,0,.18); }
-.node-content { display: grid; gap: .35rem; }.node-content span { font-size: .78rem; color: var(--color-accent); }.node-content span:last-child { color: rgba(255,255,255,.72); }
+.node-content { display: grid; gap: .35rem; width: 100%; min-width: 0; }.node-content strong { overflow-wrap: anywhere; }.node-content span { font-size: .78rem; color: rgba(255,255,255,.72); }.map-node .react-flow__handle { width: 1px; height: 1px; min-width: 0; min-height: 0; border: 0; opacity: 0; pointer-events: none; }.react-flow__edge.map-edge .react-flow__edge-path { stroke: var(--color-accent); stroke-width: 1.5; }.react-flow__edge-text { fill: var(--color-foreground); font-size: .75rem; }.react-flow__edge-textbg { fill: var(--surface-solid-2); fill-opacity: .92; }
 .react-flow__controls button { color: var(--color-foreground); background: var(--surface-solid-2); border-color: var(--border-subtle); }
 @media (max-width: 48rem) { .map-header { align-items: flex-start; flex-direction: column; }.editor-layout { grid-template-columns: 1fr; }.canvas-panel { height: 30rem; min-height: 24rem; }.inspector { min-height: 18rem; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }
