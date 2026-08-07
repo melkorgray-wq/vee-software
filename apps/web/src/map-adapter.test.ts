@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { addEntity, addTouchpointContainer, createEmptyMapDocument } from '@vee/domain';
-import { deriveMapEdges, deriveMapNodes, deriveStructuralDepths, diameterForDepth } from './map-adapter';
+import { deriveMapEdges, deriveMapNodes, deriveStructuralDepths, diameterForDepth, layoutForNode } from './map-adapter';
 
 function chain() { let d = createEmptyMapDocument({ mapId: 'm', title: 'Map', viewId: 'v', viewTitle: 'View' }); d = addEntity(d, { entityId: 'p', title: 'Product', kind: 'product', viewId: 'v', x: 0, y: 0 }); d = addEntity(d, { entityId: 'o', title: 'Offer', kind: 'offer', linkedProductId: 'p', relationshipId: 'po', viewId: 'v', x: 100, y: 0 }); d = addTouchpointContainer(d, { id: 'site', title: 'Site' }); d = addEntity(d, { entityId: 't', title: 'Touch', kind: 'touchpoint', locatedInId: 'site', linkedOfferIds: ['o'], relationshipIds: ['ot'], viewId: 'v', x: 200, y: 0 }); return d; }
 
@@ -9,3 +9,13 @@ it('derives all visible typed edges using stable domain IDs', () => { let d = ch
 ]); });
 it('derives canonical deepest-descendant depth and prototype diameters', () => { let d = chain(); d = addEntity(d, { entityId: 'c', title: 'Child', kind: 'touchpoint', locatedInId: 'site', linkedOfferIds: ['o'], relationshipIds: ['oc'], parentTouchpointId: 't', parentRelationshipId: 'tc', viewId: 'v', x: 0, y: 0 }); const depths = deriveStructuralDepths(d); expect([depths.get('c'), depths.get('t'), depths.get('o'), depths.get('p')]).toEqual([0, 1, 2, 3]); expect([0, 1, 2, 3, 4, 20].map(diameterForDepth)).toEqual([96, 113, 134, 158, 160, 160]); });
 it('does not size by sibling count and never mutates the document', () => { let d = chain(); d = addEntity(d, { entityId: 't2', title: 'Sibling', kind: 'touchpoint', locatedInId: 'site', linkedOfferIds: ['o'], relationshipIds: ['ot2'], viewId: 'v', x: 0, y: 0 }); const snapshot = structuredClone(d); const nodes = deriveMapNodes(d, 'v', null); expect(nodes.find(n => n.id === 'o')?.width).toBe(113); expect(d).toEqual(snapshot); });
+it('derives mild typography and a bounded safe content region from hierarchy depth', () => {
+  expect([0, 1, 2, 3, 9].map(depth => layoutForNode(depth, 'Title'))).toEqual([
+    { diameter: 96, titleFontSize: 14, kindFontSize: 12, contentWidth: 65, compactTitle: false },
+    { diameter: 113, titleFontSize: 15, kindFontSize: 12.5, contentWidth: 77, compactTitle: false },
+    { diameter: 134, titleFontSize: 16, kindFontSize: 13, contentWidth: 91, compactTitle: false },
+    { diameter: 158, titleFontSize: 17, kindFontSize: 13.5, contentWidth: 107, compactTitle: false },
+    { diameter: 160, titleFontSize: 17, kindFontSize: 13.5, contentWidth: 109, compactTitle: false },
+  ]);
+  expect(layoutForNode(0, 'Growth Marketing Team').compactTitle).toBe(true);
+});
