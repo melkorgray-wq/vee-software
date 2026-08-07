@@ -1,30 +1,11 @@
 import { expect, it } from 'vitest';
-import { addEntity, createEmptyMapDocument } from '@vee/domain';
-import { deriveMapEdges, deriveMapNodes } from './map-adapter';
+import { addEntity, addTouchpointContainer, createEmptyMapDocument } from '@vee/domain';
+import { deriveMapEdges, deriveMapNodes, deriveStructuralDepths, diameterForDepth } from './map-adapter';
 
-it('derives a node without an epistemic annotation and does not mutate domain state', () => {
-  const document = addEntity(createEmptyMapDocument({ mapId: 'm', title: 'Map', viewId: 'v', viewTitle: 'View' }),
-    { entityId: 'e', title: 'Orbit', kind: 'product', viewId: 'v', x: 12, y: 24 });
-  const snapshot = structuredClone(document);
-  expect(document.epistemicAnnotations).toEqual([]);
-  expect(deriveMapNodes(document, 'v', 'e')[0]).toMatchObject({ id: 'e', position: { x: 12, y: 24 }, selected: true, data: { title: 'Orbit', kindLabel: 'Product' } });
-  expect(document).toEqual(snapshot);
-});
+function chain() { let d = createEmptyMapDocument({ mapId: 'm', title: 'Map', viewId: 'v', viewTitle: 'View' }); d = addEntity(d, { entityId: 'p', title: 'Product', kind: 'product', viewId: 'v', x: 0, y: 0 }); d = addEntity(d, { entityId: 'o', title: 'Offer', kind: 'offer', linkedProductId: 'p', relationshipId: 'po', viewId: 'v', x: 100, y: 0 }); d = addTouchpointContainer(d, { id: 'site', title: 'Site' }); d = addEntity(d, { entityId: 't', title: 'Touch', kind: 'touchpoint', locatedInId: 'site', linkedOfferIds: ['o'], relationshipIds: ['ot'], viewId: 'v', x: 200, y: 0 }); return d; }
 
-it('derives typed relationship edges with domain IDs, endpoints, and readable labels without mutation', () => {
-  let document = createEmptyMapDocument({ mapId: 'm', title: 'Map', viewId: 'v', viewTitle: 'View' });
-  document = addEntity(document, { entityId: 'product', title: 'Orbit', kind: 'product', viewId: 'v', x: 0, y: 0 });
-  document = addEntity(document, { entityId: 'offer-1', title: 'Subscription', kind: 'offer', linkedProductId: 'product', relationshipId: 'packaged-1', viewId: 'v', x: 100, y: 0 });
-  document = addEntity(document, { entityId: 'offer-2', title: 'Workshop', kind: 'offer', linkedProductId: 'product', relationshipId: 'packaged-2', viewId: 'v', x: 100, y: 100 });
-  document = addEntity(document, { entityId: 'touchpoint', title: 'Page', kind: 'touchpoint', locatedIn: 'Website', linkedOfferIds: ['offer-1', 'offer-2'], relationshipIds: ['presented-1', 'presented-2'], viewId: 'v', x: 200, y: 0 });
-  const snapshot = structuredClone(document);
-
-  expect(deriveMapEdges(document)).toEqual([
-    expect.objectContaining({ id: 'packaged-1', source: 'product', target: 'offer-1', label: 'packaged as' }),
-    expect.objectContaining({ id: 'packaged-2', source: 'product', target: 'offer-2', label: 'packaged as' }),
-    expect.objectContaining({ id: 'presented-1', source: 'offer-1', target: 'touchpoint', label: 'presented at' }),
-    expect.objectContaining({ id: 'presented-2', source: 'offer-2', target: 'touchpoint', label: 'presented at' }),
-  ]);
-  deriveMapNodes(document, 'v', null);
-  expect(document).toEqual(snapshot);
-});
+it('derives all visible typed edges using stable domain IDs', () => { let d = chain(); d = addEntity(d, { entityId: 'child', title: 'Child', kind: 'touchpoint', locatedInId: 'site', linkedOfferIds: ['o'], relationshipIds: ['oc'], parentTouchpointId: 't', parentRelationshipId: 'tc', viewId: 'v', x: 300, y: 0 }); expect(deriveMapEdges(d)).toEqual([
+  expect.objectContaining({ id: 'po', source: 'p', target: 'o', label: 'packaged as' }), expect.objectContaining({ id: 'ot', source: 'o', target: 't', label: 'presented at' }), expect.objectContaining({ id: 'oc', source: 'o', target: 'child', label: 'presented at' }), expect.objectContaining({ id: 'tc', source: 't', target: 'child', label: 'contains' }),
+]); });
+it('derives canonical deepest-descendant depth and prototype diameters', () => { let d = chain(); d = addEntity(d, { entityId: 'c', title: 'Child', kind: 'touchpoint', locatedInId: 'site', linkedOfferIds: ['o'], relationshipIds: ['oc'], parentTouchpointId: 't', parentRelationshipId: 'tc', viewId: 'v', x: 0, y: 0 }); const depths = deriveStructuralDepths(d); expect([depths.get('c'), depths.get('t'), depths.get('o'), depths.get('p')]).toEqual([0, 1, 2, 3]); expect([0, 1, 2, 3, 4, 20].map(diameterForDepth)).toEqual([96, 113, 134, 158, 160, 160]); });
+it('does not size by sibling count and never mutates the document', () => { let d = chain(); d = addEntity(d, { entityId: 't2', title: 'Sibling', kind: 'touchpoint', locatedInId: 'site', linkedOfferIds: ['o'], relationshipIds: ['ot2'], viewId: 'v', x: 0, y: 0 }); const snapshot = structuredClone(d); const nodes = deriveMapNodes(d, 'v', null); expect(nodes.find(n => n.id === 'o')?.width).toBe(113); expect(d).toEqual(snapshot); });

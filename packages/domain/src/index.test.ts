@@ -1,45 +1,43 @@
 import { describe, expect, it } from 'vitest';
-import { addEntity, createEmptyMapDocument, movePlacement, updateEntity } from './index';
+import { addEntity, addTouchpointContainer, createEmptyMapDocument, duplicateEntity, movePlacement, updateEntity } from './index';
 
-const empty = () => createEmptyMapDocument({ mapId: 'map', title: 'Spike map', viewId: 'view', viewTitle: 'Map view' });
 const place = { viewId: 'view', x: 10, y: 20 };
-const product = () => addEntity(empty(), { ...place, entityId: 'product', title: 'Orbit', kind: 'product' });
-const offer = () => addEntity(product(), { ...place, entityId: 'offer', title: 'Subscription', kind: 'offer', linkedProductId: 'product', relationshipId: 'packaged' });
+const empty = () => createEmptyMapDocument({ mapId: 'map', title: 'Map', viewId: 'view', viewTitle: 'View' });
+function offerDocument() { let d = addEntity(empty(), { ...place, entityId: 'product', title: 'Orbit', kind: 'product' }); d = addEntity(d, { ...place, entityId: 'offer', title: 'Subscription', kind: 'offer', linkedProductId: 'product', relationshipId: 'packaged' }); return addTouchpointContainer(d, { id: 'site', title: 'The Quiet Orbit website' }); }
+function touchpoint(d = offerDocument(), id = 'touch', parent?: string) { return addEntity(d, { ...place, entityId: id, title: id, kind: 'touchpoint', locatedInId: 'site', url: '  /checkout#pay  ', linkedOfferIds: ['offer'], relationshipIds: [`presented-${id}`], ...(parent ? { parentTouchpointId: parent, parentRelationshipId: `contains-${id}` } : {}) }); }
 
-describe('side-aware map domain operations', () => {
-  it('creates a Product independently without an automatic annotation', () => {
-    const document = product();
-    expect(document.entities[0]).toEqual({ id: 'product', title: 'Orbit', kind: 'product' });
-    expect(document.epistemicAnnotations).toEqual([]);
+describe('map authoring domain', () => {
+  it('creates reusable containers and requires a valid reference', () => {
+    const d = offerDocument(); expect(d.touchpointContainers).toEqual([{ id: 'site', title: 'The Quiet Orbit website' }]);
+    expect(() => touchpoint({ ...d, touchpointContainers: [] })).toThrow('existing Touchpoint container');
+    expect(() => addTouchpointContainer(d, { id: 'other', title: ' the quiet orbit WEBSITE ' })).toThrow('matching');
   });
-  it('requires an existing Product for an Offer and records the typed relationship', () => {
-    expect(() => addEntity(empty(), { ...place, entityId: 'offer', title: 'Subscription', kind: 'offer', linkedProductId: 'missing', relationshipId: 'r' })).toThrow('existing entity');
-    expect(offer().relationships).toContainEqual({ id: 'packaged', kind: 'product_packaged_as_offer', productId: 'product', offerId: 'offer' });
+  it('stores a trimmed optional URL without using it as identity', () => {
+    const d = touchpoint(); expect(d.entities.at(-1)).toMatchObject({ id: 'touch', locatedInId: 'site', url: '/checkout#pay' });
+    const noUrl = addEntity(offerDocument(), { ...place, entityId: 'offline', title: 'Booth', kind: 'touchpoint', locatedInId: 'site', linkedOfferIds: ['offer'], relationshipIds: ['presented'] }); expect(noUrl.entities.at(-1)).not.toHaveProperty('url');
   });
-  it('rejects an Offer relationship whose endpoint is not a Product', () => {
-    const client = addEntity(empty(), { ...place, entityId: 'client', title: 'Need', kind: 'customer_phenomenon' });
-    expect(() => addEntity(client, { ...place, entityId: 'offer', title: 'Offer', kind: 'offer', linkedProductId: 'client', relationshipId: 'r' })).toThrow('must reference a product');
+  it('creates valid containment and permits multiple children', () => {
+    let d = touchpoint(); d = touchpoint(d, 'child-a', 'touch'); d = touchpoint(d, 'child-b', 'touch');
+    expect(d.relationships.filter(r => r.kind === 'touchpoint_contains_touchpoint')).toEqual([
+      { id: 'contains-child-a', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'touch', childTouchpointId: 'child-a' },
+      { id: 'contains-child-b', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'touch', childTouchpointId: 'child-b' },
+    ]);
+    expect(d.relationships.filter(r => r.kind === 'offer_presented_at_touchpoint' && r.touchpointId === 'child-a')).toHaveLength(1);
   });
-  it('requires an Offer and Located in for a Touchpoint', () => {
-    expect(() => addEntity(product(), { ...place, entityId: 'touch', title: 'Page', kind: 'touchpoint', locatedIn: 'Site', linkedOfferIds: ['product'], relationshipIds: ['r'] })).toThrow('must reference a offer');
-    expect(() => addEntity(offer(), { ...place, entityId: 'touch', title: 'Page', kind: 'touchpoint', locatedIn: '', linkedOfferIds: ['offer'], relationshipIds: ['r'] })).toThrow('Located in');
-    expect(() => addEntity(offer(), { ...place, entityId: 'touch', title: 'Page', kind: 'touchpoint', locatedIn: 'Site', linkedOfferIds: [], relationshipIds: [] })).toThrow('at least one Offer');
+  it('enforces one parent, rejects self-parenting, and rejects cycles', () => {
+    let d = touchpoint(); d = touchpoint(d, 'child', 'touch'); d = touchpoint(d, 'other');
+    const current = d.relationships.filter(r => r.kind === 'offer_presented_at_touchpoint' && r.touchpointId === 'child').map(r => r.id);
+    const moved = updateEntity(d, { entityId: 'child', title: 'child', locatedInId: 'site', linkedOfferIds: ['offer'], relationshipIds: current, parentTouchpointId: 'other', parentRelationshipId: 'new-parent' });
+    expect(moved.relationships.filter(r => r.kind === 'touchpoint_contains_touchpoint' && r.childTouchpointId === 'child')).toHaveLength(1);
+    expect(() => updateEntity(d, { entityId: 'touch', title: 'touch', locatedInId: 'site', linkedOfferIds: ['offer'], relationshipIds: ['presented-touch'], parentTouchpointId: 'touch', parentRelationshipId: 'self' })).toThrow('cannot contain itself');
+    expect(() => updateEntity(d, { entityId: 'touch', title: 'touch', locatedInId: 'site', linkedOfferIds: ['offer'], relationshipIds: ['presented-touch'], parentTouchpointId: 'child', parentRelationshipId: 'cycle' })).toThrow('cycle');
   });
-  it('links a Touchpoint to one or multiple Offers with typed relationships', () => {
-    const one = addEntity(offer(), { ...place, entityId: 'touch', title: 'Page', kind: 'touchpoint', locatedIn: 'The Quiet Orbit website', linkedOfferIds: ['offer'], relationshipIds: ['presented'] });
-    expect(one.entities.at(-1)).toMatchObject({ kind: 'touchpoint', locatedIn: 'The Quiet Orbit website' });
-    const twoOffers = addEntity(offer(), { ...place, entityId: 'offer-2', title: 'Workshop', kind: 'offer', linkedProductId: 'product', relationshipId: 'packaged-2' });
-    const many = addEntity(twoOffers, { ...place, entityId: 'touch', title: 'Page', kind: 'touchpoint', locatedIn: 'Site', linkedOfferIds: ['offer', 'offer-2'], relationshipIds: ['presented-1', 'presented-2'] });
-    expect(many.relationships.filter(r => r.kind === 'offer_presented_at_touchpoint')).toHaveLength(2);
+  it('duplicates authored relations with new IDs but no annotations or descendants', () => {
+    let d = touchpoint(); d = touchpoint(d, 'child', 'touch'); d = { ...d, epistemicAnnotations: [{ id: 'knowledge', subjectEntityId: 'child', status: 'observed' }] };
+    const copy = duplicateEntity(d, { sourceEntityId: 'child', entityId: 'copy', viewId: 'view', x: 50, y: 60, relationshipIds: ['copy-offer', 'copy-parent'] });
+    expect(copy.entities.find(e => e.id === 'copy')).toMatchObject({ kind: 'touchpoint', locatedInId: 'site', url: '/checkout#pay' });
+    expect(copy.relationships).toContainEqual({ id: 'copy-parent', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'touch', childTouchpointId: 'copy' });
+    expect(copy.epistemicAnnotations).toEqual(d.epistemicAnnotations); expect(copy.epistemicAnnotations.some(a => a.subjectEntityId === 'copy')).toBe(false);
   });
-  it('keeps kind immutable while editing title and associations', () => {
-    const otherProduct = addEntity(offer(), { ...place, entityId: 'product-2', title: 'Other', kind: 'product' });
-    const changed = updateEntity(otherProduct, { entityId: 'offer', title: 'Changed', linkedProductId: 'product-2' });
-    expect(changed.entities.find(e => e.id === 'offer')).toEqual({ id: 'offer', kind: 'offer', title: 'Changed' });
-    expect(changed.relationships.find(r => r.kind === 'product_packaged_as_offer')).toMatchObject({ productId: 'product-2' });
-  });
-  it('moves placements without changing semantic records', () => {
-    const before = product(); const after = movePlacement(before, { entityId: 'product', viewId: 'view', x: 30, y: 40 });
-    expect(after.entities).toBe(before.entities); expect(after.relationships).toBe(before.relationships); expect(after.placements[0]).toMatchObject({ x: 30, y: 40 });
-  });
+  it('moves view placement without changing semantic records', () => { const before = addEntity(empty(), { ...place, entityId: 'p', title: 'P', kind: 'product' }); const after = movePlacement(before, { entityId: 'p', viewId: 'view', x: 30, y: 40 }); expect(after.entities).toBe(before.entities); expect(after.placements[0]).toMatchObject({ x: 30, y: 40 }); });
 });

@@ -42,7 +42,7 @@ Product, Offer, and Touchpoint form the Business-side architecture through which
 
 - **Product:** the good, service, or experience involved in a potential or actual value exchange.
 - **Offer:** a business proposition that packages Product and is presented for an exchange; its intent is not outcome evidence.
-- **Touchpoint:** a concrete interaction surface at which an Offer is presented. In the current spike, its required **Located in** property names the Asset or environment containing it; Asset is not a graph entity.
+- **Touchpoint:** a concrete interaction surface at which an Offer is presented. Touchpoints may structurally contain Child Touchpoints, which remain full Touchpoints linked to at least one Offer. **Located in** references a reusable, user-extensible registry of infrastructure, environment, or media containers; those references are not graph entities. A Touchpoint may also carry an optional authored locator or URL, which is not its identity.
 
 These types are attraction-oriented by what they already mean; there is no generic Attraction Point entity above them. A weak or ineffective Touchpoint remains a weak attraction point, not a repulsion point. Business-side repulsion points are not part of the product direction.
 
@@ -99,6 +99,8 @@ domain graph
 The domain graph owns entity and relationship meaning. The knowledge layer owns support, provenance, and epistemic standing. Derived analytical state must remain distinguishable from observed or authored information. Views select and organize shared domain information, and renderers present those views without redefining it. Placement and coordinates belong to views or rendering state, never to Entity itself; rendering remains separate from domain meaning.
 
 The **2D view** is an authored working map of what the user currently believes or understands exists. The future **3D view** is an evidence-derived, emergent analytical view of what available support says is actually interacting. Both use the same domain information rather than separate ontologies.
+
+Authoring in 2D is map-first rather than form-first: contextual creation infers entity kind and canonical parent relationships already established by the selected node, while the Inspector remains the deep-editing surface. Duplication copies an entity's authored fields and applicable structural relationships, but never copies its epistemic annotations, Evidence, observations, or future analytical state. Circular node size may encode authored structural depth as a view-derived representation; it is not intrinsic domain meaning, evidence strength, popularity, or analytical force.
 
 3D visualization is a committed future capability but remains outside the current implementation slice. Its direction is an emergent force-based view in which supported relationships can create attraction, repulsion semantics can resist or separate structures, and contextual factors can recalibrate the field. No fixed semantic meaning is assigned to a Z axis. Force formulas, explainability mechanics, rendering technology and dependencies, coordinates, interactions, pinning behavior, and renderer architecture remain unresolved implementation and research questions.
 
