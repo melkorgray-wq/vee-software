@@ -100,7 +100,34 @@ The domain graph owns entity and relationship meaning. The knowledge layer owns 
 
 The **2D view** is an authored working map of what the user currently believes or understands exists. The future **3D view** is an evidence-derived, emergent analytical view of what available support says is actually interacting. Both use the same domain information rather than separate ontologies.
 
-Authoring in 2D is map-first rather than form-first: contextual creation infers entity kind and canonical parent relationships already established by the selected node, while the Inspector remains the deep-editing surface. Duplication copies an entity's authored fields and applicable structural relationships, but never copies its epistemic annotations, Evidence, observations, or future analytical state. Circular node size may encode authored structural depth as a view-derived representation; it is not intrinsic domain meaning, evidence strength, popularity, or analytical force.
+### 2D authored-map interaction direction
+
+Authoring in 2D is map-first rather than form-first. The interaction model should follow established mind-map conventions where they fit VEE semantics, while domain rules determine what each structural action actually means.
+
+Committed interaction direction:
+
+- **Tab → canonical child.** The selected node determines the valid next structural type and known parent relation: Product → Offer, Offer → Touchpoint, Touchpoint → Child Touchpoint.
+- **Enter → canonical sibling** is the intended next keyboard convention, subject to runtime validation before it is treated as implemented behavior.
+- **Right click on empty canvas → valid root creation** for a new independent authored branch.
+- **Right click on a node → contextual structural actions** such as Add child, Add sibling, Duplicate, Open link, Delete, and later domain-specific actions.
+- **Ctrl/Cmd+C and Ctrl/Cmd+V → structural duplicate** of authored entity data and applicable authored relationships. Duplication must never copy epistemic annotations, Evidence, observations, or future analytical state.
+- **Drag on free canvas → view Placement change.** Dragging onto a valid structural parent is a committed interaction direction for topology-aware reparenting with a visible preview, but exact rules must respect domain cardinality and remain explicit rather than inferred from proximity alone.
+- **Inspector → deep editing surface.** Detailed properties and relationships belong in the Inspector even when common structural operations are available directly on the canvas.
+- **Collapse / expand descendants** and explicit branch layout/reset are expected authored-map capabilities for larger maps, not analytical force behavior.
+
+The canvas should infer what the graph context already establishes instead of repeatedly asking the user to select known type, side, or parent values. Quick creation may use a compact contextual editor, while detailed editing remains in the Inspector.
+
+### 2D visual hierarchy and layout
+
+Authored 2D node size should be stable by semantic role / structural level rather than grow whenever deeper descendants are added. Descendant-driven resizing is not the target interaction model because adding content deep in a branch should not unexpectedly resize ancestor nodes and shift the map.
+
+The current visual direction is therefore role/level-driven hierarchy, for example Product larger than Offer and Offer larger than Touchpoint. Nested Touchpoints may remain at the Touchpoint base size or use a modestly smaller structural-level size after visual calibration. Exact pixel values are prototype/view concerns rather than domain semantics.
+
+Node size remains a derived rendering property. It must never encode Evidence, confidence, popularity, conversion, or future attraction/repulsion force in the authored 2D view.
+
+The authored map should use a simple structural layout rather than a force layout: newly created canonical children should receive predictable readable placement and sibling spacing, while explicit manual dragging remains a local override. Existing manually positioned branches should not be unexpectedly rearranged without a user action such as Layout branch / Reset layout.
+
+Touchpoint URL/link affordances should remain peripheral to the node's primary content rather than overlap title text. The map is for quick opening and structural work; the Inspector remains the editing surface for the locator itself.
 
 3D visualization is a committed future capability but remains outside the current implementation slice. Its direction is an emergent force-based view in which supported relationships can create attraction, repulsion semantics can resist or separate structures, and contextual factors can recalibrate the field. No fixed semantic meaning is assigned to a Z axis. Force formulas, explainability mechanics, rendering technology and dependencies, coordinates, interactions, pinning behavior, and renderer architecture remain unresolved implementation and research questions.
 
@@ -135,4 +162,6 @@ The following remain outside the current implementation slice, without being rej
 - How should Buyer’s Journey classifications, filters, and suggested relationships be used?
 - How should future emergent forces be calculated and explained without turning derived state into asserted fact?
 - What future 3D rendering architecture, dependencies, and interaction model are appropriate?
+- What exact drag-to-reparent rules preserve valid Product / Offer / Touchpoint semantics, especially for Touchpoints linked to multiple Offers?
+- What final authored-map visual scale and auto-layout behavior best preserve readability without turning rendering choices into domain meaning?
 - What editing permissions, collaboration, offline behavior, viewport support, input devices, and mobile editing capabilities are required?
