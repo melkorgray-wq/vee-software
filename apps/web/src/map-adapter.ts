@@ -28,4 +28,8 @@ export function deriveMapNodes(document: MapDocument, viewId: string, selectedEn
     return [{ id: entity.id, position: { x: placement.x, y: placement.y }, selected: entity.id === selectedEntityId, width: layout.diameter, height: layout.diameter, style: { width: layout.diameter, height: layout.diameter }, data: { title: entity.title, kindLabel: KIND_LABELS[entity.kind], layout, ...(entity.kind === 'touchpoint' && entity.url ? { url: entity.url } : {}) }, className: 'map-node' }];
   });
 }
-export function deriveMapEdges(document: MapDocument): Edge[] { return document.relationships.map(relationship => { const [source, target] = endpoints(relationship); return { id: relationship.id, source, target, label: LABELS[relationship.kind], markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge' }; }); }
+export function deriveVisibleAuthoredRelationships(document: MapDocument): Relationship[] {
+  const nestedTouchpointIds = new Set(document.relationships.flatMap(relationship => relationship.kind === 'touchpoint_contains_touchpoint' ? [relationship.childTouchpointId] : []));
+  return document.relationships.filter(relationship => relationship.kind !== 'offer_presented_at_touchpoint' || !nestedTouchpointIds.has(relationship.touchpointId));
+}
+export function deriveMapEdges(document: MapDocument): Edge[] { return deriveVisibleAuthoredRelationships(document).map(relationship => { const [source, target] = endpoints(relationship); return { id: relationship.id, source, target, label: LABELS[relationship.kind], markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge' }; }); }
