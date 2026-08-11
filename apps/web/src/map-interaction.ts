@@ -1,7 +1,8 @@
-import type { MapDocument, Relationship } from '@vee/domain';
+import type { MapDocument, ProvisionalEntityKind, Relationship } from '@vee/domain';
 
 export interface Point { x: number; y: number }
 export interface PanelRect { left: number; top: number; width: number; height: number }
+export type SiblingDraft = { kind: ProvisionalEntityKind; title: ''; linkedProductId: string; linkedOfferIds: string[]; locatedInId: string; locatedInQuery: string; parentTouchpointId: string; url: '' };
 
 export function overlayPoint(client: Point, panel: PanelRect, overlay = { width: 208, height: 224 }): Point {
   return {
@@ -20,4 +21,27 @@ export function parentTouchpointOptions(document: MapDocument, childId?: string)
 
 export function linkedOfferIds(document: MapDocument, touchpointId: string): string[] {
   return document.relationships.filter((relationship): relationship is Extract<Relationship, { kind: 'offer_presented_at_touchpoint' }> => relationship.kind === 'offer_presented_at_touchpoint' && relationship.touchpointId === touchpointId).map(relationship => relationship.offerId);
+}
+
+export function siblingDraft(document: MapDocument, entityId: string): SiblingDraft | null {
+  const entity = document.entities.find(candidate => candidate.id === entityId);
+  if (!entity) return null;
+  const result: SiblingDraft = { kind: entity.kind, title: '', linkedProductId: '', linkedOfferIds: [], locatedInId: '', locatedInQuery: '', parentTouchpointId: '', url: '' };
+  if (entity.kind === 'offer') result.linkedProductId = document.relationships.find((relationship): relationship is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => relationship.kind === 'product_packaged_as_offer' && relationship.offerId === entity.id)?.productId ?? '';
+  if (entity.kind === 'touchpoint') {
+    result.linkedOfferIds = linkedOfferIds(document, entity.id);
+    result.parentTouchpointId = document.relationships.find((relationship): relationship is Extract<Relationship, { kind: 'touchpoint_contains_touchpoint' }> => relationship.kind === 'touchpoint_contains_touchpoint' && relationship.childTouchpointId === entity.id)?.parentTouchpointId ?? '';
+    result.locatedInId = entity.locatedInId;
+    result.locatedInQuery = document.touchpointContainers.find(container => container.id === entity.locatedInId)?.title ?? '';
+  }
+  return result;
+}
+
+export function siblingPlacement(document: MapDocument, entityId: string, viewId: string, offset = 125): Point | null {
+  const selected = document.placements.find(placement => placement.entityId === entityId && placement.viewId === viewId);
+  if (!selected) return null;
+  let y = selected.y + offset;
+  const occupied = new Set(document.placements.filter(placement => placement.viewId === viewId && placement.x === selected.x).map(placement => placement.y));
+  while (occupied.has(y)) y += offset;
+  return { x: selected.x, y };
 }
