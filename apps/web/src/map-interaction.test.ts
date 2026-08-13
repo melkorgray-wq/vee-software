@@ -24,6 +24,20 @@ it('flips a measured context menu left and up at the bottom-right corner', () =>
   expect(contextMenuPoint({ x: 680, y: 430 }, { left: 100, top: 50, width: 600, height: 400 }, { width: 160, height: 120 })).toEqual({ x: 420, y: 260 });
 });
 
+it('repositions an overlay upward after its measured height increases', () => {
+  const panel = { left: 100, top: 50, width: 600, height: 400 };
+  expect(contextMenuPoint({ x: 300, y: 360 }, panel, { width: 160, height: 80 })).toEqual({ x: 200, y: 310 });
+  expect(contextMenuPoint({ x: 300, y: 360 }, panel, { width: 160, height: 240 })).toEqual({ x: 200, y: 70 });
+});
+
+it('repositions a grown overlay left and up at the bottom-right edge', () => {
+  expect(contextMenuPoint({ x: 680, y: 430 }, { left: 100, top: 50, width: 600, height: 400 }, { width: 280, height: 300 })).toEqual({ x: 300, y: 80 });
+});
+
+it('keeps the panel gutter when an overlay is taller than the panel', () => {
+  expect(contextMenuPoint({ x: 300, y: 420 }, { left: 100, top: 50, width: 600, height: 400 }, { width: 280, height: 520 })).toEqual({ x: 200, y: 8 });
+});
+
 it('clamps a menu inside the panel gutter when neither side of the anchor fits', () => {
   expect(contextMenuPoint({ x: 200, y: 150 }, { left: 100, top: 50, width: 200, height: 200 }, { width: 180, height: 180 })).toEqual({ x: 12, y: 12 });
 });

@@ -95,6 +95,23 @@ describe('map-first authoring interactions', () => {
     expect(screen.getAllByText('Emotional Job')).toHaveLength(2);
   });
   it('keeps overlay and flow coordinates separate for contextual canvas creation', async () => { const user = userEvent.setup(); render(<MapSpike />); fireEvent.contextMenu(screen.getByLabelText('Map canvas'), { clientX: 140, clientY: 150 }); await user.click(screen.getByRole('menuitem', { name: 'Product' })); const editor = contextualEditor('Add Product'); await user.type(editor.getByLabelText('Title'), 'Placed'); await user.click(editor.getByRole('button', { name: 'Create' })); expect(screen.getByRole('button', { name: 'Placed' })).toHaveAttribute('data-x', '130'); expect(screen.getByRole('button', { name: 'Placed' })).toHaveAttribute('data-y', '130'); });
+  it('remeasures a growing Product editor near the lower edge while keeping actions reachable', async () => {
+    const user = userEvent.setup(); let editorHeight = 180;
+    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains('canvas-panel')) return DOMRect.fromRect({ x: 0, y: 0, width: 600, height: 400 });
+      if (this.classList.contains('context-menu')) return DOMRect.fromRect({ width: 160, height: 180 });
+      if (this.classList.contains('contextual-editor')) return DOMRect.fromRect({ width: 304, height: editorHeight });
+      return DOMRect.fromRect();
+    });
+    const prompt = vi.spyOn(window, 'prompt').mockReturnValueOnce('Progress').mockReturnValueOnce('Faster').mockReturnValueOnce('Confidence').mockReturnValueOnce('Belonging');
+    render(<MapSpike />); fireEvent.contextMenu(screen.getByLabelText('Map canvas'), { clientX: 580, clientY: 380 }); await user.click(screen.getByRole('menuitem', { name: 'Product' }));
+    const editor = contextualEditor('Add Product'); expect(editor.getByRole('button', { name: 'Create' })).toBeInTheDocument(); expect(editor.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    editorHeight = 520; await user.click(editor.getByRole('button', { name: 'Add Core Functional Job' }));
+    expect(editor.getByRole('button', { name: 'Add Desired Outcome' })).toBeInTheDocument(); await user.click(editor.getByRole('button', { name: 'Add Desired Outcome' }));
+    await user.click(editor.getByRole('button', { name: 'Add Emotional Job' })); await user.click(editor.getByRole('button', { name: 'Add Social Job' }));
+    expect(screen.getByRole('heading', { name: 'Add Product' }).closest('form')).toHaveStyle({ left: '276px', top: '8px' }); expect(editor.getByRole('button', { name: 'Create' })).toBeInTheDocument(); expect(editor.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    prompt.mockRestore(); bounds.mockRestore();
+  });
   it('authors Product Jobs with nested Desired Outcomes and preselects them in a new Offer draft', async () => {
     const user = userEvent.setup(); const prompt = vi.spyOn(window, 'prompt').mockReturnValueOnce('Make progress').mockReturnValueOnce('Finish faster'); render(<MapSpike />);
     await user.click(screen.getByRole('button', { name: 'Add element' })); await user.type(screen.getByLabelText('Title'), 'Orbit'); await user.click(screen.getByRole('button', { name: 'Add Core Functional Job' }));
