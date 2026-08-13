@@ -28,6 +28,18 @@ it('renders Product to Offer and Offer to root Touchpoint edges using stable rel
   ]);
   expect(deriveMapEdges(chain()).every(edge => edge.label === undefined)).toBe(true);
 });
+it('renders typed contextual Client relationships parent to child without inline labels', () => {
+  let d = createEmptyMapDocument({ mapId: 'm', title: 'Map', viewId: 'v', viewTitle: 'View' });
+  d = addEntity(d, { entityId: 'core', title: 'Core', kind: 'core_functional_job', viewId: 'v', x: 0, y: 0 });
+  d = addEntity(d, { entityId: 'chain', title: 'Chain', kind: 'consumption_chain_job', viewId: 'v', x: 0, y: 100 });
+  d = addEntity(d, { entityId: 'related', title: 'Related', kind: 'related_job', parentEntityId: 'core', relationshipId: 'related-edge', viewId: 'v', x: 200, y: 0 });
+  d = addEntity(d, { entityId: 'outcome', title: 'Outcome', kind: 'desired_outcome', parentEntityId: 'chain', relationshipId: 'outcome-edge', viewId: 'v', x: 200, y: 100 });
+  expect(deriveMapEdges(d)).toEqual([
+    expect.objectContaining({ id: 'related-edge', source: 'core', target: 'related', markerEnd: { type: 'arrowclosed' } }),
+    expect.objectContaining({ id: 'outcome-edge', source: 'chain', target: 'outcome', markerEnd: { type: 'arrowclosed' } }),
+  ]);
+  expect(deriveMapEdges(d).every(edge => edge.label === undefined)).toBe(true);
+});
 it('projects containment as the canonical visible path for a nested Touchpoint', () => {
   const d = child(chain(), { id: 'b', parentId: 't', offerRelationshipIds: ['ob'], parentRelationshipId: 'tb' });
   expect(edgeIds(d)).toEqual(['po', 'ot', 'tb']);

@@ -12,7 +12,7 @@ That article is conceptual background, not a software specification. This docume
 
 ## Current stage and runtime
 
-The project is in solution discovery and Software Alpha design. The repository contains a runnable in-memory domain and interaction spike, not a functional Alpha. It tests separation between entity, typed relationship, epistemic annotation, view, placement, rendering, and UI state. The runtime implements the five accepted root-createable Client-side kinds, but not their contextual child relationships or cross-side semantics. The spike does not implement Client-side Repulsors, Evidence, contextual support, Value Realization, persistence, derived forces, or 3D visualization.
+The project is in solution discovery and Software Alpha design. The repository contains a runnable in-memory domain and interaction spike, not a functional Alpha. It tests separation between entity, typed relationship, epistemic annotation, view, placement, rendering, and UI state. The runtime implements the five accepted root-createable Client-side kinds plus contextual Related Job and Desired Outcome relationships for their accepted parents, but not Repulsor or cross-side semantics. The spike does not implement Client-side Repulsors, Evidence, contextual support, Value Realization, persistence, derived forces, or 3D visualization.
 
 The technical architecture remains **Proposed**. The conceptual ontology below is accepted product direction for the next Alpha slice, while its implementation schema and the specifically identified relationship mechanics remain provisional. Current runtime behavior, committed product direction, provisional future mechanics, and open research questions must not be conflated.
 
