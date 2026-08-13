@@ -23,7 +23,8 @@ export type Relationship =
   | { id: string; kind: 'touchpoint_contains_touchpoint'; parentTouchpointId: string; childTouchpointId: string }
   | { id: string; kind: 'core_functional_job_has_related_job'; coreFunctionalJobId: string; relatedJobId: string }
   | { id: string; kind: 'job_has_desired_outcome'; jobId: string; desiredOutcomeId: string }
-  | { id: string; kind: 'repulsor_resists'; repulsorId: string; targetEntityId: string };
+  | { id: string; kind: 'repulsor_resists'; repulsorId: string; targetEntityId: string }
+  | { id: string; kind: 'touchpoint_mitigates_repulsor'; touchpointId: string; repulsorId: string };
 export interface TouchpointContainer { id: string; title: string }
 export interface EpistemicAnnotation { id: string; subjectEntityId: string; status: EpistemicStatus; sourceNote?: string }
 export interface View { id: string; title: string }
@@ -84,11 +85,11 @@ export function addProductJobIntent(document: MapDocument, input: ProductJobInte
 export function updateProductJobIntent(document: MapDocument, input: ProductJobIntent): MapDocument {
   if (!document.productJobIntents.some(intent => intent.id === input.id)) throw new DomainError('unknown_product_job_intent', 'Product Job Intent does not exist.');
   validateProductJobIntent(document, input, input.id);
-  return { ...document, productJobIntents: document.productJobIntents.map(intent => intent.id === input.id ? { ...input, addressedDesiredOutcomeIds: [...input.addressedDesiredOutcomeIds] } : intent) };
+  return pruneIrrelevantTouchpointMitigations({ ...document, productJobIntents: document.productJobIntents.map(intent => intent.id === input.id ? { ...input, addressedDesiredOutcomeIds: [...input.addressedDesiredOutcomeIds] } : intent) });
 }
 export function removeProductJobIntent(document: MapDocument, intentId: string): MapDocument {
   if (!document.productJobIntents.some(intent => intent.id === intentId)) throw new DomainError('unknown_product_job_intent', 'Product Job Intent does not exist.');
-  return { ...document, productJobIntents: document.productJobIntents.filter(intent => intent.id !== intentId), offerJobSelections: document.offerJobSelections.filter(selection => selection.productJobIntentId !== intentId) };
+  return pruneIrrelevantTouchpointMitigations({ ...document, productJobIntents: document.productJobIntents.filter(intent => intent.id !== intentId), offerJobSelections: document.offerJobSelections.filter(selection => selection.productJobIntentId !== intentId) });
 }
 export function setOfferJobSelections(document: MapDocument, input: { offerId: string; productJobIntentIds: string[]; newSelectionIds: string[] }): MapDocument {
   entityOfKind(document, input.offerId, 'offer', 'Offer'); unique(input.productJobIntentIds, 'duplicate_offer_job_selection');
@@ -100,7 +101,35 @@ export function setOfferJobSelections(document: MapDocument, input: { offerId: s
   unique(input.newSelectionIds, 'duplicate_offer_job_selection_id');
   if (input.newSelectionIds.some(id => document.offerJobSelections.some(selection => selection.id === id))) throw new DomainError('duplicate_offer_job_selection_id', 'Offer Job Selection ID already exists.');
   const replacement = input.productJobIntentIds.map(id => retained.get(id) ?? { id: input.newSelectionIds[additions.indexOf(id)]!, offerId: input.offerId, productJobIntentId: id });
-  return { ...document, offerJobSelections: [...document.offerJobSelections.filter(selection => selection.offerId !== input.offerId), ...replacement] };
+  return pruneIrrelevantTouchpointMitigations({ ...document, offerJobSelections: [...document.offerJobSelections.filter(selection => selection.offerId !== input.offerId), ...replacement] });
+}
+
+export function relevantRepulsorsForTouchpoint(document: MapDocument, touchpointId: string): Entity[] {
+  entityOfKind(document, touchpointId, 'touchpoint', 'Touchpoint');
+  const offerIds = new Set(document.relationships.flatMap(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === touchpointId ? [relation.offerId] : []));
+  const intentIds = new Set(document.offerJobSelections.flatMap(selection => offerIds.has(selection.offerId) ? [selection.productJobIntentId] : []));
+  const jobIds = new Set(document.productJobIntents.flatMap(intent => intentIds.has(intent.id) ? [intent.jobId] : []));
+  const repulsorIds = new Set(document.relationships.flatMap(relation => relation.kind === 'repulsor_resists' && jobIds.has(relation.targetEntityId) ? [relation.repulsorId] : []));
+  return document.entities.filter(entity => entity.kind === 'repulsor' && repulsorIds.has(entity.id));
+}
+
+export function setTouchpointMitigations(document: MapDocument, input: { touchpointId: string; repulsorIds: string[]; newRelationshipIds: string[] }): MapDocument {
+  entityOfKind(document, input.touchpointId, 'touchpoint', 'Touchpoint');
+  unique(input.repulsorIds, 'duplicate_touchpoint_mitigation');
+  const relevantIds = new Set(relevantRepulsorsForTouchpoint(document, input.touchpointId).map(entity => entity.id));
+  for (const id of input.repulsorIds) { entityOfKind(document, id, 'repulsor', 'Mitigated Repulsor'); if (!relevantIds.has(id)) throw new DomainError('irrelevant_touchpoint_mitigation', 'A Touchpoint may mitigate only a currently relevant Repulsor.'); }
+  const existing = document.relationships.filter((relation): relation is Extract<Relationship, { kind: 'touchpoint_mitigates_repulsor' }> => relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === input.touchpointId);
+  const retained = new Map(existing.map(relation => [relation.repulsorId, relation]));
+  const additions = input.repulsorIds.filter(id => !retained.has(id));
+  if (additions.length !== input.newRelationshipIds.length) throw new DomainError('invalid_relationship_ids', 'Each new mitigation requires a fresh relationship ID.');
+  assertRelationshipIds(document, input.newRelationshipIds);
+  const replacement = input.repulsorIds.map(id => retained.get(id) ?? { id: input.newRelationshipIds[additions.indexOf(id)]!, kind: 'touchpoint_mitigates_repulsor' as const, touchpointId: input.touchpointId, repulsorId: id });
+  return { ...document, relationships: [...document.relationships.filter(relation => !(relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === input.touchpointId)), ...replacement] };
+}
+
+function pruneIrrelevantTouchpointMitigations(document: MapDocument): MapDocument {
+  const relevantByTouchpoint = new Map(document.entities.filter(entity => entity.kind === 'touchpoint').map(entity => [entity.id, new Set(relevantRepulsorsForTouchpoint(document, entity.id).map(repulsor => repulsor.id))]));
+  return { ...document, relationships: document.relationships.filter(relation => relation.kind !== 'touchpoint_mitigates_repulsor' || relevantByTouchpoint.get(relation.touchpointId)?.has(relation.repulsorId)) };
 }
 export function addTouchpointContainer(document: MapDocument, input: { id: string; title: string }): MapDocument {
   if (document.touchpointContainers.some(c => c.id === input.id)) throw new DomainError('duplicate_touchpoint_container_id', 'Touchpoint container ID already exists.');
@@ -201,7 +230,7 @@ export function updateEntity(document: MapDocument, input: UpdateEntityInput): M
     if (semantic.length !== 1) throw new DomainError('invalid_semantic_parent_count', 'A contextual Client entity must have exactly one semantic parent.');
     relationships = relationships.map(r => r.id !== semantic[0]!.id ? r : r.kind === 'core_functional_job_has_related_job' ? { ...r, coreFunctionalJobId: input.parentEntityId! } : { ...r, jobId: input.parentEntityId! });
   }
-  return { ...document, entities: document.entities.map(e => e.id === entity.id ? updated : e), relationships };
+  return pruneIrrelevantTouchpointMitigations({ ...document, entities: document.entities.map(e => e.id === entity.id ? updated : e), relationships });
 }
 
 export function updateRepulsorTargets(document: MapDocument, input: { repulsorId: string; targetEntityIds: string[]; newRelationshipIds: string[] }): MapDocument {
@@ -239,6 +268,10 @@ export function duplicateEntity(document: MapDocument, input: { sourceEntityId: 
   if (source.kind !== 'touchpoint') throw new DomainError('unsupported_entity_kind', 'Source entity kind cannot be duplicated.');
   const offerIds = document.relationships.filter((r): r is Extract<Relationship, { kind: 'offer_presented_at_touchpoint' }> => r.kind === 'offer_presented_at_touchpoint' && r.touchpointId === source.id).map(r => r.offerId);
   const parent = document.relationships.find((r): r is Extract<Relationship, { kind: 'touchpoint_contains_touchpoint' }> => r.kind === 'touchpoint_contains_touchpoint' && r.childTouchpointId === source.id);
-  return addEntity(document, { entityId: input.entityId, title: source.title, kind: 'touchpoint', locatedInId: source.locatedInId, ...(source.url ? { url: source.url } : {}), linkedOfferIds: offerIds, relationshipIds: input.relationshipIds.slice(0, offerIds.length), ...(parent ? { parentTouchpointId: parent.parentTouchpointId, parentRelationshipId: input.relationshipIds[offerIds.length]! } : {}), viewId: input.viewId, x: input.x, y: input.y });
+  let copy = addEntity(document, { entityId: input.entityId, title: source.title, kind: 'touchpoint', locatedInId: source.locatedInId, ...(source.url ? { url: source.url } : {}), linkedOfferIds: offerIds, relationshipIds: input.relationshipIds.slice(0, offerIds.length), ...(parent ? { parentTouchpointId: parent.parentTouchpointId, parentRelationshipId: input.relationshipIds[offerIds.length]! } : {}), viewId: input.viewId, x: input.x, y: input.y });
+  const mitigated = document.relationships.flatMap(relation => relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === source.id ? [relation.repulsorId] : []);
+  const offset = offerIds.length + (parent ? 1 : 0);
+  copy = setTouchpointMitigations(copy, { touchpointId: input.entityId, repulsorIds: mitigated, newRelationshipIds: input.relationshipIds.slice(offset, offset + mitigated.length) });
+  return copy;
 }
 export function movePlacement(document: MapDocument, input: { entityId: string; viewId: string; x: number; y: number }): MapDocument { finite(input.x, input.y); if (!document.entities.some(e => e.id === input.entityId)) throw new DomainError('unknown_entity', 'Entity does not exist.'); if (!document.placements.some(p => p.entityId === input.entityId && p.viewId === input.viewId)) throw new DomainError('unknown_placement', 'Placement does not exist.'); return { ...document, placements: document.placements.map(p => p.entityId === input.entityId && p.viewId === input.viewId ? { ...p, x: input.x, y: input.y } : p) }; }

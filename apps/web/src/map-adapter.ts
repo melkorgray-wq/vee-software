@@ -24,6 +24,7 @@ function endpoints(relationship: Relationship): [string, string] {
   if (relationship.kind === 'touchpoint_contains_touchpoint') return [relationship.parentTouchpointId, relationship.childTouchpointId];
   if (relationship.kind === 'core_functional_job_has_related_job') return [relationship.coreFunctionalJobId, relationship.relatedJobId];
   if (relationship.kind === 'job_has_desired_outcome') return [relationship.jobId, relationship.desiredOutcomeId];
+  if (relationship.kind === 'touchpoint_mitigates_repulsor') return [relationship.touchpointId, relationship.repulsorId];
   return [relationship.repulsorId, relationship.targetEntityId];
 }
 export function layoutForEntity(entity: Pick<Entity, 'kind' | 'title'>): NodeLayout {

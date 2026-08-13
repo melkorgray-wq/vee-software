@@ -120,7 +120,11 @@ Touchpoint remains the only visible Business/Client encounter boundary. It deriv
 Job → Desired Outcome → Touchpoint
 ```
 
-The first edge is the existing Client ontology relationship. The second is a deduplicated derived cross-side projection from Desired Outcome to Touchpoint. No additional Job → Touchpoint edge is shown for that route, and Product or Offer intent is never rendered as a direct cross-side edge. Multiple linked Offers contributing the same Desired Outcome route produce one projection. Cross-side routing for Related Job, Emotional Job, Social Job, Financial Desired Outcome, and Repulsor remains unresolved and must not be inferred.
+The first edge is the existing Client ontology relationship. The second is a deduplicated derived cross-side projection from Desired Outcome to Touchpoint. No additional Job → Touchpoint edge is shown for that route, and Product or Offer intent is never rendered as a direct cross-side edge. Multiple linked Offers contributing the same Desired Outcome route produce one projection.
+
+For Repulsors, the implemented topology keeps `Repulsor ──resists──→ Job` as Client-side semantics. A Touchpoint inherits Jobs through its linked Offers' selected Product Job intents, and its relevant Repulsors are derived and deduplicated from the Repulsors that resist those inherited Jobs. An author may state Business intent with `Touchpoint ──mitigates──→ Repulsor` only while that Repulsor is relevant. This relation says that the Touchpoint is intended to reduce or compensate for the Repulsor; it does not claim that mitigation succeeds. Product and Offer have no direct mitigation relation in this slice.
+
+Domain topology records what interacts. Future Evidence or Factual Support will describe why and how strongly the model is supported, and future derived force calculation will determine the resulting attraction or repulsion dynamics. Evidence may therefore support or weaken both a Repulsor and a Touchpoint mitigation claim without changing authored intent into proof. Cross-side routing for Related Job, Emotional Job, Social Job, and Financial Desired Outcome otherwise remains unresolved and must not be inferred.
 
 ### Value Realization
 
