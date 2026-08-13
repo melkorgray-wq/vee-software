@@ -2,6 +2,7 @@ import type { MapDocument, ProvisionalEntityKind, Relationship } from '@vee/doma
 
 export interface Point { x: number; y: number }
 export interface PanelRect { left: number; top: number; width: number; height: number }
+export interface OverlaySize { width: number; height: number }
 export type SiblingDraft = { kind: ProvisionalEntityKind; title: ''; linkedProductId: string; linkedOfferIds: string[]; locatedInId: string; locatedInQuery: string; parentTouchpointId: string; url: '' };
 
 export function overlayPoint(client: Point, panel: PanelRect, overlay = { width: 208, height: 224 }): Point {
@@ -9,6 +10,21 @@ export function overlayPoint(client: Point, panel: PanelRect, overlay = { width:
     x: Math.max(0, Math.min(client.x - panel.left, Math.max(0, panel.width - overlay.width))),
     y: Math.max(0, Math.min(client.y - panel.top, Math.max(0, panel.height - overlay.height))),
   };
+}
+
+export function contextMenuPoint(client: Point, panel: PanelRect, menu: OverlaySize, gutter = 8): Point {
+  const anchor = { x: client.x - panel.left, y: client.y - panel.top };
+  const maximum = {
+    x: Math.max(gutter, panel.width - menu.width - gutter),
+    y: Math.max(gutter, panel.height - menu.height - gutter),
+  };
+  const x = anchor.x + menu.width + gutter <= panel.width
+    ? anchor.x
+    : anchor.x - menu.width >= gutter ? anchor.x - menu.width : Math.max(gutter, Math.min(anchor.x, maximum.x));
+  const y = anchor.y + menu.height + gutter <= panel.height
+    ? anchor.y
+    : anchor.y - menu.height >= gutter ? anchor.y - menu.height : Math.max(gutter, Math.min(anchor.y, maximum.y));
+  return { x, y };
 }
 
 export function parentTouchpointOptions(document: MapDocument, childId?: string) {

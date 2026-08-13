@@ -4,7 +4,6 @@ import { MarkerType, type Edge, type Node } from '@xyflow/react';
 export const KIND_LABELS: Record<ProvisionalEntityKind, string> = { product: 'Product', offer: 'Offer', touchpoint: 'Touchpoint', core_functional_job: 'Core Functional Job', emotional_job: 'Emotional Job', social_job: 'Social Job', consumption_chain_job: 'Consumption Chain Job', financial_desired_outcome: 'Financial Desired Outcome' };
 export interface NodeLayout { diameter: number; titleFontSize: number; kindFontSize: number; contentWidth: number; compactTitle: boolean }
 export interface MapNodeData extends Record<string, unknown> { title: string; kindLabel: string; layout: NodeLayout; url?: string }
-const LABELS: Record<Relationship['kind'], string> = { product_packaged_as_offer: 'packaged as', offer_presented_at_touchpoint: 'presented at', touchpoint_contains_touchpoint: 'contains' };
 const ROLE_LAYOUTS: Record<ProvisionalEntityKind, Pick<NodeLayout, 'diameter' | 'titleFontSize' | 'kindFontSize'>> = {
   product: { diameter: 136, titleFontSize: 16, kindFontSize: 13 },
   offer: { diameter: 116, titleFontSize: 15, kindFontSize: 12.5 },
@@ -36,4 +35,4 @@ export function deriveVisibleAuthoredRelationships(document: MapDocument): Relat
   const nestedTouchpointIds = new Set(document.relationships.flatMap(relationship => relationship.kind === 'touchpoint_contains_touchpoint' ? [relationship.childTouchpointId] : []));
   return document.relationships.filter(relationship => relationship.kind !== 'offer_presented_at_touchpoint' || !nestedTouchpointIds.has(relationship.touchpointId));
 }
-export function deriveMapEdges(document: MapDocument): Edge[] { return deriveVisibleAuthoredRelationships(document).map(relationship => { const [source, target] = endpoints(relationship); return { id: relationship.id, source, target, label: LABELS[relationship.kind], markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge' }; }); }
+export function deriveMapEdges(document: MapDocument): Edge[] { return deriveVisibleAuthoredRelationships(document).map(relationship => { const [source, target] = endpoints(relationship); return { id: relationship.id, source, target, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge' }; }); }
