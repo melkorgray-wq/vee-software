@@ -41,4 +41,17 @@ export function deriveVisibleAuthoredRelationships(document: MapDocument): Relat
   const nestedTouchpointIds = new Set(document.relationships.flatMap(relationship => relationship.kind === 'touchpoint_contains_touchpoint' ? [relationship.childTouchpointId] : []));
   return document.relationships.filter(relationship => relationship.kind !== 'offer_presented_at_touchpoint' || !nestedTouchpointIds.has(relationship.touchpointId));
 }
-export function deriveMapEdges(document: MapDocument): Edge[] { return deriveVisibleAuthoredRelationships(document).map(relationship => { const [source, target] = endpoints(relationship); return { id: relationship.id, source, target, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge' }; }); }
+export function deriveMapEdges(document: MapDocument): Edge[] {
+  const authored = deriveVisibleAuthoredRelationships(document).map(relationship => { const [source, target] = endpoints(relationship); return { id: relationship.id, source, target, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge' }; });
+  const routes = new Map<string, Edge>();
+  for (const presented of document.relationships.filter((relation): relation is Extract<Relationship, { kind: 'offer_presented_at_touchpoint' }> => relation.kind === 'offer_presented_at_touchpoint')) {
+    for (const selection of document.offerJobSelections.filter(candidate => candidate.offerId === presented.offerId)) {
+      const intent = document.productJobIntents.find(candidate => candidate.id === selection.productJobIntentId);
+      for (const outcomeId of intent?.addressedDesiredOutcomeIds ?? []) {
+        const key = `${outcomeId}->${presented.touchpointId}`;
+        routes.set(key, { id: `intent-route:${key}`, source: outcomeId, target: presented.touchpointId, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge derived-intent-edge' });
+      }
+    }
+  }
+  return [...authored, ...routes.values()];
+}

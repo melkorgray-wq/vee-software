@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { addEntity, addTouchpointContainer, createEmptyMapDocument, updateEntity } from '@vee/domain';
+import { addEntity, addProductJobIntent, addTouchpointContainer, setOfferJobSelections, createEmptyMapDocument, updateEntity } from '@vee/domain';
 import { KIND_LABELS, deriveMapEdges, deriveMapNodes, deriveVisibleAuthoredRelationships, layoutForEntity } from './map-adapter';
 
 function chain() { let d = createEmptyMapDocument({ mapId: 'm', title: 'Map', viewId: 'v', viewTitle: 'View' }); d = addEntity(d, { entityId: 'p', title: 'Product', kind: 'product', viewId: 'v', x: 0, y: 0 }); d = addEntity(d, { entityId: 'o', title: 'Offer', kind: 'offer', linkedProductId: 'p', relationshipId: 'po', viewId: 'v', x: 100, y: 0 }); d = addTouchpointContainer(d, { id: 'site', title: 'Site' }); d = addEntity(d, { entityId: 't', title: 'Touch', kind: 'touchpoint', locatedInId: 'site', linkedOfferIds: ['o'], relationshipIds: ['ot'], viewId: 'v', x: 200, y: 0 }); return d; }
@@ -103,4 +103,21 @@ it('bounds long-title content independently of topology', () => {
   const long = layoutForEntity({ kind: 'offer', title: 'Growth Marketing Team' });
   expect(long).toEqual({ ...short, compactTitle: true });
   expect(long.contentWidth).toBeLessThan(long.diameter);
+});
+
+it('projects each authored Desired Outcome route once and invents no unresolved Job route', () => {
+  let d = chain();
+  d = addEntity(d, { entityId: 'job', title: 'Job', kind: 'core_functional_job', viewId: 'v', x: 0, y: 100 });
+  d = addEntity(d, { entityId: 'outcome', title: 'Outcome', kind: 'desired_outcome', parentEntityId: 'job', relationshipId: 'job-outcome', viewId: 'v', x: 100, y: 100 });
+  d = addEntity(d, { entityId: 'emotional', title: 'Emotional', kind: 'emotional_job', viewId: 'v', x: 0, y: 200 });
+  d = addProductJobIntent(d, { id: 'route-intent', productId: 'p', jobId: 'job', addressedDesiredOutcomeIds: ['outcome'] });
+  d = addProductJobIntent(d, { id: 'unresolved-intent', productId: 'p', jobId: 'emotional', addressedDesiredOutcomeIds: [] });
+  d = setOfferJobSelections(d, { offerId: 'o', productJobIntentIds: ['route-intent', 'unresolved-intent'], newSelectionIds: ['selected-route', 'selected-unresolved'] });
+  d = addEntity(d, { entityId: 'o2', title: 'Offer 2', kind: 'offer', linkedProductId: 'p', relationshipId: 'po2', viewId: 'v', x: 100, y: 200 });
+  d = setOfferJobSelections(d, { offerId: 'o2', productJobIntentIds: ['route-intent'], newSelectionIds: ['selected-again'] });
+  d = updateEntity(d, { entityId: 't', title: 'Touch', locatedInId: 'site', linkedOfferIds: ['o', 'o2'], relationshipIds: ['ot', 'o2t'] });
+  const edges = deriveMapEdges(d);
+  expect(edges.filter(edge => edge.source === 'outcome' && edge.target === 't')).toHaveLength(1);
+  expect(edges).toContainEqual(expect.objectContaining({ id: 'job-outcome', source: 'job', target: 'outcome' }));
+  expect(edges.some(edge => ['p', 'o', 'o2', 'emotional', 'job'].includes(edge.source) && edge.target === 't' && edge.id.startsWith('intent-route:'))).toBe(false);
 });

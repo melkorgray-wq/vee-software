@@ -28,7 +28,9 @@ export interface TouchpointContainer { id: string; title: string }
 export interface EpistemicAnnotation { id: string; subjectEntityId: string; status: EpistemicStatus; sourceNote?: string }
 export interface View { id: string; title: string }
 export interface Placement { viewId: string; entityId: string; x: number; y: number }
-export interface MapDocument { id: string; title: string; entities: Entity[]; relationships: Relationship[]; touchpointContainers: TouchpointContainer[]; epistemicAnnotations: EpistemicAnnotation[]; views: View[]; placements: Placement[] }
+export interface ProductJobIntent { id: string; productId: string; jobId: string; addressedDesiredOutcomeIds: string[] }
+export interface OfferJobSelection { id: string; offerId: string; productJobIntentId: string }
+export interface MapDocument { id: string; title: string; entities: Entity[]; relationships: Relationship[]; productJobIntents: ProductJobIntent[]; offerJobSelections: OfferJobSelection[]; touchpointContainers: TouchpointContainer[]; epistemicAnnotations: EpistemicAnnotation[]; views: View[]; placements: Placement[] }
 
 export class DomainError extends Error {
   readonly code: string;
@@ -57,7 +59,48 @@ function assertRepulsorTargets(document: MapDocument, targetEntityIds: string[])
 }
 
 export function createEmptyMapDocument(input: { mapId: string; title: string; viewId: string; viewTitle: string }): MapDocument {
-  return { id: input.mapId, title: required(input.title, 'Map title'), entities: [], relationships: [], touchpointContainers: [], epistemicAnnotations: [], views: [{ id: input.viewId, title: required(input.viewTitle, 'View title') }], placements: [] };
+  return { id: input.mapId, title: required(input.title, 'Map title'), entities: [], relationships: [], productJobIntents: [], offerJobSelections: [], touchpointContainers: [], epistemicAnnotations: [], views: [{ id: input.viewId, title: required(input.viewTitle, 'View title') }], placements: [] };
+}
+
+const PRODUCT_JOB_KINDS = ['core_functional_job', 'related_job', 'emotional_job', 'social_job', 'consumption_chain_job'] as const;
+function validateProductJobIntent(document: MapDocument, input: { productId: string; jobId: string; addressedDesiredOutcomeIds: string[] }, ignoredId?: string) {
+  entityOfKind(document, input.productId, 'product', 'Product');
+  const job = document.entities.find(entity => entity.id === input.jobId);
+  if (!job) throw new DomainError('invalid_product_job_reference', 'Job does not reference an existing entity.');
+  if (!(PRODUCT_JOB_KINDS as readonly string[]).includes(job.kind)) throw new DomainError('invalid_product_job_kind', 'Product intent must reference an eligible Client Job.');
+  if (document.productJobIntents.some(intent => intent.id !== ignoredId && intent.productId === input.productId && intent.jobId === input.jobId)) throw new DomainError('duplicate_product_job_intent', 'A Product may address a Job only once.');
+  unique(input.addressedDesiredOutcomeIds, 'duplicate_addressed_desired_outcome');
+  if (job.kind !== 'core_functional_job' && job.kind !== 'consumption_chain_job' && input.addressedDesiredOutcomeIds.length) throw new DomainError('desired_outcome_not_allowed', 'This Job kind cannot select Desired Outcomes.');
+  for (const outcomeId of input.addressedDesiredOutcomeIds) {
+    entityOfKind(document, outcomeId, 'desired_outcome', 'Addressed Desired Outcome');
+    if (!document.relationships.some(relation => relation.kind === 'job_has_desired_outcome' && relation.jobId === job.id && relation.desiredOutcomeId === outcomeId)) throw new DomainError('desired_outcome_not_owned_by_job', 'Every addressed Desired Outcome must belong to the selected Job.');
+  }
+}
+export function addProductJobIntent(document: MapDocument, input: ProductJobIntent): MapDocument {
+  if (document.productJobIntents.some(intent => intent.id === input.id)) throw new DomainError('duplicate_product_job_intent_id', 'Product Job Intent ID already exists.');
+  validateProductJobIntent(document, input);
+  return { ...document, productJobIntents: [...document.productJobIntents, { ...input, addressedDesiredOutcomeIds: [...input.addressedDesiredOutcomeIds] }] };
+}
+export function updateProductJobIntent(document: MapDocument, input: ProductJobIntent): MapDocument {
+  if (!document.productJobIntents.some(intent => intent.id === input.id)) throw new DomainError('unknown_product_job_intent', 'Product Job Intent does not exist.');
+  validateProductJobIntent(document, input, input.id);
+  return { ...document, productJobIntents: document.productJobIntents.map(intent => intent.id === input.id ? { ...input, addressedDesiredOutcomeIds: [...input.addressedDesiredOutcomeIds] } : intent) };
+}
+export function removeProductJobIntent(document: MapDocument, intentId: string): MapDocument {
+  if (!document.productJobIntents.some(intent => intent.id === intentId)) throw new DomainError('unknown_product_job_intent', 'Product Job Intent does not exist.');
+  return { ...document, productJobIntents: document.productJobIntents.filter(intent => intent.id !== intentId), offerJobSelections: document.offerJobSelections.filter(selection => selection.productJobIntentId !== intentId) };
+}
+export function setOfferJobSelections(document: MapDocument, input: { offerId: string; productJobIntentIds: string[]; newSelectionIds: string[] }): MapDocument {
+  entityOfKind(document, input.offerId, 'offer', 'Offer'); unique(input.productJobIntentIds, 'duplicate_offer_job_selection');
+  const productId = document.relationships.find((relation): relation is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => relation.kind === 'product_packaged_as_offer' && relation.offerId === input.offerId)?.productId;
+  for (const intentId of input.productJobIntentIds) if (!document.productJobIntents.some(intent => intent.id === intentId && intent.productId === productId)) throw new DomainError('offer_selection_wrong_product', 'Offer selections must belong to the Offer Product.');
+  const existing = document.offerJobSelections.filter(selection => selection.offerId === input.offerId); const retained = new Map(existing.map(selection => [selection.productJobIntentId, selection]));
+  const additions = input.productJobIntentIds.filter(id => !retained.has(id));
+  if (additions.length !== input.newSelectionIds.length) throw new DomainError('invalid_offer_selection_ids', 'Each new Offer selection requires a fresh ID.');
+  unique(input.newSelectionIds, 'duplicate_offer_job_selection_id');
+  if (input.newSelectionIds.some(id => document.offerJobSelections.some(selection => selection.id === id))) throw new DomainError('duplicate_offer_job_selection_id', 'Offer Job Selection ID already exists.');
+  const replacement = input.productJobIntentIds.map(id => retained.get(id) ?? { id: input.newSelectionIds[additions.indexOf(id)]!, offerId: input.offerId, productJobIntentId: id });
+  return { ...document, offerJobSelections: [...document.offerJobSelections.filter(selection => selection.offerId !== input.offerId), ...replacement] };
 }
 export function addTouchpointContainer(document: MapDocument, input: { id: string; title: string }): MapDocument {
   if (document.touchpointContainers.some(c => c.id === input.id)) throw new DomainError('duplicate_touchpoint_container_id', 'Touchpoint container ID already exists.');
@@ -130,7 +173,9 @@ export function updateEntity(document: MapDocument, input: UpdateEntityInput): M
   const title = required(input.title, 'Entity title'); let updated: Entity = { ...entity, title }; let relationships = document.relationships;
   if (entity.kind === 'offer') {
     if (!input.linkedProductId) throw new DomainError('missing_linked_product', 'An Offer must be linked to a Product.'); entityOfKind(document, input.linkedProductId, 'product', 'Linked Product');
+    const previousProductId = relationships.find((r): r is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => r.kind === 'product_packaged_as_offer' && r.offerId === entity.id)?.productId;
     relationships = relationships.map(r => r.kind === 'product_packaged_as_offer' && r.offerId === entity.id ? { ...r, productId: input.linkedProductId! } : r);
+    if (previousProductId !== input.linkedProductId) document = { ...document, offerJobSelections: document.offerJobSelections.filter(selection => selection.offerId !== entity.id) };
   } else if (entity.kind === 'touchpoint') {
     assertContainer(document, input.locatedInId ?? '');
     const offerIds = input.linkedOfferIds ?? []; if (!offerIds.length) throw new DomainError('missing_linked_offer', 'A Touchpoint must present at least one Offer.'); unique(offerIds); offerIds.forEach(id => entityOfKind(document, id, 'offer', 'Linked Offer'));
@@ -173,7 +218,12 @@ export function updateRepulsorTargets(document: MapDocument, input: { repulsorId
 
 export function duplicateEntity(document: MapDocument, input: { sourceEntityId: string; entityId: string; viewId: string; x: number; y: number; relationshipIds: string[] }): MapDocument {
   const source = document.entities.find(e => e.id === input.sourceEntityId); if (!source) throw new DomainError('unknown_entity', 'Source entity does not exist.');
-  if (source.kind === 'product' || isClientRootEntityKind(source.kind)) return addEntity(document, { entityId: input.entityId, title: source.title, kind: source.kind, viewId: input.viewId, x: input.x, y: input.y });
+  if (source.kind === 'product') {
+    let copy = addEntity(document, { entityId: input.entityId, title: source.title, kind: source.kind, viewId: input.viewId, x: input.x, y: input.y });
+    for (const [index, intent] of document.productJobIntents.filter(candidate => candidate.productId === source.id).entries()) copy = addProductJobIntent(copy, { ...intent, id: input.relationshipIds[index]!, productId: input.entityId });
+    return copy;
+  }
+  if (isClientRootEntityKind(source.kind)) return addEntity(document, { entityId: input.entityId, title: source.title, kind: source.kind, viewId: input.viewId, x: input.x, y: input.y });
   if (source.kind === 'related_job' || source.kind === 'desired_outcome') {
     const parentEntityId = source.kind === 'related_job'
       ? document.relationships.find((r): r is Extract<Relationship, { kind: 'core_functional_job_has_related_job' }> => r.kind === 'core_functional_job_has_related_job' && r.relatedJobId === source.id)?.coreFunctionalJobId
@@ -185,7 +235,7 @@ export function duplicateEntity(document: MapDocument, input: { sourceEntityId: 
     const targetIds = document.relationships.filter((relationship): relationship is Extract<Relationship, { kind: 'repulsor_resists' }> => relationship.kind === 'repulsor_resists' && relationship.repulsorId === source.id).map(relationship => relationship.targetEntityId);
     return addEntity(document, { entityId: input.entityId, title: source.title, kind: 'repulsor', resistedTargetIds: targetIds, relationshipIds: input.relationshipIds.slice(0, targetIds.length), viewId: input.viewId, x: input.x, y: input.y });
   }
-  if (source.kind === 'offer') { const relation = document.relationships.find((r): r is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => r.kind === 'product_packaged_as_offer' && r.offerId === source.id)!; return addEntity(document, { entityId: input.entityId, title: source.title, kind: 'offer', linkedProductId: relation.productId, relationshipId: input.relationshipIds[0]!, viewId: input.viewId, x: input.x, y: input.y }); }
+  if (source.kind === 'offer') { const relation = document.relationships.find((r): r is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => r.kind === 'product_packaged_as_offer' && r.offerId === source.id)!; let copy = addEntity(document, { entityId: input.entityId, title: source.title, kind: 'offer', linkedProductId: relation.productId, relationshipId: input.relationshipIds[0]!, viewId: input.viewId, x: input.x, y: input.y }); const selected = document.offerJobSelections.filter(selection => selection.offerId === source.id).map(selection => selection.productJobIntentId); copy = setOfferJobSelections(copy, { offerId: input.entityId, productJobIntentIds: selected, newSelectionIds: input.relationshipIds.slice(1, selected.length + 1) }); return copy; }
   if (source.kind !== 'touchpoint') throw new DomainError('unsupported_entity_kind', 'Source entity kind cannot be duplicated.');
   const offerIds = document.relationships.filter((r): r is Extract<Relationship, { kind: 'offer_presented_at_touchpoint' }> => r.kind === 'offer_presented_at_touchpoint' && r.touchpointId === source.id).map(r => r.offerId);
   const parent = document.relationships.find((r): r is Extract<Relationship, { kind: 'touchpoint_contains_touchpoint' }> => r.kind === 'touchpoint_contains_touchpoint' && r.childTouchpointId === source.id);
