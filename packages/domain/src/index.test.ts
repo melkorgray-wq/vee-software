@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addEntity, addTouchpointContainer, createEmptyMapDocument, duplicateEntity, movePlacement, updateEntity } from './index';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addTouchpointContainer, createEmptyMapDocument, duplicateEntity, movePlacement, updateEntity } from './index';
 
 const place = { viewId: 'view', x: 10, y: 20 };
 const empty = () => createEmptyMapDocument({ mapId: 'map', title: 'Map', viewId: 'view', viewTitle: 'View' });
@@ -7,6 +7,21 @@ function offerDocument() { let d = addEntity(empty(), { ...place, entityId: 'pro
 function touchpoint(d = offerDocument(), id = 'touch', parent?: string) { return addEntity(d, { ...place, entityId: id, title: id, kind: 'touchpoint', locatedInId: 'site', url: '  /checkout#pay  ', linkedOfferIds: ['offer'], relationshipIds: [`presented-${id}`], ...(parent ? { parentTouchpointId: parent, parentRelationshipId: `contains-${id}` } : {}) }); }
 
 describe('map authoring domain', () => {
+  it.each(CLIENT_ROOT_ENTITY_KINDS)('adds and duplicates independent %s roots without relationships or annotations', kind => {
+    const business = addEntity(empty(), { ...place, entityId: 'product', title: 'Unrelated Product', kind: 'product' });
+    const created = addEntity(business, { ...place, entityId: kind, title: `A ${kind}`, kind });
+    expect(created.entities.at(-1)).toEqual({ id: kind, title: `A ${kind}`, kind });
+    expect(created.placements.at(-1)).toEqual({ entityId: kind, ...place });
+    expect(created.relationships).toEqual([]);
+    expect(created.epistemicAnnotations).toEqual([]);
+
+    const annotated = { ...created, epistemicAnnotations: [{ id: 'knowledge', subjectEntityId: kind, status: 'hypothesis' as const }] };
+    const copy = duplicateEntity(annotated, { sourceEntityId: kind, entityId: `${kind}-copy`, viewId: 'view', x: 30, y: 40, relationshipIds: [] });
+    expect(copy.entities.at(-1)).toEqual({ id: `${kind}-copy`, title: `A ${kind}`, kind });
+    expect(copy.relationships).toEqual([]);
+    expect(copy.epistemicAnnotations).toEqual(annotated.epistemicAnnotations);
+    expect(copy.epistemicAnnotations.some(annotation => annotation.subjectEntityId === `${kind}-copy`)).toBe(false);
+  });
   it('creates reusable containers and requires a valid reference', () => {
     const d = offerDocument(); expect(d.touchpointContainers).toEqual([{ id: 'site', title: 'The Quiet Orbit website' }]);
     expect(() => touchpoint({ ...d, touchpointContainers: [] })).toThrow('existing Touchpoint container');

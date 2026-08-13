@@ -1,5 +1,9 @@
-export const PROVISIONAL_ENTITY_KINDS = ['customer_phenomenon', 'touchpoint', 'offer', 'product'] as const;
+export const BUSINESS_ENTITY_KINDS = ['product', 'offer', 'touchpoint'] as const;
+export const CLIENT_ROOT_ENTITY_KINDS = ['core_functional_job', 'emotional_job', 'social_job', 'consumption_chain_job', 'financial_desired_outcome'] as const;
+export const PROVISIONAL_ENTITY_KINDS = [...BUSINESS_ENTITY_KINDS, ...CLIENT_ROOT_ENTITY_KINDS] as const;
 export type ProvisionalEntityKind = typeof PROVISIONAL_ENTITY_KINDS[number];
+export type ClientRootEntityKind = typeof CLIENT_ROOT_ENTITY_KINDS[number];
+export function isClientRootEntityKind(kind: ProvisionalEntityKind): kind is ClientRootEntityKind { return (CLIENT_ROOT_ENTITY_KINDS as readonly string[]).includes(kind); }
 export const EPISTEMIC_STATUSES = ['observed', 'participant_reported', 'business_intent', 'hypothesis', 'interpretation', 'confirmed_outcome'] as const;
 export type EpistemicStatus = typeof EPISTEMIC_STATUSES[number];
 
@@ -7,7 +11,7 @@ export type Entity =
   | { id: string; kind: 'touchpoint'; title: string; locatedInId: string; url?: string }
   | { id: string; kind: 'product'; title: string }
   | { id: string; kind: 'offer'; title: string }
-  | { id: string; kind: 'customer_phenomenon'; title: string };
+  | { id: string; kind: ClientRootEntityKind; title: string };
 export type Relationship =
   | { id: string; kind: 'product_packaged_as_offer'; productId: string; offerId: string }
   | { id: string; kind: 'offer_presented_at_touchpoint'; offerId: string; touchpointId: string }
@@ -48,7 +52,7 @@ export function addTouchpointContainer(document: MapDocument, input: { id: strin
 
 type PlacementInput = { entityId: string; title: string; viewId: string; x: number; y: number };
 export type AddEntityInput = PlacementInput & (
-  | { kind: 'product' | 'customer_phenomenon' }
+  | { kind: 'product' | ClientRootEntityKind }
   | { kind: 'offer'; linkedProductId: string; relationshipId: string }
   | { kind: 'touchpoint'; locatedInId: string; url?: string; linkedOfferIds: string[]; relationshipIds: string[]; parentTouchpointId?: string; parentRelationshipId?: string }
 );
@@ -115,8 +119,9 @@ export function updateEntity(document: MapDocument, input: UpdateEntityInput): M
 
 export function duplicateEntity(document: MapDocument, input: { sourceEntityId: string; entityId: string; viewId: string; x: number; y: number; relationshipIds: string[] }): MapDocument {
   const source = document.entities.find(e => e.id === input.sourceEntityId); if (!source) throw new DomainError('unknown_entity', 'Source entity does not exist.');
-  if (source.kind === 'product' || source.kind === 'customer_phenomenon') return addEntity(document, { entityId: input.entityId, title: source.title, kind: source.kind, viewId: input.viewId, x: input.x, y: input.y });
+  if (source.kind === 'product' || isClientRootEntityKind(source.kind)) return addEntity(document, { entityId: input.entityId, title: source.title, kind: source.kind, viewId: input.viewId, x: input.x, y: input.y });
   if (source.kind === 'offer') { const relation = document.relationships.find((r): r is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => r.kind === 'product_packaged_as_offer' && r.offerId === source.id)!; return addEntity(document, { entityId: input.entityId, title: source.title, kind: 'offer', linkedProductId: relation.productId, relationshipId: input.relationshipIds[0]!, viewId: input.viewId, x: input.x, y: input.y }); }
+  if (source.kind !== 'touchpoint') throw new DomainError('unsupported_entity_kind', 'Source entity kind cannot be duplicated.');
   const offerIds = document.relationships.filter((r): r is Extract<Relationship, { kind: 'offer_presented_at_touchpoint' }> => r.kind === 'offer_presented_at_touchpoint' && r.touchpointId === source.id).map(r => r.offerId);
   const parent = document.relationships.find((r): r is Extract<Relationship, { kind: 'touchpoint_contains_touchpoint' }> => r.kind === 'touchpoint_contains_touchpoint' && r.childTouchpointId === source.id);
   return addEntity(document, { entityId: input.entityId, title: source.title, kind: 'touchpoint', locatedInId: source.locatedInId, ...(source.url ? { url: source.url } : {}), linkedOfferIds: offerIds, relationshipIds: input.relationshipIds.slice(0, offerIds.length), ...(parent ? { parentTouchpointId: parent.parentTouchpointId, parentRelationshipId: input.relationshipIds[offerIds.length]! } : {}), viewId: input.viewId, x: input.x, y: input.y });
