@@ -1,9 +1,12 @@
 export const BUSINESS_ENTITY_KINDS = ['product', 'offer', 'touchpoint'] as const;
 export const CLIENT_ROOT_ENTITY_KINDS = ['core_functional_job', 'emotional_job', 'social_job', 'consumption_chain_job', 'financial_desired_outcome'] as const;
-export const PROVISIONAL_ENTITY_KINDS = [...BUSINESS_ENTITY_KINDS, ...CLIENT_ROOT_ENTITY_KINDS] as const;
+export const CONTEXTUAL_CLIENT_ENTITY_KINDS = ['related_job', 'desired_outcome'] as const;
+export const PROVISIONAL_ENTITY_KINDS = [...BUSINESS_ENTITY_KINDS, ...CLIENT_ROOT_ENTITY_KINDS, ...CONTEXTUAL_CLIENT_ENTITY_KINDS] as const;
 export type ProvisionalEntityKind = typeof PROVISIONAL_ENTITY_KINDS[number];
 export type ClientRootEntityKind = typeof CLIENT_ROOT_ENTITY_KINDS[number];
+export type ContextualClientEntityKind = typeof CONTEXTUAL_CLIENT_ENTITY_KINDS[number];
 export function isClientRootEntityKind(kind: ProvisionalEntityKind): kind is ClientRootEntityKind { return (CLIENT_ROOT_ENTITY_KINDS as readonly string[]).includes(kind); }
+export function isContextualClientEntityKind(kind: ProvisionalEntityKind): kind is ContextualClientEntityKind { return (CONTEXTUAL_CLIENT_ENTITY_KINDS as readonly string[]).includes(kind); }
 export const EPISTEMIC_STATUSES = ['observed', 'participant_reported', 'business_intent', 'hypothesis', 'interpretation', 'confirmed_outcome'] as const;
 export type EpistemicStatus = typeof EPISTEMIC_STATUSES[number];
 
@@ -11,11 +14,13 @@ export type Entity =
   | { id: string; kind: 'touchpoint'; title: string; locatedInId: string; url?: string }
   | { id: string; kind: 'product'; title: string }
   | { id: string; kind: 'offer'; title: string }
-  | { id: string; kind: ClientRootEntityKind; title: string };
+  | { id: string; kind: ClientRootEntityKind | ContextualClientEntityKind; title: string };
 export type Relationship =
   | { id: string; kind: 'product_packaged_as_offer'; productId: string; offerId: string }
   | { id: string; kind: 'offer_presented_at_touchpoint'; offerId: string; touchpointId: string }
-  | { id: string; kind: 'touchpoint_contains_touchpoint'; parentTouchpointId: string; childTouchpointId: string };
+  | { id: string; kind: 'touchpoint_contains_touchpoint'; parentTouchpointId: string; childTouchpointId: string }
+  | { id: string; kind: 'core_functional_job_has_related_job'; coreFunctionalJobId: string; relatedJobId: string }
+  | { id: string; kind: 'job_has_desired_outcome'; jobId: string; desiredOutcomeId: string };
 export interface TouchpointContainer { id: string; title: string }
 export interface EpistemicAnnotation { id: string; subjectEntityId: string; status: EpistemicStatus; sourceNote?: string }
 export interface View { id: string; title: string }
@@ -53,6 +58,7 @@ export function addTouchpointContainer(document: MapDocument, input: { id: strin
 type PlacementInput = { entityId: string; title: string; viewId: string; x: number; y: number };
 export type AddEntityInput = PlacementInput & (
   | { kind: 'product' | ClientRootEntityKind }
+  | { kind: ContextualClientEntityKind; parentEntityId: string; relationshipId: string }
   | { kind: 'offer'; linkedProductId: string; relationshipId: string }
   | { kind: 'touchpoint'; locatedInId: string; url?: string; linkedOfferIds: string[]; relationshipIds: string[]; parentTouchpointId?: string; parentRelationshipId?: string }
 );
@@ -78,6 +84,16 @@ export function addEntity(document: MapDocument, input: AddEntityInput): MapDocu
       added.push({ id: input.parentRelationshipId, kind: 'touchpoint_contains_touchpoint', parentTouchpointId: input.parentTouchpointId, childTouchpointId: input.entityId });
     }
     const url = optional(input.url); entity = { id: input.entityId, title, kind: 'touchpoint', locatedInId: input.locatedInId, ...(url ? { url } : {}) };
+  } else if (input.kind === 'related_job') {
+    entityOfKind(document, input.parentEntityId, 'core_functional_job', 'Related Job parent');
+    added = [{ id: input.relationshipId, kind: 'core_functional_job_has_related_job', coreFunctionalJobId: input.parentEntityId, relatedJobId: input.entityId }];
+    entity = { id: input.entityId, title, kind: input.kind };
+  } else if (input.kind === 'desired_outcome') {
+    const parent = document.entities.find(candidate => candidate.id === input.parentEntityId);
+    if (!parent) throw new DomainError('invalid_relationship_reference', 'Desired Outcome parent does not reference an existing entity.');
+    if (parent.kind !== 'core_functional_job' && parent.kind !== 'consumption_chain_job') throw new DomainError('invalid_relationship_endpoint', 'Desired Outcome parent must reference a Core Functional Job or Consumption Chain Job.');
+    added = [{ id: input.relationshipId, kind: 'job_has_desired_outcome', jobId: input.parentEntityId, desiredOutcomeId: input.entityId }];
+    entity = { id: input.entityId, title, kind: input.kind };
   } else entity = { id: input.entityId, title, kind: input.kind };
   assertRelationshipIds(document, added.map(r => r.id));
   return { ...document, entities: [...document.entities, entity], relationships: [...document.relationships, ...added], placements: [...document.placements, { viewId: input.viewId, entityId: entity.id, x: input.x, y: input.y }] };
@@ -90,7 +106,7 @@ function createsCycle(document: MapDocument, parentId: string, childId: string):
   while (pending.length) { const id = pending.pop()!; if (id === parentId) return true; if (!seen.has(id)) { seen.add(id); pending.push(...(children.get(id) ?? [])); } }
   return false;
 }
-export type UpdateEntityInput = { entityId: string; title: string; locatedInId?: string; url?: string; linkedProductId?: string; linkedOfferIds?: string[]; relationshipIds?: string[]; parentTouchpointId?: string; parentRelationshipId?: string };
+export type UpdateEntityInput = { entityId: string; title: string; locatedInId?: string; url?: string; linkedProductId?: string; linkedOfferIds?: string[]; relationshipIds?: string[]; parentTouchpointId?: string; parentEntityId?: string; parentRelationshipId?: string };
 export function updateEntity(document: MapDocument, input: UpdateEntityInput): MapDocument {
   const entity = document.entities.find(e => e.id === input.entityId); if (!entity) throw new DomainError('unknown_entity', 'Entity does not exist.');
   const title = required(input.title, 'Entity title'); let updated: Entity = { ...entity, title }; let relationships = document.relationships;
@@ -113,6 +129,14 @@ export function updateEntity(document: MapDocument, input: UpdateEntityInput): M
       if (createsCycle({ ...document, relationships }, input.parentTouchpointId, entity.id)) throw new DomainError('structural_cycle', 'Touchpoint containment cannot form a cycle.');
       relationships.push({ id: input.parentRelationshipId ?? oldParent?.id ?? '', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: input.parentTouchpointId, childTouchpointId: entity.id });
     }
+  } else if (entity.kind === 'related_job' || entity.kind === 'desired_outcome') {
+    if (!input.parentEntityId) throw new DomainError('missing_semantic_parent', `${entity.kind === 'related_job' ? 'Related Job' : 'Desired Outcome'} must have a semantic parent.`);
+    const parentKind = document.entities.find(candidate => candidate.id === input.parentEntityId)?.kind;
+    const valid = entity.kind === 'related_job' ? parentKind === 'core_functional_job' : parentKind === 'core_functional_job' || parentKind === 'consumption_chain_job';
+    if (!valid) throw new DomainError(parentKind ? 'invalid_relationship_endpoint' : 'invalid_relationship_reference', `Invalid semantic parent for ${entity.kind === 'related_job' ? 'Related Job' : 'Desired Outcome'}.`);
+    const semantic = relationships.filter(r => entity.kind === 'related_job' ? r.kind === 'core_functional_job_has_related_job' && r.relatedJobId === entity.id : r.kind === 'job_has_desired_outcome' && r.desiredOutcomeId === entity.id);
+    if (semantic.length !== 1) throw new DomainError('invalid_semantic_parent_count', 'A contextual Client entity must have exactly one semantic parent.');
+    relationships = relationships.map(r => r.id !== semantic[0]!.id ? r : r.kind === 'core_functional_job_has_related_job' ? { ...r, coreFunctionalJobId: input.parentEntityId! } : { ...r, jobId: input.parentEntityId! });
   }
   return { ...document, entities: document.entities.map(e => e.id === entity.id ? updated : e), relationships };
 }
@@ -120,6 +144,13 @@ export function updateEntity(document: MapDocument, input: UpdateEntityInput): M
 export function duplicateEntity(document: MapDocument, input: { sourceEntityId: string; entityId: string; viewId: string; x: number; y: number; relationshipIds: string[] }): MapDocument {
   const source = document.entities.find(e => e.id === input.sourceEntityId); if (!source) throw new DomainError('unknown_entity', 'Source entity does not exist.');
   if (source.kind === 'product' || isClientRootEntityKind(source.kind)) return addEntity(document, { entityId: input.entityId, title: source.title, kind: source.kind, viewId: input.viewId, x: input.x, y: input.y });
+  if (source.kind === 'related_job' || source.kind === 'desired_outcome') {
+    const parentEntityId = source.kind === 'related_job'
+      ? document.relationships.find((r): r is Extract<Relationship, { kind: 'core_functional_job_has_related_job' }> => r.kind === 'core_functional_job_has_related_job' && r.relatedJobId === source.id)?.coreFunctionalJobId
+      : document.relationships.find((r): r is Extract<Relationship, { kind: 'job_has_desired_outcome' }> => r.kind === 'job_has_desired_outcome' && r.desiredOutcomeId === source.id)?.jobId;
+    if (!parentEntityId) throw new DomainError('missing_semantic_parent', 'Contextual Client entity has no semantic parent.');
+    return addEntity(document, { entityId: input.entityId, title: source.title, kind: source.kind, parentEntityId, relationshipId: input.relationshipIds[0]!, viewId: input.viewId, x: input.x, y: input.y });
+  }
   if (source.kind === 'offer') { const relation = document.relationships.find((r): r is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => r.kind === 'product_packaged_as_offer' && r.offerId === source.id)!; return addEntity(document, { entityId: input.entityId, title: source.title, kind: 'offer', linkedProductId: relation.productId, relationshipId: input.relationshipIds[0]!, viewId: input.viewId, x: input.x, y: input.y }); }
   if (source.kind !== 'touchpoint') throw new DomainError('unsupported_entity_kind', 'Source entity kind cannot be duplicated.');
   const offerIds = document.relationships.filter((r): r is Extract<Relationship, { kind: 'offer_presented_at_touchpoint' }> => r.kind === 'offer_presented_at_touchpoint' && r.touchpointId === source.id).map(r => r.offerId);
