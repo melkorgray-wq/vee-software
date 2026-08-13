@@ -23,9 +23,10 @@ it('provides concrete labels for every Client-side root kind', () => {
 
 it('renders Product to Offer and Offer to root Touchpoint edges using stable relationship IDs', () => {
   expect(deriveMapEdges(chain())).toEqual([
-    expect.objectContaining({ id: 'po', source: 'p', target: 'o', label: 'packaged as' }),
-    expect.objectContaining({ id: 'ot', source: 'o', target: 't', label: 'presented at' }),
+    expect.objectContaining({ id: 'po', source: 'p', target: 'o', markerEnd: { type: 'arrowclosed' } }),
+    expect.objectContaining({ id: 'ot', source: 'o', target: 't', markerEnd: { type: 'arrowclosed' } }),
   ]);
+  expect(deriveMapEdges(chain()).every(edge => edge.label === undefined)).toBe(true);
 });
 it('projects containment as the canonical visible path for a nested Touchpoint', () => {
   const d = child(chain(), { id: 'b', parentId: 't', offerRelationshipIds: ['ob'], parentRelationshipId: 'tb' });
@@ -47,7 +48,8 @@ it('derives a reparented Touchpoint from the current document without stale edge
   let d = child(chain(), { id: 'c', parentId: 't', offerRelationshipIds: ['oc'], parentRelationshipId: 'tc' });
   d = child(d, { id: 'b', parentId: 't', offerRelationshipIds: ['ob'], parentRelationshipId: 'tb' });
   const reparented = updateEntity(d, { entityId: 'b', title: 'b', locatedInId: 'site', linkedOfferIds: ['o'], relationshipIds: ['ob'], parentTouchpointId: 'c', parentRelationshipId: 'tb' });
-  expect(deriveMapEdges(reparented)).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'tb', source: 'c', target: 'b', label: 'contains' })]));
+  expect(deriveMapEdges(reparented)).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'tb', source: 'c', target: 'b', markerEnd: { type: 'arrowclosed' } })]));
+  expect(deriveMapEdges(reparented).find(edge => edge.id === 'tb')).not.toHaveProperty('label');
   expect(deriveMapEdges(reparented)).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: 'tb', source: 't', target: 'b' })]));
 });
 it('preserves multiple nested Offer links in MapDocument while omitting them from authored edges', () => {

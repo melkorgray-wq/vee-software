@@ -1,11 +1,31 @@
 import { expect, it } from 'vitest';
 import { addEntity, addTouchpointContainer, createEmptyMapDocument, duplicateEntity } from '@vee/domain';
-import { linkedOfferIds, overlayPoint, parentTouchpointOptions, siblingDraft, siblingPlacement } from './map-interaction';
+import { contextMenuPoint, linkedOfferIds, overlayPoint, parentTouchpointOptions, siblingDraft, siblingPlacement } from './map-interaction';
 
 it('converts client coordinates to clamped panel-local overlay coordinates', () => {
   const panel = { left: 300, top: 120, width: 700, height: 500 };
   expect(overlayPoint({ x: 340, y: 170 }, panel)).toEqual({ x: 40, y: 50 });
   expect(overlayPoint({ x: 990, y: 610 }, panel)).toEqual({ x: 492, y: 276 });
+});
+
+it('places a measured context menu right and down when both directions fit', () => {
+  expect(contextMenuPoint({ x: 300, y: 250 }, { left: 100, top: 50, width: 600, height: 400 }, { width: 160, height: 120 })).toEqual({ x: 200, y: 200 });
+});
+
+it('flips a measured context menu left when the right side is insufficient', () => {
+  expect(contextMenuPoint({ x: 650, y: 150 }, { left: 100, top: 50, width: 600, height: 400 }, { width: 160, height: 120 })).toEqual({ x: 390, y: 100 });
+});
+
+it('flips a measured context menu up when the space below is insufficient', () => {
+  expect(contextMenuPoint({ x: 300, y: 420 }, { left: 100, top: 50, width: 600, height: 400 }, { width: 160, height: 120 })).toEqual({ x: 200, y: 250 });
+});
+
+it('flips a measured context menu left and up at the bottom-right corner', () => {
+  expect(contextMenuPoint({ x: 680, y: 430 }, { left: 100, top: 50, width: 600, height: 400 }, { width: 160, height: 120 })).toEqual({ x: 420, y: 260 });
+});
+
+it('clamps a menu inside the panel gutter when neither side of the anchor fits', () => {
+  expect(contextMenuPoint({ x: 200, y: 150 }, { left: 100, top: 50, width: 200, height: 200 }, { width: 180, height: 180 })).toEqual({ x: 12, y: 12 });
 });
 
 it('derives duplicated Touchpoints as valid current-document parents', () => {
