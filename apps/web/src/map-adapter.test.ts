@@ -40,6 +40,13 @@ it('renders typed contextual Client relationships parent to child without inline
   ]);
   expect(deriveMapEdges(d).every(edge => edge.label === undefined)).toBe(true);
 });
+it('renders Repulsor resistance from Repulsor to its resisted Client target without an inline label', () => {
+  let d = createEmptyMapDocument({ mapId: 'm', title: 'Map', viewId: 'v', viewTitle: 'View' });
+  d = addEntity(d, { entityId: 'core', title: 'Core', kind: 'core_functional_job', viewId: 'v', x: 0, y: 0 });
+  d = addEntity(d, { entityId: 'repulsor', title: 'Concern', kind: 'repulsor', resistedTargetIds: ['core'], relationshipIds: ['resists'], viewId: 'v', x: 200, y: 0 });
+  expect(deriveMapEdges(d)).toEqual([expect.objectContaining({ id: 'resists', source: 'repulsor', target: 'core', markerEnd: { type: 'arrowclosed' } })]);
+  expect(deriveMapEdges(d)[0]).not.toHaveProperty('label');
+});
 it('projects containment as the canonical visible path for a nested Touchpoint', () => {
   const d = child(chain(), { id: 'b', parentId: 't', offerRelationshipIds: ['ob'], parentRelationshipId: 'tb' });
   expect(edgeIds(d)).toEqual(['po', 'ot', 'tb']);

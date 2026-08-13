@@ -5,9 +5,9 @@ import { useEffect, type MouseEvent, type ReactNode } from 'react';
 import { MapNode, MapSpike } from './MapSpike';
 
 type MockNode = { id: string; position: { x: number; y: number }; data: { title: string; kindLabel: string } };
-type MockEdge = { id: string; label?: string };
+type MockEdge = { id: string; source: string; target: string; markerEnd?: { type: string }; label?: string };
 vi.mock('@xyflow/react', () => ({
-  ReactFlow: ({ nodes, edges, onInit, onNodeClick, onNodeContextMenu, onPaneClick, onPaneContextMenu }: { nodes: MockNode[]; edges: MockEdge[]; onInit: (instance: object) => void; onNodeClick: (event: object, node: MockNode) => void; onNodeContextMenu: (event: MouseEvent, node: MockNode) => void; onPaneClick: () => void; onPaneContextMenu: (event: MouseEvent) => void }) => { useEffect(() => onInit({ screenToFlowPosition: ({ x, y }: { x: number; y: number }) => ({ x: x - 10, y: y - 20 }), flowToScreenPosition: ({ x, y }: { x: number; y: number }) => ({ x: x + 10, y: y + 20 }) }), [onInit]); return <div aria-label="Map canvas" onContextMenu={onPaneContextMenu}><button onClick={onPaneClick}>Clear selection</button>{nodes.map(node => <div key={node.id}><button data-x={node.position.x} data-y={node.position.y} onClick={() => onNodeClick({}, node)} onContextMenu={e => { e.stopPropagation(); onNodeContextMenu(e, node); }}>{node.data.title}</button><span>{node.data.kindLabel}</span></div>)}{edges.map(edge => <span key={edge.id}>{edge.label}</span>)}</div>; },
+  ReactFlow: ({ nodes, edges, onInit, onNodeClick, onNodeContextMenu, onPaneClick, onPaneContextMenu }: { nodes: MockNode[]; edges: MockEdge[]; onInit: (instance: object) => void; onNodeClick: (event: object, node: MockNode) => void; onNodeContextMenu: (event: MouseEvent, node: MockNode) => void; onPaneClick: () => void; onPaneContextMenu: (event: MouseEvent) => void }) => { useEffect(() => onInit({ screenToFlowPosition: ({ x, y }: { x: number; y: number }) => ({ x: x - 10, y: y - 20 }), flowToScreenPosition: ({ x, y }: { x: number; y: number }) => ({ x: x + 10, y: y + 20 }) }), [onInit]); return <div aria-label="Map canvas" onContextMenu={onPaneContextMenu}><button onClick={onPaneClick}>Clear selection</button>{nodes.map(node => <div key={node.id}><button data-x={node.position.x} data-y={node.position.y} onClick={() => onNodeClick({}, node)} onContextMenu={e => { e.stopPropagation(); onNodeContextMenu(e, node); }}>{node.data.title}</button><span>{node.data.kindLabel}</span></div>)}{edges.map(edge => <span key={edge.id} data-source={edge.source} data-target={edge.target} data-marker={edge.markerEnd?.type}>{edge.label}</span>)}</div>; },
   Background: () => null, Controls: () => null, Handle: () => null, MarkerType: { ArrowClosed: 'arrowclosed' }, Position: { Left: 'left', Right: 'right' },
 }));
 vi.mock('../router', () => ({ Link: ({ children }: { children: ReactNode }) => <a href="/">{children}</a> }));
@@ -25,22 +25,38 @@ describe('map-first authoring interactions', () => {
     for (const name of ['Core Functional Job', 'Emotional Job', 'Social Job', 'Consumption Chain Job', 'Financial Desired Outcome']) expect(screen.getByRole('menuitem', { name })).toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: 'Related Job' })).not.toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: 'Desired Outcome' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Repulsor' })).not.toBeInTheDocument();
     expect(screen.queryByText('Customer phenomenon')).not.toBeInTheDocument();
   });
-  it('uses the same two-choice Core Functional Job child flow for Tab and Add child', async () => {
+  it('creates, edits, siblings, and duplicates one many-target Repulsor through domain-backed UI', async () => {
+    const user = userEvent.setup(); render(<MapSpike />);
+    for (const [kind, title] of [['core_functional_job', 'Progress'], ['social_job', 'Belong']] as const) { await user.click(screen.getByRole('button', { name: 'Add element' })); await user.click(screen.getByRole('button', { name: 'Client side' })); await user.selectOptions(screen.getByLabelText('Client element type'), kind); await user.type(screen.getByLabelText('Title'), title); await user.click(screen.getByRole('button', { name: 'Create element' })); }
+    await user.click(screen.getByRole('button', { name: 'Progress' })); fireEvent.keyDown(window, { key: 'Tab' }); await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Repulsor' }));
+    const quick = contextualEditor('Add Repulsor'); expect(quick.getByText('Resists: Progress')).toBeInTheDocument(); await user.type(quick.getByLabelText('Title'), 'Fear delay'); await user.click(quick.getByRole('button', { name: 'Create' }));
+    const inspector = within(screen.getByRole('complementary')); const resists = within(inspector.getByRole('group', { name: 'Resists' }));
+    expect(resists.getAllByRole('checkbox')).toHaveLength(2); expect(resists.getByLabelText(/Progress/)).toBeChecked(); expect(resists.getByLabelText(/Belong/)).not.toBeChecked();
+    await user.click(resists.getByLabelText(/Belong/)); await user.click(inspector.getByRole('button', { name: 'Apply changes' })); expect(screen.getByText('Changes applied.')).toBeInTheDocument();
+    await user.click(resists.getByLabelText(/Progress/)); await user.click(inspector.getByRole('button', { name: 'Apply changes' })); expect(screen.getByText('Changes applied.')).toBeInTheDocument();
+    await user.click(within(inspector.getByRole('group', { name: 'Resists' })).getByLabelText(/Belong/)); await user.click(inspector.getByRole('button', { name: 'Apply changes' })); expect(screen.getByRole('status')).toHaveTextContent('at least one'); await user.click(within(inspector.getByRole('group', { name: 'Resists' })).getByLabelText(/Progress/));
+    fireEvent.keyDown(window, { key: 'Enter' }); expect(contextualEditor('Add Repulsor').getByText('Resists: Belong')).toBeInTheDocument(); await user.click(contextualEditor('Add Repulsor').getByRole('button', { name: 'Cancel' }));
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Fear delay' })); expect(screen.queryByRole('menuitem', { name: 'Add child' })).not.toBeInTheDocument(); await user.click(screen.getByRole('menuitem', { name: 'Duplicate' })); expect(screen.getAllByRole('button', { name: 'Fear delay' })).toHaveLength(2);
+  });
+  it('uses the same three-choice Core Functional Job child flow for Tab and Add child', async () => {
     const user = userEvent.setup(); render(<MapSpike />);
     await user.click(screen.getByRole('button', { name: 'Add element' })); await user.click(screen.getByRole('button', { name: 'Client side' })); await user.type(screen.getByLabelText('Title'), 'Make progress'); await user.click(screen.getByRole('button', { name: 'Create element' }));
     await user.click(screen.getByRole('button', { name: 'Make progress' })); fireEvent.keyDown(window, { key: 'Tab' });
-    const chooser = screen.getByRole('dialog', { name: 'Choose child type' }); expect(within(chooser).getAllByRole('button').map(button => button.textContent)).toEqual(['Related Job', 'Desired Outcome', 'Cancel']);
+    const chooser = screen.getByRole('dialog', { name: 'Choose child type' }); expect(within(chooser).getAllByRole('button').map(button => button.textContent)).toEqual(['Related Job', 'Desired Outcome', 'Repulsor', 'Cancel']);
     await user.click(within(chooser).getByRole('button', { name: 'Related Job' })); const editor = contextualEditor('Add Related Job'); await user.type(editor.getByLabelText('Title'), 'Coordinate team'); await user.click(editor.getByRole('button', { name: 'Create' }));
     expect(screen.getByRole('button', { name: 'Coordinate team' })).toBeInTheDocument(); expect(screen.queryByText('related job of')).not.toBeInTheDocument();
     fireEvent.contextMenu(screen.getByRole('button', { name: 'Make progress' })); await user.click(screen.getByRole('menuitem', { name: 'Add child' })); expect(screen.getByRole('dialog', { name: 'Choose child type' })).toBeInTheDocument();
   });
-  it('creates Desired Outcome directly from Consumption Chain Job and keeps unsupported Client roots childless', async () => {
+  it('implements Repulsor child grammar for every Client attraction root', async () => {
     const user = userEvent.setup(); render(<MapSpike />);
-    for (const [kind, title] of [['consumption_chain_job', 'Acquire'], ['social_job', 'Belong'], ['financial_desired_outcome', 'Save']] as const) { await user.click(screen.getByRole('button', { name: 'Add element' })); await user.click(screen.getByRole('button', { name: 'Client side' })); await user.selectOptions(screen.getByLabelText('Client element type'), kind); await user.type(screen.getByLabelText('Title'), title); await user.click(screen.getByRole('button', { name: 'Create element' })); }
-    await user.click(screen.getByRole('button', { name: 'Acquire' })); fireEvent.keyDown(window, { key: 'Tab' }); expect(contextualEditor('Add Desired Outcome').getByLabelText('Title')).toHaveValue(''); await user.click(contextualEditor('Add Desired Outcome').getByRole('button', { name: 'Cancel' }));
-    for (const title of ['Belong', 'Save']) { await user.click(screen.getByRole('button', { name: title })); const tab = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true }); window.dispatchEvent(tab); expect(tab.defaultPrevented).toBe(false); fireEvent.contextMenu(screen.getByRole('button', { name: title })); expect(screen.queryByRole('menuitem', { name: 'Add child' })).not.toBeInTheDocument(); await user.click(screen.getByRole('menuitem', { name: 'Duplicate' })); }
+    for (const [kind, title] of [['consumption_chain_job', 'Acquire'], ['emotional_job', 'Feel'], ['social_job', 'Belong'], ['financial_desired_outcome', 'Save']] as const) { await user.click(screen.getByRole('button', { name: 'Add element' })); await user.click(screen.getByRole('button', { name: 'Client side' })); await user.selectOptions(screen.getByLabelText('Client element type'), kind); await user.type(screen.getByLabelText('Title'), title); await user.click(screen.getByRole('button', { name: 'Create element' })); }
+    await user.click(screen.getByRole('button', { name: 'Acquire' })); fireEvent.keyDown(window, { key: 'Tab' });
+    expect(within(screen.getByRole('dialog', { name: 'Choose child type' })).getAllByRole('button').map(button => button.textContent)).toEqual(['Desired Outcome', 'Repulsor', 'Cancel']);
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+    for (const title of ['Feel', 'Belong', 'Save']) { await user.click(screen.getByRole('button', { name: title })); fireEvent.keyDown(window, { key: 'Tab' }); const editor = contextualEditor('Add Repulsor'); expect(editor.getByText(`Resists: ${title}`)).toBeInTheDocument(); await user.click(editor.getByRole('button', { name: 'Cancel' })); fireEvent.contextMenu(screen.getByRole('button', { name: title })); expect(screen.getByRole('menuitem', { name: 'Add child' })).toBeInTheDocument(); await user.click(screen.getByRole('menuitem', { name: 'Add child' })); expect(contextualEditor('Add Repulsor').getByText(`Resists: ${title}`)).toBeInTheDocument(); await user.click(contextualEditor('Add Repulsor').getByRole('button', { name: 'Cancel' })); }
   });
   it('creates blank contextual siblings under the same parent and edits the semantic parent in Inspector', async () => {
     const user = userEvent.setup(); render(<MapSpike />);
@@ -60,11 +76,12 @@ describe('map-first authoring interactions', () => {
     expect(screen.getByText('Emotional Job')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Feel confident' }));
-    const tab = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true }); window.dispatchEvent(tab);
-    expect(tab.defaultPrevented).toBe(false);
-    expect(screen.queryByRole('heading', { name: /^Add / })).not.toBeInTheDocument();
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true }); fireEvent(window, tab);
+    expect(tab.defaultPrevented).toBe(true);
+    expect(contextualEditor('Add Repulsor').getByText('Resists: Feel confident')).toBeInTheDocument();
+    await user.click(contextualEditor('Add Repulsor').getByRole('button', { name: 'Cancel' }));
     fireEvent.contextMenu(screen.getByRole('button', { name: 'Feel confident' }));
-    expect(screen.queryByRole('menuitem', { name: 'Add child' })).not.toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Add child' })).toBeInTheDocument();
     await user.click(screen.getByRole('menuitem', { name: 'Add sibling' }));
     expect(contextualEditor('Add Emotional Job').getByLabelText('Title')).toHaveValue('');
     await user.click(contextualEditor('Add Emotional Job').getByRole('button', { name: 'Cancel' }));

@@ -1,7 +1,7 @@
 import type { Entity, MapDocument, ProvisionalEntityKind, Relationship } from '@vee/domain';
 import { MarkerType, type Edge, type Node } from '@xyflow/react';
 
-export const KIND_LABELS: Record<ProvisionalEntityKind, string> = { product: 'Product', offer: 'Offer', touchpoint: 'Touchpoint', core_functional_job: 'Core Functional Job', emotional_job: 'Emotional Job', social_job: 'Social Job', consumption_chain_job: 'Consumption Chain Job', financial_desired_outcome: 'Financial Desired Outcome', related_job: 'Related Job', desired_outcome: 'Desired Outcome' };
+export const KIND_LABELS: Record<ProvisionalEntityKind, string> = { product: 'Product', offer: 'Offer', touchpoint: 'Touchpoint', core_functional_job: 'Core Functional Job', emotional_job: 'Emotional Job', social_job: 'Social Job', consumption_chain_job: 'Consumption Chain Job', financial_desired_outcome: 'Financial Desired Outcome', related_job: 'Related Job', desired_outcome: 'Desired Outcome', repulsor: 'Repulsor' };
 export interface NodeLayout { diameter: number; titleFontSize: number; kindFontSize: number; contentWidth: number; compactTitle: boolean }
 export interface MapNodeData extends Record<string, unknown> { title: string; kindLabel: string; layout: NodeLayout; url?: string }
 const ROLE_LAYOUTS: Record<ProvisionalEntityKind, Pick<NodeLayout, 'diameter' | 'titleFontSize' | 'kindFontSize'>> = {
@@ -15,6 +15,7 @@ const ROLE_LAYOUTS: Record<ProvisionalEntityKind, Pick<NodeLayout, 'diameter' | 
   financial_desired_outcome: { diameter: 116, titleFontSize: 15, kindFontSize: 12.5 },
   related_job: { diameter: 96, titleFontSize: 14, kindFontSize: 12 },
   desired_outcome: { diameter: 96, titleFontSize: 14, kindFontSize: 12 },
+  repulsor: { diameter: 96, titleFontSize: 14, kindFontSize: 12 },
 };
 
 function endpoints(relationship: Relationship): [string, string] {
@@ -22,7 +23,8 @@ function endpoints(relationship: Relationship): [string, string] {
   if (relationship.kind === 'offer_presented_at_touchpoint') return [relationship.offerId, relationship.touchpointId];
   if (relationship.kind === 'touchpoint_contains_touchpoint') return [relationship.parentTouchpointId, relationship.childTouchpointId];
   if (relationship.kind === 'core_functional_job_has_related_job') return [relationship.coreFunctionalJobId, relationship.relatedJobId];
-  return [relationship.jobId, relationship.desiredOutcomeId];
+  if (relationship.kind === 'job_has_desired_outcome') return [relationship.jobId, relationship.desiredOutcomeId];
+  return [relationship.repulsorId, relationship.targetEntityId];
 }
 export function layoutForEntity(entity: Pick<Entity, 'kind' | 'title'>): NodeLayout {
   const role = ROLE_LAYOUTS[entity.kind];

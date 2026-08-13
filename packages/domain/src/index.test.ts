@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addTouchpointContainer, createEmptyMapDocument, duplicateEntity, movePlacement, updateEntity } from './index';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addTouchpointContainer, createEmptyMapDocument, duplicateEntity, movePlacement, updateEntity, updateRepulsorTargets } from './index';
 
 const place = { viewId: 'view', x: 10, y: 20 };
 const empty = () => createEmptyMapDocument({ mapId: 'map', title: 'Map', viewId: 'view', viewTitle: 'View' });
@@ -103,4 +103,58 @@ describe('map authoring domain', () => {
     expect(copy.epistemicAnnotations).toEqual(d.epistemicAnnotations); expect(copy.epistemicAnnotations.some(a => a.subjectEntityId === 'copy')).toBe(false);
   });
   it('moves view placement without changing semantic records', () => { const before = addEntity(empty(), { ...place, entityId: 'p', title: 'P', kind: 'product' }); const after = movePlacement(before, { entityId: 'p', viewId: 'view', x: 30, y: 40 }); expect(after.entities).toBe(before.entities); expect(after.placements[0]).toMatchObject({ x: 30, y: 40 }); });
+  describe('Repulsor semantics', () => {
+    function targets() {
+      let d = empty();
+      for (const [id, kind] of [
+        ['core', 'core_functional_job'], ['chain', 'consumption_chain_job'], ['emotional', 'emotional_job'],
+        ['social', 'social_job'], ['financial', 'financial_desired_outcome'],
+      ] as const) d = addEntity(d, { ...place, entityId: id, title: id, kind });
+      return d;
+    }
+    it('transactionally creates one- and many-target Repulsors in semantic direction', () => {
+      const one = addEntity(targets(), { ...place, entityId: 'r', title: 'Resistance', kind: 'repulsor', resistedTargetIds: ['core'], relationshipIds: ['rr-core'] });
+      expect(one.relationships).toContainEqual({ id: 'rr-core', kind: 'repulsor_resists', repulsorId: 'r', targetEntityId: 'core' });
+      const many = addEntity(targets(), { ...place, entityId: 'r', title: 'Resistance', kind: 'repulsor', resistedTargetIds: ['core', 'chain', 'emotional', 'social', 'financial'], relationshipIds: ['a', 'b', 'c', 'd', 'e'] });
+      expect(many.relationships.filter(r => r.kind === 'repulsor_resists')).toHaveLength(5);
+      expect(many.placements).toContainEqual({ viewId: 'view', entityId: 'r', x: 10, y: 20 });
+    });
+    it('rejects zero, duplicate, unknown, and every disallowed target kind', () => {
+      expect(() => addEntity(targets(), { ...place, entityId: 'r', title: 'R', kind: 'repulsor', resistedTargetIds: [], relationshipIds: [] })).toThrow('at least one');
+      expect(() => addEntity(targets(), { ...place, entityId: 'r', title: 'R', kind: 'repulsor', resistedTargetIds: ['core', 'core'], relationshipIds: ['a', 'b'] })).toThrow('unique');
+      expect(() => addEntity(targets(), { ...place, entityId: 'r', title: 'R', kind: 'repulsor', resistedTargetIds: ['missing'], relationshipIds: ['a'] })).toThrow('existing entity');
+      let d = targets();
+      d = addEntity(d, { ...place, entityId: 'product', title: 'P', kind: 'product' });
+      d = addEntity(d, { ...place, entityId: 'offer', title: 'O', kind: 'offer', linkedProductId: 'product', relationshipId: 'po' });
+      d = addTouchpointContainer(d, { id: 'site', title: 'Site' });
+      d = addEntity(d, { ...place, entityId: 'touch', title: 'T', kind: 'touchpoint', locatedInId: 'site', linkedOfferIds: ['offer'], relationshipIds: ['ot'] });
+      d = addEntity(d, { ...place, entityId: 'related', title: 'RJ', kind: 'related_job', parentEntityId: 'core', relationshipId: 'cr' });
+      d = addEntity(d, { ...place, entityId: 'outcome', title: 'DO', kind: 'desired_outcome', parentEntityId: 'core', relationshipId: 'cd' });
+      d = addEntity(d, { ...place, entityId: 'other-r', title: 'R', kind: 'repulsor', resistedTargetIds: ['core'], relationshipIds: ['rc'] });
+      for (const id of ['product', 'offer', 'touch', 'related', 'outcome', 'other-r']) expect(() => addEntity(d, { ...place, entityId: `bad-${id}`, title: 'Bad', kind: 'repulsor', resistedTargetIds: [id], relationshipIds: [`bad-rel-${id}`] })).toThrow('allowed Client attraction root');
+    });
+    it('updates targets while preserving retained relation IDs and assigning fresh IDs', () => {
+      const created = addEntity(targets(), { ...place, entityId: 'r', title: 'R', kind: 'repulsor', resistedTargetIds: ['core', 'chain'], relationshipIds: ['keep-core', 'remove-chain'] });
+      const updated = updateRepulsorTargets(created, { repulsorId: 'r', targetEntityIds: ['core', 'social'], newRelationshipIds: ['add-social'] });
+      expect(updated.relationships.filter(r => r.kind === 'repulsor_resists')).toEqual([
+        { id: 'keep-core', kind: 'repulsor_resists', repulsorId: 'r', targetEntityId: 'core' },
+        { id: 'add-social', kind: 'repulsor_resists', repulsorId: 'r', targetEntityId: 'social' },
+      ]);
+      expect(() => updateRepulsorTargets(updated, { repulsorId: 'r', targetEntityIds: [], newRelationshipIds: [] })).toThrow('at least one');
+      expect(() => updateRepulsorTargets(updated, { repulsorId: 'r', targetEntityIds: ['core', 'core'], newRelationshipIds: [] })).toThrow('unique');
+    });
+    it('duplicates the target set with fresh IDs and without epistemic annotation', () => {
+      let d = addEntity(targets(), { ...place, entityId: 'r', title: 'R', kind: 'repulsor', resistedTargetIds: ['core', 'social'], relationshipIds: ['old-a', 'old-b'] });
+      d = { ...d, epistemicAnnotations: [{ id: 'note', subjectEntityId: 'r', status: 'hypothesis' }] };
+      const copy = duplicateEntity(d, { sourceEntityId: 'r', entityId: 'copy', viewId: 'view', x: 50, y: 60, relationshipIds: ['new-a', 'new-b'] });
+      expect(copy.entities.find(e => e.id === 'copy')).toEqual({ id: 'copy', title: 'R', kind: 'repulsor' });
+      expect(copy.relationships.filter(r => r.kind === 'repulsor_resists' && r.repulsorId === 'copy')).toEqual([
+        { id: 'new-a', kind: 'repulsor_resists', repulsorId: 'copy', targetEntityId: 'core' },
+        { id: 'new-b', kind: 'repulsor_resists', repulsorId: 'copy', targetEntityId: 'social' },
+      ]);
+      expect(copy.epistemicAnnotations).toEqual(d.epistemicAnnotations);
+      expect(copy.epistemicAnnotations.some(a => a.subjectEntityId === 'copy')).toBe(false);
+    });
+  });
+
 });
