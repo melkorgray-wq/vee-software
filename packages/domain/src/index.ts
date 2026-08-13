@@ -1,10 +1,12 @@
 export const BUSINESS_ENTITY_KINDS = ['product', 'offer', 'touchpoint'] as const;
 export const CLIENT_ROOT_ENTITY_KINDS = ['core_functional_job', 'emotional_job', 'social_job', 'consumption_chain_job', 'financial_desired_outcome'] as const;
 export const CONTEXTUAL_CLIENT_ENTITY_KINDS = ['related_job', 'desired_outcome'] as const;
-export const PROVISIONAL_ENTITY_KINDS = [...BUSINESS_ENTITY_KINDS, ...CLIENT_ROOT_ENTITY_KINDS, ...CONTEXTUAL_CLIENT_ENTITY_KINDS] as const;
+export const REPULSOR_ENTITY_KINDS = ['repulsor'] as const;
+export const PROVISIONAL_ENTITY_KINDS = [...BUSINESS_ENTITY_KINDS, ...CLIENT_ROOT_ENTITY_KINDS, ...CONTEXTUAL_CLIENT_ENTITY_KINDS, ...REPULSOR_ENTITY_KINDS] as const;
 export type ProvisionalEntityKind = typeof PROVISIONAL_ENTITY_KINDS[number];
 export type ClientRootEntityKind = typeof CLIENT_ROOT_ENTITY_KINDS[number];
 export type ContextualClientEntityKind = typeof CONTEXTUAL_CLIENT_ENTITY_KINDS[number];
+export type RepulsorEntityKind = typeof REPULSOR_ENTITY_KINDS[number];
 export function isClientRootEntityKind(kind: ProvisionalEntityKind): kind is ClientRootEntityKind { return (CLIENT_ROOT_ENTITY_KINDS as readonly string[]).includes(kind); }
 export function isContextualClientEntityKind(kind: ProvisionalEntityKind): kind is ContextualClientEntityKind { return (CONTEXTUAL_CLIENT_ENTITY_KINDS as readonly string[]).includes(kind); }
 export const EPISTEMIC_STATUSES = ['observed', 'participant_reported', 'business_intent', 'hypothesis', 'interpretation', 'confirmed_outcome'] as const;
@@ -14,13 +16,14 @@ export type Entity =
   | { id: string; kind: 'touchpoint'; title: string; locatedInId: string; url?: string }
   | { id: string; kind: 'product'; title: string }
   | { id: string; kind: 'offer'; title: string }
-  | { id: string; kind: ClientRootEntityKind | ContextualClientEntityKind; title: string };
+  | { id: string; kind: ClientRootEntityKind | ContextualClientEntityKind | RepulsorEntityKind; title: string };
 export type Relationship =
   | { id: string; kind: 'product_packaged_as_offer'; productId: string; offerId: string }
   | { id: string; kind: 'offer_presented_at_touchpoint'; offerId: string; touchpointId: string }
   | { id: string; kind: 'touchpoint_contains_touchpoint'; parentTouchpointId: string; childTouchpointId: string }
   | { id: string; kind: 'core_functional_job_has_related_job'; coreFunctionalJobId: string; relatedJobId: string }
-  | { id: string; kind: 'job_has_desired_outcome'; jobId: string; desiredOutcomeId: string };
+  | { id: string; kind: 'job_has_desired_outcome'; jobId: string; desiredOutcomeId: string }
+  | { id: string; kind: 'repulsor_resists'; repulsorId: string; targetEntityId: string };
 export interface TouchpointContainer { id: string; title: string }
 export interface EpistemicAnnotation { id: string; subjectEntityId: string; status: EpistemicStatus; sourceNote?: string }
 export interface View { id: string; title: string }
@@ -43,6 +46,15 @@ function entityOfKind(document: MapDocument, id: string, kind: ProvisionalEntity
 function unique(ids: string[], code = 'duplicate_relationship_id') { if (new Set(ids).size !== ids.length) throw new DomainError(code, 'IDs must be unique.'); }
 function assertContainer(document: MapDocument, id: string) { if (!document.touchpointContainers.some(container => container.id === id)) throw new DomainError('invalid_touchpoint_container', 'Located in must reference an existing Touchpoint container.'); }
 function assertRelationshipIds(document: MapDocument, ids: string[], ignored: string[] = []) { unique(ids); if (ids.some(id => document.relationships.some(r => r.id === id && !ignored.includes(r.id)))) throw new DomainError('duplicate_relationship_id', 'Relationship ID already exists.'); }
+function assertRepulsorTargets(document: MapDocument, targetEntityIds: string[]) {
+  if (!targetEntityIds.length) throw new DomainError('missing_repulsor_target', 'A Repulsor must resist at least one Client phenomenon.');
+  unique(targetEntityIds, 'duplicate_repulsor_target');
+  for (const id of targetEntityIds) {
+    const target = document.entities.find(entity => entity.id === id);
+    if (!target) throw new DomainError('invalid_relationship_reference', 'Repulsor target does not reference an existing entity.');
+    if (!isClientRootEntityKind(target.kind)) throw new DomainError('invalid_relationship_endpoint', 'Repulsor target must reference an allowed Client attraction root.');
+  }
+}
 
 export function createEmptyMapDocument(input: { mapId: string; title: string; viewId: string; viewTitle: string }): MapDocument {
   return { id: input.mapId, title: required(input.title, 'Map title'), entities: [], relationships: [], touchpointContainers: [], epistemicAnnotations: [], views: [{ id: input.viewId, title: required(input.viewTitle, 'View title') }], placements: [] };
@@ -59,6 +71,7 @@ type PlacementInput = { entityId: string; title: string; viewId: string; x: numb
 export type AddEntityInput = PlacementInput & (
   | { kind: 'product' | ClientRootEntityKind }
   | { kind: ContextualClientEntityKind; parentEntityId: string; relationshipId: string }
+  | { kind: 'repulsor'; resistedTargetIds: string[]; relationshipIds: string[] }
   | { kind: 'offer'; linkedProductId: string; relationshipId: string }
   | { kind: 'touchpoint'; locatedInId: string; url?: string; linkedOfferIds: string[]; relationshipIds: string[]; parentTouchpointId?: string; parentRelationshipId?: string }
 );
@@ -93,6 +106,11 @@ export function addEntity(document: MapDocument, input: AddEntityInput): MapDocu
     if (!parent) throw new DomainError('invalid_relationship_reference', 'Desired Outcome parent does not reference an existing entity.');
     if (parent.kind !== 'core_functional_job' && parent.kind !== 'consumption_chain_job') throw new DomainError('invalid_relationship_endpoint', 'Desired Outcome parent must reference a Core Functional Job or Consumption Chain Job.');
     added = [{ id: input.relationshipId, kind: 'job_has_desired_outcome', jobId: input.parentEntityId, desiredOutcomeId: input.entityId }];
+    entity = { id: input.entityId, title, kind: input.kind };
+  } else if (input.kind === 'repulsor') {
+    assertRepulsorTargets(document, input.resistedTargetIds);
+    if (input.relationshipIds.length !== input.resistedTargetIds.length) throw new DomainError('invalid_relationship_ids', 'Each resisted target requires a relationship ID.');
+    added = input.resistedTargetIds.map((targetEntityId, index) => ({ id: input.relationshipIds[index]!, kind: 'repulsor_resists', repulsorId: input.entityId, targetEntityId }));
     entity = { id: input.entityId, title, kind: input.kind };
   } else entity = { id: input.entityId, title, kind: input.kind };
   assertRelationshipIds(document, added.map(r => r.id));
@@ -141,6 +159,18 @@ export function updateEntity(document: MapDocument, input: UpdateEntityInput): M
   return { ...document, entities: document.entities.map(e => e.id === entity.id ? updated : e), relationships };
 }
 
+export function updateRepulsorTargets(document: MapDocument, input: { repulsorId: string; targetEntityIds: string[]; newRelationshipIds: string[] }): MapDocument {
+  entityOfKind(document, input.repulsorId, 'repulsor', 'Repulsor');
+  assertRepulsorTargets(document, input.targetEntityIds);
+  const existing = document.relationships.filter((relationship): relationship is Extract<Relationship, { kind: 'repulsor_resists' }> => relationship.kind === 'repulsor_resists' && relationship.repulsorId === input.repulsorId);
+  const retained = new Map(existing.map(relationship => [relationship.targetEntityId, relationship]));
+  const additions = input.targetEntityIds.filter(id => !retained.has(id));
+  if (input.newRelationshipIds.length !== additions.length) throw new DomainError('invalid_relationship_ids', 'Each newly resisted target requires a fresh relationship ID.');
+  assertRelationshipIds(document, input.newRelationshipIds);
+  const replacement = input.targetEntityIds.map(targetEntityId => retained.get(targetEntityId) ?? ({ id: input.newRelationshipIds[additions.indexOf(targetEntityId)]!, kind: 'repulsor_resists' as const, repulsorId: input.repulsorId, targetEntityId }));
+  return { ...document, relationships: [...document.relationships.filter(relationship => !(relationship.kind === 'repulsor_resists' && relationship.repulsorId === input.repulsorId)), ...replacement] };
+}
+
 export function duplicateEntity(document: MapDocument, input: { sourceEntityId: string; entityId: string; viewId: string; x: number; y: number; relationshipIds: string[] }): MapDocument {
   const source = document.entities.find(e => e.id === input.sourceEntityId); if (!source) throw new DomainError('unknown_entity', 'Source entity does not exist.');
   if (source.kind === 'product' || isClientRootEntityKind(source.kind)) return addEntity(document, { entityId: input.entityId, title: source.title, kind: source.kind, viewId: input.viewId, x: input.x, y: input.y });
@@ -150,6 +180,10 @@ export function duplicateEntity(document: MapDocument, input: { sourceEntityId: 
       : document.relationships.find((r): r is Extract<Relationship, { kind: 'job_has_desired_outcome' }> => r.kind === 'job_has_desired_outcome' && r.desiredOutcomeId === source.id)?.jobId;
     if (!parentEntityId) throw new DomainError('missing_semantic_parent', 'Contextual Client entity has no semantic parent.');
     return addEntity(document, { entityId: input.entityId, title: source.title, kind: source.kind, parentEntityId, relationshipId: input.relationshipIds[0]!, viewId: input.viewId, x: input.x, y: input.y });
+  }
+  if (source.kind === 'repulsor') {
+    const targetIds = document.relationships.filter((relationship): relationship is Extract<Relationship, { kind: 'repulsor_resists' }> => relationship.kind === 'repulsor_resists' && relationship.repulsorId === source.id).map(relationship => relationship.targetEntityId);
+    return addEntity(document, { entityId: input.entityId, title: source.title, kind: 'repulsor', resistedTargetIds: targetIds, relationshipIds: input.relationshipIds.slice(0, targetIds.length), viewId: input.viewId, x: input.x, y: input.y });
   }
   if (source.kind === 'offer') { const relation = document.relationships.find((r): r is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => r.kind === 'product_packaged_as_offer' && r.offerId === source.id)!; return addEntity(document, { entityId: input.entityId, title: source.title, kind: 'offer', linkedProductId: relation.productId, relationshipId: input.relationshipIds[0]!, viewId: input.viewId, x: input.x, y: input.y }); }
   if (source.kind !== 'touchpoint') throw new DomainError('unsupported_entity_kind', 'Source entity kind cannot be duplicated.');

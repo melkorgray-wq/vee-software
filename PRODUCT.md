@@ -12,7 +12,7 @@ That article is conceptual background, not a software specification. This docume
 
 ## Current stage and runtime
 
-The project is in solution discovery and Software Alpha design. The repository contains a runnable in-memory domain and interaction spike, not a functional Alpha. It tests separation between entity, typed relationship, epistemic annotation, view, placement, rendering, and UI state. The runtime implements the five accepted root-createable Client-side kinds plus contextual Related Job and Desired Outcome relationships for their accepted parents, but not Repulsor or cross-side semantics. The spike does not implement Client-side Repulsors, Evidence, contextual support, Value Realization, persistence, derived forces, or 3D visualization.
+The project is in solution discovery and Software Alpha design. The repository contains a runnable in-memory domain and interaction spike, not a functional Alpha. It tests separation between entity, typed relationship, epistemic annotation, view, placement, rendering, and UI state. The runtime implements the five accepted root-createable Client-side kinds, contextual Related Job and Desired Outcome relationships for their accepted parents, and contextual Repulsor authoring with explicit resistance relationships to one or more allowed Client attraction roots, but not cross-side semantics. The spike does not implement Evidence, contextual support, Value Realization, persistence, derived forces, or 3D visualization.
 
 The technical architecture remains **Proposed**. The conceptual ontology below is accepted product direction for the next Alpha slice, while its implementation schema and the specifically identified relationship mechanics remain provisional. Current runtime behavior, committed product direction, provisional future mechanics, and open research questions must not be conflated.
 
@@ -68,7 +68,7 @@ A Related Job is semantically relative to a Core Functional Job and should not n
 
 Social Job, Emotional Job, Consumption Chain Job, and Financial Desired Outcome may exist as independent Client-side roots. VEE deliberately does not force them into a visual containment hierarchy beneath Core Functional Job. Client-side Jobs may also exist without any Product association; likewise, Products may exist before their relevant Jobs are known. Future authoring should allow selection or creation of a related entity from either side without making that relation mandatory. This supports discovery when demand precedes a Product, a Product precedes understood demand, or research reveals previously unknown Jobs or Repulsors.
 
-Repulsor is the one generic, provisional Client-side negative phenomenon in the current ontology; Risk, Fear, Objection, and similar subclasses are not currently introduced. It may be created contextually from an attraction entity, but that gesture does not establish permanent ownership or containment. The longer-term semantic model must permit one Repulsor to relate to multiple Client-side phenomena. Its detailed relationship semantics remain open.
+Repulsor is the one generic, provisional Client-side negative phenomenon in the current ontology; Risk, Fear, Objection, and similar subclasses are not currently introduced. It may be created contextually from an attraction entity, but that gesture does not establish permanent ownership or containment. In the current runtime, a Repulsor explicitly resists one or more of the five root-createable Client attraction kinds through directed `repulsor_resists` relationships; whether that target set should broaden remains open.
 
 Attraction and repulsion are not necessarily a generic entity taxonomy. Product, Offer, and Touchpoint are intrinsically Business-side attraction-oriented. Whether contextual phenomena have intrinsic polarity or instead affect other forces through typed relationships remains unresolved.
 
@@ -233,7 +233,7 @@ The following remain outside the current implementation slice, without being rej
 
 ## Open product questions
 
-- What are the detailed relationship semantics for Repulsor, including how a Repulsor relates to multiple Client-side phenomena?
+- Should future evidence from real maps broaden the currently allowed Repulsor target kinds beyond the five root-createable Client attraction kinds?
 - What is the exact contextual / Actual Life Context ontology, and does context carry polarity or modify other forces?
 - How should support confidence, provenance, diversity, recency, repeatability, and aggregation work?
 - What storage/schema mechanics should represent Evidence, Factual Support, role bindings, epistemic standing, semantic scope, inheritance, and reverse synchronization?

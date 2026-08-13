@@ -3,7 +3,7 @@ import type { MapDocument, ProvisionalEntityKind, Relationship } from '@vee/doma
 export interface Point { x: number; y: number }
 export interface PanelRect { left: number; top: number; width: number; height: number }
 export interface OverlaySize { width: number; height: number }
-export type SiblingDraft = { kind: ProvisionalEntityKind; title: ''; linkedProductId: string; linkedOfferIds: string[]; locatedInId: string; locatedInQuery: string; parentTouchpointId: string; parentEntityId: string; url: '' };
+export type SiblingDraft = { kind: ProvisionalEntityKind; title: ''; linkedProductId: string; linkedOfferIds: string[]; locatedInId: string; locatedInQuery: string; parentTouchpointId: string; parentEntityId: string; resistedTargetIds: string[]; url: '' };
 
 export function overlayPoint(client: Point, panel: PanelRect, overlay = { width: 208, height: 224 }): Point {
   return {
@@ -42,7 +42,7 @@ export function linkedOfferIds(document: MapDocument, touchpointId: string): str
 export function siblingDraft(document: MapDocument, entityId: string): SiblingDraft | null {
   const entity = document.entities.find(candidate => candidate.id === entityId);
   if (!entity) return null;
-  const result: SiblingDraft = { kind: entity.kind, title: '', linkedProductId: '', linkedOfferIds: [], locatedInId: '', locatedInQuery: '', parentTouchpointId: '', parentEntityId: '', url: '' };
+  const result: SiblingDraft = { kind: entity.kind, title: '', linkedProductId: '', linkedOfferIds: [], locatedInId: '', locatedInQuery: '', parentTouchpointId: '', parentEntityId: '', resistedTargetIds: [], url: '' };
   if (entity.kind === 'offer') result.linkedProductId = document.relationships.find((relationship): relationship is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => relationship.kind === 'product_packaged_as_offer' && relationship.offerId === entity.id)?.productId ?? '';
   if (entity.kind === 'touchpoint') {
     result.linkedOfferIds = linkedOfferIds(document, entity.id);
@@ -52,6 +52,7 @@ export function siblingDraft(document: MapDocument, entityId: string): SiblingDr
   }
   if (entity.kind === 'related_job') result.parentEntityId = document.relationships.find((relationship): relationship is Extract<Relationship, { kind: 'core_functional_job_has_related_job' }> => relationship.kind === 'core_functional_job_has_related_job' && relationship.relatedJobId === entity.id)?.coreFunctionalJobId ?? '';
   if (entity.kind === 'desired_outcome') result.parentEntityId = document.relationships.find((relationship): relationship is Extract<Relationship, { kind: 'job_has_desired_outcome' }> => relationship.kind === 'job_has_desired_outcome' && relationship.desiredOutcomeId === entity.id)?.jobId ?? '';
+  if (entity.kind === 'repulsor') result.resistedTargetIds = document.relationships.filter((relationship): relationship is Extract<Relationship, { kind: 'repulsor_resists' }> => relationship.kind === 'repulsor_resists' && relationship.repulsorId === entity.id).map(relationship => relationship.targetEntityId);
   return result;
 }
 
