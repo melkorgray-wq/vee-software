@@ -56,13 +56,14 @@ Client-side demand is represented through concrete client phenomena, not a separ
 - **Consumption Chain Job**
 - **Financial Desired Outcome**
 
-Its contextual, normally non-root entities are **Related Job**, **Desired Outcome**, and **Repulsor**. The accepted child-creation grammar is:
+Its contextual, normally non-root entities are **Related Job**, **Desired Outcome**, and **Repulsor**. Current authored-map interactions distinguish canonical Child authoring from contextual resistance-relation authoring.
 
-- Core Functional Job → Related Job, Desired Outcome, Repulsor;
-- Consumption Chain Job → Desired Outcome, Repulsor;
-- Emotional Job → Repulsor;
-- Social Job → Repulsor; and
-- Financial Desired Outcome → Repulsor.
+The canonical contextual Child grammar is:
+
+- Core Functional Job → Related Job, Desired Outcome; and
+- Consumption Chain Job → Desired Outcome.
+
+Repulsor is not a Child entity. **Add Repulsor** may be invoked contextually from Core Functional Job, Consumption Chain Job, Emotional Job, Social Job, or Financial Desired Outcome. That command creates `Repulsor ──repulsor_resists──→ selected target`; it creates no parenthood, ownership, or containment. Placement near the selected target is view/layout behavior only.
 
 A Related Job is semantically relative to a Core Functional Job and should not normally be a free root. A generic Desired Outcome is an outcome of a Functional Job or Consumption Chain Job and should not normally be a free root. Once created, it remains a full graph entity because it may accumulate its own Evidence, relationships, and analytical significance.
 
@@ -174,8 +175,9 @@ Authoring in 2D is map-first rather than form-first. The interaction model shoul
 
 Committed interaction direction:
 
-- **Tab → canonical child.** The selected node determines the valid next structural type and known parent relation: Product → Offer, Offer → Touchpoint, Touchpoint → Child Touchpoint.
-- **Enter → canonical sibling** is the intended next keyboard convention, subject to runtime validation before it is treated as implemented behavior.
+- **Tab → canonical Child where one exists.** The selected node determines the valid next structural type and known parent relation: Product → Offer, Offer → Touchpoint, Touchpoint → Child Touchpoint, Core Functional Job → Related Job or Desired Outcome, and Consumption Chain Job → Desired Outcome.
+- **Shift+Tab → Add Repulsor** when the selected entity is one of the five valid Repulsor targets. This authors only the directed resistance relationship from the new Repulsor to that target.
+- **Enter → canonical or same-context sibling** as currently implemented. For Repulsor, the blank sibling inherits the resisted target set without implying a semantic parent.
 - **Right click on empty canvas → valid root creation** for a new independent authored branch.
 - **Right click on a node → contextual structural actions** such as Add child, Add sibling, Duplicate, Open link, Delete, and later domain-specific actions.
 - **Ctrl/Cmd+C and Ctrl/Cmd+V → structural duplicate** of authored entity data and applicable authored relationships. Duplication must never copy epistemic annotations, Evidence, observations, or future analytical state.
