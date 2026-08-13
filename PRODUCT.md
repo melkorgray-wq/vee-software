@@ -14,7 +14,7 @@ That article is conceptual background, not a software specification. This docume
 
 The project is in solution discovery and Software Alpha design. The repository contains a runnable in-memory domain and interaction spike, not a functional Alpha. It tests separation between entity, typed relationship, epistemic annotation, view, placement, rendering, and UI state. The runtime's Customer phenomenon is only a placeholder; it is not the intended Client-side ontology. The spike does not implement Client-side attraction or repulsion entities, Evidence, contextual support, Value Realization, persistence, derived forces, or 3D visualization.
 
-The technical architecture remains **Proposed**, and the ontology remains provisional. Current runtime behavior, committed product direction, provisional ontology candidates, and open research questions must not be conflated.
+The technical architecture remains **Proposed**. The conceptual ontology below is accepted product direction for the next Alpha slice, while its implementation schema and the specifically identified relationship mechanics remain provisional. Current runtime behavior, committed product direction, provisional future mechanics, and open research questions must not be conflated.
 
 ## Software Alpha boundary
 
@@ -48,11 +48,47 @@ These types are attraction-oriented by what they already mean; there is no gener
 
 ### Client-side attraction and repulsion
 
-Client-side demand is expected to be represented through concrete client phenomena, not a separate Demand node. Jobs To Be Done entities or classifications are the primary current candidate for Client-side attraction semantics, including Core Functional Job, Emotional Job, Social Job, Consumption Chain Job, Desired Outcomes, and related concepts. It remains open which JTBD concepts become entity kinds and which become classifications or properties.
+Client-side demand is represented through concrete client phenomena, not a separate Demand node. The accepted conceptual Client-side ontology for the next Alpha slice has these root-createable attraction entities:
 
-Client-side repulsion is also committed ontology direction. Candidate phenomena include objections, fears, risks, undesired states, negative prior experiences, counter-outcomes, and similar concepts. Their exact entity and relationship semantics remain provisional.
+- **Core Functional Job**
+- **Emotional Job**
+- **Social Job**
+- **Consumption Chain Job**
+- **Financial Desired Outcome**
 
-Attraction and repulsion are not necessarily a generic entity taxonomy. Product, Offer, and Touchpoint are intrinsically Business-side attraction-oriented; JTBD-style client Jobs are expected to carry Client-side attraction semantics; and Client-side objection, risk, or undesired-state entities may carry repulsion semantics. Whether contextual phenomena have intrinsic polarity or instead affect other forces through typed relationships is unresolved.
+Its contextual, normally non-root entities are **Related Job**, **Desired Outcome**, and **Repulsor**. The accepted child-creation grammar is:
+
+- Core Functional Job → Related Job, Desired Outcome, Repulsor;
+- Consumption Chain Job → Desired Outcome, Repulsor;
+- Emotional Job → Repulsor;
+- Social Job → Repulsor; and
+- Financial Desired Outcome → Repulsor.
+
+A Related Job is semantically relative to a Core Functional Job and should not normally be a free root. A generic Desired Outcome is an outcome of a Functional Job or Consumption Chain Job and should not normally be a free root. Once created, it remains a full graph entity because it may accumulate its own Evidence, relationships, and analytical significance.
+
+Social Job, Emotional Job, Consumption Chain Job, and Financial Desired Outcome may exist as independent Client-side roots. VEE deliberately does not force them into a visual containment hierarchy beneath Core Functional Job. Client-side Jobs may also exist without any Product association; likewise, Products may exist before their relevant Jobs are known. Future authoring should allow selection or creation of a related entity from either side without making that relation mandatory. This supports discovery when demand precedes a Product, a Product precedes understood demand, or research reveals previously unknown Jobs or Repulsors.
+
+Repulsor is the one generic, provisional Client-side negative phenomenon in the current ontology; Risk, Fear, Objection, and similar subclasses are not currently introduced. It may be created contextually from an attraction entity, but that gesture does not establish permanent ownership or containment. The longer-term semantic model must permit one Repulsor to relate to multiple Client-side phenomena. Its detailed relationship semantics remain open.
+
+Attraction and repulsion are not necessarily a generic entity taxonomy. Product, Offer, and Touchpoint are intrinsically Business-side attraction-oriented. Whether contextual phenomena have intrinsic polarity or instead affect other forces through typed relationships remains unresolved.
+
+### Customer roles
+
+Customer roles are metadata or reference configuration, not mandatory visible Actor or persona nodes. The accepted vocabulary is **Core Job Executor**, **Product Lifecycle Support Team**, and **Purchase Decision Maker**. These roles may refer to the same real actor or different actors, and the future model must remain compatible with explicit “same actor as” grouping.
+
+The default conceptual bindings are:
+
+- Core Functional Job, Related Job, Emotional Job, and Social Job → Core Job Executor;
+- Consumption Chain Job → Product Lifecycle Support Team; and
+- Financial Desired Outcome → Purchase Decision Maker.
+
+Bindings must remain editable because roles may overlap in practice. The final implementation schema is not yet prescribed.
+
+### Domain semantics and epistemic standing
+
+An entity's domain type and its epistemic standing are separate. Authoring a Core Functional Job records what the user currently believes the entity to be; it does not establish that research has validated either the formulation or the type. The map is partly a research model, not only a repository of established facts.
+
+VEE must support hypothesized and provisional formulations that later Evidence can support, refine, split, reinterpret or retype where appropriate, or reject. Unsupported and weakly supported areas remain useful analytical information because they can identify where further research or evidence-gathering should be designed. Domain semantics must therefore never implicitly confer epistemic confirmation.
 
 ### Context / Actual Life Context
 
@@ -62,16 +98,34 @@ Actual Life Context is a contextual layer, not a single required mega-node. It c
 
 The product trajectory requires a knowledge layer capable of supporting entities, relationships, contextual factors, and eventually Value Realization. Shared support infrastructure must preserve provenance or source, uncertainty or confidence, and time. Quantitative and qualitative support may apply at any level; neither is prescribed for only one entity type.
 
-Not all support has the same epistemic role:
+The accepted working knowledge-layer terms have different epistemic roles:
 
-- **Relational / behavioral evidence** primarily supports claims that interactions, relationships, usage, responses, outcomes, or value exchange occur.
-- **Factual / contextual support** establishes externally observable environmental conditions such as market prices, regulation, macroeconomic conditions, or technology availability.
+- **Evidence** primarily supports observed interactions, relationships, behavior, usage, responses, purchases, outcomes, Value Realization, and similar claims.
+- **Factual Support** supports externally verifiable contextual or environmental facts such as market prices, regulation, macroeconomic conditions, or technology availability.
 
-The system must eventually distinguish these roles while allowing them to share provenance, confidence, and time infrastructure. Whether **Proof**, factual contextual support, or another term and domain representation should name the second role remains an open ontology question. Creating a domain entity does not automatically create support or an epistemic annotation.
+The future system must distinguish these roles while allowing shared infrastructure for provenance or source, confidence or reliability, and time. **Proof** is rejected as the primary term because it implies a stronger or more final level of demonstration than intended. This terminology is accepted product direction; exact storage and schema mechanics remain future work. Creating a domain entity does not automatically create support or an epistemic annotation.
+
+### Cross-side topology and semantic scope
+
+The authored graph is constrained by VEE semantics rather than permitting arbitrary cross-side relations. Touchpoint is the only authored encounter boundary at which a visible Client-side ↔ Business-side graph connection appears. Visible direct Job ↔ Product and Job ↔ Offer edges are not part of the model.
+
+Product and Offer may instead hold authored semantic scope or references describing the Client-side phenomena the business believes they address. Product or Offer ↔ Client phenomenon is semantic scope; Touchpoint ↔ Client phenomenon is the actual authored cross-side graph connection. Neither records proof that the relationship works: each expresses business intent or hypothesized correspondence until Evidence supports or weakens it.
+
+Client semantic scope follows the Business-side structure:
+
+```text
+Product client scope
+→ an Offer selects or addresses an applicable subset
+→ Touchpoints presenting that Offer expose or inherit those Client-side connections
+```
+
+A Product may reference Client-side Jobs before an Offer or Touchpoint exists, producing semantic documentation but no visible cross-side bridge. An Offer may similarly reference Client-side phenomena. Default inheritance to its current and future Touchpoints is accepted Alpha direction; more granular Touchpoint-level narrowing may be explored later if real maps demonstrate the need.
+
+Reverse editing must preserve consistency: assigning a Client phenomenon to an Offer must keep its parent Product's scope compatible, while explicitly connecting one to a Touchpoint must keep the owning Offer and Product scopes compatible. The storage representation, synchronization commands, multi-Offer edge cases, and detailed inheritance mechanics remain open implementation questions.
 
 ### Value Realization
 
-Value Realization is a committed research direction, not a finalized entity or current runtime capability. The current candidate is the synthetic cross-side point where sufficient support establishes that one or more Products are actually realizing value relative to one or more Client-side Jobs or attraction points:
+Value Realization is a committed future synthetic cross-side concept, not a finalized entity or current runtime capability. It arises when sufficient support establishes meaningful realized value between one or more Products and one or more Client-side Jobs or phenomena:
 
 ```text
 Client-side Job(s) ──┐
@@ -79,7 +133,21 @@ Client-side Job(s) ──┐
 Product(s) ──────────┘
 ```
 
-Its creation, confirmation, and cardinality rules remain open. Individual purchases, renewals, usage periods, client cases, interviews, measured outcomes, and similar observations may later support it; no Exchange Episode graph entity is required. This direction does not introduce a separate Demand entity.
+Its creation, confirmation, thresholds, and cardinality rules remain open. Individual purchases, renewals, usage periods, client cases, interviews, measured outcomes, and similar observations may later support it; no Exchange Episode graph entity is required. This direction does not introduce a separate Demand entity.
+
+Value Realization is evolutionary rather than terminal. The longer-term direction is:
+
+```text
+authored or hypothesized system
+→ exchange
+→ Evidence / Factual Support
+→ supported understanding / Value Realization
+→ new understanding of the system
+→ new or refined Jobs, Repulsors, Context Factors, Product hypotheses, Offers, or Touchpoints
+→ subsequent exchange cycle
+```
+
+A Value Realization may therefore become an origin point for a subsequent cycle of mapping and discovery. Future persistence and model history must remain compatible with this evolution, without prescribing event sourcing or another technical architecture.
 
 ### Buyer’s Journey
 
@@ -117,6 +185,20 @@ Committed interaction direction:
 
 The canvas should infer what the graph context already establishes instead of repeatedly asking the user to select known type, side, or parent values. Quick creation may use a compact contextual editor, while detailed editing remains in the Inspector.
 
+Canvas and Inspector are two interfaces to the same domain operations: an operation must produce the same model regardless of where it begins. Future cross-side canvas gestures must not become generic edge drawing. A gesture toward an invalid direct relation should instead be treated as intent to complete valid VEE structure. For example:
+
+- dragging a Job toward a Product must not create a Job ↔ Product edge; a future UI may guide selection or creation of the relevant Offer and eventual Touchpoint;
+- dragging a Job toward an Offer may assign it to the Offer's semantic scope and synchronize scope upward to Product, without creating a visible Job ↔ Offer edge; and
+- dragging a Job to a valid Touchpoint may create the actual cross-side connection and synchronize semantic scope upward.
+
+The final modal, popover, or other interaction mechanics remain open. The governing principle is that allowed operations encode the VEE model: VEE is not a generic free-form graph editor.
+
+### Methodological complexity and guidance
+
+VEE models complex systems for serious systems-level work by senior product, marketing, operations, strategy, and management practitioners, including top management and C-level users where applicable. Meaningful methodological complexity is deliberate product direction, not a defect to eliminate; the UX should reduce unnecessary friction without erasing that complexity.
+
+Future authoring should include contextual learning and help. For concepts such as Core Functional Job, concise help may explain what the concept means, how it is used, where a user may discover it, and how it may be researched or validated. The help system and its final interaction design are not part of the current runtime slice.
+
 ### 2D visual hierarchy and layout
 
 Authored 2D node size should be stable by semantic role / structural level rather than grow whenever deeper descendants are added. Descendant-driven resizing is not the target interaction model because adding content deep in a branch should not unexpectedly resize ancestor nodes and shift the map.
@@ -151,17 +233,16 @@ The following remain outside the current implementation slice, without being rej
 
 ## Open product questions
 
-- What is the exact Client-side JTBD ontology, including which concepts are entity kinds versus classifications or properties?
-- Which types have intrinsic attraction or repulsion semantics, and where is explicit polarity needed?
-- What is the exact Client-side Repulsion Point ontology, including its relationship semantics?
+- What are the detailed relationship semantics for Repulsor, including how a Repulsor relates to multiple Client-side phenomena?
 - What is the exact contextual / Actual Life Context ontology, and does context carry polarity or modify other forces?
-- What distinction, terminology, and representation should separate relational / behavioral evidence from Proof / factual contextual support?
 - How should support confidence, provenance, diversity, recency, repeatability, and aggregation work?
-- Which cross-side relationship types and epistemic statuses are required?
-- What are the creation and confirmation rules and cardinality for Value Realization?
+- What storage/schema mechanics should represent Evidence, Factual Support, role bindings, epistemic standing, semantic scope, inheritance, and reverse synchronization?
+- Which detailed Touchpoint ↔ Client phenomenon relationship types and epistemic statuses are required?
+- What are the creation, confirmation, threshold, and cardinality rules for Value Realization?
 - How should Buyer’s Journey classifications, filters, and suggested relationships be used?
 - How should future emergent forces be calculated and explained without turning derived state into asserted fact?
 - What future 3D rendering architecture, dependencies, and interaction model are appropriate?
-- What exact drag-to-reparent rules preserve valid Product / Offer / Touchpoint semantics, especially for Touchpoints linked to multiple Offers?
+- What exact drag-to-reparent and cross-side authoring UI mechanics preserve valid Product / Offer / Touchpoint semantics, especially for Touchpoints linked to multiple Offers?
 - What final authored-map visual scale and auto-layout behavior best preserve readability without turning rendering choices into domain meaning?
+- What persistence and model-history architecture best preserves evolutionary discovery without prematurely fixing a technical pattern?
 - What editing permissions, collaboration, offline behavior, viewport support, input devices, and mobile editing capabilities are required?
