@@ -19,6 +19,35 @@ async function quickOffer(user: ReturnType<typeof userEvent.setup>) { await user
 describe('map-first authoring interactions', () => {
   beforeEach(() => { let id = 0; vi.stubGlobal('crypto', { randomUUID: () => `id-${++id}` }); }); afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
   it('opens valid root choices on canvas context menu and cancels with Escape', async () => { render(<MapSpike />); fireEvent.contextMenu(screen.getByLabelText('Map canvas'), { clientX: 40, clientY: 50 }); expect(screen.getByRole('menuitem', { name: 'Product' })).toBeInTheDocument(); expect(screen.queryByRole('menuitem', { name: 'Offer' })).not.toBeInTheDocument(); fireEvent.keyDown(window, { key: 'Escape' }); expect(screen.queryByRole('menu')).not.toBeInTheDocument(); });
+  it('offers all concrete Client-side roots and no generic placeholder', () => {
+    render(<MapSpike />);
+    fireEvent.contextMenu(screen.getByLabelText('Map canvas'), { clientX: 40, clientY: 50 });
+    for (const name of ['Core Functional Job', 'Emotional Job', 'Social Job', 'Consumption Chain Job', 'Financial Desired Outcome']) expect(screen.getByRole('menuitem', { name })).toBeInTheDocument();
+    expect(screen.queryByText('Customer phenomenon')).not.toBeInTheDocument();
+  });
+  it('creates same-kind Client-side siblings and duplicates without inventing a Tab child', async () => {
+    const user = userEvent.setup(); render(<MapSpike />);
+    await user.click(screen.getByRole('button', { name: 'Add element' }));
+    await user.click(screen.getByRole('button', { name: 'Client side' }));
+    await user.selectOptions(screen.getByLabelText('Client element type'), 'emotional_job');
+    await user.type(screen.getByLabelText('Title'), 'Feel confident');
+    await user.click(screen.getByRole('button', { name: 'Create element' }));
+    expect(screen.getByText('Emotional Job')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Feel confident' }));
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true }); window.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(false);
+    expect(screen.queryByRole('heading', { name: /^Add / })).not.toBeInTheDocument();
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Feel confident' }));
+    expect(screen.queryByRole('menuitem', { name: 'Add child' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('menuitem', { name: 'Add sibling' }));
+    expect(contextualEditor('Add Emotional Job').getByLabelText('Title')).toHaveValue('');
+    await user.click(contextualEditor('Add Emotional Job').getByRole('button', { name: 'Cancel' }));
+
+    fireEvent.keyDown(window, { key: 'c', ctrlKey: true }); fireEvent.keyDown(window, { key: 'v', ctrlKey: true });
+    expect(screen.getAllByRole('button', { name: 'Feel confident' })).toHaveLength(2);
+    expect(screen.getAllByText('Emotional Job')).toHaveLength(2);
+  });
   it('keeps overlay and flow coordinates separate for contextual canvas creation', async () => { const user = userEvent.setup(); render(<MapSpike />); fireEvent.contextMenu(screen.getByLabelText('Map canvas'), { clientX: 140, clientY: 150 }); await user.click(screen.getByRole('menuitem', { name: 'Product' })); const editor = contextualEditor('Add Product'); await user.type(editor.getByLabelText('Title'), 'Placed'); await user.click(editor.getByRole('button', { name: 'Create' })); expect(screen.getByRole('button', { name: 'Placed' })).toHaveAttribute('data-x', '130'); expect(screen.getByRole('button', { name: 'Placed' })).toHaveAttribute('data-y', '130'); });
   it('uses Product + Tab for contextual Offer creation while Tab in inputs stays native', async () => { const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await quickOffer(user); expect(screen.getByText('packaged as')).toBeInTheDocument(); const title = within(screen.getByRole('complementary')).getByLabelText('Title'); title.focus(); const event = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true }); title.dispatchEvent(event); expect(event.defaultPrevented).toBe(false); });
   it('uses Enter for an empty sibling editor but preserves Enter in forms', async () => { const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await user.click(screen.getByRole('button', { name: 'Orbit' })); fireEvent.keyDown(window, { key: 'Enter' }); const editor = contextualEditor('Add Product'); const title = editor.getByLabelText('Title'); expect(title).toHaveFocus(); expect(title).toHaveValue(''); await user.type(title, 'Nova{Enter}'); expect(screen.getByRole('button', { name: 'Nova' })).toBeInTheDocument(); expect(screen.queryByRole('heading', { name: 'Add Product' })).not.toBeInTheDocument(); const inspectorTitle = within(screen.getByRole('complementary')).getByLabelText('Title'); inspectorTitle.focus(); const event = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true, bubbles: true }); inspectorTitle.dispatchEvent(event); expect(event.defaultPrevented).toBe(false); expect(screen.queryByRole('heading', { name: 'Add Product' })).not.toBeInTheDocument(); });

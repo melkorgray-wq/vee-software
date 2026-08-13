@@ -1,7 +1,7 @@
 import type { Entity, MapDocument, ProvisionalEntityKind, Relationship } from '@vee/domain';
 import { MarkerType, type Edge, type Node } from '@xyflow/react';
 
-export const KIND_LABELS: Record<ProvisionalEntityKind, string> = { customer_phenomenon: 'Customer phenomenon', touchpoint: 'Touchpoint', offer: 'Offer', product: 'Product' };
+export const KIND_LABELS: Record<ProvisionalEntityKind, string> = { product: 'Product', offer: 'Offer', touchpoint: 'Touchpoint', core_functional_job: 'Core Functional Job', emotional_job: 'Emotional Job', social_job: 'Social Job', consumption_chain_job: 'Consumption Chain Job', financial_desired_outcome: 'Financial Desired Outcome' };
 export interface NodeLayout { diameter: number; titleFontSize: number; kindFontSize: number; contentWidth: number; compactTitle: boolean }
 export interface MapNodeData extends Record<string, unknown> { title: string; kindLabel: string; layout: NodeLayout; url?: string }
 const LABELS: Record<Relationship['kind'], string> = { product_packaged_as_offer: 'packaged as', offer_presented_at_touchpoint: 'presented at', touchpoint_contains_touchpoint: 'contains' };
@@ -9,7 +9,11 @@ const ROLE_LAYOUTS: Record<ProvisionalEntityKind, Pick<NodeLayout, 'diameter' | 
   product: { diameter: 136, titleFontSize: 16, kindFontSize: 13 },
   offer: { diameter: 116, titleFontSize: 15, kindFontSize: 12.5 },
   touchpoint: { diameter: 96, titleFontSize: 14, kindFontSize: 12 },
-  customer_phenomenon: { diameter: 116, titleFontSize: 15, kindFontSize: 12.5 },
+  core_functional_job: { diameter: 116, titleFontSize: 15, kindFontSize: 12.5 },
+  emotional_job: { diameter: 116, titleFontSize: 15, kindFontSize: 12.5 },
+  social_job: { diameter: 116, titleFontSize: 15, kindFontSize: 12.5 },
+  consumption_chain_job: { diameter: 116, titleFontSize: 15, kindFontSize: 12.5 },
+  financial_desired_outcome: { diameter: 116, titleFontSize: 15, kindFontSize: 12.5 },
 };
 
 function endpoints(relationship: Relationship): [string, string] {

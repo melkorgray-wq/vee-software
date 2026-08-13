@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { addEntity, addTouchpointContainer, createEmptyMapDocument, updateEntity } from '@vee/domain';
-import { deriveMapEdges, deriveMapNodes, deriveVisibleAuthoredRelationships, layoutForEntity } from './map-adapter';
+import { KIND_LABELS, deriveMapEdges, deriveMapNodes, deriveVisibleAuthoredRelationships, layoutForEntity } from './map-adapter';
 
 function chain() { let d = createEmptyMapDocument({ mapId: 'm', title: 'Map', viewId: 'v', viewTitle: 'View' }); d = addEntity(d, { entityId: 'p', title: 'Product', kind: 'product', viewId: 'v', x: 0, y: 0 }); d = addEntity(d, { entityId: 'o', title: 'Offer', kind: 'offer', linkedProductId: 'p', relationshipId: 'po', viewId: 'v', x: 100, y: 0 }); d = addTouchpointContainer(d, { id: 'site', title: 'Site' }); d = addEntity(d, { entityId: 't', title: 'Touch', kind: 'touchpoint', locatedInId: 'site', linkedOfferIds: ['o'], relationshipIds: ['ot'], viewId: 'v', x: 200, y: 0 }); return d; }
 
@@ -9,6 +9,17 @@ function child(document = chain(), input: { id: string; parentId: string; offerI
   return addEntity(document, { entityId: input.id, title: input.id, kind: 'touchpoint', locatedInId: 'site', linkedOfferIds: offerIds, relationshipIds: input.offerRelationshipIds ?? offerIds.map(offerId => `${offerId}-${input.id}`), parentTouchpointId: input.parentId, parentRelationshipId: input.parentRelationshipId, viewId: 'v', x: 300, y: 0 });
 }
 function edgeIds(document: ReturnType<typeof chain>) { return deriveMapEdges(document).map(edge => edge.id); }
+
+it('provides concrete labels for every Client-side root kind', () => {
+  expect(KIND_LABELS).toMatchObject({
+    core_functional_job: 'Core Functional Job',
+    emotional_job: 'Emotional Job',
+    social_job: 'Social Job',
+    consumption_chain_job: 'Consumption Chain Job',
+    financial_desired_outcome: 'Financial Desired Outcome',
+  });
+  expect(Object.values(KIND_LABELS)).not.toContain('Customer phenomenon');
+});
 
 it('renders Product to Offer and Offer to root Touchpoint edges using stable relationship IDs', () => {
   expect(deriveMapEdges(chain())).toEqual([
@@ -55,7 +66,7 @@ it('derives stable authored-map layout from semantic role', () => {
   expect(layoutForEntity({ kind: 'product', title: 'Product' })).toEqual({ diameter: 136, titleFontSize: 16, kindFontSize: 13, contentWidth: 92, compactTitle: false });
   expect(layoutForEntity({ kind: 'offer', title: 'Offer' })).toEqual({ diameter: 116, titleFontSize: 15, kindFontSize: 12.5, contentWidth: 79, compactTitle: false });
   expect(layoutForEntity({ kind: 'touchpoint', title: 'Touchpoint' })).toEqual({ diameter: 96, titleFontSize: 14, kindFontSize: 12, contentWidth: 65, compactTitle: false });
-  expect(layoutForEntity({ kind: 'customer_phenomenon', title: 'Placeholder' })).toEqual({ diameter: 116, titleFontSize: 15, kindFontSize: 12.5, contentWidth: 79, compactTitle: false });
+  expect(layoutForEntity({ kind: 'core_functional_job', title: 'A Job' })).toEqual({ diameter: 116, titleFontSize: 15, kindFontSize: 12.5, contentWidth: 79, compactTitle: false });
 });
 it('keeps ancestor and Touchpoint sizes stable as descendants and siblings are added', () => {
   let d = chain();
