@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { addEntity, addProductJobIntent, addTouchpointContainer, setOfferJobSelections, createEmptyMapDocument, updateEntity } from '@vee/domain';
+import { addEntity, addProductJobIntent, addTouchpointContainer, setOfferJobSelections, setTouchpointMitigations, createEmptyMapDocument, updateEntity } from '@vee/domain';
 import { KIND_LABELS, deriveMapEdges, deriveMapNodes, deriveVisibleAuthoredRelationships, layoutForEntity } from './map-adapter';
 
 function chain() { let d = createEmptyMapDocument({ mapId: 'm', title: 'Map', viewId: 'v', viewTitle: 'View' }); d = addEntity(d, { entityId: 'p', title: 'Product', kind: 'product', viewId: 'v', x: 0, y: 0 }); d = addEntity(d, { entityId: 'o', title: 'Offer', kind: 'offer', linkedProductId: 'p', relationshipId: 'po', viewId: 'v', x: 100, y: 0 }); d = addTouchpointContainer(d, { id: 'site', title: 'Site' }); d = addEntity(d, { entityId: 't', title: 'Touch', kind: 'touchpoint', locatedInId: 'site', linkedOfferIds: ['o'], relationshipIds: ['ot'], viewId: 'v', x: 200, y: 0 }); return d; }
@@ -120,4 +120,17 @@ it('projects each authored Desired Outcome route once and invents no unresolved 
   expect(edges.filter(edge => edge.source === 'outcome' && edge.target === 't')).toHaveLength(1);
   expect(edges).toContainEqual(expect.objectContaining({ id: 'job-outcome', source: 'job', target: 'outcome' }));
   expect(edges.some(edge => ['p', 'o', 'o2', 'emotional', 'job'].includes(edge.source) && edge.target === 't' && edge.id.startsWith('intent-route:'))).toBe(false);
+});
+
+
+it('renders one unlabeled authored Touchpoint to Repulsor mitigation edge', () => {
+  let d = chain();
+  d = addEntity(d, { entityId: 'job', title: 'Job', kind: 'core_functional_job', viewId: 'v', x: 0, y: 100 });
+  d = addProductJobIntent(d, { id: 'intent', productId: 'p', jobId: 'job', addressedDesiredOutcomeIds: [] });
+  d = setOfferJobSelections(d, { offerId: 'o', productJobIntentIds: ['intent'], newSelectionIds: ['selection'] });
+  d = addEntity(d, { entityId: 'repulsor', title: 'Fear', kind: 'repulsor', resistedTargetIds: ['job'], relationshipIds: ['resists'], viewId: 'v', x: 300, y: 100 });
+  d = setTouchpointMitigations(d, { touchpointId: 't', repulsorIds: ['repulsor'], newRelationshipIds: ['mitigates'] });
+  const edge = deriveMapEdges(d).filter(candidate => candidate.source === 't' && candidate.target === 'repulsor');
+  expect(edge).toEqual([expect.objectContaining({ id: 'mitigates', markerEnd: { type: 'arrowclosed' }, className: 'map-edge' })]);
+  expect(edge[0]!.label).toBeUndefined();
 });

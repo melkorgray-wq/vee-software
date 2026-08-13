@@ -197,3 +197,49 @@ describe('map authoring domain', () => {
   });
 
 });
+
+describe('Touchpoint mitigation', () => {
+  function mitigationDocument() {
+    let d = offerDocument();
+    d = addEntity(d, { ...place, entityId: 'job-a', title: 'Job A', kind: 'core_functional_job' });
+    d = addEntity(d, { ...place, entityId: 'job-b', title: 'Job B', kind: 'emotional_job' });
+    d = addProductJobIntent(d, { id: 'intent-a', productId: 'product', jobId: 'job-a', addressedDesiredOutcomeIds: [] });
+    d = addProductJobIntent(d, { id: 'intent-b', productId: 'product', jobId: 'job-b', addressedDesiredOutcomeIds: [] });
+    d = setOfferJobSelections(d, { offerId: 'offer', productJobIntentIds: ['intent-a', 'intent-b'], newSelectionIds: ['selection-a', 'selection-b'] });
+    d = touchpoint(d);
+    d = addEntity(d, { ...place, entityId: 'repulsor', title: 'Fear', kind: 'repulsor', resistedTargetIds: ['job-a', 'job-b'], relationshipIds: ['resists-a', 'resists-b'] });
+    return d;
+  }
+  it('derives and deduplicates relevant Repulsors through inherited Offer Job selections', async () => {
+    const { relevantRepulsorsForTouchpoint } = await import('./index');
+    let d = mitigationDocument();
+    d = addEntity(d, { ...place, entityId: 'offer-2', title: 'Second', kind: 'offer', linkedProductId: 'product', relationshipId: 'packaged-2' });
+    d = setOfferJobSelections(d, { offerId: 'offer-2', productJobIntentIds: ['intent-a'], newSelectionIds: ['selection-3'] });
+    d = updateEntity(d, { entityId: 'touch', title: 'touch', locatedInId: 'site', linkedOfferIds: ['offer', 'offer-2'], relationshipIds: ['presented-touch', 'presented-2'] });
+    expect(relevantRepulsorsForTouchpoint(d, 'touch').map(entity => entity.id)).toEqual(['repulsor']);
+  });
+  it('validates authored mitigation endpoints and duplicates, and supports checking and unchecking', async () => {
+    const { setTouchpointMitigations } = await import('./index'); let d = mitigationDocument();
+    expect(() => setTouchpointMitigations(d, { touchpointId: 'job-a', repulsorIds: ['repulsor'], newRelationshipIds: ['bad'] })).toThrow('touchpoint');
+    expect(() => setTouchpointMitigations(d, { touchpointId: 'touch', repulsorIds: ['job-a'], newRelationshipIds: ['bad'] })).toThrow('repulsor');
+    expect(() => setTouchpointMitigations(d, { touchpointId: 'touch', repulsorIds: ['repulsor', 'repulsor'], newRelationshipIds: ['a', 'b'] })).toThrow('unique');
+    d = setTouchpointMitigations(d, { touchpointId: 'touch', repulsorIds: ['repulsor'], newRelationshipIds: ['mitigates'] });
+    expect(d.relationships).toContainEqual({ id: 'mitigates', kind: 'touchpoint_mitigates_repulsor', touchpointId: 'touch', repulsorId: 'repulsor' });
+    expect(setTouchpointMitigations(d, { touchpointId: 'touch', repulsorIds: [], newRelationshipIds: [] }).relationships).not.toContainEqual(expect.objectContaining({ kind: 'touchpoint_mitigates_repulsor' }));
+  });
+  it('prunes mitigation only after all inherited Job paths disappear and preserves Client topology', async () => {
+    const { setTouchpointMitigations } = await import('./index'); let d = setTouchpointMitigations(mitigationDocument(), { touchpointId: 'touch', repulsorIds: ['repulsor'], newRelationshipIds: ['mitigates'] });
+    d = setOfferJobSelections(d, { offerId: 'offer', productJobIntentIds: ['intent-b'], newSelectionIds: [] });
+    expect(d.relationships.some(relation => relation.kind === 'touchpoint_mitigates_repulsor')).toBe(true);
+    d = setOfferJobSelections(d, { offerId: 'offer', productJobIntentIds: [], newSelectionIds: [] });
+    expect(d.relationships.some(relation => relation.kind === 'touchpoint_mitigates_repulsor')).toBe(false);
+    expect(d.entities.some(entity => entity.id === 'repulsor')).toBe(true);
+    expect(d.relationships.filter(relation => relation.kind === 'repulsor_resists')).toHaveLength(2);
+  });
+  it('duplicates valid mitigation with a fresh relationship ID without duplicating its Repulsor', async () => {
+    const { setTouchpointMitigations } = await import('./index'); const d = setTouchpointMitigations(mitigationDocument(), { touchpointId: 'touch', repulsorIds: ['repulsor'], newRelationshipIds: ['mitigates'] });
+    const copy = duplicateEntity(d, { sourceEntityId: 'touch', entityId: 'copy', viewId: 'view', x: 50, y: 60, relationshipIds: ['copy-offer', 'copy-mitigation'] });
+    expect(copy.relationships).toContainEqual({ id: 'copy-mitigation', kind: 'touchpoint_mitigates_repulsor', touchpointId: 'copy', repulsorId: 'repulsor' });
+    expect(copy.entities.filter(entity => entity.kind === 'repulsor')).toHaveLength(1);
+  });
+});
