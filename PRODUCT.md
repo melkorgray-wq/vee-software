@@ -106,23 +106,21 @@ The accepted working knowledge-layer terms have different epistemic roles:
 
 The future system must distinguish these roles while allowing shared infrastructure for provenance or source, confidence or reliability, and time. **Proof** is rejected as the primary term because it implies a stronger or more final level of demonstration than intended. This terminology is accepted product direction; exact storage and schema mechanics remain future work. Creating a domain entity does not automatically create support or an epistemic annotation.
 
-### Cross-side topology and semantic scope
+### Cross-side topology and Job-centered intent
 
-The authored graph is constrained by VEE semantics rather than permitting arbitrary cross-side relations. Touchpoint is the only authored encounter boundary at which a visible Client-side ↔ Business-side graph connection appears. Visible direct Job ↔ Product and Job ↔ Offer edges are not part of the model.
+Product intent is authored around Client-side Jobs. A Product may address a Core Functional Job, Related Job, Emotional Job, Social Job, or Consumption Chain Job. An ordinary Desired Outcome is not an independent Product scope target: it remains semantically owned by its Job through the normal `Job → Desired Outcome` relationship.
 
-Product and Offer may instead hold authored semantic scope or references describing the Client-side phenomena the business believes they address. Product or Offer ↔ Client phenomenon is semantic scope; Touchpoint ↔ Client phenomenon is the actual authored cross-side graph connection. Neither records proof that the relationship works: each expresses business intent or hypothesized correspondence until Evidence supports or weakens it.
+For a Core Functional Job or Consumption Chain Job, Product intent may additionally select any subset of that Job’s existing Desired Outcomes. The authored meaning is “Product intends to address Job X through Desired Outcomes Y and Z.” Creating a Desired Outcome while authoring Product intent therefore creates the ordinary Client-side entity and `Job → Desired Outcome` relationship, then selects it within the Product’s Job intent; it never creates a Product → Desired Outcome relationship. Related, Emotional, and Social Job intents do not carry Desired Outcome subsets.
 
-Client semantic scope follows the Business-side structure:
+An Offer selects a subset of its Product’s Job intents and does not maintain a separate Desired Outcome subset. A new Offer draft initially selects every current Product Job intent, while allowing the author to deselect any before creation. Existing Offers do not automatically acquire Product Job intents authored later. Changing an Offer’s Product removes selections from the previous Product, and removing Product intent prunes dependent Offer selections without deleting Client-side Jobs, Desired Outcomes, or their relationships.
+
+Touchpoint remains the only visible Business/Client encounter boundary. It derives intent through its linked Offers. Where selected Product intent addresses Desired Outcomes for a Core Functional Job or Consumption Chain Job, the authored visible route is:
 
 ```text
-Product client scope
-→ an Offer selects or addresses an applicable subset
-→ Touchpoints presenting that Offer expose or inherit those Client-side connections
+Job → Desired Outcome → Touchpoint
 ```
 
-A Product may reference Client-side Jobs before an Offer or Touchpoint exists, producing semantic documentation but no visible cross-side bridge. An Offer may similarly reference Client-side phenomena. Default inheritance to its current and future Touchpoints is accepted Alpha direction; more granular Touchpoint-level narrowing may be explored later if real maps demonstrate the need.
-
-Reverse editing must preserve consistency: assigning a Client phenomenon to an Offer must keep its parent Product's scope compatible, while explicitly connecting one to a Touchpoint must keep the owning Offer and Product scopes compatible. The storage representation, synchronization commands, multi-Offer edge cases, and detailed inheritance mechanics remain open implementation questions.
+The first edge is the existing Client ontology relationship. The second is a deduplicated derived cross-side projection from Desired Outcome to Touchpoint. No additional Job → Touchpoint edge is shown for that route, and Product or Offer intent is never rendered as a direct cross-side edge. Multiple linked Offers contributing the same Desired Outcome route produce one projection. Cross-side routing for Related Job, Emotional Job, Social Job, Financial Desired Outcome, and Repulsor remains unresolved and must not be inferred.
 
 ### Value Realization
 
@@ -238,7 +236,7 @@ The following remain outside the current implementation slice, without being rej
 - Should future evidence from real maps broaden the currently allowed Repulsor target kinds beyond the five root-createable Client attraction kinds?
 - What is the exact contextual / Actual Life Context ontology, and does context carry polarity or modify other forces?
 - How should support confidence, provenance, diversity, recency, repeatability, and aggregation work?
-- What storage/schema mechanics should represent Evidence, Factual Support, role bindings, epistemic standing, semantic scope, inheritance, and reverse synchronization?
+- What storage/schema mechanics should represent Evidence, Factual Support, role bindings, epistemic standing, Job-centered Product intent, Offer selection, Touchpoint inheritance, and reverse synchronization?
 - Which detailed Touchpoint ↔ Client phenomenon relationship types and epistemic statuses are required?
 - What are the creation, confirmation, threshold, and cardinality rules for Value Realization?
 - How should Buyer’s Journey classifications, filters, and suggested relationships be used?
