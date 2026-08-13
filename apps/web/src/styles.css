@@ -50,7 +50,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .context-menu, .contextual-editor { position: absolute; z-index: 20; display: grid; gap: .4rem; min-width: 12rem; padding: .65rem; border: 1px solid var(--border-soft); border-radius: .4rem; background: var(--surface-solid-2); box-shadow: 0 .75rem 2rem rgba(0,0,0,.45); }
 .context-menu span { padding: .25rem .4rem; color: rgba(255,255,255,.6); font-size: .75rem; text-transform: uppercase; }
 .context-menu a { padding: .65rem .9rem; border: 1px solid var(--border-soft); border-radius: .35rem; text-decoration: none; }
-.contextual-editor { width: min(19rem, calc(100% - 2rem)); gap: .75rem; }
+.contextual-editor { box-sizing: border-box; width: 19rem; max-width: calc(100% - 1rem); max-height: calc(100% - 1rem); overflow-y: auto; overscroll-behavior: contain; gap: .75rem; }
 .contextual-editor h3 { margin: 0; }.contextual-editor label { display: grid; gap: .35rem; }.contextual-editor input { width: 100%; padding: .55rem; color: inherit; background: var(--surface-solid-1); border: 1px solid var(--border-subtle); }
 .combobox { position: relative; }.combobox [role="listbox"] { display: grid; position: absolute; z-index: 30; width: 100%; max-height: 12rem; overflow: auto; padding: .35rem; background: var(--surface-solid-1); border: 1px solid var(--border-soft); }.combobox [role="option"] { text-align: left; }
 .node-link { position: absolute; right: 4.3%; top: 4.3%; z-index: 2; display: grid; place-items: center; width: 1.75rem; height: 1.75rem; border-radius: 50%; background: var(--surface-3); text-decoration: none; transform: translate(50%, -50%); }
