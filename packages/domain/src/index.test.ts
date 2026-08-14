@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, removeProductJobIntent, setOfferJobSelections, updateProductJobIntent, addTouchpointContainer, createEmptyMapDocument, duplicateEntity, movePlacement, updateEntity, updateRepulsorTargets } from './index';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, removeProductJobIntent, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateProductJobIntent, addTouchpointContainer, createEmptyMapDocument, duplicateEntity, movePlacement, updateEntity, updateRepulsorTargets } from './index';
 
 const place = { viewId: 'view', x: 10, y: 20 };
 const empty = () => createEmptyMapDocument({ mapId: 'map', title: 'Map', viewId: 'view', viewTitle: 'View' });
@@ -44,7 +44,7 @@ describe('map authoring domain', () => {
     d = addEntity(d, { ...place, entityId: 'related-parent', title: 'Related', kind: 'related_job', parentEntityId: 'core', relationshipId: 'cr' });
     expect(() => addEntity(d, { ...place, entityId: 'orphan', title: 'Orphan', kind: 'related_job' } as Parameters<typeof addEntity>[1])).toThrow();
     for (const parentEntityId of ['emotional_job', 'offer-parent']) expect(() => addEntity(d, { ...place, entityId: `related-${parentEntityId}`, title: 'Invalid', kind: 'related_job', parentEntityId, relationshipId: `r-${parentEntityId}` })).toThrow('core functional');
-    for (const parentEntityId of ['social_job', 'financial_desired_outcome', 'related-parent', 'product-parent']) expect(() => addEntity(d, { ...place, entityId: `outcome-${parentEntityId}`, title: 'Invalid', kind: 'desired_outcome', parentEntityId, relationshipId: `o-${parentEntityId}` })).toThrow('Core Functional Job or Consumption Chain Job');
+    for (const parentEntityId of ['social_job', 'financial_desired_outcome', 'product-parent']) expect(() => addEntity(d, { ...place, entityId: `outcome-${parentEntityId}`, title: 'Invalid', kind: 'desired_outcome', parentEntityId, relationshipId: `o-${parentEntityId}` })).toThrow('functional Job');
   });
   it('reparents contextual Client entities only to valid parents and preserves exactly one relation', () => {
     let d = addEntity(empty(), { ...place, entityId: 'core-a', title: 'A', kind: 'core_functional_job' });
@@ -57,7 +57,7 @@ describe('map authoring domain', () => {
     expect(movedOutcome.relationships).toContainEqual({ id: 'related-edge', kind: 'core_functional_job_has_related_job', coreFunctionalJobId: 'core-b', relatedJobId: 'related' });
     expect(movedOutcome.relationships).toContainEqual({ id: 'outcome-edge', kind: 'job_has_desired_outcome', jobId: 'chain', desiredOutcomeId: 'outcome' });
     expect(() => updateEntity(d, { entityId: 'related', title: 'Related', parentEntityId: 'chain' })).toThrow('Invalid semantic parent');
-    expect(() => updateEntity(d, { entityId: 'outcome', title: 'Outcome', parentEntityId: 'related' })).toThrow('Invalid semantic parent');
+    expect(updateEntity(d, { entityId: 'outcome', title: 'Outcome', parentEntityId: 'related' }).relationships).toContainEqual({ id: 'outcome-edge', kind: 'job_has_desired_outcome', jobId: 'related', desiredOutcomeId: 'outcome' });
     const invalid = { ...d, relationships: [...d.relationships, { id: 'extra', kind: 'job_has_desired_outcome' as const, jobId: 'core-b', desiredOutcomeId: 'outcome' }] };
     expect(() => updateEntity(invalid, { entityId: 'outcome', title: 'Outcome', parentEntityId: 'core-b' })).toThrow('exactly one');
   });
@@ -115,8 +115,8 @@ describe('map authoring domain', () => {
     it('transactionally creates one- and many-target Repulsors in semantic direction', () => {
       const one = addEntity(targets(), { ...place, entityId: 'r', title: 'Resistance', kind: 'repulsor', resistedTargetIds: ['core'], relationshipIds: ['rr-core'] });
       expect(one.relationships).toContainEqual({ id: 'rr-core', kind: 'repulsor_resists', repulsorId: 'r', targetEntityId: 'core' });
-      const many = addEntity(targets(), { ...place, entityId: 'r', title: 'Resistance', kind: 'repulsor', resistedTargetIds: ['core', 'chain', 'emotional', 'social', 'financial'], relationshipIds: ['a', 'b', 'c', 'd', 'e'] });
-      expect(many.relationships.filter(r => r.kind === 'repulsor_resists')).toHaveLength(5);
+      const many = addEntity(targets(), { ...place, entityId: 'r', title: 'Resistance', kind: 'repulsor', resistedTargetIds: ['core', 'chain', 'emotional', 'social'], relationshipIds: ['a', 'b', 'c', 'd'] });
+      expect(many.relationships.filter(r => r.kind === 'repulsor_resists')).toHaveLength(4);
       expect(many.placements).toContainEqual({ viewId: 'view', entityId: 'r', x: 10, y: 20 });
     });
     it('rejects zero, duplicate, unknown, and every disallowed target kind', () => {
@@ -131,7 +131,7 @@ describe('map authoring domain', () => {
       d = addEntity(d, { ...place, entityId: 'related', title: 'RJ', kind: 'related_job', parentEntityId: 'core', relationshipId: 'cr' });
       d = addEntity(d, { ...place, entityId: 'outcome', title: 'DO', kind: 'desired_outcome', parentEntityId: 'core', relationshipId: 'cd' });
       d = addEntity(d, { ...place, entityId: 'other-r', title: 'R', kind: 'repulsor', resistedTargetIds: ['core'], relationshipIds: ['rc'] });
-      for (const id of ['product', 'offer', 'touch', 'related', 'outcome', 'other-r']) expect(() => addEntity(d, { ...place, entityId: `bad-${id}`, title: 'Bad', kind: 'repulsor', resistedTargetIds: [id], relationshipIds: [`bad-rel-${id}`] })).toThrow('allowed Client attraction root');
+      for (const id of ['product', 'offer', 'touch', 'financial', 'outcome', 'other-r']) expect(() => addEntity(d, { ...place, entityId: `bad-${id}`, title: 'Bad', kind: 'repulsor', resistedTargetIds: [id], relationshipIds: [`bad-rel-${id}`] })).toThrow('Job');
     });
     it('updates targets while preserving retained relation IDs and assigning fresh IDs', () => {
       const created = addEntity(targets(), { ...place, entityId: 'r', title: 'R', kind: 'repulsor', resistedTargetIds: ['core', 'chain'], relationshipIds: ['keep-core', 'remove-chain'] });
@@ -241,5 +241,42 @@ describe('Touchpoint mitigation', () => {
     const copy = duplicateEntity(d, { sourceEntityId: 'touch', entityId: 'copy', viewId: 'view', x: 50, y: 60, relationshipIds: ['copy-offer', 'copy-mitigation'] });
     expect(copy.relationships).toContainEqual({ id: 'copy-mitigation', kind: 'touchpoint_mitigates_repulsor', touchpointId: 'copy', repulsorId: 'repulsor' });
     expect(copy.entities.filter(entity => entity.kind === 'repulsor')).toHaveLength(1);
+  });
+});
+
+describe('final authored semantics', () => {
+  it('owns Related Job outcomes and preserves their parent on duplication', () => {
+    let d = addEntity(empty(), { ...place, entityId: 'core-x', title: 'Core', kind: 'core_functional_job' });
+    d = addEntity(d, { ...place, entityId: 'related-x', title: 'Related', kind: 'related_job', parentEntityId: 'core-x', relationshipId: 'related-edge' });
+    d = addEntity(d, { ...place, entityId: 'outcome-x', title: 'Outcome', kind: 'desired_outcome', parentEntityId: 'related-x', relationshipId: 'outcome-edge' });
+    d = addEntity(d, { ...place, entityId: 'product-x', title: 'Product', kind: 'product' });
+    d = addProductJobIntent(d, { id: 'intent-x', productId: 'product-x', jobId: 'related-x', addressedDesiredOutcomeIds: ['outcome-x'] });
+    const copy = duplicateEntity(d, { sourceEntityId: 'outcome-x', entityId: 'outcome-copy', ...place, relationshipIds: ['copy-edge'] });
+    expect(copy.relationships).toContainEqual({ id: 'copy-edge', kind: 'job_has_desired_outcome', jobId: 'related-x', desiredOutcomeId: 'outcome-copy' });
+  });
+});
+
+describe('context and financial intent records', () => {
+  it('allows zero or many CFJ contexts and preserves retained relationship IDs', () => {
+    let d = addEntity(empty(), { ...place, entityId: 'cfj-a', title: 'A', kind: 'core_functional_job' });
+    d = addEntity(d, { ...place, entityId: 'cfj-b', title: 'B', kind: 'core_functional_job' });
+    d = addEntity(d, { ...place, entityId: 'ej', title: 'Feel secure', kind: 'emotional_job' });
+    expect(d.relationships).toEqual([]);
+    d = setContextualCoreFunctionalJobs(d, { contextualJobId: 'ej', coreFunctionalJobIds: ['cfj-a'], newRelationshipIds: ['ctx-a'] });
+    d = setContextualCoreFunctionalJobs(d, { contextualJobId: 'ej', coreFunctionalJobIds: ['cfj-a', 'cfj-b'], newRelationshipIds: ['ctx-b'] });
+    expect(d.relationships.filter(r => r.kind === 'core_functional_job_contextualizes_job').map(r => r.id)).toEqual(['ctx-a', 'ctx-b']);
+    expect(() => setContextualCoreFunctionalJobs(d, { contextualJobId: 'cfj-a', coreFunctionalJobIds: ['cfj-b'], newRelationshipIds: ['bad'] })).toThrow('Emotional or Social');
+  });
+
+  it('stores Offer Financial Desired Outcome intent independently and preserves retained IDs', () => {
+    let d = offerDocument();
+    d = addEntity(d, { ...place, entityId: 'fdo-a', title: 'Afford', kind: 'financial_desired_outcome' });
+    d = addEntity(d, { ...place, entityId: 'fdo-b', title: 'Reduce risk', kind: 'financial_desired_outcome' });
+    d = setOfferFinancialIntents(d, { offerId: 'offer', financialDesiredOutcomeIds: ['fdo-a'], newIntentIds: ['financial-a'] });
+    d = setOfferFinancialIntents(d, { offerId: 'offer', financialDesiredOutcomeIds: ['fdo-a', 'fdo-b'], newIntentIds: ['financial-b'] });
+    expect(d.offerFinancialIntents.map(i => i.id)).toEqual(['financial-a', 'financial-b']);
+    expect(() => setOfferFinancialIntents(d, { offerId: 'offer', financialDesiredOutcomeIds: ['product'], newIntentIds: ['bad'] })).toThrow('Financial Desired Outcome');
+    const changed = addEntity(d, { ...place, entityId: 'other-product', title: 'Other', kind: 'product' });
+    expect(updateEntity(changed, { entityId: 'offer', title: 'Subscription', linkedProductId: 'other-product' }).offerFinancialIntents).toEqual(d.offerFinancialIntents);
   });
 });

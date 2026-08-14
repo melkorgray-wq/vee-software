@@ -26,6 +26,7 @@ function endpoints(relationship: Relationship): [string, string] {
   if (relationship.kind === 'touchpoint_contains_touchpoint') return [relationship.parentTouchpointId, relationship.childTouchpointId];
   if (relationship.kind === 'core_functional_job_has_related_job') return [relationship.coreFunctionalJobId, relationship.relatedJobId];
   if (relationship.kind === 'job_has_desired_outcome') return [relationship.jobId, relationship.desiredOutcomeId];
+  if (relationship.kind === 'core_functional_job_contextualizes_job') return [relationship.coreFunctionalJobId, relationship.contextualJobId];
   if (relationship.kind === 'touchpoint_mitigates_repulsor') return [relationship.touchpointId, relationship.repulsorId];
   return [relationship.repulsorId, relationship.targetEntityId];
 }
@@ -47,14 +48,19 @@ export function deriveVisibleAuthoredRelationships(document: MapDocument): Relat
 export function deriveMapEdges(document: MapDocument): MapEdge[] {
   const authored = deriveVisibleAuthoredRelationships(document).map(relationship => { const [source, target] = endpoints(relationship); return { id: relationship.id, source, target, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge' }; });
   const routes = new Map<string, MapEdge>();
-  for (const presented of document.relationships.filter((relation): relation is Extract<Relationship, { kind: 'offer_presented_at_touchpoint' }> => relation.kind === 'offer_presented_at_touchpoint')) {
-    for (const selection of document.offerJobSelections.filter(candidate => candidate.offerId === presented.offerId)) {
-      const intent = document.productJobIntents.find(candidate => candidate.id === selection.productJobIntentId);
-      for (const outcomeId of intent?.addressedDesiredOutcomeIds ?? []) {
-        const key = `${outcomeId}->${presented.touchpointId}`;
-        routes.set(key, { id: `intent-route:${key}`, source: outcomeId, target: presented.touchpointId, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge derived-intent-edge' });
-      }
+  for (const touchpoint of document.entities.filter(entity => entity.kind === 'touchpoint')) {
+    const offerIds = new Set(document.relationships.flatMap(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === touchpoint.id ? [relation.offerId] : []));
+    const intentIds = new Set(document.offerJobSelections.flatMap(selection => offerIds.has(selection.offerId) ? [selection.productJobIntentId] : []));
+    const byJob = new Map<string, Set<string>>();
+    for (const intent of document.productJobIntents.filter(candidate => intentIds.has(candidate.id))) {
+      const outcomes = byJob.get(intent.jobId) ?? new Set<string>(); intent.addressedDesiredOutcomeIds.forEach(id => outcomes.add(id)); byJob.set(intent.jobId, outcomes);
     }
+    for (const [jobId, outcomes] of byJob) {
+      const sources = outcomes.size ? outcomes : new Set([jobId]);
+      for (const source of sources) { const key = `${source}->${touchpoint.id}`; routes.set(key, { id: `intent-route:${key}`, source, target: touchpoint.id, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge derived-intent-edge' }); }
+    }
+    const financialIds = new Set(document.offerFinancialIntents.flatMap(intent => offerIds.has(intent.offerId) ? [intent.financialDesiredOutcomeId] : []));
+    for (const source of financialIds) { const key = `${source}->${touchpoint.id}`; routes.set(key, { id: `financial-intent-route:${key}`, source, target: touchpoint.id, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge derived-intent-edge' }); }
   }
   const resistanceRoutes: MapEdge[] = [];
   for (const touchpoint of document.entities.filter(entity => entity.kind === 'touchpoint')) {

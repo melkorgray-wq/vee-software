@@ -119,7 +119,8 @@ it('projects each authored Desired Outcome route once and invents no unresolved 
   const edges = deriveMapEdges(d);
   expect(edges.filter(edge => edge.source === 'outcome' && edge.target === 't')).toHaveLength(1);
   expect(edges).toContainEqual(expect.objectContaining({ id: 'job-outcome', source: 'job', target: 'outcome' }));
-  expect(edges.some(edge => ['p', 'o', 'o2', 'emotional', 'job'].includes(edge.source) && edge.target === 't' && edge.id.startsWith('intent-route:'))).toBe(false);
+  expect(edges).toContainEqual(expect.objectContaining({ id: 'intent-route:emotional->t', source: 'emotional', target: 't' }));
+  expect(edges.some(edge => edge.source === 'job' && edge.target === 't' && edge.id.startsWith('intent-route:'))).toBe(false);
 });
 
 
@@ -178,4 +179,14 @@ it('keeps authored mitigation and derived resistance legible as opposite curved 
     expect.objectContaining({ id: 'mitigates-relevant', source: 't', target: 'relevant', type: 'smoothstep', pathOptions: { offset: 24, borderRadius: 12 } }),
   ]));
   expect(pair).toHaveLength(2);
+});
+
+it('derives and deduplicates Offer Financial Desired Outcome routes without authored Offer edges', async () => {
+  const { setOfferFinancialIntents } = await import('@vee/domain');
+  let d = chain();
+  d = addEntity(d, { entityId: 'fdo', title: 'Affordable', kind: 'financial_desired_outcome', viewId: 'v', x: 0, y: 100 });
+  d = setOfferFinancialIntents(d, { offerId: 'o', financialDesiredOutcomeIds: ['fdo'], newIntentIds: ['fdo-intent'] });
+  const edges = deriveMapEdges(d);
+  expect(edges.filter(edge => edge.id === 'financial-intent-route:fdo->t')).toHaveLength(1);
+  expect(edges.some(edge => edge.source === 'o' && edge.target === 'fdo')).toBe(false);
 });

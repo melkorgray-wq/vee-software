@@ -54,7 +54,7 @@ describe('map-first authoring interactions', () => {
     const user = userEvent.setup(); render(<MapSpike />);
     for (const [kind, title] of [['consumption_chain_job', 'Acquire'], ['emotional_job', 'Feel'], ['social_job', 'Belong'], ['financial_desired_outcome', 'Save']] as const) { await user.click(screen.getByRole('button', { name: 'Add element' })); await user.click(screen.getByRole('button', { name: 'Client side' })); await user.selectOptions(screen.getByLabelText('Client element type'), kind); await user.type(screen.getByLabelText('Title'), title); await user.click(screen.getByRole('button', { name: 'Create element' })); }
     await user.click(screen.getByRole('button', { name: 'Acquire' })); fireEvent.keyDown(window, { key: 'Tab' }); expect(contextualEditor('Add Desired Outcome').getByLabelText('Title')).toHaveValue(''); await user.click(contextualEditor('Add Desired Outcome').getByRole('button', { name: 'Cancel' }));
-    for (const title of ['Acquire', 'Feel', 'Belong', 'Save']) {
+    for (const title of ['Acquire', 'Feel', 'Belong']) {
       await user.click(screen.getByRole('button', { name: title }));
       const tab = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true }); fireEvent(window, tab);
       if (title === 'Acquire') { expect(tab.defaultPrevented).toBe(true); await user.click(contextualEditor('Add Desired Outcome').getByRole('button', { name: 'Cancel' })); } else { expect(tab.defaultPrevented).toBe(false); expect(screen.queryByRole('heading', { name: 'Add Repulsor' })).not.toBeInTheDocument(); }

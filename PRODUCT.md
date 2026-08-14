@@ -12,7 +12,7 @@ That article is conceptual background, not a software specification. This docume
 
 ## Current stage and runtime
 
-The project is in solution discovery and Software Alpha design. The repository contains a runnable in-memory domain and interaction spike, not a functional Alpha. It tests separation between entity, typed relationship, epistemic annotation, view, placement, rendering, and UI state. The runtime implements the five accepted root-createable Client-side kinds, contextual Related Job and Desired Outcome relationships for their accepted parents, and contextual Repulsor authoring. Its implemented cross-side semantics are Job-centered Product intent, Offer selection of that intent, Touchpoint inheritance through linked Offers, the derived Desired Outcome → Touchpoint intent projection, Repulsor relevance and authored Touchpoint mitigation, and the derived Repulsor → Touchpoint relevance projection. The spike does not implement Evidence, contextual support, Value Realization, persistence, derived forces, or 3D visualization.
+The project is in solution discovery and Software Alpha design. The repository contains a runnable in-memory domain and interaction spike, not a functional Alpha. It tests separation between entity, typed relationship, epistemic annotation, view, placement, rendering, and UI state. The runtime implements the five accepted root-createable Client-side kinds, Related Job Desired Outcome ownership, optional Core Functional Job context for Emotional and Social Jobs, Offer-level Financial Desired Outcome intent, and contextual Repulsor authoring. Its implemented cross-side semantics are Job-centered Product intent, Offer selection of that intent, Touchpoint inheritance through linked Offers, direct Job fallback and Desired Outcome or Financial Desired Outcome → Touchpoint intent projections, Repulsor relevance and authored Touchpoint mitigation, and the derived Repulsor → Touchpoint relevance projection. The spike does not implement Evidence, contextual support, Value Realization, persistence, derived forces, or 3D visualization.
 
 The technical architecture remains **Proposed**. The conceptual ontology below is accepted product direction for the next Alpha slice, while its implementation schema and the specifically identified relationship mechanics remain provisional. Current runtime behavior, committed product direction, provisional future mechanics, and open research questions must not be conflated.
 
@@ -60,16 +60,17 @@ Its contextual, normally non-root entities are **Related Job**, **Desired Outcom
 
 The canonical contextual Child grammar is:
 
-- Core Functional Job → Related Job, Desired Outcome; and
+- Core Functional Job → Related Job, Desired Outcome;
+- Related Job → Desired Outcome; and
 - Consumption Chain Job → Desired Outcome.
 
-Repulsor is not a Child entity. **Add Repulsor** may be invoked contextually from Core Functional Job, Consumption Chain Job, Emotional Job, Social Job, or Financial Desired Outcome. That command creates `Repulsor ──repulsor_resists──→ selected target`; it creates no parenthood, ownership, or containment. Placement near the selected target is view/layout behavior only.
+Repulsor is not a Child entity. **Add Repulsor** may be invoked contextually from Core Functional Job, Related Job, Consumption Chain Job, Emotional Job, or Social Job. That command creates `Repulsor ──repulsor_resists──→ selected target`; it creates no parenthood, ownership, or containment. Placement near the selected target is view/layout behavior only.
 
 A Related Job is semantically relative to a Core Functional Job and should not normally be a free root. A generic Desired Outcome is an outcome of a Functional Job or Consumption Chain Job and should not normally be a free root. Once created, it remains a full graph entity because it may accumulate its own Evidence, relationships, and analytical significance.
 
 Social Job, Emotional Job, Consumption Chain Job, and Financial Desired Outcome may exist as independent Client-side roots. VEE deliberately does not force them into a visual containment hierarchy beneath Core Functional Job. Client-side Jobs may also exist without any Product association; likewise, Products may exist before their relevant Jobs are known. Future authoring should allow selection or creation of a related entity from either side without making that relation mandatory. This supports discovery when demand precedes a Product, a Product precedes understood demand, or research reveals previously unknown Jobs or Repulsors.
 
-Repulsor is the one generic, provisional Client-side negative phenomenon in the current ontology; Risk, Fear, Objection, and similar subclasses are not currently introduced. It may be created contextually from an attraction entity, but that gesture does not establish permanent ownership or containment. In the current runtime, a Repulsor explicitly resists one or more of the five root-createable Client attraction kinds through directed `repulsor_resists` relationships; whether that target set should broaden remains open.
+Repulsor is the one generic, provisional Client-side negative phenomenon in the current ontology; Risk, Fear, Objection, and similar subclasses are not currently introduced. It may be created contextually from an attraction entity, but that gesture does not establish permanent ownership or containment. In the current runtime, a Repulsor explicitly resists one or more accepted Job kinds (Core Functional, Related, Emotional, Social, or Consumption Chain) through directed `repulsor_resists` relationships; whether that target set should broaden remains open.
 
 Attraction and repulsion are not necessarily a generic entity taxonomy. Product, Offer, and Touchpoint are intrinsically Business-side attraction-oriented. Whether contextual phenomena have intrinsic polarity or instead affect other forces through typed relationships remains unresolved.
 
@@ -110,23 +111,23 @@ The future system must distinguish these roles while allowing shared infrastruct
 
 Product intent is authored around Client-side Jobs. A Product may address a Core Functional Job, Related Job, Emotional Job, Social Job, or Consumption Chain Job. An ordinary Desired Outcome is not an independent Product scope target: it remains semantically owned by its Job through the normal `Job → Desired Outcome` relationship.
 
-For a Core Functional Job or Consumption Chain Job, Product intent may additionally select any subset of that Job’s existing Desired Outcomes. The authored meaning is “Product intends to address Job X through Desired Outcomes Y and Z.” Creating a Desired Outcome while authoring Product intent therefore creates the ordinary Client-side entity and `Job → Desired Outcome` relationship, then selects it within the Product’s Job intent; it never creates a Product → Desired Outcome relationship. Related, Emotional, and Social Job intents do not carry Desired Outcome subsets.
+For a Core Functional Job, Related Job, or Consumption Chain Job, Product intent may additionally select any subset of that Job’s existing Desired Outcomes. The authored meaning is “Product intends to address Job X through Desired Outcomes Y and Z.” Creating a Desired Outcome while authoring Product intent therefore creates the ordinary Client-side entity and `Job → Desired Outcome` relationship, then selects it within the Product’s Job intent; it never creates a Product → Desired Outcome relationship. Emotional and Social Job intents do not carry Desired Outcome subsets. They may exist without Core Functional Job context; an optional many-to-many `core_functional_job_contextualizes_job` relation supplies non-containing Client context independently of Business intent.
 
-An Offer selects a subset of its Product’s Job intents and does not maintain a separate Desired Outcome subset. A new Offer draft initially selects every current Product Job intent, while allowing the author to deselect any before creation. Existing Offers do not automatically acquire Product Job intents authored later. Changing an Offer’s Product removes selections from the previous Product, and removing Product intent prunes dependent Offer selections without deleting Client-side Jobs, Desired Outcomes, or their relationships.
+An Offer selects a subset of its Product’s Job intents and does not maintain a separate ordinary Desired Outcome subset. Financial Desired Outcome is not a Job or Product Job Intent target: Offer owns explicit Financial Desired Outcome intent, independently of its linked Product. A new Offer draft initially selects every current Product Job intent, while allowing the author to deselect any before creation. Existing Offers do not automatically acquire Product Job intents authored later. Changing an Offer’s Product removes selections from the previous Product, and removing Product intent prunes dependent Offer selections without deleting Client-side Jobs, Desired Outcomes, or their relationships.
 
-Touchpoint remains the only visible Business/Client encounter boundary. It derives intent through its linked Offers. Where selected Product intent addresses Desired Outcomes for a Core Functional Job or Consumption Chain Job, the authored visible route is:
+Touchpoint remains the only visible Business/Client encounter boundary. It derives intent through its linked Offers. Where selected Product intent addresses Desired Outcomes for a Core Functional Job, Related Job, or Consumption Chain Job, the authored visible route is:
 
 ```text
 Job → Desired Outcome → Touchpoint
 ```
 
-The first edge is the existing Client ontology relationship. The second is a deduplicated derived cross-side projection from Desired Outcome to Touchpoint. No additional Job → Touchpoint edge is shown for that route, and Product or Offer intent is never rendered as a direct cross-side edge. Multiple linked Offers contributing the same Desired Outcome route produce one projection.
+The first edge is the existing Client ontology relationship. The second is a deduplicated derived cross-side projection from Desired Outcome to Touchpoint. No additional Job → Touchpoint edge is shown for that route, and Product or Offer intent is never rendered as a direct cross-side edge. Multiple linked Offers contributing the same Desired Outcome route produce one projection. When the union for an inherited Job is empty, one direct `Job → Touchpoint` route is derived; this includes explicitly selected Emotional and Social Jobs. When that union is non-empty, only `Job → Desired Outcome(s) → Touchpoint` is shown. Offer Financial intents similarly derive one deduplicated `Financial Desired Outcome → Touchpoint` route, with no visible Product/Offer → Financial Desired Outcome edge.
 
 For Repulsors, `Repulsor ──resists──→ Job` is authored Client-side topology. A Touchpoint inherits Jobs through Offer Job intent selected by its linked Offers, and its relevant Repulsors are derived and deduplicated from the Repulsors that resist those inherited Jobs. Every relevant Repulsor produces a derived `Repulsor → Touchpoint` cross-side projection, even when no mitigation is authored. This projection records resistance relevance from the existing topology; it is not persisted as another relationship.
 
 Separately, an author may state optional Business intent with `Touchpoint ──mitigates──→ Repulsor` only while that Repulsor is relevant. This relation says that the Touchpoint is intended to reduce or compensate for the Repulsor; it does not claim that mitigation succeeds. Mitigation is not a prerequisite for the derived Repulsor resistance projection, and Product and Offer have no direct mitigation relation in this slice.
 
-Domain topology records what interacts; neither the derived Repulsor → Touchpoint projection nor the authored Touchpoint → Repulsor mitigation direction encodes interaction strength. Future Evidence or Factual Support will describe why and how strongly the model is supported, and future derived-force logic will determine strength and the resulting attraction or repulsion dynamics. Evidence may therefore support or weaken both a Repulsor and a Touchpoint mitigation claim without changing authored intent into proof. Cross-side routing for Related Job, Emotional Job, Social Job, and Financial Desired Outcome otherwise remains unresolved and must not be inferred.
+Domain topology records what interacts; neither the derived Repulsor → Touchpoint projection nor the authored Touchpoint → Repulsor mitigation direction encodes interaction strength. Future Evidence or Factual Support will describe why and how strongly the model is supported, and future derived-force logic will determine strength and the resulting attraction or repulsion dynamics. Evidence may therefore support or weaken both a Repulsor and a Touchpoint mitigation claim without changing authored intent into proof. These authored intent projections remain hypotheses rather than outcome evidence. Environment / Context entities remain future work and are not introduced by these semantics.
 
 ### Value Realization
 
@@ -179,7 +180,7 @@ Authoring in 2D is map-first rather than form-first. The interaction model shoul
 
 Committed interaction direction:
 
-- **Tab → canonical Child where one exists.** The selected node determines the valid next structural type and known parent relation: Product → Offer, Offer → Touchpoint, Touchpoint → Child Touchpoint, Core Functional Job → Related Job or Desired Outcome, and Consumption Chain Job → Desired Outcome.
+- **Tab → canonical Child where one exists.** The selected node determines the valid next structural type and known parent relation: Product → Offer, Offer → Touchpoint, Touchpoint → Child Touchpoint, Core Functional Job → Related Job or Desired Outcome, Related Job → Desired Outcome, and Consumption Chain Job → Desired Outcome.
 - **Shift+Tab → Add Repulsor** when the selected entity is one of the five valid Repulsor targets. This authors only the directed resistance relationship from the new Repulsor to that target.
 - **Enter → canonical or same-context sibling** as currently implemented. For Repulsor, the blank sibling inherits the resisted target set without implying a semantic parent.
 - **Right click on empty canvas → valid root creation** for a new independent authored branch.
@@ -239,7 +240,6 @@ The following remain outside the current implementation slice, without being rej
 
 ## Open product questions
 
-- Should future evidence from real maps broaden the currently allowed Repulsor target kinds beyond the five root-createable Client attraction kinds?
 - What is the exact contextual / Actual Life Context ontology, and does context carry polarity or modify other forces?
 - How should support confidence, provenance, diversity, recency, repeatability, and aggregation work?
 - What storage/schema mechanics should represent Evidence, Factual Support, role bindings, epistemic standing, Job-centered Product intent, Offer selection, Touchpoint inheritance, and reverse synchronization?
