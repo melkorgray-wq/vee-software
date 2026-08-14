@@ -1,5 +1,7 @@
-import type { Entity, MapDocument, ProvisionalEntityKind, Relationship } from '@vee/domain';
-import { MarkerType, type Edge, type Node } from '@xyflow/react';
+import { relevantRepulsorsForTouchpoint, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship } from '@vee/domain';
+import { MarkerType, type BuiltInEdge, type Edge, type Node } from '@xyflow/react';
+
+type MapEdge = Edge | BuiltInEdge;
 
 export const KIND_LABELS: Record<ProvisionalEntityKind, string> = { product: 'Product', offer: 'Offer', touchpoint: 'Touchpoint', core_functional_job: 'Core Functional Job', emotional_job: 'Emotional Job', social_job: 'Social Job', consumption_chain_job: 'Consumption Chain Job', financial_desired_outcome: 'Financial Desired Outcome', related_job: 'Related Job', desired_outcome: 'Desired Outcome', repulsor: 'Repulsor' };
 export interface NodeLayout { diameter: number; titleFontSize: number; kindFontSize: number; contentWidth: number; compactTitle: boolean }
@@ -42,9 +44,9 @@ export function deriveVisibleAuthoredRelationships(document: MapDocument): Relat
   const nestedTouchpointIds = new Set(document.relationships.flatMap(relationship => relationship.kind === 'touchpoint_contains_touchpoint' ? [relationship.childTouchpointId] : []));
   return document.relationships.filter(relationship => relationship.kind !== 'offer_presented_at_touchpoint' || !nestedTouchpointIds.has(relationship.touchpointId));
 }
-export function deriveMapEdges(document: MapDocument): Edge[] {
+export function deriveMapEdges(document: MapDocument): MapEdge[] {
   const authored = deriveVisibleAuthoredRelationships(document).map(relationship => { const [source, target] = endpoints(relationship); return { id: relationship.id, source, target, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge' }; });
-  const routes = new Map<string, Edge>();
+  const routes = new Map<string, MapEdge>();
   for (const presented of document.relationships.filter((relation): relation is Extract<Relationship, { kind: 'offer_presented_at_touchpoint' }> => relation.kind === 'offer_presented_at_touchpoint')) {
     for (const selection of document.offerJobSelections.filter(candidate => candidate.offerId === presented.offerId)) {
       const intent = document.productJobIntents.find(candidate => candidate.id === selection.productJobIntentId);
@@ -54,5 +56,15 @@ export function deriveMapEdges(document: MapDocument): Edge[] {
       }
     }
   }
-  return [...authored, ...routes.values()];
+  const resistanceRoutes: MapEdge[] = [];
+  for (const touchpoint of document.entities.filter(entity => entity.kind === 'touchpoint')) {
+    for (const repulsor of relevantRepulsorsForTouchpoint(document, touchpoint.id)) {
+      resistanceRoutes.push({ id: `repulsor-route:${repulsor.id}->${touchpoint.id}`, source: repulsor.id, target: touchpoint.id, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge derived-repulsor-edge' });
+    }
+  }
+  const oppositePairs = new Set(document.relationships.flatMap(relationship => relationship.kind === 'touchpoint_mitigates_repulsor' ? [`${relationship.repulsorId}->${relationship.touchpointId}`] : []));
+  const separateOppositePair = (edge: Edge): MapEdge => oppositePairs.has(`${edge.source}->${edge.target}`) || oppositePairs.has(`${edge.target}->${edge.source}`)
+    ? { ...edge, type: 'smoothstep', pathOptions: { offset: 24, borderRadius: 12 } }
+    : edge;
+  return [...authored, ...routes.values(), ...resistanceRoutes].map(separateOppositePair);
 }

@@ -134,3 +134,48 @@ it('renders one unlabeled authored Touchpoint to Repulsor mitigation edge', () =
   expect(edge).toEqual([expect.objectContaining({ id: 'mitigates', markerEnd: { type: 'arrowclosed' }, className: 'map-edge' })]);
   expect(edge[0]!.label).toBeUndefined();
 });
+
+function repulsorProjectionDocument() {
+  let d = chain();
+  d = addEntity(d, { entityId: 'job-a', title: 'Job A', kind: 'core_functional_job', viewId: 'v', x: 0, y: 100 });
+  d = addEntity(d, { entityId: 'job-b', title: 'Job B', kind: 'emotional_job', viewId: 'v', x: 0, y: 200 });
+  d = addProductJobIntent(d, { id: 'intent-a', productId: 'p', jobId: 'job-a', addressedDesiredOutcomeIds: [] });
+  d = addProductJobIntent(d, { id: 'intent-b', productId: 'p', jobId: 'job-b', addressedDesiredOutcomeIds: [] });
+  d = setOfferJobSelections(d, { offerId: 'o', productJobIntentIds: ['intent-a', 'intent-b'], newSelectionIds: ['selection-a', 'selection-b'] });
+  d = addEntity(d, { entityId: 'o2', title: 'Offer 2', kind: 'offer', linkedProductId: 'p', relationshipId: 'po2', viewId: 'v', x: 100, y: 200 });
+  d = setOfferJobSelections(d, { offerId: 'o2', productJobIntentIds: ['intent-a'], newSelectionIds: ['selection-a-again'] });
+  d = updateEntity(d, { entityId: 't', title: 'Touch', locatedInId: 'site', linkedOfferIds: ['o', 'o2'], relationshipIds: ['ot', 'o2t'] });
+  d = addEntity(d, { entityId: 'relevant', title: 'Relevant', kind: 'repulsor', resistedTargetIds: ['job-a', 'job-b'], relationshipIds: ['resists-a', 'resists-b'], viewId: 'v', x: 300, y: 100 });
+  return addEntity(d, { entityId: 'irrelevant', title: 'Irrelevant', kind: 'repulsor', resistedTargetIds: ['job-a'], relationshipIds: ['irrelevant-resists'], viewId: 'v', x: 300, y: 200 });
+}
+
+it('projects each relevant Repulsor to a Touchpoint once without authored mitigation', () => {
+  const d = repulsorProjectionDocument();
+  const edges = deriveMapEdges(d).filter(edge => edge.target === 't' && edge.id.startsWith('repulsor-route:'));
+  expect(edges).toEqual([
+    expect.objectContaining({ id: 'repulsor-route:relevant->t', source: 'relevant', target: 't', markerEnd: { type: 'arrowclosed' }, className: 'map-edge derived-repulsor-edge' }),
+    expect.objectContaining({ id: 'repulsor-route:irrelevant->t', source: 'irrelevant', target: 't' }),
+  ]);
+  expect(edges.every(edge => edge.label === undefined && edge.data === undefined)).toBe(true);
+});
+
+it('does not project an irrelevant Repulsor and removes projection after the last Job path is removed', () => {
+  let d = repulsorProjectionDocument();
+  d = addEntity(d, { entityId: 'unrelated-job', title: 'Unrelated', kind: 'social_job', viewId: 'v', x: 0, y: 300 });
+  d = addEntity(d, { entityId: 'never-relevant', title: 'Never relevant', kind: 'repulsor', resistedTargetIds: ['unrelated-job'], relationshipIds: ['unrelated-resistance'], viewId: 'v', x: 300, y: 300 });
+  expect(deriveMapEdges(d).some(edge => edge.id === 'repulsor-route:never-relevant->t')).toBe(false);
+  d = setOfferJobSelections(d, { offerId: 'o', productJobIntentIds: [], newSelectionIds: [] });
+  expect(deriveMapEdges(d).some(edge => edge.id === 'repulsor-route:relevant->t')).toBe(true);
+  d = setOfferJobSelections(d, { offerId: 'o2', productJobIntentIds: [], newSelectionIds: [] });
+  expect(deriveMapEdges(d).some(edge => edge.id === 'repulsor-route:relevant->t')).toBe(false);
+});
+
+it('keeps authored mitigation and derived resistance legible as opposite curved edges', () => {
+  const d = setTouchpointMitigations(repulsorProjectionDocument(), { touchpointId: 't', repulsorIds: ['relevant'], newRelationshipIds: ['mitigates-relevant'] });
+  const pair = deriveMapEdges(d).filter(edge => edge.id === 'mitigates-relevant' || edge.id === 'repulsor-route:relevant->t');
+  expect(pair).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: 'repulsor-route:relevant->t', source: 'relevant', target: 't', type: 'smoothstep', pathOptions: { offset: 24, borderRadius: 12 } }),
+    expect.objectContaining({ id: 'mitigates-relevant', source: 't', target: 'relevant', type: 'smoothstep', pathOptions: { offset: 24, borderRadius: 12 } }),
+  ]));
+  expect(pair).toHaveLength(2);
+});
