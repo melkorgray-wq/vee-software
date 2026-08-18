@@ -7,7 +7,7 @@ import { MapNode, MapSpike } from './MapSpike';
 type MockNode = { id: string; position: { x: number; y: number }; data: { title: string; kindLabel: string } };
 type MockEdge = { id: string; source: string; target: string; markerEnd?: { type: string }; label?: string };
 vi.mock('@xyflow/react', () => ({
-  ReactFlow: ({ nodes, edges, onInit, onNodeClick, onNodeContextMenu, onPaneClick, onPaneContextMenu }: { nodes: MockNode[]; edges: MockEdge[]; onInit: (instance: object) => void; onNodeClick: (event: object, node: MockNode) => void; onNodeContextMenu: (event: MouseEvent, node: MockNode) => void; onPaneClick: () => void; onPaneContextMenu: (event: MouseEvent) => void }) => { useEffect(() => onInit({ screenToFlowPosition: ({ x, y }: { x: number; y: number }) => ({ x: x - 10, y: y - 20 }), flowToScreenPosition: ({ x, y }: { x: number; y: number }) => ({ x: x + 10, y: y + 20 }) }), [onInit]); return <div aria-label="Map canvas" onContextMenu={onPaneContextMenu}><button onClick={onPaneClick}>Clear selection</button>{nodes.map(node => <div key={node.id}><button data-node-id={node.id} data-x={node.position.x} data-y={node.position.y} onClick={() => onNodeClick({}, node)} onContextMenu={e => { e.stopPropagation(); onNodeContextMenu(e, node); }}>{node.data.title}</button><span>{node.data.kindLabel}</span></div>)}{edges.map(edge => <span key={edge.id} data-source={edge.source} data-target={edge.target} data-marker={edge.markerEnd?.type}>{edge.label}</span>)}</div>; },
+  ReactFlow: ({ nodes, edges, tabIndex, onInit, onNodeClick, onNodeContextMenu, onPaneClick, onPaneContextMenu }: { nodes: MockNode[]; edges: MockEdge[]; tabIndex?: number; onInit: (instance: object) => void; onNodeClick: (event: object, node: MockNode) => void; onNodeContextMenu: (event: MouseEvent, node: MockNode) => void; onPaneClick: () => void; onPaneContextMenu: (event: MouseEvent) => void }) => { useEffect(() => onInit({ screenToFlowPosition: ({ x, y }: { x: number; y: number }) => ({ x: x - 10, y: y - 20 }), flowToScreenPosition: ({ x, y }: { x: number; y: number }) => ({ x: x + 10, y: y + 20 }) }), [onInit]); return <div aria-label="Map canvas" tabIndex={tabIndex} onContextMenu={onPaneContextMenu}><button onClick={onPaneClick}>Clear selection</button>{nodes.map(node => <div key={node.id}><button data-node-id={node.id} data-x={node.position.x} data-y={node.position.y} onClick={() => onNodeClick({}, node)} onContextMenu={e => { e.stopPropagation(); onNodeContextMenu(e, node); }}>{node.data.title}</button><span>{node.data.kindLabel}</span></div>)}{edges.map(edge => <span key={edge.id} data-source={edge.source} data-target={edge.target} data-marker={edge.markerEnd?.type}>{edge.label}</span>)}</div>; },
   Background: () => null, Controls: () => null, Handle: () => null, MarkerType: { ArrowClosed: 'arrowclosed' }, Position: { Left: 'left', Right: 'right' },
 }));
 vi.mock('../router', () => ({ Link: ({ children }: { children: ReactNode }) => <a href="/">{children}</a> }));
@@ -18,7 +18,22 @@ async function quickOffer(user: ReturnType<typeof userEvent.setup>) { await user
 
 describe('map-first authoring interactions', () => {
   beforeEach(() => { let id = 0; vi.stubGlobal('crypto', { randomUUID: () => `id-${++id}` }); }); afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
-  it('opens valid root choices on canvas context menu and cancels with Escape', async () => { render(<MapSpike />); fireEvent.contextMenu(screen.getByLabelText('Map canvas'), { clientX: 40, clientY: 50 }); expect(screen.getByRole('menuitem', { name: 'Product' })).toBeInTheDocument(); expect(screen.queryByRole('menuitem', { name: 'Offer' })).not.toBeInTheDocument(); fireEvent.keyDown(window, { key: 'Escape' }); expect(screen.queryByRole('menu')).not.toBeInTheDocument(); });
+  it('focuses and navigates the canvas menu, activates an item, and restores canvas focus on Escape', () => {
+    render(<MapSpike />); const canvas = screen.getByLabelText('Map canvas');
+    fireEvent.contextMenu(canvas, { clientX: 40, clientY: 50 });
+    const product = screen.getByRole('menuitem', { name: 'Product' }); expect(product).toHaveFocus(); expect(screen.queryByRole('menuitem', { name: 'Offer' })).not.toBeInTheDocument();
+    fireEvent.keyDown(product, { key: 'End' }); const financial = screen.getByRole('menuitem', { name: 'Financial Desired Outcome' }); expect(financial).toHaveFocus();
+    fireEvent.keyDown(financial, { key: 'ArrowDown' }); expect(product).toHaveFocus(); fireEvent.keyDown(product, { key: 'ArrowUp' }); expect(financial).toHaveFocus();
+    fireEvent.keyDown(financial, { key: 'Home' }); expect(product).toHaveFocus(); fireEvent.keyDown(product, { key: ' ' }); expect(contextualEditor('Add Product').getByLabelText('Title')).toHaveFocus();
+    fireEvent.contextMenu(canvas, { clientX: 40, clientY: 50 }); const reopenedProduct = screen.getByRole('menuitem', { name: 'Product' }); expect(reopenedProduct).toHaveFocus(); fireEvent.keyDown(reopenedProduct, { key: 'Escape' }); expect(screen.queryByRole('menu')).not.toBeInTheDocument(); expect(canvas).toHaveFocus();
+  });
+  it('returns focus to the source node after navigating and closing its menu', async () => {
+    const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); const node = screen.getByRole('button', { name: 'Orbit' });
+    fireEvent.contextMenu(node); const child = screen.getByRole('menuitem', { name: 'Add child' }); expect(child).toHaveFocus();
+    fireEvent.keyDown(child, { key: 'ArrowDown' }); expect(screen.getByRole('menuitem', { name: 'Add sibling' })).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!, { key: 'Home' }); fireEvent.keyDown(document.activeElement!, { key: 'Enter' }); expect(contextualEditor('Add Offer').getByLabelText('Title')).toHaveFocus();
+    fireEvent.contextMenu(node); fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Add child' }), { key: 'Escape' }); expect(node).toHaveFocus();
+  });
   it('offers all concrete Client-side roots and no generic placeholder', () => {
     render(<MapSpike />);
     fireEvent.contextMenu(screen.getByLabelText('Map canvas'), { clientX: 40, clientY: 50 });
