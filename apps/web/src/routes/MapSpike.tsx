@@ -21,7 +21,7 @@ function ContainerCombobox({ value, query, document, onChange }: { value: string
   const [open, setOpen] = useState(false); const normalized = query.trim().toLocaleLowerCase();
   const matches = document.touchpointContainers.filter(c => c.title.toLocaleLowerCase().includes(normalized));
   const exact = document.touchpointContainers.find(c => c.title.trim().toLocaleLowerCase() === normalized);
-  return <div className="combobox"><label>Located in<input role="combobox" aria-expanded={open} aria-controls="container-options" required value={query} onFocus={() => setOpen(true)} onChange={e => { setOpen(true); onChange('', e.target.value); }} onKeyDown={e => { if (e.key === 'Escape') setOpen(false); }} /></label>
+  return <div className="combobox"><label>Located in<input role="combobox" aria-expanded={open} aria-controls="container-options" required value={query} onFocus={() => setOpen(true)} onChange={e => { setOpen(true); onChange('', e.target.value); }} onKeyDown={e => { if (e.key === 'Escape' && open) { e.stopPropagation(); setOpen(false); } }} /></label>
     {open && <div id="container-options" role="listbox">{matches.map(c => <button type="button" role="option" aria-selected={value === c.id} key={c.id} onClick={() => { onChange(c.id, c.title); setOpen(false); }}>{c.title}</button>)}
       {normalized && !exact && <button type="button" onClick={() => { onChange('', query.trim(), true); setOpen(false); }}>Create &quot;{query.trim()}&quot;</button>}</div>}</div>;
 }
