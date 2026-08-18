@@ -9,6 +9,9 @@ export type ContextualClientEntityKind = typeof CONTEXTUAL_CLIENT_ENTITY_KINDS[n
 export type RepulsorEntityKind = typeof REPULSOR_ENTITY_KINDS[number];
 export function isClientRootEntityKind(kind: ProvisionalEntityKind): kind is ClientRootEntityKind { return (CLIENT_ROOT_ENTITY_KINDS as readonly string[]).includes(kind); }
 export function isContextualClientEntityKind(kind: ProvisionalEntityKind): kind is ContextualClientEntityKind { return (CONTEXTUAL_CLIENT_ENTITY_KINDS as readonly string[]).includes(kind); }
+export const REPULSOR_TARGET_KINDS = ['core_functional_job', 'related_job', 'emotional_job', 'social_job', 'consumption_chain_job', 'financial_desired_outcome'] as const;
+export type RepulsorTargetKind = typeof REPULSOR_TARGET_KINDS[number];
+export function isRepulsorTargetKind(kind: ProvisionalEntityKind): kind is RepulsorTargetKind { return (REPULSOR_TARGET_KINDS as readonly string[]).includes(kind); }
 export const EPISTEMIC_STATUSES = ['observed', 'participant_reported', 'business_intent', 'hypothesis', 'interpretation', 'confirmed_outcome'] as const;
 export type EpistemicStatus = typeof EPISTEMIC_STATUSES[number];
 
@@ -57,7 +60,7 @@ function assertRepulsorTargets(document: MapDocument, targetEntityIds: string[])
   for (const id of targetEntityIds) {
     const target = document.entities.find(entity => entity.id === id);
     if (!target) throw new DomainError('invalid_relationship_reference', 'Repulsor target does not reference an existing entity.');
-    if (!(PRODUCT_JOB_KINDS as readonly string[]).includes(target.kind)) throw new DomainError('invalid_relationship_endpoint', 'Repulsor target must reference a Job.');
+    if (!isRepulsorTargetKind(target.kind)) throw new DomainError('invalid_relationship_endpoint', 'Repulsor target must reference an eligible Client-side Job or Financial Desired Outcome.');
   }
 }
 
