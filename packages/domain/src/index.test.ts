@@ -113,10 +113,10 @@ describe('map authoring domain', () => {
       return d;
     }
     it('transactionally creates one- and many-target Repulsors in semantic direction', () => {
-      const one = addEntity(targets(), { ...place, entityId: 'r', title: 'Resistance', kind: 'repulsor', resistedTargetIds: ['core'], relationshipIds: ['rr-core'] });
-      expect(one.relationships).toContainEqual({ id: 'rr-core', kind: 'repulsor_resists', repulsorId: 'r', targetEntityId: 'core' });
-      const many = addEntity(targets(), { ...place, entityId: 'r', title: 'Resistance', kind: 'repulsor', resistedTargetIds: ['core', 'chain', 'emotional', 'social'], relationshipIds: ['a', 'b', 'c', 'd'] });
-      expect(many.relationships.filter(r => r.kind === 'repulsor_resists')).toHaveLength(4);
+      const one = addEntity(targets(), { ...place, entityId: 'r', title: 'Resistance', kind: 'repulsor', resistedTargetIds: ['financial'], relationshipIds: ['rr-financial'] });
+      expect(one.relationships).toContainEqual({ id: 'rr-financial', kind: 'repulsor_resists', repulsorId: 'r', targetEntityId: 'financial' });
+      const many = addEntity(targets(), { ...place, entityId: 'r', title: 'Resistance', kind: 'repulsor', resistedTargetIds: ['core', 'chain', 'emotional', 'social', 'financial'], relationshipIds: ['a', 'b', 'c', 'd', 'e'] });
+      expect(many.relationships.filter(r => r.kind === 'repulsor_resists')).toHaveLength(5);
       expect(many.placements).toContainEqual({ viewId: 'view', entityId: 'r', x: 10, y: 20 });
     });
     it('rejects zero, duplicate, unknown, and every disallowed target kind', () => {
@@ -131,26 +131,26 @@ describe('map authoring domain', () => {
       d = addEntity(d, { ...place, entityId: 'related', title: 'RJ', kind: 'related_job', parentEntityId: 'core', relationshipId: 'cr' });
       d = addEntity(d, { ...place, entityId: 'outcome', title: 'DO', kind: 'desired_outcome', parentEntityId: 'core', relationshipId: 'cd' });
       d = addEntity(d, { ...place, entityId: 'other-r', title: 'R', kind: 'repulsor', resistedTargetIds: ['core'], relationshipIds: ['rc'] });
-      for (const id of ['product', 'offer', 'touch', 'financial', 'outcome', 'other-r']) expect(() => addEntity(d, { ...place, entityId: `bad-${id}`, title: 'Bad', kind: 'repulsor', resistedTargetIds: [id], relationshipIds: [`bad-rel-${id}`] })).toThrow('Job');
+      for (const id of ['product', 'offer', 'touch', 'outcome', 'other-r']) expect(() => addEntity(d, { ...place, entityId: `bad-${id}`, title: 'Bad', kind: 'repulsor', resistedTargetIds: [id], relationshipIds: [`bad-rel-${id}`] })).toThrow('eligible Client-side');
     });
     it('updates targets while preserving retained relation IDs and assigning fresh IDs', () => {
       const created = addEntity(targets(), { ...place, entityId: 'r', title: 'R', kind: 'repulsor', resistedTargetIds: ['core', 'chain'], relationshipIds: ['keep-core', 'remove-chain'] });
-      const updated = updateRepulsorTargets(created, { repulsorId: 'r', targetEntityIds: ['core', 'social'], newRelationshipIds: ['add-social'] });
+      const updated = updateRepulsorTargets(created, { repulsorId: 'r', targetEntityIds: ['core', 'financial'], newRelationshipIds: ['add-financial'] });
       expect(updated.relationships.filter(r => r.kind === 'repulsor_resists')).toEqual([
         { id: 'keep-core', kind: 'repulsor_resists', repulsorId: 'r', targetEntityId: 'core' },
-        { id: 'add-social', kind: 'repulsor_resists', repulsorId: 'r', targetEntityId: 'social' },
+        { id: 'add-financial', kind: 'repulsor_resists', repulsorId: 'r', targetEntityId: 'financial' },
       ]);
       expect(() => updateRepulsorTargets(updated, { repulsorId: 'r', targetEntityIds: [], newRelationshipIds: [] })).toThrow('at least one');
       expect(() => updateRepulsorTargets(updated, { repulsorId: 'r', targetEntityIds: ['core', 'core'], newRelationshipIds: [] })).toThrow('unique');
     });
     it('duplicates the target set with fresh IDs and without epistemic annotation', () => {
-      let d = addEntity(targets(), { ...place, entityId: 'r', title: 'R', kind: 'repulsor', resistedTargetIds: ['core', 'social'], relationshipIds: ['old-a', 'old-b'] });
+      let d = addEntity(targets(), { ...place, entityId: 'r', title: 'R', kind: 'repulsor', resistedTargetIds: ['core', 'financial'], relationshipIds: ['old-a', 'old-b'] });
       d = { ...d, epistemicAnnotations: [{ id: 'note', subjectEntityId: 'r', status: 'hypothesis' }] };
       const copy = duplicateEntity(d, { sourceEntityId: 'r', entityId: 'copy', viewId: 'view', x: 50, y: 60, relationshipIds: ['new-a', 'new-b'] });
       expect(copy.entities.find(e => e.id === 'copy')).toEqual({ id: 'copy', title: 'R', kind: 'repulsor' });
       expect(copy.relationships.filter(r => r.kind === 'repulsor_resists' && r.repulsorId === 'copy')).toEqual([
         { id: 'new-a', kind: 'repulsor_resists', repulsorId: 'copy', targetEntityId: 'core' },
-        { id: 'new-b', kind: 'repulsor_resists', repulsorId: 'copy', targetEntityId: 'social' },
+        { id: 'new-b', kind: 'repulsor_resists', repulsorId: 'copy', targetEntityId: 'financial' },
       ]);
       expect(copy.epistemicAnnotations).toEqual(d.epistemicAnnotations);
       expect(copy.epistemicAnnotations.some(a => a.subjectEntityId === 'copy')).toBe(false);
@@ -217,6 +217,15 @@ describe('Touchpoint mitigation', () => {
     d = setOfferJobSelections(d, { offerId: 'offer-2', productJobIntentIds: ['intent-a'], newSelectionIds: ['selection-3'] });
     d = updateEntity(d, { entityId: 'touch', title: 'touch', locatedInId: 'site', linkedOfferIds: ['offer', 'offer-2'], relationshipIds: ['presented-touch', 'presented-2'] });
     expect(relevantRepulsorsForTouchpoint(d, 'touch').map(entity => entity.id)).toEqual(['repulsor']);
+  });
+  it('does not project Financial Desired Outcome resistance through Touchpoint relevance', async () => {
+    const { relevantRepulsorsForTouchpoint } = await import('./index');
+    let d = offerDocument();
+    d = addEntity(d, { ...place, entityId: 'financial', title: 'Stay within budget', kind: 'financial_desired_outcome' });
+    d = setOfferFinancialIntents(d, { offerId: 'offer', financialDesiredOutcomeIds: ['financial'], newIntentIds: ['financial-intent'] });
+    d = touchpoint(d);
+    d = addEntity(d, { ...place, entityId: 'repulsor', title: 'Unexpected fees', kind: 'repulsor', resistedTargetIds: ['financial'], relationshipIds: ['resists-financial'] });
+    expect(relevantRepulsorsForTouchpoint(d, 'touch')).toEqual([]);
   });
   it('validates authored mitigation endpoints and duplicates, and supports checking and unchecking', async () => {
     const { setTouchpointMitigations } = await import('./index'); let d = mitigationDocument();

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, createEmptyMapDocument, duplicateEntity, isClientRootEntityKind, isContextualClientEntityKind, movePlacement, relevantRepulsorsForTouchpoint, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, setTouchpointMitigations, updateEntity, updateProductJobIntent, updateRepulsorTargets, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship } from '@vee/domain';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, createEmptyMapDocument, duplicateEntity, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, relevantRepulsorsForTouchpoint, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, setTouchpointMitigations, updateEntity, updateProductJobIntent, updateRepulsorTargets, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, type MapNodeData } from '../map-adapter';
 import { contextMenuPoint, linkedOfferIds, overlayPoint, parentTouchpointOptions, siblingDraft, siblingPlacement, type Point } from '../map-interaction';
 import { Link } from '../router';
@@ -17,9 +17,6 @@ const draft = (kind: ProvisionalEntityKind = 'product'): Draft => ({ title: '', 
 const isControl = (target: EventTarget | null) => target instanceof HTMLElement && Boolean(target.closest('input, textarea, select, button, [role="combobox"], [contenteditable], form, .contextual-editor'));
 const hasCanonicalChild = (entity: Entity) => entity.kind === 'product' || entity.kind === 'offer' || entity.kind === 'touchpoint' || entity.kind === 'core_functional_job' || entity.kind === 'consumption_chain_job' || entity.kind === 'related_job';
 const safeUrl = (url?: string) => url && !/^\s*(javascript|data):/i.test(url) ? url : undefined;
-const REPULSOR_TARGET_KINDS: ReadonlySet<ProvisionalEntityKind> = new Set(['core_functional_job', 'related_job', 'emotional_job', 'social_job', 'consumption_chain_job']);
-export const isRepulsorTargetKind = (kind: ProvisionalEntityKind) => REPULSOR_TARGET_KINDS.has(kind);
-
 function ContainerCombobox({ value, query, document, onChange }: { value: string; query: string; document: MapDocument; onChange: (id: string, query: string, create?: boolean) => void }) {
   const [open, setOpen] = useState(false); const normalized = query.trim().toLocaleLowerCase();
   const matches = document.touchpointContainers.filter(c => c.title.toLocaleLowerCase().includes(normalized));
