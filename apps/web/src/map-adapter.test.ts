@@ -140,6 +140,7 @@ it('renders one unlabeled authored Touchpoint to Repulsor mitigation edge', () =
   d = addEntity(d, { entityId: 'job', title: 'Job', kind: 'core_functional_job', viewId: 'v', x: 0, y: 100 });
   d = addProductJobIntent(d, { id: 'intent', productId: 'p', jobId: 'job', addressedDesiredOutcomeIds: [] });
   d = setOfferJobSelections(d, { offerId: 'o', productJobIntentIds: ['intent'], newSelectionIds: ['selection'] });
+  d = setTouchpointIntentSelections(d, { touchpointId: 't', selections: [{ id: 'touch-selection', kind: 'job', offerId: 'o', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] }] });
   d = addEntity(d, { entityId: 'repulsor', title: 'Fear', kind: 'repulsor', resistedTargetIds: ['job'], relationshipIds: ['resists'], viewId: 'v', x: 300, y: 100 });
   d = setTouchpointMitigations(d, { touchpointId: 't', repulsorIds: ['repulsor'], newRelationshipIds: ['mitigates'] });
   const edge = deriveMapEdges(d).filter(candidate => candidate.source === 't' && candidate.target === 'repulsor');
@@ -157,6 +158,11 @@ function repulsorProjectionDocument() {
   d = addEntity(d, { entityId: 'o2', title: 'Offer 2', kind: 'offer', linkedProductId: 'p', relationshipId: 'po2', viewId: 'v', x: 100, y: 200 });
   d = setOfferJobSelections(d, { offerId: 'o2', productJobIntentIds: ['intent-a'], newSelectionIds: ['selection-a-again'] });
   d = updateEntity(d, { entityId: 't', title: 'Touch', locatedInId: 'site', linkedOfferIds: ['o', 'o2'], relationshipIds: ['ot', 'o2t'] });
+  d = setTouchpointIntentSelections(d, { touchpointId: 't', selections: [
+    { id: 'touch-a-via-o', kind: 'job', offerId: 'o', productJobIntentId: 'intent-a', addressedDesiredOutcomeIds: [] },
+    { id: 'touch-b-via-o', kind: 'job', offerId: 'o', productJobIntentId: 'intent-b', addressedDesiredOutcomeIds: [] },
+    { id: 'touch-a-via-o2', kind: 'job', offerId: 'o2', productJobIntentId: 'intent-a', addressedDesiredOutcomeIds: [] },
+  ] });
   d = addEntity(d, { entityId: 'relevant', title: 'Relevant', kind: 'repulsor', resistedTargetIds: ['job-a', 'job-b'], relationshipIds: ['resists-a', 'resists-b'], viewId: 'v', x: 300, y: 100 });
   return addEntity(d, { entityId: 'irrelevant', title: 'Irrelevant', kind: 'repulsor', resistedTargetIds: ['job-a'], relationshipIds: ['irrelevant-resists'], viewId: 'v', x: 300, y: 200 });
 }
