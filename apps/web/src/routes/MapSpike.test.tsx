@@ -5,10 +5,10 @@ import { useEffect, type MouseEvent, type ReactNode } from 'react';
 import { MapNode, MapSpike } from './MapSpike';
 
 type MockNode = { id: string; position: { x: number; y: number }; data: { title: string; kindLabel: string } };
-type MockEdge = { id: string; source: string; target: string; markerEnd?: { type: string }; label?: string };
+type MockEdge = { id: string; source: string; target: string; type?: string; markerEnd?: { type: string }; label?: string };
 vi.mock('@xyflow/react', () => ({
-  ReactFlow: ({ nodes, edges, tabIndex, onInit, onNodeClick, onNodeContextMenu, onPaneClick, onPaneContextMenu }: { nodes: MockNode[]; edges: MockEdge[]; tabIndex?: number; onInit: (instance: object) => void; onNodeClick: (event: object, node: MockNode) => void; onNodeContextMenu: (event: MouseEvent, node: MockNode) => void; onPaneClick: () => void; onPaneContextMenu: (event: MouseEvent) => void }) => { useEffect(() => onInit({ screenToFlowPosition: ({ x, y }: { x: number; y: number }) => ({ x: x - 10, y: y - 20 }), flowToScreenPosition: ({ x, y }: { x: number; y: number }) => ({ x: x + 10, y: y + 20 }) }), [onInit]); return <div aria-label="Map canvas" tabIndex={tabIndex} onContextMenu={onPaneContextMenu}><button onClick={onPaneClick}>Clear selection</button>{nodes.map(node => <div key={node.id}><button data-node-id={node.id} data-x={node.position.x} data-y={node.position.y} onClick={() => onNodeClick({}, node)} onContextMenu={e => { e.stopPropagation(); onNodeContextMenu(e, node); }}>{node.data.title}</button><span>{node.data.kindLabel}</span></div>)}{edges.map(edge => <span key={edge.id} data-source={edge.source} data-target={edge.target} data-marker={edge.markerEnd?.type}>{edge.label}</span>)}</div>; },
-  Background: () => null, Controls: () => null, Handle: () => null, MarkerType: { ArrowClosed: 'arrowclosed' }, Position: { Left: 'left', Right: 'right' },
+  ReactFlow: ({ nodes, edges, edgeTypes, tabIndex, onInit, onNodeClick, onNodeContextMenu, onPaneClick, onPaneContextMenu }: { nodes: MockNode[]; edges: MockEdge[]; edgeTypes?: Record<string, unknown>; tabIndex?: number; onInit: (instance: object) => void; onNodeClick: (event: object, node: MockNode) => void; onNodeContextMenu: (event: MouseEvent, node: MockNode) => void; onPaneClick: () => void; onPaneContextMenu: (event: MouseEvent) => void }) => { useEffect(() => onInit({ screenToFlowPosition: ({ x, y }: { x: number; y: number }) => ({ x: x - 10, y: y - 20 }), flowToScreenPosition: ({ x, y }: { x: number; y: number }) => ({ x: x + 10, y: y + 20 }) }), [onInit]); return <div aria-label="Map canvas" data-edge-types={Object.keys(edgeTypes ?? {}).join(',')} tabIndex={tabIndex} onContextMenu={onPaneContextMenu}><button onClick={onPaneClick}>Clear selection</button>{nodes.map(node => <div key={node.id}><button data-node-id={node.id} data-x={node.position.x} data-y={node.position.y} onClick={() => onNodeClick({}, node)} onContextMenu={e => { e.stopPropagation(); onNodeContextMenu(e, node); }}>{node.data.title}</button><span>{node.data.kindLabel}</span></div>)}{edges.map(edge => <span key={edge.id} data-source={edge.source} data-target={edge.target} data-marker={edge.markerEnd?.type} data-edge-type={edge.type}>{edge.label}</span>)}</div>; },
+  BaseEdge: () => null, useInternalNode: () => undefined, useStore: () => [], Background: () => null, Controls: () => null, Handle: () => null, MarkerType: { ArrowClosed: 'arrowclosed' }, Position: { Left: 'left', Right: 'right' },
 }));
 vi.mock('../router', () => ({ Link: ({ children }: { children: ReactNode }) => <a href="/">{children}</a> }));
 
@@ -18,6 +18,14 @@ async function quickOffer(user: ReturnType<typeof userEvent.setup>) { await user
 
 describe('map-first authoring interactions', () => {
   beforeEach(() => { let id = 0; vi.stubGlobal('crypto', { randomUUID: () => `id-${++id}` }); }); afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+  it('registers the custom edge renderer while preserving relationship direction', async () => {
+    const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await quickOffer(user);
+    expect(screen.getByLabelText('Map canvas')).toHaveAttribute('data-edge-types', 'mapEdge');
+    const edge = document.querySelector('[data-edge-type="mapEdge"]');
+    expect(edge).toHaveAttribute('data-source', expect.stringMatching(/^id-/));
+    expect(edge).toHaveAttribute('data-target', expect.stringMatching(/^id-/));
+    expect(edge).toHaveAttribute('data-marker', 'arrowclosed');
+  });
   it('focuses and navigates the canvas menu, activates an item, and restores canvas focus on Escape', () => {
     render(<MapSpike />); const canvas = screen.getByLabelText('Map canvas');
     fireEvent.contextMenu(canvas, { clientX: 40, clientY: 50 });

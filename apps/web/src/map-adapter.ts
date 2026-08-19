@@ -2,6 +2,7 @@ import { relevantRepulsorsForTouchpoint, type Entity, type MapDocument, type Pro
 import { MarkerType, type BuiltInEdge, type Edge, type Node } from '@xyflow/react';
 
 type MapEdge = Edge | BuiltInEdge;
+export const MAP_EDGE_TYPE = 'mapEdge';
 
 export const KIND_LABELS: Record<ProvisionalEntityKind, string> = { product: 'Product', offer: 'Offer', touchpoint: 'Touchpoint', core_functional_job: 'Core Functional Job', emotional_job: 'Emotional Job', social_job: 'Social Job', consumption_chain_job: 'Consumption Chain Job', financial_desired_outcome: 'Financial Desired Outcome', related_job: 'Related Job', desired_outcome: 'Desired Outcome', repulsor: 'Repulsor' };
 export interface NodeLayout { diameter: number; titleFontSize: number; kindFontSize: number; contentWidth: number; compactTitle: boolean }
@@ -46,7 +47,7 @@ export function deriveVisibleAuthoredRelationships(document: MapDocument): Relat
   return document.relationships.filter(relationship => relationship.kind !== 'offer_presented_at_touchpoint' || !nestedTouchpointIds.has(relationship.touchpointId));
 }
 export function deriveMapEdges(document: MapDocument): MapEdge[] {
-  const authored = deriveVisibleAuthoredRelationships(document).map(relationship => { const [source, target] = endpoints(relationship); return { id: relationship.id, source, target, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge' }; });
+  const authored = deriveVisibleAuthoredRelationships(document).map(relationship => { const [source, target] = endpoints(relationship); return { id: relationship.id, source, target, type: MAP_EDGE_TYPE, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge' }; });
   const routes = new Map<string, MapEdge>();
   for (const touchpoint of document.entities.filter(entity => entity.kind === 'touchpoint')) {
     const offerIds = new Set(document.relationships.flatMap(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === touchpoint.id ? [relation.offerId] : []));
@@ -57,20 +58,16 @@ export function deriveMapEdges(document: MapDocument): MapEdge[] {
     }
     for (const [jobId, outcomes] of byJob) {
       const sources = outcomes.size ? outcomes : new Set([jobId]);
-      for (const source of sources) { const key = `${source}->${touchpoint.id}`; routes.set(key, { id: `intent-route:${key}`, source, target: touchpoint.id, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge derived-intent-edge' }); }
+      for (const source of sources) { const key = `${source}->${touchpoint.id}`; routes.set(key, { id: `intent-route:${key}`, source, target: touchpoint.id, type: MAP_EDGE_TYPE, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge derived-intent-edge' }); }
     }
     const financialIds = new Set(document.offerFinancialIntents.flatMap(intent => offerIds.has(intent.offerId) ? [intent.financialDesiredOutcomeId] : []));
-    for (const source of financialIds) { const key = `${source}->${touchpoint.id}`; routes.set(key, { id: `financial-intent-route:${key}`, source, target: touchpoint.id, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge derived-intent-edge' }); }
+    for (const source of financialIds) { const key = `${source}->${touchpoint.id}`; routes.set(key, { id: `financial-intent-route:${key}`, source, target: touchpoint.id, type: MAP_EDGE_TYPE, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge derived-intent-edge' }); }
   }
   const resistanceRoutes: MapEdge[] = [];
   for (const touchpoint of document.entities.filter(entity => entity.kind === 'touchpoint')) {
     for (const repulsor of relevantRepulsorsForTouchpoint(document, touchpoint.id)) {
-      resistanceRoutes.push({ id: `repulsor-route:${repulsor.id}->${touchpoint.id}`, source: repulsor.id, target: touchpoint.id, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge derived-repulsor-edge' });
+      resistanceRoutes.push({ id: `repulsor-route:${repulsor.id}->${touchpoint.id}`, source: repulsor.id, target: touchpoint.id, type: MAP_EDGE_TYPE, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge derived-repulsor-edge' });
     }
   }
-  const oppositePairs = new Set(document.relationships.flatMap(relationship => relationship.kind === 'touchpoint_mitigates_repulsor' ? [`${relationship.repulsorId}->${relationship.touchpointId}`] : []));
-  const separateOppositePair = (edge: Edge): MapEdge => oppositePairs.has(`${edge.source}->${edge.target}`) || oppositePairs.has(`${edge.target}->${edge.source}`)
-    ? { ...edge, type: 'smoothstep', pathOptions: { offset: 24, borderRadius: 12 } }
-    : edge;
-  return [...authored, ...routes.values(), ...resistanceRoutes].map(separateOppositePair);
+  return [...authored, ...routes.values(), ...resistanceRoutes];
 }

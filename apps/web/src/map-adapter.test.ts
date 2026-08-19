@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { addEntity, addProductJobIntent, addTouchpointContainer, setOfferJobSelections, setTouchpointMitigations, createEmptyMapDocument, updateEntity } from '@vee/domain';
+import { addEntity, addProductJobIntent, addTouchpointContainer, setOfferJobSelections, setTouchpointMitigations, createEmptyMapDocument, movePlacement, updateEntity } from '@vee/domain';
 import { KIND_LABELS, deriveMapEdges, deriveMapNodes, deriveVisibleAuthoredRelationships, layoutForEntity } from './map-adapter';
 
 function chain() { let d = createEmptyMapDocument({ mapId: 'm', title: 'Map', viewId: 'v', viewTitle: 'View' }); d = addEntity(d, { entityId: 'p', title: 'Product', kind: 'product', viewId: 'v', x: 0, y: 0 }); d = addEntity(d, { entityId: 'o', title: 'Offer', kind: 'offer', linkedProductId: 'p', relationshipId: 'po', viewId: 'v', x: 100, y: 0 }); d = addTouchpointContainer(d, { id: 'site', title: 'Site' }); d = addEntity(d, { entityId: 't', title: 'Touch', kind: 'touchpoint', locatedInId: 'site', linkedOfferIds: ['o'], relationshipIds: ['ot'], viewId: 'v', x: 200, y: 0 }); return d; }
@@ -27,6 +27,16 @@ it('renders Product to Offer and Offer to root Touchpoint edges using stable rel
     expect.objectContaining({ id: 'ot', source: 'o', target: 't', markerEnd: { type: 'arrowclosed' } }),
   ]);
   expect(deriveMapEdges(chain()).every(edge => edge.label === undefined)).toBe(true);
+});
+
+it('keeps semantic edge identity and direction after moving placements', () => {
+  const before = deriveMapEdges(chain());
+  const moved = movePlacement(chain(), { entityId: 'o', viewId: 'v', x: 999, y: 321 });
+  expect(deriveMapEdges(moved)).toEqual(before);
+  expect(before).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: 'po', source: 'p', target: 'o', type: 'mapEdge', markerEnd: { type: 'arrowclosed' } }),
+    expect.objectContaining({ id: 'ot', source: 'o', target: 't', type: 'mapEdge', markerEnd: { type: 'arrowclosed' } }),
+  ]));
 });
 it('renders typed contextual Client relationships parent to child without inline labels', () => {
   let d = createEmptyMapDocument({ mapId: 'm', title: 'Map', viewId: 'v', viewTitle: 'View' });
@@ -175,8 +185,8 @@ it('keeps authored mitigation and derived resistance legible as opposite curved 
   const d = setTouchpointMitigations(repulsorProjectionDocument(), { touchpointId: 't', repulsorIds: ['relevant'], newRelationshipIds: ['mitigates-relevant'] });
   const pair = deriveMapEdges(d).filter(edge => edge.id === 'mitigates-relevant' || edge.id === 'repulsor-route:relevant->t');
   expect(pair).toEqual(expect.arrayContaining([
-    expect.objectContaining({ id: 'repulsor-route:relevant->t', source: 'relevant', target: 't', type: 'smoothstep', pathOptions: { offset: 24, borderRadius: 12 } }),
-    expect.objectContaining({ id: 'mitigates-relevant', source: 't', target: 'relevant', type: 'smoothstep', pathOptions: { offset: 24, borderRadius: 12 } }),
+    expect.objectContaining({ id: 'repulsor-route:relevant->t', source: 'relevant', target: 't', type: 'mapEdge' }),
+    expect.objectContaining({ id: 'mitigates-relevant', source: 't', target: 'relevant', type: 'mapEdge' }),
   ]));
   expect(pair).toHaveLength(2);
 });
