@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { addEntity, addProductJobIntent, addTouchpointContainer, setOfferJobSelections, setTouchpointMitigations, createEmptyMapDocument, movePlacement, updateEntity } from '@vee/domain';
+import { addEntity, addProductJobIntent, addTouchpointContainer, setOfferJobSelections, setTouchpointIntentSelections, setTouchpointMitigations, createEmptyMapDocument, movePlacement, updateEntity } from '@vee/domain';
 import { KIND_LABELS, deriveMapEdges, deriveMapNodes, deriveVisibleAuthoredRelationships, layoutForEntity } from './map-adapter';
 
 function chain() { let d = createEmptyMapDocument({ mapId: 'm', title: 'Map', viewId: 'v', viewTitle: 'View' }); d = addEntity(d, { entityId: 'p', title: 'Product', kind: 'product', viewId: 'v', x: 0, y: 0 }); d = addEntity(d, { entityId: 'o', title: 'Offer', kind: 'offer', linkedProductId: 'p', relationshipId: 'po', viewId: 'v', x: 100, y: 0 }); d = addTouchpointContainer(d, { id: 'site', title: 'Site' }); d = addEntity(d, { entityId: 't', title: 'Touch', kind: 'touchpoint', locatedInId: 'site', linkedOfferIds: ['o'], relationshipIds: ['ot'], viewId: 'v', x: 200, y: 0 }); return d; }
@@ -126,6 +126,7 @@ it('projects each authored Desired Outcome route once and invents no unresolved 
   d = addEntity(d, { entityId: 'o2', title: 'Offer 2', kind: 'offer', linkedProductId: 'p', relationshipId: 'po2', viewId: 'v', x: 100, y: 200 });
   d = setOfferJobSelections(d, { offerId: 'o2', productJobIntentIds: ['route-intent'], newSelectionIds: ['selected-again'] });
   d = updateEntity(d, { entityId: 't', title: 'Touch', locatedInId: 'site', linkedOfferIds: ['o', 'o2'], relationshipIds: ['ot', 'o2t'] });
+  d = setTouchpointIntentSelections(d, { touchpointId: 't', selections: [{ id: 'tp-route', kind: 'job', offerId: 'o', productJobIntentId: 'route-intent', addressedDesiredOutcomeIds: ['outcome'] }, { id: 'tp-emotional', kind: 'job', offerId: 'o', productJobIntentId: 'unresolved-intent', addressedDesiredOutcomeIds: [] }, { id: 'tp-route-2', kind: 'job', offerId: 'o2', productJobIntentId: 'route-intent', addressedDesiredOutcomeIds: ['outcome'] }] });
   const edges = deriveMapEdges(d);
   expect(edges.filter(edge => edge.source === 'outcome' && edge.target === 't')).toHaveLength(1);
   expect(edges).toContainEqual(expect.objectContaining({ id: 'job-outcome', source: 'job', target: 'outcome' }));
@@ -139,6 +140,7 @@ it('renders one unlabeled authored Touchpoint to Repulsor mitigation edge', () =
   d = addEntity(d, { entityId: 'job', title: 'Job', kind: 'core_functional_job', viewId: 'v', x: 0, y: 100 });
   d = addProductJobIntent(d, { id: 'intent', productId: 'p', jobId: 'job', addressedDesiredOutcomeIds: [] });
   d = setOfferJobSelections(d, { offerId: 'o', productJobIntentIds: ['intent'], newSelectionIds: ['selection'] });
+  d = setTouchpointIntentSelections(d, { touchpointId: 't', selections: [{ id: 'touch-selection', kind: 'job', offerId: 'o', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] }] });
   d = addEntity(d, { entityId: 'repulsor', title: 'Fear', kind: 'repulsor', resistedTargetIds: ['job'], relationshipIds: ['resists'], viewId: 'v', x: 300, y: 100 });
   d = setTouchpointMitigations(d, { touchpointId: 't', repulsorIds: ['repulsor'], newRelationshipIds: ['mitigates'] });
   const edge = deriveMapEdges(d).filter(candidate => candidate.source === 't' && candidate.target === 'repulsor');
@@ -156,6 +158,11 @@ function repulsorProjectionDocument() {
   d = addEntity(d, { entityId: 'o2', title: 'Offer 2', kind: 'offer', linkedProductId: 'p', relationshipId: 'po2', viewId: 'v', x: 100, y: 200 });
   d = setOfferJobSelections(d, { offerId: 'o2', productJobIntentIds: ['intent-a'], newSelectionIds: ['selection-a-again'] });
   d = updateEntity(d, { entityId: 't', title: 'Touch', locatedInId: 'site', linkedOfferIds: ['o', 'o2'], relationshipIds: ['ot', 'o2t'] });
+  d = setTouchpointIntentSelections(d, { touchpointId: 't', selections: [
+    { id: 'touch-a-via-o', kind: 'job', offerId: 'o', productJobIntentId: 'intent-a', addressedDesiredOutcomeIds: [] },
+    { id: 'touch-b-via-o', kind: 'job', offerId: 'o', productJobIntentId: 'intent-b', addressedDesiredOutcomeIds: [] },
+    { id: 'touch-a-via-o2', kind: 'job', offerId: 'o2', productJobIntentId: 'intent-a', addressedDesiredOutcomeIds: [] },
+  ] });
   d = addEntity(d, { entityId: 'relevant', title: 'Relevant', kind: 'repulsor', resistedTargetIds: ['job-a', 'job-b'], relationshipIds: ['resists-a', 'resists-b'], viewId: 'v', x: 300, y: 100 });
   return addEntity(d, { entityId: 'irrelevant', title: 'Irrelevant', kind: 'repulsor', resistedTargetIds: ['job-a'], relationshipIds: ['irrelevant-resists'], viewId: 'v', x: 300, y: 200 });
 }
@@ -196,6 +203,7 @@ it('derives and deduplicates Offer Financial Desired Outcome routes without auth
   let d = chain();
   d = addEntity(d, { entityId: 'fdo', title: 'Affordable', kind: 'financial_desired_outcome', viewId: 'v', x: 0, y: 100 });
   d = setOfferFinancialIntents(d, { offerId: 'o', financialDesiredOutcomeIds: ['fdo'], newIntentIds: ['fdo-intent'] });
+  d = setTouchpointIntentSelections(d, { touchpointId: 't', selections: [{ id: 'tp-fdo', kind: 'financial', offerId: 'o', offerFinancialIntentId: 'fdo-intent' }] });
   const edges = deriveMapEdges(d);
   expect(edges.filter(edge => edge.id === 'financial-intent-route:fdo->t')).toHaveLength(1);
   expect(edges.some(edge => edge.source === 'o' && edge.target === 'fdo')).toBe(false);

@@ -50,17 +50,16 @@ export function deriveMapEdges(document: MapDocument): MapEdge[] {
   const authored = deriveVisibleAuthoredRelationships(document).map(relationship => { const [source, target] = endpoints(relationship); return { id: relationship.id, source, target, type: MAP_EDGE_TYPE, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge' }; });
   const routes = new Map<string, MapEdge>();
   for (const touchpoint of document.entities.filter(entity => entity.kind === 'touchpoint')) {
-    const offerIds = new Set(document.relationships.flatMap(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === touchpoint.id ? [relation.offerId] : []));
-    const intentIds = new Set(document.offerJobSelections.flatMap(selection => offerIds.has(selection.offerId) ? [selection.productJobIntentId] : []));
     const byJob = new Map<string, Set<string>>();
-    for (const intent of document.productJobIntents.filter(candidate => intentIds.has(candidate.id))) {
-      const outcomes = byJob.get(intent.jobId) ?? new Set<string>(); intent.addressedDesiredOutcomeIds.forEach(id => outcomes.add(id)); byJob.set(intent.jobId, outcomes);
+    for (const selection of document.touchpointJobSelections.filter(candidate => candidate.touchpointId === touchpoint.id)) {
+      const intent = document.productJobIntents.find(candidate => candidate.id === selection.productJobIntentId); if (!intent) continue;
+      const outcomes = byJob.get(intent.jobId) ?? new Set<string>(); selection.addressedDesiredOutcomeIds.forEach(id => outcomes.add(id)); byJob.set(intent.jobId, outcomes);
     }
     for (const [jobId, outcomes] of byJob) {
       const sources = outcomes.size ? outcomes : new Set([jobId]);
       for (const source of sources) { const key = `${source}->${touchpoint.id}`; routes.set(key, { id: `intent-route:${key}`, source, target: touchpoint.id, type: MAP_EDGE_TYPE, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge derived-intent-edge' }); }
     }
-    const financialIds = new Set(document.offerFinancialIntents.flatMap(intent => offerIds.has(intent.offerId) ? [intent.financialDesiredOutcomeId] : []));
+    const financialIds = new Set(document.touchpointFinancialSelections.filter(selection => selection.touchpointId === touchpoint.id).map(selection => selection.financialDesiredOutcomeId));
     for (const source of financialIds) { const key = `${source}->${touchpoint.id}`; routes.set(key, { id: `financial-intent-route:${key}`, source, target: touchpoint.id, type: MAP_EDGE_TYPE, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge derived-intent-edge' }); }
   }
   const resistanceRoutes: MapEdge[] = [];

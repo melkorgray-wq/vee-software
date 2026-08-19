@@ -36,7 +36,9 @@ export interface Placement { viewId: string; entityId: string; x: number; y: num
 export interface ProductJobIntent { id: string; productId: string; jobId: string; addressedDesiredOutcomeIds: string[] }
 export interface OfferJobSelection { id: string; offerId: string; productJobIntentId: string }
 export interface OfferFinancialIntent { id: string; offerId: string; financialDesiredOutcomeId: string }
-export interface MapDocument { id: string; title: string; entities: Entity[]; relationships: Relationship[]; productJobIntents: ProductJobIntent[]; offerJobSelections: OfferJobSelection[]; offerFinancialIntents: OfferFinancialIntent[]; touchpointContainers: TouchpointContainer[]; epistemicAnnotations: EpistemicAnnotation[]; views: View[]; placements: Placement[] }
+export interface TouchpointJobSelection { id: string; touchpointId: string; offerId: string; productJobIntentId: string; addressedDesiredOutcomeIds: string[] }
+export interface TouchpointFinancialSelection { id: string; touchpointId: string; offerId: string; offerFinancialIntentId: string; financialDesiredOutcomeId: string }
+export interface MapDocument { id: string; title: string; entities: Entity[]; relationships: Relationship[]; productJobIntents: ProductJobIntent[]; offerJobSelections: OfferJobSelection[]; offerFinancialIntents: OfferFinancialIntent[]; touchpointJobSelections: TouchpointJobSelection[]; touchpointFinancialSelections: TouchpointFinancialSelection[]; touchpointContainers: TouchpointContainer[]; epistemicAnnotations: EpistemicAnnotation[]; views: View[]; placements: Placement[] }
 
 export class DomainError extends Error {
   readonly code: string;
@@ -65,7 +67,7 @@ function assertRepulsorTargets(document: MapDocument, targetEntityIds: string[])
 }
 
 export function createEmptyMapDocument(input: { mapId: string; title: string; viewId: string; viewTitle: string }): MapDocument {
-  return { id: input.mapId, title: required(input.title, 'Map title'), entities: [], relationships: [], productJobIntents: [], offerJobSelections: [], offerFinancialIntents: [], touchpointContainers: [], epistemicAnnotations: [], views: [{ id: input.viewId, title: required(input.viewTitle, 'View title') }], placements: [] };
+  return { id: input.mapId, title: required(input.title, 'Map title'), entities: [], relationships: [], productJobIntents: [], offerJobSelections: [], offerFinancialIntents: [], touchpointJobSelections: [], touchpointFinancialSelections: [], touchpointContainers: [], epistemicAnnotations: [], views: [{ id: input.viewId, title: required(input.viewTitle, 'View title') }], placements: [] };
 }
 
 const PRODUCT_JOB_KINDS = ['core_functional_job', 'related_job', 'emotional_job', 'social_job', 'consumption_chain_job'] as const;
@@ -94,7 +96,7 @@ export function updateProductJobIntent(document: MapDocument, input: ProductJobI
 }
 export function removeProductJobIntent(document: MapDocument, intentId: string): MapDocument {
   if (!document.productJobIntents.some(intent => intent.id === intentId)) throw new DomainError('unknown_product_job_intent', 'Product Job Intent does not exist.');
-  return pruneIrrelevantTouchpointMitigations({ ...document, productJobIntents: document.productJobIntents.filter(intent => intent.id !== intentId), offerJobSelections: document.offerJobSelections.filter(selection => selection.productJobIntentId !== intentId) });
+  return pruneIrrelevantTouchpointMitigations({ ...document, productJobIntents: document.productJobIntents.filter(intent => intent.id !== intentId), offerJobSelections: document.offerJobSelections.filter(selection => selection.productJobIntentId !== intentId), touchpointJobSelections: document.touchpointJobSelections.filter(selection => selection.productJobIntentId !== intentId) });
 }
 export function setOfferJobSelections(document: MapDocument, input: { offerId: string; productJobIntentIds: string[]; newSelectionIds: string[] }): MapDocument {
   entityOfKind(document, input.offerId, 'offer', 'Offer'); unique(input.productJobIntentIds, 'duplicate_offer_job_selection');
@@ -106,7 +108,8 @@ export function setOfferJobSelections(document: MapDocument, input: { offerId: s
   unique(input.newSelectionIds, 'duplicate_offer_job_selection_id');
   if (input.newSelectionIds.some(id => document.offerJobSelections.some(selection => selection.id === id))) throw new DomainError('duplicate_offer_job_selection_id', 'Offer Job Selection ID already exists.');
   const replacement = input.productJobIntentIds.map(id => retained.get(id) ?? { id: input.newSelectionIds[additions.indexOf(id)]!, offerId: input.offerId, productJobIntentId: id });
-  return pruneIrrelevantTouchpointMitigations({ ...document, offerJobSelections: [...document.offerJobSelections.filter(selection => selection.offerId !== input.offerId), ...replacement] });
+  const retainedIntentIds = new Set(replacement.map(selection => selection.productJobIntentId));
+  return pruneIrrelevantTouchpointMitigations({ ...document, offerJobSelections: [...document.offerJobSelections.filter(selection => selection.offerId !== input.offerId), ...replacement], touchpointJobSelections: document.touchpointJobSelections.filter(selection => selection.offerId !== input.offerId || retainedIntentIds.has(selection.productJobIntentId)) });
 }
 
 export function setOfferFinancialIntents(document: MapDocument, input: { offerId: string; financialDesiredOutcomeIds: string[]; newIntentIds: string[] }): MapDocument {
@@ -120,7 +123,116 @@ export function setOfferFinancialIntents(document: MapDocument, input: { offerId
   unique(input.newIntentIds, 'duplicate_offer_financial_intent_id');
   if (input.newIntentIds.some(id => document.offerFinancialIntents.some(intent => intent.id === id))) throw new DomainError('duplicate_offer_financial_intent_id', 'Offer Financial Intent ID already exists.');
   const replacement = input.financialDesiredOutcomeIds.map(id => retained.get(id) ?? { id: input.newIntentIds[additions.indexOf(id)]!, offerId: input.offerId, financialDesiredOutcomeId: id });
-  return { ...document, offerFinancialIntents: [...document.offerFinancialIntents.filter(intent => intent.offerId !== input.offerId), ...replacement] };
+  const retainedIds = new Set(replacement.map(intent => intent.id));
+  return { ...document, offerFinancialIntents: [...document.offerFinancialIntents.filter(intent => intent.offerId !== input.offerId), ...replacement], touchpointFinancialSelections: document.touchpointFinancialSelections.filter(selection => selection.offerId !== input.offerId || retainedIds.has(selection.offerFinancialIntentId)) };
+}
+
+function linkedOfferIds(document: MapDocument, touchpointId: string): Set<string> {
+  entityOfKind(document, touchpointId, 'touchpoint', 'Touchpoint');
+  return new Set(document.relationships.flatMap(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === touchpointId ? [relation.offerId] : []));
+}
+function productForOffer(document: MapDocument, offerId: string): string {
+  entityOfKind(document, offerId, 'offer', 'Contributing Offer');
+  const productId = document.relationships.find((relation): relation is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => relation.kind === 'product_packaged_as_offer' && relation.offerId === offerId)?.productId;
+  if (!productId) throw new DomainError('offer_without_product', 'A contributing Offer must belong to a Product.');
+  return productId;
+}
+function validateTouchpointOutcomeScope(document: MapDocument, intent: ProductJobIntent, outcomeIds: string[]): void {
+  unique(outcomeIds, 'duplicate_touchpoint_desired_outcome');
+  const job = document.entities.find(entity => entity.id === intent.jobId)!;
+  if ((job.kind === 'emotional_job' || job.kind === 'social_job') && outcomeIds.length) throw new DomainError('desired_outcome_not_allowed', 'Emotional and Social Jobs cannot have a Desired Outcome subset.');
+  const upstream = new Set(intent.addressedDesiredOutcomeIds);
+  for (const outcomeId of outcomeIds) {
+    entityOfKind(document, outcomeId, 'desired_outcome', 'Touchpoint Desired Outcome');
+    if (!document.relationships.some(relation => relation.kind === 'job_has_desired_outcome' && relation.jobId === intent.jobId && relation.desiredOutcomeId === outcomeId)) throw new DomainError('desired_outcome_not_owned_by_job', 'A Touchpoint outcome must belong to the selected Job.');
+    if (!upstream.has(outcomeId)) throw new DomainError('touchpoint_outcome_outside_upstream_scope', 'A Touchpoint outcome must be present in Product intent scope.');
+  }
+}
+function assertFreshRecordIds(document: MapDocument, ids: string[]): void {
+  unique(ids, 'duplicate_selection_id');
+  const used = new Set([...document.productJobIntents, ...document.offerJobSelections, ...document.offerFinancialIntents, ...document.touchpointJobSelections, ...document.touchpointFinancialSelections].map(record => record.id));
+  if (ids.some(id => used.has(id))) throw new DomainError('duplicate_selection_id', 'A generated record ID is already in use.');
+}
+
+export type TouchpointTopDownSelection =
+  | { id: string; kind: 'job'; offerId: string; productJobIntentId: string; addressedDesiredOutcomeIds: string[] }
+  | { id: string; kind: 'financial'; offerId: string; offerFinancialIntentId: string };
+
+/** Replaces the authored local scope; upstream Product and Offer intent is never mutated. */
+export function setTouchpointIntentSelections(document: MapDocument, input: { touchpointId: string; selections: TouchpointTopDownSelection[] }): MapDocument {
+  const linked = linkedOfferIds(document, input.touchpointId); assertFreshRecordIds(document, input.selections.map(selection => selection.id));
+  const semantic = new Set<string>(); const jobs: TouchpointJobSelection[] = []; const financial: TouchpointFinancialSelection[] = [];
+  for (const selection of input.selections) {
+    if (!linked.has(selection.offerId)) throw new DomainError('contributing_offer_not_linked', 'A contributing Offer must be linked to the Touchpoint.');
+    if (selection.kind === 'job') {
+      const offerSelection = document.offerJobSelections.find(candidate => candidate.offerId === selection.offerId && candidate.productJobIntentId === selection.productJobIntentId);
+      if (!offerSelection) throw new DomainError('missing_offer_job_selection', 'The Offer must select the Product Job Intent.');
+      const intent = document.productJobIntents.find(candidate => candidate.id === selection.productJobIntentId);
+      if (!intent || intent.productId !== productForOffer(document, selection.offerId)) throw new DomainError('offer_selection_wrong_product', 'Product Job Intent must belong to the contributing Offer Product.');
+      validateTouchpointOutcomeScope(document, intent, selection.addressedDesiredOutcomeIds);
+      const key = `job:${selection.offerId}:${selection.productJobIntentId}:${[...selection.addressedDesiredOutcomeIds].sort().join(',')}`;
+      if (semantic.has(key)) throw new DomainError('duplicate_touchpoint_selection', 'The same semantic Touchpoint selection cannot be duplicated for an Offer.'); semantic.add(key);
+      jobs.push({ id: selection.id, touchpointId: input.touchpointId, offerId: selection.offerId, productJobIntentId: selection.productJobIntentId, addressedDesiredOutcomeIds: [...selection.addressedDesiredOutcomeIds] });
+    } else {
+      const intent = document.offerFinancialIntents.find(candidate => candidate.id === selection.offerFinancialIntentId && candidate.offerId === selection.offerId);
+      if (!intent) throw new DomainError('missing_offer_financial_intent', 'The Financial Desired Outcome must belong to the contributing Offer intent.');
+      const key = `financial:${selection.offerId}:${intent.financialDesiredOutcomeId}`;
+      if (semantic.has(key)) throw new DomainError('duplicate_touchpoint_selection', 'The same semantic Touchpoint selection cannot be duplicated for an Offer.'); semantic.add(key);
+      financial.push({ id: selection.id, touchpointId: input.touchpointId, offerId: selection.offerId, offerFinancialIntentId: intent.id, financialDesiredOutcomeId: intent.financialDesiredOutcomeId });
+    }
+  }
+  return pruneIrrelevantTouchpointMitigations({ ...document, touchpointJobSelections: [...document.touchpointJobSelections.filter(selection => selection.touchpointId !== input.touchpointId), ...jobs], touchpointFinancialSelections: [...document.touchpointFinancialSelections.filter(selection => selection.touchpointId !== input.touchpointId), ...financial] });
+}
+
+export function selectAllLinkedOfferIntentsForTouchpoint(document: MapDocument, input: { touchpointId: string; jobSelectionIds: string[]; financialSelectionIds: string[] }): MapDocument {
+  const linked = linkedOfferIds(document, input.touchpointId);
+  const jobs = document.offerJobSelections.filter(selection => linked.has(selection.offerId));
+  const financial = document.offerFinancialIntents.filter(intent => linked.has(intent.offerId));
+  if (jobs.length !== input.jobSelectionIds.length || financial.length !== input.financialSelectionIds.length) throw new DomainError('invalid_selection_ids', 'Every copied Offer intent requires a generated stable ID.');
+  return setTouchpointIntentSelections(document, { touchpointId: input.touchpointId, selections: [
+    ...jobs.map((selection, index): TouchpointTopDownSelection => ({ id: input.jobSelectionIds[index]!, kind: 'job', offerId: selection.offerId, productJobIntentId: selection.productJobIntentId, addressedDesiredOutcomeIds: [...document.productJobIntents.find(intent => intent.id === selection.productJobIntentId)!.addressedDesiredOutcomeIds] })),
+    ...financial.map((intent, index): TouchpointTopDownSelection => ({ id: input.financialSelectionIds[index]!, kind: 'financial', offerId: intent.offerId, offerFinancialIntentId: intent.id })),
+  ] });
+}
+
+export type BottomUpTouchpointInput = { touchpointId: string; contributingOfferIds: string[]; jobId: string; addressedDesiredOutcomeIds?: string[]; financialDesiredOutcomeId?: never; productJobIntentIds: string[]; offerJobSelectionIds: string[]; touchpointSelectionIds: string[] } | { touchpointId: string; contributingOfferIds: string[]; financialDesiredOutcomeId: string; jobId?: never; addressedDesiredOutcomeIds?: never; offerFinancialIntentIds: string[]; touchpointSelectionIds: string[] };
+export function authorTouchpointIntentBottomUp(document: MapDocument, input: BottomUpTouchpointInput): MapDocument {
+  const linked = linkedOfferIds(document, input.touchpointId); unique(input.contributingOfferIds, 'duplicate_contributing_offer');
+  if (!input.contributingOfferIds.length) throw new DomainError('missing_contributing_offer', 'Choose at least one contributing Offer.');
+  for (const offerId of input.contributingOfferIds) if (!linked.has(offerId)) throw new DomainError('contributing_offer_not_linked', 'A contributing Offer must be linked to the Touchpoint.');
+  let next = document;
+  if (typeof input.financialDesiredOutcomeId === 'string') {
+    const financialDesiredOutcomeId = input.financialDesiredOutcomeId;
+    entityOfKind(document, financialDesiredOutcomeId, 'financial_desired_outcome', 'Financial Desired Outcome');
+    const missing = input.contributingOfferIds.filter(offerId => !document.offerFinancialIntents.some(intent => intent.offerId === offerId && intent.financialDesiredOutcomeId === input.financialDesiredOutcomeId));
+    if (missing.length !== input.offerFinancialIntentIds.length || input.contributingOfferIds.length !== input.touchpointSelectionIds.length) throw new DomainError('invalid_selection_ids', 'Every potentially created record requires a generated stable ID.');
+    assertFreshRecordIds(document, [...input.offerFinancialIntentIds, ...input.touchpointSelectionIds]);
+    missing.forEach((offerId, index) => { next = { ...next, offerFinancialIntents: [...next.offerFinancialIntents, { id: input.offerFinancialIntentIds[index]!, offerId, financialDesiredOutcomeId }] }; });
+    const additions = input.contributingOfferIds.map((offerId, index): TouchpointFinancialSelection => { const intent = next.offerFinancialIntents.find(candidate => candidate.offerId === offerId && candidate.financialDesiredOutcomeId === financialDesiredOutcomeId)!; return { id: input.touchpointSelectionIds[index]!, touchpointId: input.touchpointId, offerId, offerFinancialIntentId: intent.id, financialDesiredOutcomeId }; });
+    return { ...next, touchpointFinancialSelections: [...next.touchpointFinancialSelections.filter(selection => !(selection.touchpointId === input.touchpointId && additions.some(item => item.offerId === selection.offerId && item.financialDesiredOutcomeId === selection.financialDesiredOutcomeId))), ...additions] };
+  }
+  const outcomes = input.addressedDesiredOutcomeIds ?? []; const products = [...new Set(input.contributingOfferIds.map(offerId => productForOffer(document, offerId)))];
+  const missingProducts = products.filter(productId => !document.productJobIntents.some(intent => intent.productId === productId && intent.jobId === input.jobId));
+  const missingOffers = input.contributingOfferIds.filter(offerId => { const productId = productForOffer(document, offerId); const intent = document.productJobIntents.find(candidate => candidate.productId === productId && candidate.jobId === input.jobId); return !intent || !document.offerJobSelections.some(selection => selection.offerId === offerId && selection.productJobIntentId === intent.id); });
+  if (missingProducts.length !== input.productJobIntentIds.length || missingOffers.length !== input.offerJobSelectionIds.length || input.contributingOfferIds.length !== input.touchpointSelectionIds.length) throw new DomainError('invalid_selection_ids', 'Every potentially created record requires a generated stable ID.');
+  assertFreshRecordIds(document, [...input.productJobIntentIds, ...input.offerJobSelectionIds, ...input.touchpointSelectionIds]);
+  missingProducts.forEach((productId, index) => { next = addProductJobIntent(next, { id: input.productJobIntentIds[index]!, productId, jobId: input.jobId, addressedDesiredOutcomeIds: outcomes }); });
+  for (const productId of products) { const intent = next.productJobIntents.find(candidate => candidate.productId === productId && candidate.jobId === input.jobId)!; next = updateProductJobIntent(next, { ...intent, addressedDesiredOutcomeIds: [...new Set([...intent.addressedDesiredOutcomeIds, ...outcomes])] }); }
+  missingOffers.forEach((offerId, index) => { const productId = productForOffer(next, offerId); const intent = next.productJobIntents.find(candidate => candidate.productId === productId && candidate.jobId === input.jobId)!; next = { ...next, offerJobSelections: [...next.offerJobSelections, { id: input.offerJobSelectionIds[index]!, offerId, productJobIntentId: intent.id }] }; });
+  const additions = input.contributingOfferIds.map((offerId, index): TouchpointJobSelection => { const productId = productForOffer(next, offerId); const intent = next.productJobIntents.find(candidate => candidate.productId === productId && candidate.jobId === input.jobId)!; return { id: input.touchpointSelectionIds[index]!, touchpointId: input.touchpointId, offerId, productJobIntentId: intent.id, addressedDesiredOutcomeIds: [...outcomes] }; });
+  return pruneIrrelevantTouchpointMitigations({ ...next, touchpointJobSelections: [...next.touchpointJobSelections.filter(selection => !(selection.touchpointId === input.touchpointId && additions.some(item => item.offerId === selection.offerId && item.productJobIntentId === selection.productJobIntentId))), ...additions] });
+}
+
+export const narrowTouchpointIntentScope = setTouchpointIntentSelections;
+export interface CascadeImpactSummary { offerJobSelectionIds: string[]; offerFinancialIntentIds: string[]; touchpointJobSelectionIds: string[]; touchpointFinancialSelectionIds: string[] }
+export function getIntentRemovalImpact(document: MapDocument, input: { offerJobSelectionId?: string; offerFinancialIntentId?: string }): CascadeImpactSummary {
+  const job = input.offerJobSelectionId ? document.offerJobSelections.find(selection => selection.id === input.offerJobSelectionId) : undefined;
+  const financial = input.offerFinancialIntentId ? document.offerFinancialIntents.find(intent => intent.id === input.offerFinancialIntentId) : undefined;
+  return { offerJobSelectionIds: job ? [job.id] : [], offerFinancialIntentIds: financial ? [financial.id] : [], touchpointJobSelectionIds: job ? document.touchpointJobSelections.filter(selection => selection.offerId === job.offerId && selection.productJobIntentId === job.productJobIntentId).map(selection => selection.id) : [], touchpointFinancialSelectionIds: financial ? document.touchpointFinancialSelections.filter(selection => selection.offerFinancialIntentId === financial.id).map(selection => selection.id) : [] };
+}
+export function removeOfferIntentConfirmed(document: MapDocument, input: { offerJobSelectionId?: string; offerFinancialIntentId?: string }): MapDocument {
+  const impact = getIntentRemovalImpact(document, input); const jobIds = new Set(impact.touchpointJobSelectionIds); const financialIds = new Set(impact.touchpointFinancialSelectionIds);
+  return pruneIrrelevantTouchpointMitigations({ ...document, offerJobSelections: document.offerJobSelections.filter(selection => !impact.offerJobSelectionIds.includes(selection.id)), offerFinancialIntents: document.offerFinancialIntents.filter(intent => !impact.offerFinancialIntentIds.includes(intent.id)), touchpointJobSelections: document.touchpointJobSelections.filter(selection => !jobIds.has(selection.id)), touchpointFinancialSelections: document.touchpointFinancialSelections.filter(selection => !financialIds.has(selection.id)) });
 }
 
 export function setContextualCoreFunctionalJobs(document: MapDocument, input: { contextualJobId: string; coreFunctionalJobIds: string[]; newRelationshipIds: string[] }): MapDocument {
@@ -139,8 +251,7 @@ export function setContextualCoreFunctionalJobs(document: MapDocument, input: { 
 
 export function relevantRepulsorsForTouchpoint(document: MapDocument, touchpointId: string): Entity[] {
   entityOfKind(document, touchpointId, 'touchpoint', 'Touchpoint');
-  const offerIds = new Set(document.relationships.flatMap(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === touchpointId ? [relation.offerId] : []));
-  const intentIds = new Set(document.offerJobSelections.flatMap(selection => offerIds.has(selection.offerId) ? [selection.productJobIntentId] : []));
+  const intentIds = new Set(document.touchpointJobSelections.flatMap(selection => selection.touchpointId === touchpointId ? [selection.productJobIntentId] : []));
   const jobIds = new Set(document.productJobIntents.flatMap(intent => intentIds.has(intent.id) ? [intent.jobId] : []));
   const repulsorIds = new Set(document.relationships.flatMap(relation => relation.kind === 'repulsor_resists' && jobIds.has(relation.targetEntityId) ? [relation.repulsorId] : []));
   return document.entities.filter(entity => entity.kind === 'repulsor' && repulsorIds.has(entity.id));
@@ -237,12 +348,14 @@ export function updateEntity(document: MapDocument, input: UpdateEntityInput): M
     if (!input.linkedProductId) throw new DomainError('missing_linked_product', 'An Offer must be linked to a Product.'); entityOfKind(document, input.linkedProductId, 'product', 'Linked Product');
     const previousProductId = relationships.find((r): r is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => r.kind === 'product_packaged_as_offer' && r.offerId === entity.id)?.productId;
     relationships = relationships.map(r => r.kind === 'product_packaged_as_offer' && r.offerId === entity.id ? { ...r, productId: input.linkedProductId! } : r);
-    if (previousProductId !== input.linkedProductId) document = { ...document, offerJobSelections: document.offerJobSelections.filter(selection => selection.offerId !== entity.id) };
+    if (previousProductId !== input.linkedProductId) document = { ...document, offerJobSelections: document.offerJobSelections.filter(selection => selection.offerId !== entity.id), touchpointJobSelections: document.touchpointJobSelections.filter(selection => selection.offerId !== entity.id) };
   } else if (entity.kind === 'touchpoint') {
     assertContainer(document, input.locatedInId ?? '');
     const offerIds = input.linkedOfferIds ?? []; if (!offerIds.length) throw new DomainError('missing_linked_offer', 'A Touchpoint must present at least one Offer.'); unique(offerIds); offerIds.forEach(id => entityOfKind(document, id, 'offer', 'Linked Offer'));
     const url = optional(input.url); updated = { id: entity.id, kind: 'touchpoint', title, locatedInId: input.locatedInId!, ...(url ? { url } : {}) };
     const oldOffers = relationships.filter(r => r.kind === 'offer_presented_at_touchpoint' && r.touchpointId === entity.id);
+    const retainedOfferIds = new Set(offerIds);
+    document = { ...document, touchpointJobSelections: document.touchpointJobSelections.filter(selection => selection.touchpointId !== entity.id || retainedOfferIds.has(selection.offerId)), touchpointFinancialSelections: document.touchpointFinancialSelections.filter(selection => selection.touchpointId !== entity.id || retainedOfferIds.has(selection.offerId)) };
     const ids = input.relationshipIds ?? oldOffers.map(r => r.id); if (ids.length !== offerIds.length) throw new DomainError('invalid_relationship_ids', 'Each linked Offer requires a relationship ID.');
     const oldParent = relationships.find(r => r.kind === 'touchpoint_contains_touchpoint' && r.childTouchpointId === entity.id);
     const ignored = [...oldOffers.map(r => r.id), ...(oldParent ? [oldParent.id] : [])]; assertRelationshipIds(document, [...ids, ...(input.parentTouchpointId ? [input.parentRelationshipId ?? oldParent?.id ?? ''] : [])], ignored);
@@ -309,9 +422,13 @@ export function duplicateEntity(document: MapDocument, input: { sourceEntityId: 
   const offerIds = document.relationships.filter((r): r is Extract<Relationship, { kind: 'offer_presented_at_touchpoint' }> => r.kind === 'offer_presented_at_touchpoint' && r.touchpointId === source.id).map(r => r.offerId);
   const parent = document.relationships.find((r): r is Extract<Relationship, { kind: 'touchpoint_contains_touchpoint' }> => r.kind === 'touchpoint_contains_touchpoint' && r.childTouchpointId === source.id);
   let copy = addEntity(document, { entityId: input.entityId, title: source.title, kind: 'touchpoint', locatedInId: source.locatedInId, ...(source.url ? { url: source.url } : {}), linkedOfferIds: offerIds, relationshipIds: input.relationshipIds.slice(0, offerIds.length), ...(parent ? { parentTouchpointId: parent.parentTouchpointId, parentRelationshipId: input.relationshipIds[offerIds.length]! } : {}), viewId: input.viewId, x: input.x, y: input.y });
+  const sourceJobs = document.touchpointJobSelections.filter(selection => selection.touchpointId === source.id && offerIds.includes(selection.offerId));
+  const sourceFinancial = document.touchpointFinancialSelections.filter(selection => selection.touchpointId === source.id && offerIds.includes(selection.offerId));
   const mitigated = document.relationships.flatMap(relation => relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === source.id ? [relation.repulsorId] : []);
   const offset = offerIds.length + (parent ? 1 : 0);
-  copy = setTouchpointMitigations(copy, { touchpointId: input.entityId, repulsorIds: mitigated, newRelationshipIds: input.relationshipIds.slice(offset, offset + mitigated.length) });
+  copy = setTouchpointIntentSelections(copy, { touchpointId: input.entityId, selections: [...sourceJobs.map((selection, index): TouchpointTopDownSelection => ({ id: input.relationshipIds[offset + index]!, kind: 'job', offerId: selection.offerId, productJobIntentId: selection.productJobIntentId, addressedDesiredOutcomeIds: [...selection.addressedDesiredOutcomeIds] })), ...sourceFinancial.map((selection, index): TouchpointTopDownSelection => ({ id: input.relationshipIds[offset + sourceJobs.length + index]!, kind: 'financial', offerId: selection.offerId, offerFinancialIntentId: selection.offerFinancialIntentId }))] });
+  const mitigationOffset = offset + sourceJobs.length + sourceFinancial.length;
+  copy = setTouchpointMitigations(copy, { touchpointId: input.entityId, repulsorIds: mitigated, newRelationshipIds: input.relationshipIds.slice(mitigationOffset, mitigationOffset + mitigated.length) });
   return copy;
 }
 export function movePlacement(document: MapDocument, input: { entityId: string; viewId: string; x: number; y: number }): MapDocument { finite(input.x, input.y); if (!document.entities.some(e => e.id === input.entityId)) throw new DomainError('unknown_entity', 'Entity does not exist.'); if (!document.placements.some(p => p.entityId === input.entityId && p.viewId === input.viewId)) throw new DomainError('unknown_placement', 'Placement does not exist.'); return { ...document, placements: document.placements.map(p => p.entityId === input.entityId && p.viewId === input.viewId ? { ...p, x: input.x, y: input.y } : p) }; }
