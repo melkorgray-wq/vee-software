@@ -137,7 +137,7 @@ it('projects each authored Desired Outcome route once and invents no unresolved 
 
 it('renders one unlabeled authored Touchpoint to Repulsor mitigation edge', () => {
   let d = chain();
-  d = addEntity(d, { entityId: 'job', title: 'Job', kind: 'core_functional_job', viewId: 'v', x: 0, y: 100 });
+  d = addEntity(d, { entityId: 'job', title: 'Job', kind: 'emotional_job', viewId: 'v', x: 0, y: 100 });
   d = addProductJobIntent(d, { id: 'intent', productId: 'p', jobId: 'job', addressedDesiredOutcomeIds: [] });
   d = setOfferJobSelections(d, { offerId: 'o', productJobIntentIds: ['intent'], newSelectionIds: ['selection'] });
   d = setTouchpointIntentSelections(d, { touchpointId: 't', selections: [{ id: 'touch-selection', kind: 'job', offerId: 'o', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] }] });
@@ -150,7 +150,7 @@ it('renders one unlabeled authored Touchpoint to Repulsor mitigation edge', () =
 
 function repulsorProjectionDocument() {
   let d = chain();
-  d = addEntity(d, { entityId: 'job-a', title: 'Job A', kind: 'core_functional_job', viewId: 'v', x: 0, y: 100 });
+  d = addEntity(d, { entityId: 'job-a', title: 'Job A', kind: 'social_job', viewId: 'v', x: 0, y: 100 });
   d = addEntity(d, { entityId: 'job-b', title: 'Job B', kind: 'emotional_job', viewId: 'v', x: 0, y: 200 });
   d = addProductJobIntent(d, { id: 'intent-a', productId: 'p', jobId: 'job-a', addressedDesiredOutcomeIds: [] });
   d = addProductJobIntent(d, { id: 'intent-b', productId: 'p', jobId: 'job-b', addressedDesiredOutcomeIds: [] });

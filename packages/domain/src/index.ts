@@ -71,6 +71,8 @@ export function createEmptyMapDocument(input: { mapId: string; title: string; vi
 }
 
 const PRODUCT_JOB_KINDS = ['core_functional_job', 'related_job', 'emotional_job', 'social_job', 'consumption_chain_job'] as const;
+export const DO_BEARING_JOB_KINDS = ['core_functional_job', 'related_job', 'consumption_chain_job'] as const;
+export function isDesiredOutcomeBearingJob(kind: ProvisionalEntityKind): boolean { return (DO_BEARING_JOB_KINDS as readonly string[]).includes(kind); }
 function validateProductJobIntent(document: MapDocument, input: { productId: string; jobId: string; addressedDesiredOutcomeIds: string[] }, ignoredId?: string) {
   entityOfKind(document, input.productId, 'product', 'Product');
   const job = document.entities.find(entity => entity.id === input.jobId);
@@ -78,7 +80,7 @@ function validateProductJobIntent(document: MapDocument, input: { productId: str
   if (!(PRODUCT_JOB_KINDS as readonly string[]).includes(job.kind)) throw new DomainError('invalid_product_job_kind', 'Product intent must reference an eligible Client Job.');
   if (document.productJobIntents.some(intent => intent.id !== ignoredId && intent.productId === input.productId && intent.jobId === input.jobId)) throw new DomainError('duplicate_product_job_intent', 'A Product may address a Job only once.');
   unique(input.addressedDesiredOutcomeIds, 'duplicate_addressed_desired_outcome');
-  if (!['core_functional_job', 'related_job', 'consumption_chain_job'].includes(job.kind) && input.addressedDesiredOutcomeIds.length) throw new DomainError('desired_outcome_not_allowed', 'This Job kind cannot select Desired Outcomes.');
+  if (!isDesiredOutcomeBearingJob(job.kind) && input.addressedDesiredOutcomeIds.length) throw new DomainError('desired_outcome_not_allowed', 'This Job kind cannot select Desired Outcomes.');
   for (const outcomeId of input.addressedDesiredOutcomeIds) {
     entityOfKind(document, outcomeId, 'desired_outcome', 'Addressed Desired Outcome');
     if (!document.relationships.some(relation => relation.kind === 'job_has_desired_outcome' && relation.jobId === job.id && relation.desiredOutcomeId === outcomeId)) throw new DomainError('desired_outcome_not_owned_by_job', 'Every addressed Desired Outcome must belong to the selected Job.');
@@ -140,7 +142,8 @@ function productForOffer(document: MapDocument, offerId: string): string {
 function validateTouchpointOutcomeScope(document: MapDocument, intent: ProductJobIntent, outcomeIds: string[]): void {
   unique(outcomeIds, 'duplicate_touchpoint_desired_outcome');
   const job = document.entities.find(entity => entity.id === intent.jobId)!;
-  if ((job.kind === 'emotional_job' || job.kind === 'social_job') && outcomeIds.length) throw new DomainError('desired_outcome_not_allowed', 'Emotional and Social Jobs cannot have a Desired Outcome subset.');
+  if (isDesiredOutcomeBearingJob(job.kind) && !outcomeIds.length) throw new DomainError('missing_touchpoint_desired_outcome', 'A DO-bearing Touchpoint Job selection requires at least one Desired Outcome.');
+  if (!isDesiredOutcomeBearingJob(job.kind) && outcomeIds.length) throw new DomainError('desired_outcome_not_allowed', 'Emotional and Social Jobs cannot have a Desired Outcome subset.');
   const upstream = new Set(intent.addressedDesiredOutcomeIds);
   for (const outcomeId of outcomeIds) {
     entityOfKind(document, outcomeId, 'desired_outcome', 'Touchpoint Desired Outcome');
@@ -186,7 +189,12 @@ export function setTouchpointIntentSelections(document: MapDocument, input: { to
 
 export function selectAllLinkedOfferIntentsForTouchpoint(document: MapDocument, input: { touchpointId: string; jobSelectionIds: string[]; financialSelectionIds: string[] }): MapDocument {
   const linked = linkedOfferIds(document, input.touchpointId);
-  const jobs = document.offerJobSelections.filter(selection => linked.has(selection.offerId));
+  const jobs = document.offerJobSelections.filter(selection => {
+    if (!linked.has(selection.offerId)) return false;
+    const intent = document.productJobIntents.find(candidate => candidate.id === selection.productJobIntentId);
+    const job = document.entities.find(candidate => candidate.id === intent?.jobId);
+    return Boolean(intent && job && (!isDesiredOutcomeBearingJob(job.kind) || intent.addressedDesiredOutcomeIds.length));
+  });
   const financial = document.offerFinancialIntents.filter(intent => linked.has(intent.offerId));
   if (jobs.length !== input.jobSelectionIds.length || financial.length !== input.financialSelectionIds.length) throw new DomainError('invalid_selection_ids', 'Every copied Offer intent requires a generated stable ID.');
   return setTouchpointIntentSelections(document, { touchpointId: input.touchpointId, selections: [
@@ -212,6 +220,10 @@ export function authorTouchpointIntentBottomUp(document: MapDocument, input: Bot
     return { ...next, touchpointFinancialSelections: [...next.touchpointFinancialSelections.filter(selection => !(selection.touchpointId === input.touchpointId && additions.some(item => item.offerId === selection.offerId && item.financialDesiredOutcomeId === selection.financialDesiredOutcomeId))), ...additions] };
   }
   const outcomes = input.addressedDesiredOutcomeIds ?? []; const products = [...new Set(input.contributingOfferIds.map(offerId => productForOffer(document, offerId)))];
+  const job = document.entities.find(entity => entity.id === input.jobId);
+  if (!job || !(PRODUCT_JOB_KINDS as readonly string[]).includes(job.kind)) throw new DomainError('invalid_product_job_reference', 'Job does not reference an eligible existing entity.');
+  if (isDesiredOutcomeBearingJob(job.kind) && !outcomes.length) throw new DomainError('missing_touchpoint_desired_outcome', 'Bottom-up authoring for a DO-bearing Job requires at least one Desired Outcome.');
+  validateProductJobIntent(document, { productId: products[0]!, jobId: input.jobId, addressedDesiredOutcomeIds: outcomes }, document.productJobIntents.find(intent => intent.productId === products[0] && intent.jobId === input.jobId)?.id);
   const missingProducts = products.filter(productId => !document.productJobIntents.some(intent => intent.productId === productId && intent.jobId === input.jobId));
   const missingOffers = input.contributingOfferIds.filter(offerId => { const productId = productForOffer(document, offerId); const intent = document.productJobIntents.find(candidate => candidate.productId === productId && candidate.jobId === input.jobId); return !intent || !document.offerJobSelections.some(selection => selection.offerId === offerId && selection.productJobIntentId === intent.id); });
   if (missingProducts.length !== input.productJobIntentIds.length || missingOffers.length !== input.offerJobSelectionIds.length || input.contributingOfferIds.length !== input.touchpointSelectionIds.length) throw new DomainError('invalid_selection_ids', 'Every potentially created record requires a generated stable ID.');
@@ -224,6 +236,43 @@ export function authorTouchpointIntentBottomUp(document: MapDocument, input: Bot
 }
 
 export const narrowTouchpointIntentScope = setTouchpointIntentSelections;
+
+/** Additively authors Product scope and distributes it only to the explicitly chosen existing Offers. */
+export function distributeProductJobIntent(document: MapDocument, input: { intent: ProductJobIntent; offerIds: string[]; newOfferSelectionIds: string[] }): MapDocument {
+  unique(input.offerIds, 'duplicate_contributing_offer');
+  const next = document.productJobIntents.some(intent => intent.id === input.intent.id) ? updateProductJobIntent(document, input.intent) : addProductJobIntent(document, input.intent);
+  for (const offerId of input.offerIds) if (productForOffer(next, offerId) !== input.intent.productId) throw new DomainError('offer_selection_wrong_product', 'Every selected Offer must belong to the Product intent Product.');
+  const missing = input.offerIds.filter(offerId => !next.offerJobSelections.some(selection => selection.offerId === offerId && selection.productJobIntentId === input.intent.id));
+  if (missing.length !== input.newOfferSelectionIds.length) throw new DomainError('invalid_offer_selection_ids', 'Each newly distributed Offer path requires a fresh ID.');
+  assertFreshRecordIds(next, input.newOfferSelectionIds);
+  return { ...next, offerJobSelections: [...next.offerJobSelections, ...missing.map((offerId, index) => ({ id: input.newOfferSelectionIds[index]!, offerId, productJobIntentId: input.intent.id }))] };
+}
+
+/** Additively distributes one existing Offer Job scope to explicitly chosen linked Touchpoints. */
+export function distributeOfferJobIntent(document: MapDocument, input: { offerId: string; productJobIntentId: string; touchpointIds: string[]; addressedDesiredOutcomeIds: string[]; newTouchpointSelectionIds: string[] }): MapDocument {
+  unique(input.touchpointIds, 'duplicate_touchpoint');
+  const intent = document.productJobIntents.find(candidate => candidate.id === input.productJobIntentId);
+  if (!intent || !document.offerJobSelections.some(selection => selection.offerId === input.offerId && selection.productJobIntentId === intent.id)) throw new DomainError('missing_offer_job_selection', 'The Offer must select the Product Job Intent.');
+  if (input.touchpointIds.length) validateTouchpointOutcomeScope(document, intent, input.addressedDesiredOutcomeIds);
+  for (const touchpointId of input.touchpointIds) if (!linkedOfferIds(document, touchpointId).has(input.offerId)) throw new DomainError('contributing_offer_not_linked', 'Every selected Touchpoint must be linked to the Offer.');
+  const missing = input.touchpointIds.filter(touchpointId => !document.touchpointJobSelections.some(selection => selection.touchpointId === touchpointId && selection.offerId === input.offerId && selection.productJobIntentId === intent.id));
+  if (missing.length !== input.newTouchpointSelectionIds.length) throw new DomainError('invalid_selection_ids', 'Each newly distributed Touchpoint path requires a fresh ID.');
+  assertFreshRecordIds(document, input.newTouchpointSelectionIds);
+  return pruneIrrelevantTouchpointMitigations({ ...document, touchpointJobSelections: [...document.touchpointJobSelections, ...missing.map((touchpointId, index) => ({ id: input.newTouchpointSelectionIds[index]!, touchpointId, offerId: input.offerId, productJobIntentId: intent.id, addressedDesiredOutcomeIds: [...input.addressedDesiredOutcomeIds] }))] });
+}
+
+/** Additively distributes one Offer-owned FDO intent to explicitly chosen linked Touchpoints. */
+export function distributeOfferFinancialIntent(document: MapDocument, input: { offerFinancialIntentId: string; touchpointIds: string[]; newTouchpointSelectionIds: string[] }): MapDocument {
+  unique(input.touchpointIds, 'duplicate_touchpoint');
+  const intent = document.offerFinancialIntents.find(candidate => candidate.id === input.offerFinancialIntentId);
+  if (!intent) throw new DomainError('missing_offer_financial_intent', 'Offer Financial Intent does not exist.');
+  for (const touchpointId of input.touchpointIds) if (!linkedOfferIds(document, touchpointId).has(intent.offerId)) throw new DomainError('contributing_offer_not_linked', 'Every selected Touchpoint must be linked to the Offer.');
+  const missing = input.touchpointIds.filter(touchpointId => !document.touchpointFinancialSelections.some(selection => selection.touchpointId === touchpointId && selection.offerFinancialIntentId === intent.id));
+  if (missing.length !== input.newTouchpointSelectionIds.length) throw new DomainError('invalid_selection_ids', 'Each newly distributed Touchpoint path requires a fresh ID.');
+  assertFreshRecordIds(document, input.newTouchpointSelectionIds);
+  return { ...document, touchpointFinancialSelections: [...document.touchpointFinancialSelections, ...missing.map((touchpointId, index) => ({ id: input.newTouchpointSelectionIds[index]!, touchpointId, offerId: intent.offerId, offerFinancialIntentId: intent.id, financialDesiredOutcomeId: intent.financialDesiredOutcomeId }))] };
+}
+
 export interface CascadeImpactSummary { offerJobSelectionIds: string[]; offerFinancialIntentIds: string[]; touchpointJobSelectionIds: string[]; touchpointFinancialSelectionIds: string[] }
 export function getIntentRemovalImpact(document: MapDocument, input: { offerJobSelectionId?: string; offerFinancialIntentId?: string }): CascadeImpactSummary {
   const job = input.offerJobSelectionId ? document.offerJobSelections.find(selection => selection.id === input.offerJobSelectionId) : undefined;
@@ -251,11 +300,40 @@ export function setContextualCoreFunctionalJobs(document: MapDocument, input: { 
 
 export function relevantRepulsorsForTouchpoint(document: MapDocument, touchpointId: string): Entity[] {
   entityOfKind(document, touchpointId, 'touchpoint', 'Touchpoint');
-  const intentIds = new Set(document.touchpointJobSelections.flatMap(selection => selection.touchpointId === touchpointId ? [selection.productJobIntentId] : []));
+  const intentIds = new Set(document.touchpointJobSelections.flatMap(selection => selection.touchpointId === touchpointId && effectiveTouchpointOutcomes(document, selection) !== undefined ? [selection.productJobIntentId] : []));
   const relevantTargetIds = new Set(document.productJobIntents.flatMap(intent => intentIds.has(intent.id) ? [intent.jobId] : []));
-  for (const selection of document.touchpointFinancialSelections) if (selection.touchpointId === touchpointId) relevantTargetIds.add(selection.financialDesiredOutcomeId);
+  for (const selection of document.touchpointFinancialSelections) if (selection.touchpointId === touchpointId && effectiveFinancialSelection(document, selection)) relevantTargetIds.add(selection.financialDesiredOutcomeId);
   const repulsorIds = new Set(document.relationships.flatMap(relation => relation.kind === 'repulsor_resists' && relevantTargetIds.has(relation.targetEntityId) ? [relation.repulsorId] : []));
   return document.entities.filter(entity => entity.kind === 'repulsor' && repulsorIds.has(entity.id));
+}
+
+export interface OfferResistanceImpact { repulsor: Entity; touchpointIds: string[] }
+export interface ProductResistancePath { offerId: string; touchpointId: string }
+export interface ProductResistanceImpact { repulsor: Entity; paths: ProductResistancePath[] }
+
+/** Read-only aggregation; contributor paths remain runtime selections rather than authored relationships. */
+export function resistanceImpactForOffer(document: MapDocument, offerId: string): OfferResistanceImpact[] {
+  entityOfKind(document, offerId, 'offer', 'Offer');
+  const touchpointIds = new Set(document.relationships.flatMap(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.offerId === offerId ? [relation.touchpointId] : []));
+  const byRepulsor = new Map<string, Set<string>>();
+  for (const touchpointId of touchpointIds) {
+    const targets = new Set<string>();
+    for (const selection of document.touchpointJobSelections) if (selection.touchpointId === touchpointId && selection.offerId === offerId && effectiveTouchpointOutcomes(document, selection) !== undefined) { const intent = document.productJobIntents.find(candidate => candidate.id === selection.productJobIntentId); if (intent) targets.add(intent.jobId); }
+    for (const selection of document.touchpointFinancialSelections) if (selection.touchpointId === touchpointId && selection.offerId === offerId && document.offerFinancialIntents.some(intent => intent.id === selection.offerFinancialIntentId && intent.offerId === offerId && intent.financialDesiredOutcomeId === selection.financialDesiredOutcomeId)) targets.add(selection.financialDesiredOutcomeId);
+    const repulsorIds = new Set(document.relationships.flatMap(relation => relation.kind === 'repulsor_resists' && targets.has(relation.targetEntityId) ? [relation.repulsorId] : []));
+    for (const repulsorId of repulsorIds) { const affected = byRepulsor.get(repulsorId) ?? new Set<string>(); affected.add(touchpointId); byRepulsor.set(repulsorId, affected); }
+  }
+  return document.entities.flatMap(repulsor => repulsor.kind === 'repulsor' && byRepulsor.has(repulsor.id) ? [{ repulsor, touchpointIds: [...byRepulsor.get(repulsor.id)!] }] : []);
+}
+
+export function resistanceImpactForProduct(document: MapDocument, productId: string): ProductResistanceImpact[] {
+  entityOfKind(document, productId, 'product', 'Product');
+  const offerIds = document.relationships.flatMap(relation => relation.kind === 'product_packaged_as_offer' && relation.productId === productId ? [relation.offerId] : []);
+  const byRepulsor = new Map<string, Map<string, ProductResistancePath>>();
+  for (const offerId of offerIds) for (const impact of resistanceImpactForOffer(document, offerId)) for (const touchpointId of impact.touchpointIds) {
+    const paths = byRepulsor.get(impact.repulsor.id) ?? new Map<string, ProductResistancePath>(); paths.set(`${offerId}:${touchpointId}`, { offerId, touchpointId }); byRepulsor.set(impact.repulsor.id, paths);
+  }
+  return document.entities.flatMap(repulsor => repulsor.kind === 'repulsor' && byRepulsor.has(repulsor.id) ? [{ repulsor, paths: [...byRepulsor.get(repulsor.id)!.values()] }] : []);
 }
 
 export function setTouchpointMitigations(document: MapDocument, input: { touchpointId: string; repulsorIds: string[]; newRelationshipIds: string[] }): MapDocument {
@@ -273,8 +351,30 @@ export function setTouchpointMitigations(document: MapDocument, input: { touchpo
 }
 
 function pruneIrrelevantTouchpointMitigations(document: MapDocument): MapDocument {
-  const relevantByTouchpoint = new Map(document.entities.filter(entity => entity.kind === 'touchpoint').map(entity => [entity.id, new Set(relevantRepulsorsForTouchpoint(document, entity.id).map(repulsor => repulsor.id))]));
-  return { ...document, relationships: document.relationships.filter(relation => relation.kind !== 'touchpoint_mitigates_repulsor' || relevantByTouchpoint.get(relation.touchpointId)?.has(relation.repulsorId)) };
+  const touchpointJobSelections = document.touchpointJobSelections.flatMap(selection => {
+    const outcomes = effectiveTouchpointOutcomes(document, selection);
+    return outcomes === undefined ? [] : [{ ...selection, addressedDesiredOutcomeIds: outcomes }];
+  });
+  const normalized = { ...document, touchpointJobSelections };
+  const relevantByTouchpoint = new Map(normalized.entities.filter(entity => entity.kind === 'touchpoint').map(entity => [entity.id, new Set(relevantRepulsorsForTouchpoint(normalized, entity.id).map(repulsor => repulsor.id))]));
+  return { ...normalized, relationships: normalized.relationships.filter(relation => relation.kind !== 'touchpoint_mitigates_repulsor' || relevantByTouchpoint.get(relation.touchpointId)?.has(relation.repulsorId)) };
+}
+
+/** Returns the normalized local outcome subset, or undefined when the attributed path is not effective. */
+function effectiveTouchpointOutcomes(document: MapDocument, selection: TouchpointJobSelection): string[] | undefined {
+  const intent = document.productJobIntents.find(candidate => candidate.id === selection.productJobIntentId);
+  const job = document.entities.find(candidate => candidate.id === intent?.jobId);
+  if (!intent || !job) return undefined;
+  if (!document.offerJobSelections.some(candidate => candidate.offerId === selection.offerId && candidate.productJobIntentId === intent.id)) return undefined;
+  if (!document.relationships.some(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.offerId === selection.offerId && relation.touchpointId === selection.touchpointId)) return undefined;
+  if (!isDesiredOutcomeBearingJob(job.kind)) return selection.addressedDesiredOutcomeIds.length ? undefined : [];
+  const upstream = new Set(intent.addressedDesiredOutcomeIds);
+  const outcomes = selection.addressedDesiredOutcomeIds.filter(outcomeId => upstream.has(outcomeId) && document.entities.some(entity => entity.id === outcomeId && entity.kind === 'desired_outcome') && document.relationships.some(relation => relation.kind === 'job_has_desired_outcome' && relation.jobId === intent.jobId && relation.desiredOutcomeId === outcomeId));
+  return outcomes.length ? [...new Set(outcomes)] : undefined;
+}
+function effectiveFinancialSelection(document: MapDocument, selection: TouchpointFinancialSelection): boolean {
+  return document.offerFinancialIntents.some(intent => intent.id === selection.offerFinancialIntentId && intent.offerId === selection.offerId && intent.financialDesiredOutcomeId === selection.financialDesiredOutcomeId)
+    && document.relationships.some(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.offerId === selection.offerId && relation.touchpointId === selection.touchpointId);
 }
 export function addTouchpointContainer(document: MapDocument, input: { id: string; title: string }): MapDocument {
   if (document.touchpointContainers.some(c => c.id === input.id)) throw new DomainError('duplicate_touchpoint_container_id', 'Touchpoint container ID already exists.');
