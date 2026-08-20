@@ -208,3 +208,15 @@ it('derives and deduplicates Offer Financial Desired Outcome routes without auth
   expect(edges.filter(edge => edge.id === 'financial-intent-route:fdo->t')).toHaveLength(1);
   expect(edges.some(edge => edge.source === 'o' && edge.target === 'fdo')).toBe(false);
 });
+
+it('derives one Repulsor to Touchpoint edge for selected Financial Desired Outcome resistance', async () => {
+  const { setOfferFinancialIntents } = await import('@vee/domain');
+  let d = chain();
+  d = addEntity(d, { entityId: 'fdo', title: 'Affordable', kind: 'financial_desired_outcome', viewId: 'v', x: 0, y: 100 });
+  d = setOfferFinancialIntents(d, { offerId: 'o', financialDesiredOutcomeIds: ['fdo'], newIntentIds: ['fdo-intent'] });
+  d = setTouchpointIntentSelections(d, { touchpointId: 't', selections: [{ id: 'tp-fdo', kind: 'financial', offerId: 'o', offerFinancialIntentId: 'fdo-intent' }] });
+  d = addEntity(d, { entityId: 'repulsor', title: 'Unexpected fees', kind: 'repulsor', resistedTargetIds: ['fdo'], relationshipIds: ['resists-fdo'], viewId: 'v', x: 300, y: 100 });
+  expect(deriveMapEdges(d).filter(edge => edge.id === 'repulsor-route:repulsor->t')).toEqual([
+    expect.objectContaining({ source: 'repulsor', target: 't', className: 'map-edge derived-repulsor-edge' }),
+  ]);
+});
