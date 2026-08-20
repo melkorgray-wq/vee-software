@@ -219,14 +219,42 @@ describe('Touchpoint mitigation', () => {
     d = updateEntity(d, { entityId: 'touch', title: 'touch', locatedInId: 'site', linkedOfferIds: ['offer', 'offer-2'], relationshipIds: ['presented-touch', 'presented-2'] });
     expect(relevantRepulsorsForTouchpoint(d, 'touch').map(entity => entity.id)).toEqual(['repulsor']);
   });
-  it('does not project Financial Desired Outcome resistance through Touchpoint relevance', async () => {
-    const { relevantRepulsorsForTouchpoint } = await import('./index');
+  function financialMitigationDocument() {
     let d = offerDocument();
     d = addEntity(d, { ...place, entityId: 'financial', title: 'Stay within budget', kind: 'financial_desired_outcome' });
     d = setOfferFinancialIntents(d, { offerId: 'offer', financialDesiredOutcomeIds: ['financial'], newIntentIds: ['financial-intent'] });
     d = touchpoint(d);
     d = addEntity(d, { ...place, entityId: 'repulsor', title: 'Unexpected fees', kind: 'repulsor', resistedTargetIds: ['financial'], relationshipIds: ['resists-financial'] });
-    expect(relevantRepulsorsForTouchpoint(d, 'touch')).toEqual([]);
+    return d;
+  }
+  it('derives Financial Desired Outcome resistance only from an authored Touchpoint selection', async () => {
+    const { relevantRepulsorsForTouchpoint } = await import('./index');
+    const unselected = financialMitigationDocument();
+    expect(relevantRepulsorsForTouchpoint(unselected, 'touch')).toEqual([]);
+    const selected = setTouchpointIntentSelections(unselected, { touchpointId: 'touch', selections: [{ id: 'touch-financial', kind: 'financial', offerId: 'offer', offerFinancialIntentId: 'financial-intent' }] });
+    expect(relevantRepulsorsForTouchpoint(selected, 'touch').map(entity => entity.id)).toEqual(['repulsor']);
+  });
+  it('deduplicates Financial Desired Outcome relevance through multiple selected Offer paths and allows mitigation', async () => {
+    const { relevantRepulsorsForTouchpoint, setTouchpointMitigations } = await import('./index');
+    let d = financialMitigationDocument();
+    d = addEntity(d, { ...place, entityId: 'offer-2', title: 'Second', kind: 'offer', linkedProductId: 'product', relationshipId: 'packaged-2' });
+    d = setOfferFinancialIntents(d, { offerId: 'offer-2', financialDesiredOutcomeIds: ['financial'], newIntentIds: ['financial-intent-2'] });
+    d = updateEntity(d, { entityId: 'touch', title: 'touch', locatedInId: 'site', linkedOfferIds: ['offer', 'offer-2'], relationshipIds: ['presented-touch', 'presented-2'] });
+    d = setTouchpointIntentSelections(d, { touchpointId: 'touch', selections: [
+      { id: 'touch-financial-1', kind: 'financial', offerId: 'offer', offerFinancialIntentId: 'financial-intent' },
+      { id: 'touch-financial-2', kind: 'financial', offerId: 'offer-2', offerFinancialIntentId: 'financial-intent-2' },
+    ] });
+    expect(relevantRepulsorsForTouchpoint(d, 'touch').map(entity => entity.id)).toEqual(['repulsor']);
+    d = setTouchpointMitigations(d, { touchpointId: 'touch', repulsorIds: ['repulsor'], newRelationshipIds: ['mitigates-financial'] });
+    expect(d.relationships).toContainEqual({ id: 'mitigates-financial', kind: 'touchpoint_mitigates_repulsor', touchpointId: 'touch', repulsorId: 'repulsor' });
+  });
+  it('prunes mitigation when the last selected Financial Desired Outcome path is removed', async () => {
+    const { setTouchpointMitigations } = await import('./index');
+    let d = setTouchpointIntentSelections(financialMitigationDocument(), { touchpointId: 'touch', selections: [{ id: 'touch-financial', kind: 'financial', offerId: 'offer', offerFinancialIntentId: 'financial-intent' }] });
+    d = setTouchpointMitigations(d, { touchpointId: 'touch', repulsorIds: ['repulsor'], newRelationshipIds: ['mitigates-financial'] });
+    d = setTouchpointIntentSelections(d, { touchpointId: 'touch', selections: [] });
+    expect(d.relationships.some(relation => relation.kind === 'touchpoint_mitigates_repulsor')).toBe(false);
+    expect(d.relationships).toContainEqual({ id: 'resists-financial', kind: 'repulsor_resists', repulsorId: 'repulsor', targetEntityId: 'financial' });
   });
   it('validates authored mitigation endpoints and duplicates, and supports checking and unchecking', async () => {
     const { setTouchpointMitigations } = await import('./index'); let d = mitigationDocument();

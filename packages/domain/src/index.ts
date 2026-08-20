@@ -124,7 +124,7 @@ export function setOfferFinancialIntents(document: MapDocument, input: { offerId
   if (input.newIntentIds.some(id => document.offerFinancialIntents.some(intent => intent.id === id))) throw new DomainError('duplicate_offer_financial_intent_id', 'Offer Financial Intent ID already exists.');
   const replacement = input.financialDesiredOutcomeIds.map(id => retained.get(id) ?? { id: input.newIntentIds[additions.indexOf(id)]!, offerId: input.offerId, financialDesiredOutcomeId: id });
   const retainedIds = new Set(replacement.map(intent => intent.id));
-  return { ...document, offerFinancialIntents: [...document.offerFinancialIntents.filter(intent => intent.offerId !== input.offerId), ...replacement], touchpointFinancialSelections: document.touchpointFinancialSelections.filter(selection => selection.offerId !== input.offerId || retainedIds.has(selection.offerFinancialIntentId)) };
+  return pruneIrrelevantTouchpointMitigations({ ...document, offerFinancialIntents: [...document.offerFinancialIntents.filter(intent => intent.offerId !== input.offerId), ...replacement], touchpointFinancialSelections: document.touchpointFinancialSelections.filter(selection => selection.offerId !== input.offerId || retainedIds.has(selection.offerFinancialIntentId)) });
 }
 
 function linkedOfferIds(document: MapDocument, touchpointId: string): Set<string> {
@@ -252,8 +252,9 @@ export function setContextualCoreFunctionalJobs(document: MapDocument, input: { 
 export function relevantRepulsorsForTouchpoint(document: MapDocument, touchpointId: string): Entity[] {
   entityOfKind(document, touchpointId, 'touchpoint', 'Touchpoint');
   const intentIds = new Set(document.touchpointJobSelections.flatMap(selection => selection.touchpointId === touchpointId ? [selection.productJobIntentId] : []));
-  const jobIds = new Set(document.productJobIntents.flatMap(intent => intentIds.has(intent.id) ? [intent.jobId] : []));
-  const repulsorIds = new Set(document.relationships.flatMap(relation => relation.kind === 'repulsor_resists' && jobIds.has(relation.targetEntityId) ? [relation.repulsorId] : []));
+  const relevantTargetIds = new Set(document.productJobIntents.flatMap(intent => intentIds.has(intent.id) ? [intent.jobId] : []));
+  for (const selection of document.touchpointFinancialSelections) if (selection.touchpointId === touchpointId) relevantTargetIds.add(selection.financialDesiredOutcomeId);
+  const repulsorIds = new Set(document.relationships.flatMap(relation => relation.kind === 'repulsor_resists' && relevantTargetIds.has(relation.targetEntityId) ? [relation.repulsorId] : []));
   return document.entities.filter(entity => entity.kind === 'repulsor' && repulsorIds.has(entity.id));
 }
 
