@@ -1,4 +1,4 @@
-import { relevantRepulsorsForTouchpoint, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship } from '@vee/domain';
+import { isDesiredOutcomeBearingJob, relevantRepulsorsForTouchpoint, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship } from '@vee/domain';
 import { MarkerType, type BuiltInEdge, type Edge, type Node } from '@xyflow/react';
 
 type MapEdge = Edge | BuiltInEdge;
@@ -53,13 +53,16 @@ export function deriveMapEdges(document: MapDocument): MapEdge[] {
     const byJob = new Map<string, Set<string>>();
     for (const selection of document.touchpointJobSelections.filter(candidate => candidate.touchpointId === touchpoint.id)) {
       const intent = document.productJobIntents.find(candidate => candidate.id === selection.productJobIntentId); if (!intent) continue;
-      const outcomes = byJob.get(intent.jobId) ?? new Set<string>(); selection.addressedDesiredOutcomeIds.forEach(id => outcomes.add(id)); byJob.set(intent.jobId, outcomes);
+      const job = document.entities.find(candidate => candidate.id === intent.jobId); if (!job) continue;
+      const outcomes = byJob.get(intent.jobId) ?? new Set<string>();
+      if (isDesiredOutcomeBearingJob(job.kind)) selection.addressedDesiredOutcomeIds.filter(outcomeId => intent.addressedDesiredOutcomeIds.includes(outcomeId) && document.relationships.some(relation => relation.kind === 'job_has_desired_outcome' && relation.jobId === job.id && relation.desiredOutcomeId === outcomeId)).forEach(id => outcomes.add(id));
+      else if ((job.kind === 'emotional_job' || job.kind === 'social_job') && selection.addressedDesiredOutcomeIds.length === 0) outcomes.add(job.id);
+      byJob.set(intent.jobId, outcomes);
     }
-    for (const [jobId, outcomes] of byJob) {
-      const sources = outcomes.size ? outcomes : new Set([jobId]);
-      for (const source of sources) { const key = `${source}->${touchpoint.id}`; routes.set(key, { id: `intent-route:${key}`, source, target: touchpoint.id, type: MAP_EDGE_TYPE, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge derived-intent-edge' }); }
+    for (const outcomes of byJob.values()) {
+      for (const source of outcomes) { const key = `${source}->${touchpoint.id}`; routes.set(key, { id: `intent-route:${key}`, source, target: touchpoint.id, type: MAP_EDGE_TYPE, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge derived-intent-edge' }); }
     }
-    const financialIds = new Set(document.touchpointFinancialSelections.filter(selection => selection.touchpointId === touchpoint.id).map(selection => selection.financialDesiredOutcomeId));
+    const financialIds = new Set(document.touchpointFinancialSelections.filter(selection => selection.touchpointId === touchpoint.id && document.offerFinancialIntents.some(intent => intent.id === selection.offerFinancialIntentId && intent.offerId === selection.offerId && intent.financialDesiredOutcomeId === selection.financialDesiredOutcomeId) && document.relationships.some(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.offerId === selection.offerId && relation.touchpointId === touchpoint.id)).map(selection => selection.financialDesiredOutcomeId));
     for (const source of financialIds) { const key = `${source}->${touchpoint.id}`; routes.set(key, { id: `financial-intent-route:${key}`, source, target: touchpoint.id, type: MAP_EDGE_TYPE, markerEnd: { type: MarkerType.ArrowClosed }, className: 'map-edge derived-intent-edge' }); }
   }
   const resistanceRoutes: MapEdge[] = [];
