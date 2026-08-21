@@ -290,7 +290,6 @@ export function MapSpike() {
     if (entity.kind === 'product') {
       const d = draft('offer');
       d.linkedProductId = entity.id;
-      d.selectedIntentIds = documentRef.current.productJobIntents.filter((intent) => intent.productId === entity.id).map((intent) => intent.id);
       return d;
     }
     if (entity.kind === 'offer') {
@@ -404,7 +403,7 @@ export function MapSpike() {
     if (d.kind === 'touchpoint') [current, locatedInId] = ensureContainer(current, d);
     const entityId = crypto.randomUUID();
     const common = { entityId, title: d.title, viewId: VIEW_ID, x, y };
-    let next =
+    const next =
       d.kind === 'offer'
         ? addEntity(current, {
             ...common,
@@ -442,18 +441,6 @@ export function MapSpike() {
                   relationshipIds: d.resistedTargetIds.map(() => crypto.randomUUID()),
                 })
               : addEntity(current, { ...common, kind: d.kind });
-    if (d.kind === 'offer') {
-      next = setOfferJobSelections(next, {
-        offerId: entityId,
-        productJobIntentIds: d.selectedIntentIds,
-        newSelectionIds: d.selectedIntentIds.map(() => crypto.randomUUID()),
-      });
-      next = setOfferFinancialIntents(next, {
-        offerId: entityId,
-        financialDesiredOutcomeIds: d.financialOutcomeIds,
-        newIntentIds: d.financialOutcomeIds.map(() => crypto.randomUUID()),
-      });
-    }
     if (d.kind === 'touchpoint') {
       /* Creation records an explicit empty local scope; downward distribution is a separate authoring choice. */
     }
@@ -1290,7 +1277,6 @@ export function MapSpike() {
           Title
           <input autoFocus required value={q.draft.title} onChange={(e) => setQuick({ ...q, draft: { ...q.draft, title: e.target.value } })} />
         </label>
-        {offerIntentFields(q.draft, (d) => setQuick({ ...q, draft: d }))}
         {touchFields(q.draft, (d) => setQuick({ ...q, draft: d }))}
         {q.draft.kind === 'repulsor' && <p>Resists: {q.draft.resistedTargetIds.map((id) => document.entities.find((entity) => entity.id === id)?.title).join(', ')}</p>}
         <div className="actions">
@@ -1573,14 +1559,7 @@ export function MapSpike() {
                   <select
                     required
                     value={createDraft.linkedProductId}
-                    onChange={(e) => {
-                      const linkedProductId = e.target.value;
-                      setCreateDraft({
-                        ...createDraft,
-                        linkedProductId,
-                        selectedIntentIds: document.productJobIntents.filter((intent) => intent.productId === linkedProductId).map((intent) => intent.id),
-                      });
-                    }}
+                    onChange={(e) => setCreateDraft({ ...createDraft, linkedProductId: e.target.value })}
                   >
                     <option value="">Choose a Product</option>
                     {document.entities
@@ -1593,7 +1572,6 @@ export function MapSpike() {
                   </select>
                 </label>
               )}
-              {offerIntentFields(createDraft, setCreateDraft)}
               {createDraft.kind === 'touchpoint' && (
                 <>
                   <fieldset>
