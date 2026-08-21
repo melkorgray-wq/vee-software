@@ -261,6 +261,8 @@ Committed interaction direction:
 
 The canvas should infer what the graph context already establishes instead of repeatedly asking the user to select known type, side, or parent values. Quick creation may use a compact contextual editor, while detailed editing remains in the full-size Entity Inspector workspace.
 
+Structural entity creation should remain lightweight where an entity can validly exist before its deeper semantic relationships are understood. For Product, initial creation authors only the Product; Client intent is authored afterward through Entity Inspector or another explicit intent-authoring operation. A Product creation draft must not create independent Client entities or relationships before Create commits the Product, so Cancel leaves the map unchanged. This preserves discovery in both directions: a Product may exist before its relevant Jobs are understood, and Client Jobs may exist independently of a Product.
+
 Map and Entity Inspector are two interfaces to the same domain operations: an operation must produce the same model regardless of where it begins. Cross-side authoring is **perspective-independent**: a user may begin from Product, Offer, Touchpoint, Job, Desired Outcome, Emotional/Social Job, or Financial Desired Outcome, and the system should mutate the same durable intent structure rather than create parallel relationship concepts.
 
 The authoring communication grammar is asymmetric:

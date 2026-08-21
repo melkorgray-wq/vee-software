@@ -442,7 +442,6 @@ export function MapSpike() {
                   relationshipIds: d.resistedTargetIds.map(() => crypto.randomUUID()),
                 })
               : addEntity(current, { ...common, kind: d.kind });
-    if (d.kind === 'product') next = applyProductIntentDraft(next, entityId, d.productIntentOutcomes);
     if (d.kind === 'offer') {
       next = setOfferJobSelections(next, {
         offerId: entityId,
@@ -1291,7 +1290,6 @@ export function MapSpike() {
           Title
           <input autoFocus required value={q.draft.title} onChange={(e) => setQuick({ ...q, draft: { ...q.draft, title: e.target.value } })} />
         </label>
-        {productIntentFields(q.draft, (d) => setQuick({ ...q, draft: d }))}
         {offerIntentFields(q.draft, (d) => setQuick({ ...q, draft: d }))}
         {touchFields(q.draft, (d) => setQuick({ ...q, draft: d }))}
         {q.draft.kind === 'repulsor' && <p>Resists: {q.draft.resistedTargetIds.map((id) => document.entities.find((entity) => entity.id === id)?.title).join(', ')}</p>}
@@ -1595,7 +1593,6 @@ export function MapSpike() {
                   </select>
                 </label>
               )}
-              {productIntentFields(createDraft, setCreateDraft)}
               {offerIntentFields(createDraft, setCreateDraft)}
               {createDraft.kind === 'touchpoint' && (
                 <>
