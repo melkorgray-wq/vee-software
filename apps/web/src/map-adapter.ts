@@ -12,8 +12,7 @@ export interface MapNodeData extends Record<string, unknown> {
   layout: NodeLayout;
   url?: string;
   inlineTitle?: string;
-  onInlineTitleChange?: (title: string) => void;
-  onInlineTitleCommit?: () => void;
+  onInlineTitleCommit?: (title: string) => void;
   onInlineTitleCancel?: () => void;
 }
 const ROLE_LAYOUTS: Record<ProvisionalEntityKind, Pick<NodeLayout, 'diameter' | 'titleFontSize' | 'kindFontSize'>> = {
