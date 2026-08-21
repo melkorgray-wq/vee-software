@@ -135,7 +135,6 @@ function ContainerCombobox({ value, query, document, onChange }: { value: string
           role="combobox"
           aria-expanded={open}
           aria-controls="container-options"
-          required
           value={query}
           onFocus={() => setOpen(true)}
           onChange={(e) => {
@@ -284,7 +283,7 @@ export function MapSpike() {
     if (entity.kind === 'touchpoint') {
       result.linkedOfferIds = linkedOfferIds(source, entity.id);
       result.parentTouchpointId = source.relationships.find((r): r is Extract<Relationship, { kind: 'touchpoint_contains_touchpoint' }> => r.kind === 'touchpoint_contains_touchpoint' && r.childTouchpointId === entity.id)?.parentTouchpointId ?? '';
-      result.locatedInId = entity.locatedInId;
+      result.locatedInId = entity.locatedInId ?? '';
       result.locatedInQuery = source.touchpointContainers.find((c) => c.id === entity.locatedInId)?.title ?? '';
       result.url = entity.url ?? '';
       result.mitigatedRepulsorIds = source.relationships.flatMap((relation) => (relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === entity.id ? [relation.repulsorId] : []));
@@ -332,8 +331,6 @@ export function MapSpike() {
     const d = draft('touchpoint');
     d.parentTouchpointId = entity.id;
     d.linkedOfferIds = linkedOfferIds(documentRef.current, entity.id);
-    d.locatedInId = entity.locatedInId;
-    d.locatedInQuery = documentRef.current.touchpointContainers.find((c) => c.id === entity.locatedInId)?.title ?? '';
     return d;
   }
   function screenForFlow(point: Point): Point {
@@ -402,13 +399,6 @@ export function MapSpike() {
     setMenu(null);
     setMessage('');
   }
-  function ensureContainer(current: MapDocument, d: Draft): [MapDocument, string] {
-    if (d.locatedInId) return [current, d.locatedInId];
-    const exact = current.touchpointContainers.find((c) => c.title.trim().toLocaleLowerCase() === d.locatedInQuery.trim().toLocaleLowerCase());
-    if (exact) return [current, exact.id];
-    const id = crypto.randomUUID();
-    return [addTouchpointContainer(current, { id, title: d.locatedInQuery }), id];
-  }
   function applyProductIntentDraft(current: MapDocument, productId: string, values: Record<string, string[]>) {
     let next = current;
     for (const intent of current.productJobIntents.filter((candidate) => candidate.productId === productId)) if (!(intent.jobId in values)) next = removeProductJobIntent(next, intent.id);
@@ -429,9 +419,7 @@ export function MapSpike() {
     return next;
   }
   function createFrom(d: Draft, x: number, y: number): [MapDocument, string] {
-    let current = document;
-    let locatedInId = d.locatedInId;
-    if (d.kind === 'touchpoint') [current, locatedInId] = ensureContainer(current, d);
+    const current = document;
     const entityId = crypto.randomUUID();
     const common = { entityId, title: d.title, viewId: VIEW_ID, x, y };
     const next =
@@ -446,8 +434,6 @@ export function MapSpike() {
           ? addEntity(current, {
               ...common,
               kind: 'touchpoint',
-              locatedInId,
-              url: d.url,
               linkedOfferIds: d.linkedOfferIds,
               relationshipIds: d.linkedOfferIds.map(() => crypto.randomUUID()),
               ...(d.parentTouchpointId
@@ -1309,7 +1295,6 @@ export function MapSpike() {
       >
         <h3>Add {KIND_LABELS[q.draft.kind]}</h3>
         <AutoGrowingTitleField autoFocus value={q.draft.title} onChange={(title) => setQuick({ ...q, draft: { ...q.draft, title } })} />
-        {touchFields(q.draft, (d) => setQuick({ ...q, draft: d }))}
         {q.draft.kind === 'repulsor' && <p>Resists: {q.draft.resistedTargetIds.map((id) => document.entities.find((entity) => entity.id === id)?.title).join(', ')}</p>}
         <div className="actions">
           <button className="primary" name="continuation" value="map">Create</button>
