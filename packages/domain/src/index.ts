@@ -16,7 +16,7 @@ export const EPISTEMIC_STATUSES = ['observed', 'participant_reported', 'business
 export type EpistemicStatus = typeof EPISTEMIC_STATUSES[number];
 
 export type Entity =
-  | { id: string; kind: 'touchpoint'; title: string; locatedInId: string; url?: string }
+  | { id: string; kind: 'touchpoint'; title: string; locatedInId?: string; url?: string }
   | { id: string; kind: 'product'; title: string }
   | { id: string; kind: 'offer'; title: string }
   | { id: string; kind: ClientRootEntityKind | ContextualClientEntityKind | RepulsorEntityKind; title: string };
@@ -390,7 +390,7 @@ export type AddEntityInput = PlacementInput & (
   | { kind: ContextualClientEntityKind; parentEntityId: string; relationshipId: string }
   | { kind: 'repulsor'; resistedTargetIds: string[]; relationshipIds: string[] }
   | { kind: 'offer'; linkedProductId: string; relationshipId: string }
-  | { kind: 'touchpoint'; locatedInId: string; url?: string; linkedOfferIds: string[]; relationshipIds: string[]; parentTouchpointId?: string; parentRelationshipId?: string }
+  | { kind: 'touchpoint'; locatedInId?: string; url?: string; linkedOfferIds: string[]; relationshipIds: string[]; parentTouchpointId?: string; parentRelationshipId?: string }
 );
 export function addEntity(document: MapDocument, input: AddEntityInput): MapDocument {
   const title = required(input.title, 'Entity title'); finite(input.x, input.y);
@@ -402,7 +402,7 @@ export function addEntity(document: MapDocument, input: AddEntityInput): MapDocu
     added = [{ id: input.relationshipId, kind: 'product_packaged_as_offer', productId: input.linkedProductId, offerId: input.entityId }];
     entity = { id: input.entityId, title, kind: 'offer' };
   } else if (input.kind === 'touchpoint') {
-    assertContainer(document, input.locatedInId);
+    if (input.locatedInId) assertContainer(document, input.locatedInId);
     if (!input.linkedOfferIds.length) throw new DomainError('missing_linked_offer', 'A Touchpoint must present at least one Offer.');
     unique(input.linkedOfferIds, 'duplicate_linked_offer');
     if (input.relationshipIds.length !== input.linkedOfferIds.length) throw new DomainError('invalid_relationship_ids', 'Each linked Offer requires a relationship ID.');
@@ -413,7 +413,7 @@ export function addEntity(document: MapDocument, input: AddEntityInput): MapDocu
       if (!input.parentRelationshipId) throw new DomainError('missing_parent_relationship_id', 'A parent relationship ID is required.');
       added.push({ id: input.parentRelationshipId, kind: 'touchpoint_contains_touchpoint', parentTouchpointId: input.parentTouchpointId, childTouchpointId: input.entityId });
     }
-    const url = optional(input.url); entity = { id: input.entityId, title, kind: 'touchpoint', locatedInId: input.locatedInId, ...(url ? { url } : {}) };
+    const url = optional(input.url); entity = { id: input.entityId, title, kind: 'touchpoint', ...(input.locatedInId ? { locatedInId: input.locatedInId } : {}), ...(url ? { url } : {}) };
   } else if (input.kind === 'related_job') {
     entityOfKind(document, input.parentEntityId, 'core_functional_job', 'Related Job parent');
     added = [{ id: input.relationshipId, kind: 'core_functional_job_has_related_job', coreFunctionalJobId: input.parentEntityId, relatedJobId: input.entityId }];
@@ -451,9 +451,9 @@ export function updateEntity(document: MapDocument, input: UpdateEntityInput): M
     relationships = relationships.map(r => r.kind === 'product_packaged_as_offer' && r.offerId === entity.id ? { ...r, productId: input.linkedProductId! } : r);
     if (previousProductId !== input.linkedProductId) document = { ...document, offerJobSelections: document.offerJobSelections.filter(selection => selection.offerId !== entity.id), touchpointJobSelections: document.touchpointJobSelections.filter(selection => selection.offerId !== entity.id) };
   } else if (entity.kind === 'touchpoint') {
-    assertContainer(document, input.locatedInId ?? '');
+    if (input.locatedInId) assertContainer(document, input.locatedInId);
     const offerIds = input.linkedOfferIds ?? []; if (!offerIds.length) throw new DomainError('missing_linked_offer', 'A Touchpoint must present at least one Offer.'); unique(offerIds); offerIds.forEach(id => entityOfKind(document, id, 'offer', 'Linked Offer'));
-    const url = optional(input.url); updated = { id: entity.id, kind: 'touchpoint', title, locatedInId: input.locatedInId!, ...(url ? { url } : {}) };
+    const url = optional(input.url); updated = { id: entity.id, kind: 'touchpoint', title, ...(input.locatedInId ? { locatedInId: input.locatedInId } : {}), ...(url ? { url } : {}) };
     const oldOffers = relationships.filter(r => r.kind === 'offer_presented_at_touchpoint' && r.touchpointId === entity.id);
     const retainedOfferIds = new Set(offerIds);
     document = { ...document, touchpointJobSelections: document.touchpointJobSelections.filter(selection => selection.touchpointId !== entity.id || retainedOfferIds.has(selection.offerId)), touchpointFinancialSelections: document.touchpointFinancialSelections.filter(selection => selection.touchpointId !== entity.id || retainedOfferIds.has(selection.offerId)) };
@@ -522,7 +522,7 @@ export function duplicateEntity(document: MapDocument, input: { sourceEntityId: 
   if (source.kind !== 'touchpoint') throw new DomainError('unsupported_entity_kind', 'Source entity kind cannot be duplicated.');
   const offerIds = document.relationships.filter((r): r is Extract<Relationship, { kind: 'offer_presented_at_touchpoint' }> => r.kind === 'offer_presented_at_touchpoint' && r.touchpointId === source.id).map(r => r.offerId);
   const parent = document.relationships.find((r): r is Extract<Relationship, { kind: 'touchpoint_contains_touchpoint' }> => r.kind === 'touchpoint_contains_touchpoint' && r.childTouchpointId === source.id);
-  let copy = addEntity(document, { entityId: input.entityId, title: source.title, kind: 'touchpoint', locatedInId: source.locatedInId, ...(source.url ? { url: source.url } : {}), linkedOfferIds: offerIds, relationshipIds: input.relationshipIds.slice(0, offerIds.length), ...(parent ? { parentTouchpointId: parent.parentTouchpointId, parentRelationshipId: input.relationshipIds[offerIds.length]! } : {}), viewId: input.viewId, x: input.x, y: input.y });
+  let copy = addEntity(document, { entityId: input.entityId, title: source.title, kind: 'touchpoint', ...(source.locatedInId ? { locatedInId: source.locatedInId } : {}), ...(source.url ? { url: source.url } : {}), linkedOfferIds: offerIds, relationshipIds: input.relationshipIds.slice(0, offerIds.length), ...(parent ? { parentTouchpointId: parent.parentTouchpointId, parentRelationshipId: input.relationshipIds[offerIds.length]! } : {}), viewId: input.viewId, x: input.x, y: input.y });
   const sourceJobs = document.touchpointJobSelections.filter(selection => selection.touchpointId === source.id && offerIds.includes(selection.offerId));
   const sourceFinancial = document.touchpointFinancialSelections.filter(selection => selection.touchpointId === source.id && offerIds.includes(selection.offerId));
   const mitigated = document.relationships.flatMap(relation => relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === source.id ? [relation.repulsorId] : []);

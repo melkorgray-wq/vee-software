@@ -47,7 +47,7 @@ export function siblingDraft(document: MapDocument, entityId: string): SiblingDr
   if (entity.kind === 'touchpoint') {
     result.linkedOfferIds = linkedOfferIds(document, entity.id);
     result.parentTouchpointId = document.relationships.find((relationship): relationship is Extract<Relationship, { kind: 'touchpoint_contains_touchpoint' }> => relationship.kind === 'touchpoint_contains_touchpoint' && relationship.childTouchpointId === entity.id)?.parentTouchpointId ?? '';
-    result.locatedInId = entity.locatedInId;
+    result.locatedInId = entity.locatedInId ?? '';
     result.locatedInQuery = document.touchpointContainers.find(container => container.id === entity.locatedInId)?.title ?? '';
   }
   if (entity.kind === 'related_job') result.parentEntityId = document.relationships.find((relationship): relationship is Extract<Relationship, { kind: 'core_functional_job_has_related_job' }> => relationship.kind === 'core_functional_job_has_related_job' && relationship.relatedJobId === entity.id)?.coreFunctionalJobId ?? '';

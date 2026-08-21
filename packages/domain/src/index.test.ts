@@ -79,6 +79,13 @@ describe('map authoring domain', () => {
     const d = touchpoint(); expect(d.entities.at(-1)).toMatchObject({ id: 'touch', locatedInId: 'site', url: '/checkout#pay' });
     const noUrl = addEntity(offerDocument(), { ...place, entityId: 'offline', title: 'Booth', kind: 'touchpoint', locatedInId: 'site', linkedOfferIds: ['offer'], relationshipIds: ['presented'] }); expect(noUrl.entities.at(-1)).not.toHaveProperty('url');
   });
+  it('allows lightweight Touchpoint creation with only its Offer relationship', () => {
+    const d = addEntity(offerDocument(), { ...place, entityId: 'lightweight', title: 'Checkout', kind: 'touchpoint', linkedOfferIds: ['offer'], relationshipIds: ['presented'] });
+    expect(d.entities.at(-1)).toEqual({ id: 'lightweight', title: 'Checkout', kind: 'touchpoint' });
+    expect(d.relationships.at(-1)).toEqual({ id: 'presented', kind: 'offer_presented_at_touchpoint', offerId: 'offer', touchpointId: 'lightweight' });
+    expect(d.touchpointJobSelections).toEqual([]); expect(d.touchpointFinancialSelections).toEqual([]);
+    expect(d.relationships.some(relation => relation.kind === 'touchpoint_mitigates_repulsor')).toBe(false);
+  });
   it('creates valid containment and permits multiple children', () => {
     let d = touchpoint(); d = touchpoint(d, 'child-a', 'touch'); d = touchpoint(d, 'child-b', 'touch');
     expect(d.relationships.filter(r => r.kind === 'touchpoint_contains_touchpoint')).toEqual([
