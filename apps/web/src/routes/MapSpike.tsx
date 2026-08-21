@@ -16,6 +16,7 @@ const INITIAL_DOCUMENT = createEmptyMapDocument({
 });
 type Side = 'business' | 'client';
 type WorkspaceView = 'map' | 'inspector';
+type PostCreateContinuation = WorkspaceView;
 type Draft = {
   title: string;
   side: Side;
@@ -446,7 +447,7 @@ export function MapSpike() {
     }
     return [next, entityId];
   }
-  function commit(d: Draft, x: number, y: number) {
+  function commit(d: Draft, x: number, y: number, continuation: PostCreateContinuation = 'map') {
     try {
       const [next, id] = createFrom(d, x, y);
       setDocument(next);
@@ -455,11 +456,15 @@ export function MapSpike() {
       setEditDraft(draftFor(created, next));
       setQuick(null);
       setMode('idle');
-      setActiveWorkspaceView('map');
+      setActiveWorkspaceView(continuation);
       setMessage('Element created.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Element could not be created.');
     }
+  }
+  function postCreateContinuation(event: FormEvent<HTMLFormElement>): PostCreateContinuation {
+    const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    return submitter?.value === 'inspector' ? 'inspector' : 'map';
   }
   function duplicate(id: string) {
     const source = documentRef.current;
@@ -1263,7 +1268,7 @@ export function MapSpike() {
         }}
         onSubmit={(e) => {
           e.preventDefault();
-          commit(q.draft, q.flow.x, q.flow.y);
+          commit(q.draft, q.flow.x, q.flow.y, postCreateContinuation(e));
         }}
         onKeyDown={(e: ReactKeyboardEvent) => {
           if (e.key === 'Escape') {
@@ -1280,7 +1285,8 @@ export function MapSpike() {
         {touchFields(q.draft, (d) => setQuick({ ...q, draft: d }))}
         {q.draft.kind === 'repulsor' && <p>Resists: {q.draft.resistedTargetIds.map((id) => document.entities.find((entity) => entity.id === id)?.title).join(', ')}</p>}
         <div className="actions">
-          <button className="primary">Create</button>
+          <button className="primary" name="continuation" value="map">Create</button>
+          <button name="continuation" value="inspector">Create &amp; open Inspector</button>
           <button type="button" onClick={() => setQuick(null)}>
             Cancel
           </button>
@@ -1513,7 +1519,7 @@ export function MapSpike() {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                commit(createDraft, 80 + document.entities.length * 30, 80 + document.entities.length * 30);
+                commit(createDraft, 80 + document.entities.length * 30, 80 + document.entities.length * 30, postCreateContinuation(e));
               }}
             >
               <h3>Add an element</h3>
@@ -1597,7 +1603,8 @@ export function MapSpike() {
                 </>
               )}
               <div className="actions">
-                <button className="primary">Create element</button>
+                <button className="primary" name="continuation" value="map">Create element</button>
+                <button name="continuation" value="inspector">Create &amp; open Inspector</button>
                 <button type="button" onClick={() => setMode('idle')}>
                   Cancel
                 </button>

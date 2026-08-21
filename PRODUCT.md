@@ -239,6 +239,8 @@ Software Alpha uses two peer authored workspace views: `Map` and `Entity Inspect
 
 Both views operate on the same `MapDocument` and the same workspace-level selected entity. Switching between them changes UI/view state only: it does not author domain state, create a second selection, or copy entity state. Selecting an entity on Map establishes the entity shown by Entity Inspector, and returning to Map preserves that selection. The Map working context should also remain stable across workspace switches, including viewport, pan, and zoom where supported by the current view architecture.
 
+Lightweight entity creation supports two continuations after the same committed creation operation: create and remain on Map, or create and immediately continue deep editing in Entity Inspector. The second continuation does not change domain creation semantics and does not create a separate draft model. This allows users to move between rapid structural authoring and deep entity authoring at whatever level of the map is useful for the current work.
+
 Entity Inspector may be activated through its workspace tab, through `Open in Entity Inspector` in an entity context menu, or through the global workspace toggle. The approved bidirectional `Map ↔ Entity Inspector` shortcut is `Ctrl+Shift+Space` on Windows/Linux and `Cmd+Shift+Space` on macOS. It must not activate while keyboard input belongs to an editable control or another active keyboard-owned interaction.
 
 If no entity is selected, Entity Inspector shows an empty state rather than choosing a target automatically. Map and Entity Inspector remain two interfaces to the same domain operations and underlying document.
