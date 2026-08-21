@@ -92,6 +92,36 @@ const draft = (kind: ProvisionalEntityKind = 'product'): Draft => ({
 const isControl = (target: EventTarget | null) => target instanceof HTMLElement && Boolean(target.closest('input, textarea, select, button, [role="combobox"], [contenteditable], form, [role="dialog"], [role="menu"], [role="listbox"], [popover], .contextual-editor'));
 const hasCanonicalChild = (entity: Entity) => entity.kind === 'product' || entity.kind === 'offer' || entity.kind === 'touchpoint' || entity.kind === 'core_functional_job' || entity.kind === 'consumption_chain_job' || entity.kind === 'related_job';
 const safeUrl = (url?: string) => (url && !/^\s*(javascript|data):/i.test(url) ? url : undefined);
+export const normalizeTitleLineBreaks = (value: string) => value.replace(/[\r\n\u2028\u2029]+/g, ' ');
+export function resizeAutoGrowingField(field: HTMLTextAreaElement) {
+  field.style.height = 'auto';
+  field.style.height = `${field.scrollHeight}px`;
+}
+export function AutoGrowingTitleField({ value, onChange, autoFocus = false }: { value: string; onChange: (value: string) => void; autoFocus?: boolean }) {
+  const fieldRef = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    if (fieldRef.current) resizeAutoGrowingField(fieldRef.current);
+  }, [value]);
+  return (
+    <label>
+      Title
+      <textarea
+        ref={fieldRef}
+        className="auto-growing-title"
+        rows={1}
+        autoFocus={autoFocus}
+        required
+        value={value}
+        onChange={(event) => onChange(normalizeTitleLineBreaks(event.target.value))}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter') return;
+          event.preventDefault();
+          event.currentTarget.form?.requestSubmit();
+        }}
+      />
+    </label>
+  );
+}
 function ContainerCombobox({ value, query, document, onChange }: { value: string; query: string; document: MapDocument; onChange: (id: string, query: string, create?: boolean) => void }) {
   const [open, setOpen] = useState(false);
   const normalized = query.trim().toLocaleLowerCase();
@@ -1278,10 +1308,7 @@ export function MapSpike() {
         }}
       >
         <h3>Add {KIND_LABELS[q.draft.kind]}</h3>
-        <label>
-          Title
-          <input autoFocus required value={q.draft.title} onChange={(e) => setQuick({ ...q, draft: { ...q.draft, title: e.target.value } })} />
-        </label>
+        <AutoGrowingTitleField autoFocus value={q.draft.title} onChange={(title) => setQuick({ ...q, draft: { ...q.draft, title } })} />
         {touchFields(q.draft, (d) => setQuick({ ...q, draft: d }))}
         {q.draft.kind === 'repulsor' && <p>Resists: {q.draft.resistedTargetIds.map((id) => document.entities.find((entity) => entity.id === id)?.title).join(', ')}</p>}
         <div className="actions">
