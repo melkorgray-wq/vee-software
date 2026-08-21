@@ -15,6 +15,7 @@ const INITIAL_DOCUMENT = createEmptyMapDocument({
   viewTitle: 'Working view',
 });
 type Side = 'business' | 'client';
+type WorkspaceView = 'map' | 'inspector';
 type Draft = {
   title: string;
   side: Side;
@@ -87,7 +88,7 @@ const draft = (kind: ProvisionalEntityKind = 'product'): Draft => ({
   financialOutcomeIds: [],
   url: '',
 });
-const isControl = (target: EventTarget | null) => target instanceof HTMLElement && Boolean(target.closest('input, textarea, select, button, [role="combobox"], [contenteditable], form, .contextual-editor'));
+const isControl = (target: EventTarget | null) => target instanceof HTMLElement && Boolean(target.closest('input, textarea, select, button, [role="combobox"], [contenteditable], form, [role="dialog"], [role="menu"], [role="listbox"], [popover], .contextual-editor'));
 const hasCanonicalChild = (entity: Entity) => entity.kind === 'product' || entity.kind === 'offer' || entity.kind === 'touchpoint' || entity.kind === 'core_functional_job' || entity.kind === 'consumption_chain_job' || entity.kind === 'related_job';
 const safeUrl = (url?: string) => (url && !/^\s*(javascript|data):/i.test(url) ? url : undefined);
 function ContainerCombobox({ value, query, document, onChange }: { value: string; query: string; document: MapDocument; onChange: (id: string, query: string, create?: boolean) => void }) {
@@ -182,6 +183,9 @@ export function MapSpike() {
   const documentRef = useRef(document);
   documentRef.current = document;
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [activeWorkspaceView, setActiveWorkspaceView] = useState<WorkspaceView>('map');
+  const activeWorkspaceViewRef = useRef(activeWorkspaceView);
+  activeWorkspaceViewRef.current = activeWorkspaceView;
   const selectedRef = useRef(selectedId);
   selectedRef.current = selectedId;
   const [mode, setMode] = useState<'idle' | 'create'>('idle');
@@ -201,6 +205,13 @@ export function MapSpike() {
   }));
   const edges = deriveMapEdges(document);
   const selected = document.entities.find((e) => e.id === selectedId);
+
+  useEffect(() => {
+    if (selectedId && !selected) {
+      setSelectedId(null);
+      setEditDraft(null);
+    }
+  }, [selected, selectedId]);
 
   useLayoutEffect(() => {
     const panel = panelRef.current;
@@ -458,6 +469,7 @@ export function MapSpike() {
       setEditDraft(draftFor(created, next));
       setQuick(null);
       setMode('idle');
+      setActiveWorkspaceView('map');
       setMessage('Element created.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Element could not be created.');
@@ -497,6 +509,14 @@ export function MapSpike() {
         return;
       }
       if (isControl(event.target)) return;
+      const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+      const workspaceModifier = isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+      const interactionOwnsKeyboard = Boolean(menu || quick || childChooser || bottomUp || mode === 'create');
+      if (event.code === 'Space' && event.shiftKey && workspaceModifier && !event.altKey && !interactionOwnsKeyboard) {
+        event.preventDefault();
+        setActiveWorkspaceView(activeWorkspaceViewRef.current === 'map' ? 'inspector' : 'map');
+        return;
+      }
       const modifier = event.ctrlKey || event.metaKey;
       if (modifier && event.key.toLowerCase() === 'c' && selectedRef.current) {
         event.preventDefault();
@@ -521,6 +541,16 @@ export function MapSpike() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
+  function activateWorkspaceView(view: WorkspaceView) {
+    setActiveWorkspaceView(view);
+  }
+  function handleTabKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const view: WorkspaceView = event.key === 'ArrowLeft' || event.key === 'Home' ? 'map' : 'inspector';
+    activateWorkspaceView(view);
+    globalThis.document.getElementById(`${view}-workspace-tab`)?.focus();
+  }
   function containerChange(setter: (d: Draft) => void, d: Draft, id: string, query: string, create?: boolean) {
     if (create) {
       const existing = document.touchpointContainers.find((c) => c.title.trim().toLocaleLowerCase() === query.toLocaleLowerCase());
@@ -1293,13 +1323,18 @@ export function MapSpike() {
           onClick={() => {
             setMode('create');
             setCreateDraft(draft());
+            setActiveWorkspaceView('inspector');
           }}
         >
           Add element
         </button>
       </header>
-      <div className="editor-layout">
-        <section ref={panelRef} className="canvas-panel" aria-label="In-memory VEE map editor">
+      <div className="workspace-tabs" role="tablist" aria-label="Workspace views">
+        <button id="map-workspace-tab" role="tab" aria-selected={activeWorkspaceView === 'map'} aria-controls="map-workspace-panel" tabIndex={activeWorkspaceView === 'map' ? 0 : -1} onClick={() => activateWorkspaceView('map')} onKeyDown={handleTabKeyDown}>Map</button>
+        <button id="inspector-workspace-tab" role="tab" aria-selected={activeWorkspaceView === 'inspector'} aria-controls="inspector-workspace-panel" tabIndex={activeWorkspaceView === 'inspector' ? 0 : -1} onClick={() => activateWorkspaceView('inspector')} onKeyDown={handleTabKeyDown}>Entity Inspector</button>
+      </div>
+      <div className="workspace-panels">
+        <section id="map-workspace-panel" role="tabpanel" aria-labelledby="map-workspace-tab" ref={panelRef} className="canvas-panel" aria-label="In-memory VEE map editor" hidden={activeWorkspaceView !== 'map'}>
           {!document.entities.length && (
             <div className="empty-state">
               <h2>Start an empty map</h2>
@@ -1442,6 +1477,9 @@ export function MapSpike() {
                       <button role="menuitem" onClick={() => duplicate(entity.id)}>
                         Duplicate
                       </button>
+                      <button role="menuitem" onClick={() => { select(entity.id); setActiveWorkspaceView('inspector'); }}>
+                        Open in Entity Inspector
+                      </button>
                       {url && (
                         <a role="menuitem" href={url} target="_blank" rel="noreferrer">
                           Open link
@@ -1480,8 +1518,8 @@ export function MapSpike() {
           )}
           {quick && quickForm(quick)}
         </section>
-        <aside className="inspector" aria-labelledby="inspector-title">
-          <h2 id="inspector-title">Entity inspector</h2>
+        <section id="inspector-workspace-panel" role="tabpanel" aria-labelledby="inspector-workspace-tab" className="inspector" hidden={activeWorkspaceView !== 'inspector'}>
+          <h2 id="inspector-title">Entity Inspector</h2>
           {message && !quick && (
             <p className="status-message" role="status">
               {message}
@@ -1712,9 +1750,12 @@ export function MapSpike() {
               <button className="primary">Apply changes</button>
             </form>
           ) : (
-            <p>{document.entities.length ? 'Select an element on the map to inspect and edit it.' : 'Right-click the map to begin authoring.'}</p>
+            <div className="inspector-empty-state">
+              <p>Select an entity on the Map to inspect it.</p>
+              <button type="button" onClick={() => setActiveWorkspaceView('map')}>Go to Map</button>
+            </div>
           )}
-        </aside>
+        </section>
       </div>
     </main>
   );

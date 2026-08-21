@@ -231,6 +231,18 @@ The domain graph owns entity and relationship meaning. The knowledge layer owns 
 
 The **2D view** is an authored working map of what the user currently believes or understands exists. The future **3D view** is an evidence-derived, emergent analytical view of what available support says is actually interacting. Both use the same domain information rather than separate ontologies.
 
+### Primary authored workspace views
+
+Software Alpha uses two peer authored workspace views: `Map` and `Entity Inspector`.
+
+`Map` is the spatial authoring and system-overview surface. `Entity Inspector` is the full-size deep-editing surface for the currently selected entity; it is not a permanent sidebar attached to Map.
+
+Both views operate on the same `MapDocument` and the same workspace-level selected entity. Switching between them changes UI/view state only: it does not author domain state, create a second selection, or copy entity state. Selecting an entity on Map establishes the entity shown by Entity Inspector, and returning to Map preserves that selection. The Map working context should also remain stable across workspace switches, including viewport, pan, and zoom where supported by the current view architecture.
+
+Entity Inspector may be activated through its workspace tab, through `Open in Entity Inspector` in an entity context menu, or through the global workspace toggle. The approved bidirectional `Map ↔ Entity Inspector` shortcut is `Ctrl+Shift+Space` on Windows/Linux and `Cmd+Shift+Space` on macOS. It must not activate while keyboard input belongs to an editable control or another active keyboard-owned interaction.
+
+If no entity is selected, Entity Inspector shows an empty state rather than choosing a target automatically. Map and Entity Inspector remain two interfaces to the same domain operations and underlying document.
+
 ### 2D authored-map interaction direction
 
 Authoring in 2D is map-first rather than form-first. The interaction model should follow established mind-map conventions where they fit VEE semantics, while domain rules determine what each structural action actually means.
@@ -244,12 +256,12 @@ Committed interaction direction:
 - **Right click on a node → contextual structural actions** such as Add child, Add sibling, Duplicate, Open link, Delete, and later domain-specific actions.
 - **Ctrl/Cmd+C and Ctrl/Cmd+V → structural duplicate** of authored entity data and applicable authored relationships. Duplication must never copy epistemic annotations, Evidence, observations, or future analytical state.
 - **Drag on free canvas → view Placement change.** Dragging onto a valid structural parent is a committed interaction direction for topology-aware reparenting with a visible preview, but exact rules must respect domain cardinality and remain explicit rather than inferred from proximity alone.
-- **Inspector → deep editing surface.** Detailed properties and relationships belong in the Inspector even when common structural operations are available directly on the canvas.
+- **Entity Inspector → full workspace deep-editing surface.** Detailed properties and relationships belong in the peer Entity Inspector workspace even when common structural operations are available directly on the canvas.
 - **Collapse / expand descendants** and explicit branch layout/reset are expected authored-map capabilities for larger maps, not analytical force behavior.
 
-The canvas should infer what the graph context already establishes instead of repeatedly asking the user to select known type, side, or parent values. Quick creation may use a compact contextual editor, while detailed editing remains in the Inspector.
+The canvas should infer what the graph context already establishes instead of repeatedly asking the user to select known type, side, or parent values. Quick creation may use a compact contextual editor, while detailed editing remains in the full-size Entity Inspector workspace.
 
-Canvas and Inspector are two interfaces to the same domain operations: an operation must produce the same model regardless of where it begins. Cross-side authoring is **perspective-independent**: a user may begin from Product, Offer, Touchpoint, Job, Desired Outcome, Emotional/Social Job, or Financial Desired Outcome, and the system should mutate the same durable intent structure rather than create parallel relationship concepts.
+Map and Entity Inspector are two interfaces to the same domain operations: an operation must produce the same model regardless of where it begins. Cross-side authoring is **perspective-independent**: a user may begin from Product, Offer, Touchpoint, Job, Desired Outcome, Emotional/Social Job, or Financial Desired Outcome, and the system should mutate the same durable intent structure rather than create parallel relationship concepts.
 
 The authoring communication grammar is asymmetric:
 
