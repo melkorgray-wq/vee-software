@@ -6,7 +6,16 @@ export const MAP_EDGE_TYPE = 'mapEdge';
 
 export const KIND_LABELS: Record<ProvisionalEntityKind, string> = { product: 'Product', offer: 'Offer', touchpoint: 'Touchpoint', core_functional_job: 'Core Functional Job', emotional_job: 'Emotional Job', social_job: 'Social Job', consumption_chain_job: 'Consumption Chain Job', financial_desired_outcome: 'Financial Desired Outcome', related_job: 'Related Job', desired_outcome: 'Desired Outcome', repulsor: 'Repulsor' };
 export interface NodeLayout { diameter: number; titleFontSize: number; kindFontSize: number; contentWidth: number; compactTitle: boolean }
-export interface MapNodeData extends Record<string, unknown> { title: string; kindLabel: string; layout: NodeLayout; url?: string }
+export interface MapNodeData extends Record<string, unknown> {
+  title: string;
+  kindLabel: string;
+  layout: NodeLayout;
+  url?: string;
+  inlineTitle?: string;
+  onInlineTitleChange?: (title: string) => void;
+  onInlineTitleCommit?: () => void;
+  onInlineTitleCancel?: () => void;
+}
 const ROLE_LAYOUTS: Record<ProvisionalEntityKind, Pick<NodeLayout, 'diameter' | 'titleFontSize' | 'kindFontSize'>> = {
   product: { diameter: 136, titleFontSize: 16, kindFontSize: 13 },
   offer: { diameter: 116, titleFontSize: 15, kindFontSize: 12.5 },

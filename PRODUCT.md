@@ -253,6 +253,9 @@ Authoring in 2D is map-first rather than form-first. The interaction model shoul
 
 Committed interaction direction:
 
+- **Double-click authored entity → inline Title editing.** This is a fast Map-level property operation on the existing entity and shared `MapDocument`; deeper entity editing remains Entity Inspector responsibility. The editor owns keyboard input while active, Enter commits without adding a newline, Escape cancels, and focus returns predictably to the authored entity.
+- **Contextual command menus → immediate keyboard ownership.** Opening a keyboard- or pointer-driven command menu immediately focuses its first actionable item without another pointer action or redundant Tab step. Arrow Up / Arrow Down navigate actionable choices, Home / End reach menu boundaries, Enter / Space activate, and Escape closes the menu and returns focus to its source entity or control.
+
 - **Tab → canonical Child where one exists.** The selected node determines the valid next structural type and known parent relation: Product → Offer, Offer → Touchpoint, Touchpoint → Child Touchpoint, Core Functional Job → Related Job or Desired Outcome, Related Job → Desired Outcome, and Consumption Chain Job → Desired Outcome.
 - **Shift+Tab → Add Repulsor** when the selected entity is one of the six eligible targets: the five accepted Job kinds or Financial Desired Outcome. This authors only the directed resistance relationship from the new Repulsor to that target; the Financial Desired Outcome case does not make that outcome a Job.
 - **Enter → canonical or same-context sibling** as currently implemented. For Repulsor, the blank sibling inherits the resisted target set without implying a semantic parent.

@@ -201,7 +201,28 @@ export function MapNode({ data }: { data: MapNodeData }) {
   return (
     <div className={`node-content${data.layout.compactTitle ? ' compact-title' : ''}`} style={style}>
       <Handle type="target" position={Position.Left} isConnectable={false} />
-      <strong>{data.title}</strong>
+      {data.inlineTitle === undefined ? <strong>{data.title}</strong> : (
+        <textarea
+          className="inline-node-title nodrag nopan"
+          aria-label={`Edit title for ${data.title}`}
+          rows={2}
+          value={data.inlineTitle}
+          autoFocus
+          onChange={(event) => data.onInlineTitleChange?.(normalizeTitleLineBreaks(event.target.value))}
+          onPointerDown={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              data.onInlineTitleCommit?.();
+            } else if (event.key === 'Escape') {
+              event.preventDefault();
+              data.onInlineTitleCancel?.();
+            }
+          }}
+        />
+      )}
       <span>{data.kindLabel}</span>
       {url && (
         <a className="node-link nodrag nopan" href={url} target="_blank" rel="noreferrer" aria-label={`Open ${data.title}`} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
@@ -232,6 +253,7 @@ export function MapSpike() {
   const [createDraft, setCreateDraft] = useState<Draft>(draft());
   const [editDraft, setEditDraft] = useState<Draft | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
+  const [inlineEdit, setInlineEdit] = useState<{ entityId: string; title: string } | null>(null);
   const [quick, setQuick] = useState<Quick | null>(null);
   const [childChooser, setChildChooser] = useState<ChildChooser | null>(null);
   const [bottomUp, setBottomUp] = useState<BottomUpDraft | null>(null);
@@ -242,6 +264,14 @@ export function MapSpike() {
   const nodes = deriveMapNodes(document, VIEW_ID, selectedId).map((node) => ({
     ...node,
     type: 'mapNode',
+    draggable: inlineEdit?.entityId !== node.id,
+    data: inlineEdit?.entityId === node.id ? {
+      ...node.data,
+      inlineTitle: inlineEdit.title,
+      onInlineTitleChange: (title: string) => setInlineEdit((current) => current?.entityId === node.id ? { ...current, title } : current),
+      onInlineTitleCommit: () => finishInlineTitleEdit(true),
+      onInlineTitleCancel: () => finishInlineTitleEdit(false),
+    } : node.data,
   }));
   const edges = deriveMapEdges(document);
   const selected = document.entities.find((e) => e.id === selectedId);
@@ -266,6 +296,11 @@ export function MapSpike() {
     if (!menu?.positioned) return;
     menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')?.focus();
   }, [menu?.positioned]);
+
+  useLayoutEffect(() => {
+    if (!childChooser?.positioned) return;
+    contextualEditorRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')?.focus();
+  }, [childChooser?.positioned]);
 
   useLayoutEffect(() => {
     const panel = panelRef.current;
@@ -314,6 +349,48 @@ export function MapSpike() {
     setMessage('');
     const entity = document.entities.find((e) => e.id === id);
     setEditDraft(entity ? draftFor(entity) : null);
+  }
+  function focusEntity(id: string) {
+    const escaped = CSS.escape(id);
+    const node = globalThis.document.querySelector<HTMLElement>(`[data-node-id="${escaped}"], .react-flow__node[data-id="${escaped}"]`);
+    (node ?? panelRef.current?.querySelector<HTMLElement>('[aria-label="Map canvas"]'))?.focus();
+  }
+  function startInlineTitleEdit(id: string) {
+    const entity = documentRef.current.entities.find((candidate) => candidate.id === id);
+    if (!entity) return;
+    select(id);
+    setInlineEdit({ entityId: id, title: entity.title });
+  }
+  function finishInlineTitleEdit(commitTitle: boolean) {
+    const edit = inlineEdit;
+    if (!edit) return;
+    if (commitTitle) {
+      const entity = documentRef.current.entities.find((candidate) => candidate.id === edit.entityId);
+      if (!entity) return;
+      const current = draftFor(entity, documentRef.current);
+      try {
+        const next = updateEntity(documentRef.current, {
+          entityId: entity.id,
+          title: edit.title,
+          ...(current.locatedInId ? { locatedInId: current.locatedInId } : {}),
+          ...(current.url ? { url: current.url } : {}),
+          ...(current.linkedProductId ? { linkedProductId: current.linkedProductId } : {}),
+          linkedOfferIds: current.linkedOfferIds,
+          relationshipIds: documentRef.current.relationships.flatMap((relation) => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === entity.id ? [relation.id] : []),
+          ...(current.parentTouchpointId ? { parentTouchpointId: current.parentTouchpointId } : {}),
+          ...(current.parentEntityId ? { parentEntityId: current.parentEntityId } : {}),
+          ...(documentRef.current.relationships.find((relation) => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === entity.id)?.id ? { parentRelationshipId: documentRef.current.relationships.find((relation) => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === entity.id)!.id } : {}),
+        });
+        setDocument(next);
+        setEditDraft(draftFor(next.entities.find((candidate) => candidate.id === entity.id)!, next));
+        setMessage('Title updated.');
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : 'Title could not be updated.');
+        return;
+      }
+    }
+    setInlineEdit(null);
+    focusEntity(edit.entityId);
   }
   function childDraft(entity: Entity, contextualKind?: ContextualClientEntityKind): Draft | null {
     if (contextualKind) {
@@ -528,7 +605,7 @@ export function MapSpike() {
       if (isControl(event.target)) return;
       const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
       const workspaceModifier = isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
-      const interactionOwnsKeyboard = Boolean(menu || quick || childChooser || bottomUp || mode === 'create');
+      const interactionOwnsKeyboard = Boolean(menu || quick || childChooser || bottomUp || inlineEdit || mode === 'create');
       if (event.code === 'Space' && event.shiftKey && workspaceModifier && !event.altKey && !interactionOwnsKeyboard) {
         event.preventDefault();
         setActiveWorkspaceView(activeWorkspaceViewRef.current === 'map' ? 'inspector' : 'map');
@@ -1256,8 +1333,10 @@ export function MapSpike() {
   }
   function closeMenuAndRestoreFocus() {
     const owner = menuOwnerRef.current;
+    const entityId = menu?.type === 'node' ? menu.entityId : undefined;
     setMenu(null);
-    owner?.focus();
+    if (entityId) focusEntity(entityId);
+    else owner?.focus();
   }
   function handleMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])'));
@@ -1270,7 +1349,11 @@ export function MapSpike() {
     else if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
-      closeMenuAndRestoreFocus();
+      if (childChooser) {
+        const ownerId = childChooser.parentEntityId;
+        setChildChooser(null);
+        focusEntity(ownerId);
+      } else closeMenuAndRestoreFocus();
       return;
     } else if ((event.key === 'Enter' || event.key === ' ') && current >= 0) {
       event.preventDefault();
@@ -1388,6 +1471,11 @@ export function MapSpike() {
               });
             }}
             onNodeClick={(_, node) => select(node.id)}
+            onNodeDoubleClick={(event, node) => {
+              event.preventDefault();
+              event.stopPropagation();
+              startInlineTitleEdit(node.id);
+            }}
             onNodeContextMenu={(e, node) => {
               e.preventDefault();
               menuOwnerRef.current = e.currentTarget as HTMLElement;
@@ -1507,10 +1595,12 @@ export function MapSpike() {
             <div
               ref={(element) => {
                 contextualEditorRef.current = element;
+                menuRef.current = element;
               }}
-              className="contextual-editor"
-              role="dialog"
+              className="contextual-editor context-menu"
+              role="menu"
               aria-label="Choose child type"
+              onKeyDown={handleMenuKeyDown}
               style={{
                 left: childChooser.overlay.x,
                 top: childChooser.overlay.y,
@@ -1519,11 +1609,11 @@ export function MapSpike() {
             >
               <h3>Add child</h3>
               {(['related_job', 'desired_outcome'] as const).map((kind) => (
-                <button key={kind} type="button" onClick={() => startChild(childChooser.parentEntityId, kind)}>
+                <button key={kind} type="button" role="menuitem" onClick={() => startChild(childChooser.parentEntityId, kind)}>
                   {KIND_LABELS[kind]}
                 </button>
               ))}
-              <button type="button" onClick={() => setChildChooser(null)}>
+              <button type="button" onClick={() => { setChildChooser(null); focusEntity(childChooser.parentEntityId); }}>
                 Cancel
               </button>
             </div>
