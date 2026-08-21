@@ -64,6 +64,11 @@ type ChildChooser = {
   flow: Point;
   positioned: boolean;
 };
+type ContextualAddCommand =
+  | { id: string; label: string; kind: 'child'; entityKind?: ContextualClientEntityKind }
+  | { id: 'repulsor'; label: 'Repulsor'; kind: 'repulsor' }
+  | { id: 'cancel'; label: 'Cancel'; kind: 'cancel' };
+type ContextualAddGroup = { id: string; heading: string; commands: ContextualAddCommand[] };
 type BottomUpDraft = {
   targetId: string;
   outcomeMode: 'direct' | 'outcomes';
@@ -91,6 +96,21 @@ const draft = (kind: ProvisionalEntityKind = 'product'): Draft => ({
 });
 const isControl = (target: EventTarget | null) => target instanceof HTMLElement && Boolean(target.closest('input, textarea, select, button, [role="combobox"], [contenteditable], form, [role="dialog"], [role="menu"], [role="listbox"], [popover], .contextual-editor'));
 const hasCanonicalChild = (entity: Entity) => entity.kind === 'product' || entity.kind === 'offer' || entity.kind === 'touchpoint' || entity.kind === 'core_functional_job' || entity.kind === 'consumption_chain_job' || entity.kind === 'related_job';
+function contextualAddGroups(entity: Entity): ContextualAddGroup[] {
+  const children: ContextualAddCommand[] = entity.kind === 'core_functional_job'
+    ? [
+        { id: 'related-job', label: 'Related Job', kind: 'child', entityKind: 'related_job' },
+        { id: 'desired-outcome', label: 'Desired Outcome', kind: 'child', entityKind: 'desired_outcome' },
+      ]
+    : hasCanonicalChild(entity)
+      ? [{ id: 'canonical-child', label: KIND_LABELS[entity.kind === 'product' ? 'offer' : entity.kind === 'offer' || entity.kind === 'touchpoint' ? 'touchpoint' : 'desired_outcome'], kind: 'child' }]
+      : [];
+  const groups: ContextualAddGroup[] = [];
+  if (children.length) groups.push({ id: 'children', heading: 'Child entities', commands: children });
+  if (isRepulsorTargetKind(entity.kind)) groups.push({ id: 'resistance', heading: 'Resistance', commands: [{ id: 'repulsor', label: 'Repulsor', kind: 'repulsor' }] });
+  if (groups.length) groups.push({ id: 'actions', heading: 'Actions', commands: [{ id: 'cancel', label: 'Cancel', kind: 'cancel' }] });
+  return groups;
+}
 const safeUrl = (url?: string) => (url && !/^\s*(javascript|data):/i.test(url) ? url : undefined);
 export const normalizeTitleLineBreaks = (value: string) => value.replace(/[\r\n\u2028\u2029]+/g, ' ');
 export function resizeAutoGrowingField(field: HTMLTextAreaElement) {
@@ -191,6 +211,31 @@ function ContainerCombobox({ value, query, document, onChange }: { value: string
     </div>
   );
 }
+function InlineTitleEditor({ title, onCommit, onCancel }: { title: string; onCommit: (title: string) => void; onCancel: () => void }) {
+  const [draftTitle, setDraftTitle] = useState(() => title);
+  return (
+    <textarea
+      className="inline-node-title nodrag nopan"
+      aria-label={`Edit title for ${title}`}
+      rows={2}
+      value={draftTitle}
+      autoFocus
+      onChange={(event) => setDraftTitle(normalizeTitleLineBreaks(event.target.value))}
+      onPointerDown={(event) => event.stopPropagation()}
+      onDoubleClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          onCommit(draftTitle);
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          onCancel();
+        }
+      }}
+    />
+  );
+}
 export function MapNode({ data }: { data: MapNodeData }) {
   const url = safeUrl(data.url);
   const style = {
@@ -202,26 +247,7 @@ export function MapNode({ data }: { data: MapNodeData }) {
     <div className={`node-content${data.layout.compactTitle ? ' compact-title' : ''}`} style={style}>
       <Handle type="target" position={Position.Left} isConnectable={false} />
       {data.inlineTitle === undefined ? <strong>{data.title}</strong> : (
-        <textarea
-          className="inline-node-title nodrag nopan"
-          aria-label={`Edit title for ${data.title}`}
-          rows={2}
-          value={data.inlineTitle}
-          autoFocus
-          onChange={(event) => data.onInlineTitleChange?.(normalizeTitleLineBreaks(event.target.value))}
-          onPointerDown={(event) => event.stopPropagation()}
-          onDoubleClick={(event) => event.stopPropagation()}
-          onKeyDown={(event) => {
-            event.stopPropagation();
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              data.onInlineTitleCommit?.();
-            } else if (event.key === 'Escape') {
-              event.preventDefault();
-              data.onInlineTitleCancel?.();
-            }
-          }}
-        />
+        <InlineTitleEditor title={data.inlineTitle} onCommit={(title) => data.onInlineTitleCommit?.(title)} onCancel={() => data.onInlineTitleCancel?.()} />
       )}
       <span>{data.kindLabel}</span>
       {url && (
@@ -268,8 +294,7 @@ export function MapSpike() {
     data: inlineEdit?.entityId === node.id ? {
       ...node.data,
       inlineTitle: inlineEdit.title,
-      onInlineTitleChange: (title: string) => setInlineEdit((current) => current?.entityId === node.id ? { ...current, title } : current),
-      onInlineTitleCommit: () => finishInlineTitleEdit(true),
+      onInlineTitleCommit: (title: string) => finishInlineTitleEdit(title),
       onInlineTitleCancel: () => finishInlineTitleEdit(false),
     } : node.data,
   }));
@@ -361,17 +386,17 @@ export function MapSpike() {
     select(id);
     setInlineEdit({ entityId: id, title: entity.title });
   }
-  function finishInlineTitleEdit(commitTitle: boolean) {
+  function finishInlineTitleEdit(commitTitle: string | false) {
     const edit = inlineEdit;
     if (!edit) return;
-    if (commitTitle) {
+    if (commitTitle !== false) {
       const entity = documentRef.current.entities.find((candidate) => candidate.id === edit.entityId);
       if (!entity) return;
       const current = draftFor(entity, documentRef.current);
       try {
         const next = updateEntity(documentRef.current, {
           entityId: entity.id,
-          title: edit.title,
+          title: commitTitle,
           ...(current.locatedInId ? { locatedInId: current.locatedInId } : {}),
           ...(current.url ? { url: current.url } : {}),
           ...(current.linkedProductId ? { linkedProductId: current.linkedProductId } : {}),
@@ -435,22 +460,18 @@ export function MapSpike() {
     const flow = relatedPlacement(id);
     const anchor = screenForFlow(flow);
     const overlay = { x: 0, y: 0 };
-    if (entity.kind === 'core_functional_job' && !contextualKind) {
-      setChildChooser({
-        parentEntityId: id,
-        flow,
-        anchor,
-        overlay,
-        positioned: false,
-      });
-      setMenu(null);
-      setMessage('');
-      return;
-    }
     const d = childDraft(entity, contextualKind);
     if (!d) return;
     setQuick({ draft: d, flow, anchor, overlay, positioned: false });
     setChildChooser(null);
+    setMenu(null);
+    setMessage('');
+  }
+  function startContextualAdd(id: string) {
+    const entity = documentRef.current.entities.find((candidate) => candidate.id === id);
+    if (!entity || contextualAddGroups(entity).length === 0) return;
+    const flow = relatedPlacement(id);
+    setChildChooser({ parentEntityId: id, flow, anchor: screenForFlow(flow), overlay: { x: 0, y: 0 }, positioned: false });
     setMenu(null);
     setMessage('');
   }
@@ -623,9 +644,9 @@ export function MapSpike() {
         if (entity && event.shiftKey && isRepulsorTargetKind(entity.kind)) {
           event.preventDefault();
           startRepulsor(entity.id);
-        } else if (entity && !event.shiftKey && hasCanonicalChild(entity)) {
+        } else if (entity && !event.shiftKey && contextualAddGroups(entity).length > 0) {
           event.preventDefault();
-          startChild(entity.id);
+          startContextualAdd(entity.id);
         }
       } else if (!modifier && event.key === 'Enter' && selectedRef.current) {
         event.preventDefault();
@@ -1411,7 +1432,7 @@ export function MapSpike() {
         <div>
           <Link to="/">VEE Software</Link>
           <h1>Map-first authoring spike</h1>
-          <p>In-memory authored 2D map. Select a node and press Tab to add its canonical child.</p>
+          <p>In-memory authored 2D map. Select a node and press Tab to open its contextual Add menu.</p>
         </div>
         <button
           className="primary"
@@ -1561,9 +1582,9 @@ export function MapSpike() {
                   const url = entity.kind === 'touchpoint' ? safeUrl(entity.url) : undefined;
                   return (
                     <>
-                      {hasCanonicalChild(entity) && (
-                        <button role="menuitem" onClick={() => startChild(entity.id)}>
-                          Add child
+                      {contextualAddGroups(entity).length > 0 && (
+                        <button role="menuitem" onClick={() => startContextualAdd(entity.id)}>
+                          Add
                         </button>
                       )}
                       {isRepulsorTargetKind(entity.kind) && (
@@ -1599,7 +1620,7 @@ export function MapSpike() {
               }}
               className="contextual-editor context-menu"
               role="menu"
-              aria-label="Choose child type"
+              aria-label="Add"
               onKeyDown={handleMenuKeyDown}
               style={{
                 left: childChooser.overlay.x,
@@ -1607,15 +1628,27 @@ export function MapSpike() {
                 visibility: childChooser.positioned ? 'visible' : 'hidden',
               }}
             >
-              <h3>Add child</h3>
-              {(['related_job', 'desired_outcome'] as const).map((kind) => (
-                <button key={kind} type="button" role="menuitem" onClick={() => startChild(childChooser.parentEntityId, kind)}>
-                  {KIND_LABELS[kind]}
-                </button>
+              <h3>Add</h3>
+              {contextualAddGroups(document.entities.find((entity) => entity.id === childChooser.parentEntityId)!).map((group) => (
+                <div className="context-menu-group" key={group.id}>
+                  <span>{group.heading}</span>
+                  {group.commands.map((command) => (
+                    <button
+                      key={command.id}
+                      type="button"
+                      role="menuitem"
+                      {...(command.kind === 'repulsor' ? { 'aria-keyshortcuts': 'Shift+Tab' } : {})}
+                      onClick={() => {
+                        if (command.kind === 'child') startChild(childChooser.parentEntityId, command.entityKind);
+                        else if (command.kind === 'repulsor') startRepulsor(childChooser.parentEntityId);
+                        else { setChildChooser(null); focusEntity(childChooser.parentEntityId); }
+                      }}
+                    >
+                      {command.label}
+                    </button>
+                  ))}
+                </div>
               ))}
-              <button type="button" onClick={() => { setChildChooser(null); focusEntity(childChooser.parentEntityId); }}>
-                Cancel
-              </button>
             </div>
           )}
           {quick && quickForm(quick)}

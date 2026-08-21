@@ -56,6 +56,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .react-flow__controls button { color: var(--color-foreground); background: var(--surface-solid-2); border-color: var(--border-subtle); }
 .context-menu, .contextual-editor { position: absolute; z-index: 20; display: grid; gap: .4rem; min-width: 12rem; padding: .65rem; border: 1px solid var(--border-soft); border-radius: .4rem; background: var(--surface-solid-2); box-shadow: 0 .75rem 2rem rgba(0,0,0,.45); }
 .context-menu span { padding: .25rem .4rem; color: rgba(255,255,255,.6); font-size: .75rem; text-transform: uppercase; }
+.context-menu-group { display: grid; gap: .4rem; }
 .context-menu a { padding: .65rem .9rem; border: 1px solid var(--border-soft); border-radius: .35rem; text-decoration: none; }
 .contextual-editor { box-sizing: border-box; width: fit-content; max-width: calc(100% - 1rem); max-height: calc(100% - 1rem); overflow-y: auto; overscroll-behavior: contain; gap: .75rem; }
 .contextual-editor h3 { margin: 0; }.contextual-editor label { display: grid; min-width: 0; gap: .35rem; }.contextual-editor input:not([type="checkbox"]), .contextual-editor .auto-growing-title { width: 100%; min-width: 0; padding: .55rem; color: inherit; background: var(--surface-solid-1); border: 1px solid var(--border-subtle); }
