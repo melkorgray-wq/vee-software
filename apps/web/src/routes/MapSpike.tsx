@@ -99,9 +99,20 @@ export function resizeAutoGrowingField(field: HTMLTextAreaElement) {
 }
 export function AutoGrowingTitleField({ value, onChange, autoFocus = false }: { value: string; onChange: (value: string) => void; autoFocus?: boolean }) {
   const fieldRef = useRef<HTMLTextAreaElement>(null);
+  const focusedForOpeningRef = useRef(false);
   useLayoutEffect(() => {
     if (fieldRef.current) resizeAutoGrowingField(fieldRef.current);
   }, [value]);
+  useLayoutEffect(() => {
+    const field = fieldRef.current;
+    if (!autoFocus || !field || focusedForOpeningRef.current) return;
+    const unrelatedDialog = Array.from(globalThis.document.querySelectorAll<HTMLElement>('dialog[open], [role="dialog"]')).find(
+      (dialog) => !dialog.contains(field) && !dialog.closest('[hidden], [aria-hidden="true"]'),
+    );
+    if (unrelatedDialog) return;
+    field.focus();
+    focusedForOpeningRef.current = true;
+  }, [autoFocus]);
   return (
     <label>
       Title
@@ -109,7 +120,6 @@ export function AutoGrowingTitleField({ value, onChange, autoFocus = false }: { 
         ref={fieldRef}
         className="auto-growing-title"
         rows={1}
-        autoFocus={autoFocus}
         required
         value={value}
         onChange={(event) => onChange(normalizeTitleLineBreaks(event.target.value))}
@@ -1294,7 +1304,7 @@ export function MapSpike() {
         }}
       >
         <h3>Add {KIND_LABELS[q.draft.kind]}</h3>
-        <AutoGrowingTitleField autoFocus value={q.draft.title} onChange={(title) => setQuick({ ...q, draft: { ...q.draft, title } })} />
+        <AutoGrowingTitleField autoFocus={q.positioned} value={q.draft.title} onChange={(title) => setQuick({ ...q, draft: { ...q.draft, title } })} />
         {q.draft.kind === 'repulsor' && <p>Resists: {q.draft.resistedTargetIds.map((id) => document.entities.find((entity) => entity.id === id)?.title).join(', ')}</p>}
         <div className="actions">
           <button className="primary" name="continuation" value="map">Create</button>
@@ -1567,10 +1577,7 @@ export function MapSpike() {
                   </select>
                 </label>
               )}
-              <label>
-                Title
-                <input required value={createDraft.title} onChange={(e) => setCreateDraft({ ...createDraft, title: e.target.value })} />
-              </label>
+              <AutoGrowingTitleField autoFocus value={createDraft.title} onChange={(title) => setCreateDraft({ ...createDraft, title })} />
               {createDraft.kind === 'offer' && (
                 <label>
                   Linked Product

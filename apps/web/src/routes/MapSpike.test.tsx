@@ -20,6 +20,42 @@ async function quickOffer(user: ReturnType<typeof userEvent.setup>) { await user
 
 describe('map-first authoring interactions', () => {
   beforeEach(() => { let id = 0; vi.stubGlobal('crypto', { randomUUID: () => `id-${++id}` }); }); afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+  it('focuses the shared Title once for pointer and keyboard contextual creation and releases it on exit', async () => {
+    const user = userEvent.setup(); render(<MapSpike />);
+    fireEvent.contextMenu(screen.getByLabelText('Map canvas'), { clientX: 140, clientY: 150 });
+    await user.click(screen.getByRole('menuitem', { name: 'Product' }));
+    let editor = contextualEditor('Add Product'); let title = editor.getByLabelText('Title');
+    expect(title).toHaveFocus();
+    fireEvent.change(title, { target: { value: 'Orbit' } });
+    const cancel = editor.getByRole('button', { name: 'Cancel' }); cancel.focus();
+    expect(cancel).toHaveFocus();
+    await user.click(editor.getByRole('button', { name: 'Create' }));
+    expect(title).not.toHaveFocus(); expect(title).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Orbit' }));
+    fireEvent.keyDown(window, { key: 'Tab' });
+    editor = contextualEditor('Add Offer'); title = editor.getByLabelText('Title');
+    expect(title).toHaveFocus();
+    await user.type(title, 'Subscription'); await user.click(editor.getByRole('button', { name: 'Create' }));
+    expect(title).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Subscription' }));
+    fireEvent.keyDown(window, { key: 'Tab' });
+    editor = contextualEditor('Add Touchpoint'); title = editor.getByLabelText('Title');
+    expect(title).toHaveFocus();
+    await user.click(editor.getByRole('button', { name: 'Cancel' }));
+    expect(title).not.toBeInTheDocument();
+  });
+  it('focuses Title when root creation opens and does not refocus it on draft rerenders', async () => {
+    const user = userEvent.setup(); render(<MapSpike />);
+    await user.click(screen.getByRole('button', { name: 'Add element' }));
+    const title = screen.getByLabelText('Title'); expect(title).toHaveFocus();
+    fireEvent.change(title, { target: { value: 'Root job' } });
+    const cancel = screen.getByRole('button', { name: 'Cancel' }); cancel.focus();
+    expect(cancel).toHaveFocus();
+    await user.click(cancel);
+    expect(title).not.toBeInTheDocument();
+  });
   it('auto-grows contextual titles for typing and paste while committing a single-line title', async () => {
     vi.spyOn(HTMLTextAreaElement.prototype, 'scrollHeight', 'get').mockImplementation(function (this: HTMLTextAreaElement) { return this.value.length > 35 ? 76 : 38; });
     const user = userEvent.setup(); render(<MapSpike />);
