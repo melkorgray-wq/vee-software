@@ -45,6 +45,42 @@ describe('map-first authoring interactions', () => {
     await openMap(user); expect(screen.getByRole('button', { name: 'Orbit edited' })).toBeInTheDocument(); expect(screen.getByLabelText('Map canvas')).toBe(mapCanvas);
     await openInspector(user); expect(inspector.getByLabelText('Title')).toHaveValue('Orbit edited');
   });
+  it('creates a root through the shared Inspector continuation and preserves its selection on Map', async () => {
+    const user = userEvent.setup(); render(<MapSpike />);
+    await user.click(screen.getByRole('button', { name: 'Add element' }));
+    await user.type(screen.getByLabelText('Title'), 'Inspect immediately');
+    await user.click(screen.getByRole('button', { name: 'Create & open Inspector' }));
+    expect(screen.getByRole('tab', { name: 'Entity Inspector' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).toHaveTextContent('Inspect immediately');
+    await openMap(user);
+    expect(screen.getByRole('button', { name: 'Inspect immediately' })).toBeInTheDocument();
+    await openInspector(user);
+    expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).toHaveTextContent('Inspect immediately');
+  });
+  it('does not create or change workspace when root creation is invalid or cancelled', async () => {
+    const user = userEvent.setup(); render(<MapSpike />);
+    await user.click(screen.getByRole('button', { name: 'Add element' }));
+    await user.click(screen.getByRole('button', { name: 'Create & open Inspector' }));
+    expect(screen.getByRole('tab', { name: 'Entity Inspector' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByLabelText('Map canvas')).not.toBeVisible();
+    await user.type(screen.getByLabelText('Title'), 'Cancelled');
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('tab', { name: 'Entity Inspector' })).toHaveAttribute('aria-selected', 'true');
+    await openMap(user);
+    expect(screen.queryByRole('button', { name: 'Cancelled' })).not.toBeInTheDocument();
+  });
+  it('uses the same contextual Offer creation semantics before opening the created entity in Inspector', async () => {
+    const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user);
+    await user.click(screen.getByRole('button', { name: 'Orbit' })); fireEvent.keyDown(window, { key: 'Tab' });
+    const editor = contextualEditor('Add Offer'); await user.type(editor.getByLabelText('Title'), 'Immediate offer');
+    await user.click(editor.getByRole('button', { name: 'Create & open Inspector' }));
+    expect(screen.getByRole('tab', { name: 'Entity Inspector' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).toHaveTextContent('Immediate offer');
+    await openMap(user);
+    const offerId = screen.getByRole('button', { name: 'Immediate offer' }).getAttribute('data-node-id');
+    const productId = screen.getByRole('button', { name: 'Orbit' }).getAttribute('data-node-id');
+    expect(document.querySelector(`[data-source="${productId}"][data-target="${offerId}"]`)).toBeInTheDocument();
+  });
   it('opens the context-menu target in Entity Inspector and replaces the prior selection', async () => {
     const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await quickOffer(user);
     await user.click(screen.getByRole('button', { name: 'Orbit' })); fireEvent.contextMenu(screen.getByRole('button', { name: 'Subscription' }));
