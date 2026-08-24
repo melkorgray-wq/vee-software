@@ -107,7 +107,12 @@ describe('map-first authoring interactions', () => {
     await user.click(inspector); expect(inspector).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByText('This map does not contain any entities yet.')).toBeInTheDocument();
     expect(screen.queryByText('Select an entity on the Map to inspect it.')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Go to Map' })).toBeInTheDocument();
+    const emptyMapActions = screen.getByRole('button', { name: 'Add first element' }).closest<HTMLElement>('.actions');
+    expect(emptyMapActions).not.toBeNull();
+    expect(within(emptyMapActions!).getAllByRole('button')).toEqual([
+      screen.getByRole('button', { name: 'Add first element' }),
+      screen.getByRole('button', { name: 'Go to Map' }),
+    ]);
     await user.click(screen.getByRole('button', { name: 'Add first element' }));
     expect(screen.getByRole('heading', { name: 'Add an element' })).toBeInTheDocument();
     await user.type(screen.getByLabelText('Title'), 'First entity');
@@ -122,6 +127,9 @@ describe('map-first authoring interactions', () => {
     const inspector = await openInspector(user);
     expect(inspector.getByText('Select an entity on the Map to inspect it.')).toBeInTheDocument();
     expect(inspector.queryByRole('button', { name: 'Add first element' })).not.toBeInTheDocument();
+    const actions = inspector.getByRole('button', { name: 'Go to Map' }).closest<HTMLElement>('.actions');
+    expect(actions).not.toBeNull();
+    expect(within(actions!).getAllByRole('button')).toEqual([inspector.getByRole('button', { name: 'Go to Map' })]);
     await user.click(inspector.getByRole('button', { name: 'Go to Map' }));
     expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('button', { name: 'Orbit' })).toBeInTheDocument();
