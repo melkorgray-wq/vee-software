@@ -89,12 +89,12 @@ const draft = (kind: ProvisionalEntityKind = 'product'): Draft => ({
 const isControl = (target: EventTarget | null) => target instanceof HTMLElement && Boolean(target.closest('input, textarea, select, button, [role="combobox"], [contenteditable], form, [role="dialog"], [role="menu"], [role="listbox"], [popover], .contextual-editor'));
 const hasCanonicalChild = (entity: Entity) => entity.kind === 'product' || entity.kind === 'offer' || entity.kind === 'touchpoint' || entity.kind === 'core_functional_job' || entity.kind === 'consumption_chain_job' || entity.kind === 'related_job';
 const safeUrl = (url?: string) => (url && !/^\s*(javascript|data):/i.test(url) ? url : undefined);
-export const normalizeTitleLineBreaks = (value: string) => value.replace(/[\r\n\u2028\u2029]+/g, ' ');
-export function resizeAutoGrowingField(field: HTMLTextAreaElement) {
+const normalizeTitleLineBreaks = (value: string) => value.replace(/[\r\n\u2028\u2029]+/g, ' ');
+function resizeAutoGrowingField(field: HTMLTextAreaElement) {
   field.style.height = 'auto';
   field.style.height = `${field.scrollHeight}px`;
 }
-export function AutoGrowingTitleField({ value, onChange, autoFocus = false }: { value: string; onChange: (value: string) => void; autoFocus?: boolean }) {
+function AutoGrowingTitleField({ value, onChange, autoFocus = false }: { value: string; onChange: (value: string) => void; autoFocus?: boolean }) {
   const fieldRef = useRef<HTMLTextAreaElement>(null);
   const focusedForOpeningRef = useRef(false);
   useLayoutEffect(() => {
