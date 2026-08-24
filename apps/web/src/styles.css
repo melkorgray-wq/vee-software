@@ -33,6 +33,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .inspector { min-width: 0; min-height: calc(100vh - 12rem); margin: 0; border: 1px solid var(--border-subtle); background: var(--surface-1); padding: clamp(1.25rem, 4vw, 3rem); }
 .inspector > form, .inspector > h2, .inspector > p, .inspector-empty-state { max-width: 56rem; margin-left: auto; margin-right: auto; }
 .inspector-empty-state { padding: 3rem 1rem; text-align: center; }
+.inspector-empty-state > .actions { justify-content: center; }
 .inspector h2 { padding-bottom: .8rem; border-bottom: 1px solid var(--border-subtle); }
 .inspector form { display: grid; gap: 1rem; }
 .inspector label { display: grid; gap: .4rem; font-weight: 650; }

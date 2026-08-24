@@ -1815,14 +1815,16 @@ export function MapSpike() {
           ) : (
             <div className="inspector-empty-state">
               {document.entities.length === 0 ? (
-                <>
-                  <p>This map does not contain any entities yet.</p>
-                  <button className="primary" type="button" onClick={startRootCreation}>Add first element</button>
-                </>
+                <p>This map does not contain any entities yet.</p>
               ) : (
                 <p>Select an entity on the Map to inspect it.</p>
               )}
-              <button type="button" onClick={() => setActiveWorkspaceView('map')}>Go to Map</button>
+              <div className="actions">
+                {document.entities.length === 0 && (
+                  <button className="primary" type="button" onClick={startRootCreation}>Add first element</button>
+                )}
+                <button type="button" onClick={() => setActiveWorkspaceView('map')}>Go to Map</button>
+              </div>
             </div>
           )}
         </section>
