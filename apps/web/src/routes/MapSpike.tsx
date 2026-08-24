@@ -648,6 +648,11 @@ export function MapSpike() {
   function activateWorkspaceView(view: WorkspaceView) {
     setActiveWorkspaceView(view);
   }
+  function startRootCreation() {
+    setMode('create');
+    setCreateDraft(draft());
+    setActiveWorkspaceView('inspector');
+  }
   function handleTabKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
@@ -1421,11 +1426,7 @@ export function MapSpike() {
         </div>
         <button
           className="primary"
-          onClick={() => {
-            setMode('create');
-            setCreateDraft(draft());
-            setActiveWorkspaceView('inspector');
-          }}
+          onClick={startRootCreation}
         >
           Add element
         </button>
@@ -1813,7 +1814,14 @@ export function MapSpike() {
             </form>
           ) : (
             <div className="inspector-empty-state">
-              <p>Select an entity on the Map to inspect it.</p>
+              {document.entities.length === 0 ? (
+                <>
+                  <p>This map does not contain any entities yet.</p>
+                  <button className="primary" type="button" onClick={startRootCreation}>Add first element</button>
+                </>
+              ) : (
+                <p>Select an entity on the Map to inspect it.</p>
+              )}
               <button type="button" onClick={() => setActiveWorkspaceView('map')}>Go to Map</button>
             </div>
           )}

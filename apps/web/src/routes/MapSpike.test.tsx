@@ -98,14 +98,33 @@ describe('map-first authoring interactions', () => {
     expect(edge).toHaveAttribute('data-target', expect.stringMatching(/^id-/));
     expect(edge).toHaveAttribute('data-marker', 'arrowclosed');
   });
-  it('uses accessible peer workspace tabs with Map as the default and a neutral Inspector empty state', async () => {
+  it('uses accessible peer workspace tabs and starts an empty map through the existing Inspector creation flow', async () => {
     const user = userEvent.setup(); render(<MapSpike />);
     const map = screen.getByRole('tab', { name: 'Map' });
     const inspector = screen.getByRole('tab', { name: 'Entity Inspector' });
     expect(map).toHaveAttribute('aria-selected', 'true'); expect(inspector).toHaveAttribute('aria-selected', 'false');
     expect(screen.getByRole('tabpanel', { name: 'Map' })).toBeVisible();
-    await user.click(inspector); expect(inspector).toHaveAttribute('aria-selected', 'true'); expect(screen.getByText('Select an entity on the Map to inspect it.')).toBeInTheDocument();
-    await user.click(map); expect(map).toHaveAttribute('aria-selected', 'true');
+    await user.click(inspector); expect(inspector).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('This map does not contain any entities yet.')).toBeInTheDocument();
+    expect(screen.queryByText('Select an entity on the Map to inspect it.')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Go to Map' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Add first element' }));
+    expect(screen.getByRole('heading', { name: 'Add an element' })).toBeInTheDocument();
+    await user.type(screen.getByLabelText('Title'), 'First entity');
+    await user.click(screen.getByRole('button', { name: 'Create & open Inspector' }));
+    expect(inspector).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).toHaveTextContent('First entity');
+    expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' }).querySelector('form')).toContainElement(screen.getByLabelText('Title'));
+  });
+  it('shows the selection prompt for a non-empty map and Go to Map preserves the document', async () => {
+    const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user);
+    await user.click(screen.getByRole('button', { name: 'Clear selection' }));
+    const inspector = await openInspector(user);
+    expect(inspector.getByText('Select an entity on the Map to inspect it.')).toBeInTheDocument();
+    expect(inspector.queryByRole('button', { name: 'Add first element' })).not.toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Go to Map' }));
+    expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: 'Orbit' })).toBeInTheDocument();
   });
   it('shares selection and document edits between the Map and full Entity Inspector workspace', async () => {
     const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user);
