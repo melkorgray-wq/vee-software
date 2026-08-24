@@ -194,10 +194,10 @@ describe('map-first authoring interactions', () => {
   });
   it('returns focus to the source node after navigating and closing its menu', async () => {
     const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); const node = screen.getByRole('button', { name: 'Orbit' });
-    fireEvent.contextMenu(node); const child = screen.getByRole('menuitem', { name: 'Add' }); expect(child).toHaveFocus();
+    fireEvent.contextMenu(node); const child = screen.getByRole('menuitem', { name: 'Offer' }); expect(child).toHaveFocus();
     fireEvent.keyDown(child, { key: 'ArrowDown' }); expect(screen.getByRole('menuitem', { name: 'Add sibling' })).toHaveFocus();
-    fireEvent.keyDown(document.activeElement!, { key: 'Home' }); fireEvent.keyDown(document.activeElement!, { key: 'Enter' }); await user.click(screen.getByRole('menuitem', { name: 'Offer' })); expect(contextualEditor('Add Offer').getByLabelText('Title')).toHaveFocus();
-    fireEvent.contextMenu(node); fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Add' }), { key: 'Escape' }); expect(node).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!, { key: 'Home' }); fireEvent.keyDown(document.activeElement!, { key: 'Enter' }); expect(contextualEditor('Add Offer').getByLabelText('Title')).toHaveFocus();
+    fireEvent.contextMenu(node); fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Offer' }), { key: 'Escape' }); expect(node).toHaveFocus();
   });
   it('offers all concrete Client-side roots and no generic placeholder', () => {
     render(<MapSpike />);
@@ -219,21 +219,26 @@ describe('map-first authoring interactions', () => {
     await user.click(resists.getByLabelText(/Progress/)); await user.click(inspector.getByRole('button', { name: 'Apply changes' })); expect(screen.getByText('Changes applied.')).toBeInTheDocument();
     await user.click(within(inspector.getByRole('group', { name: 'Resists' })).getByLabelText(/Belong/)); await user.click(inspector.getByRole('button', { name: 'Apply changes' })); expect(screen.getByRole('status')).toHaveTextContent('at least one'); await user.click(within(inspector.getByRole('group', { name: 'Resists' })).getByLabelText(/Progress/));
     await openMap(user); fireEvent.keyDown(window, { key: 'Enter' }); expect(contextualEditor('Add Repulsor').getByText('Resists: Belong')).toBeInTheDocument(); await user.click(contextualEditor('Add Repulsor').getByRole('button', { name: 'Cancel' }));
-    const reverseTab = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, cancelable: true }); fireEvent(window, reverseTab); expect(reverseTab.defaultPrevented).toBe(false); fireEvent.contextMenu(screen.getByRole('button', { name: 'Fear delay' })); expect(screen.queryByRole('menuitem', { name: 'Add' })).not.toBeInTheDocument(); expect(screen.queryByRole('menuitem', { name: 'Add Repulsor' })).not.toBeInTheDocument(); await user.click(screen.getByRole('menuitem', { name: 'Duplicate' })); expect(screen.getAllByRole('button', { name: 'Fear delay' })).toHaveLength(2);
+    const reverseTab = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, cancelable: true }); fireEvent(window, reverseTab); expect(reverseTab.defaultPrevented).toBe(false); fireEvent.contextMenu(screen.getByRole('button', { name: 'Fear delay' })); expect(screen.queryByRole('menuitem', { name: 'Add' })).not.toBeInTheDocument(); expect(screen.queryByRole('menuitem', { name: 'Repulsor' })).not.toBeInTheDocument(); await user.click(screen.getByRole('menuitem', { name: 'Duplicate' })); expect(screen.getAllByRole('button', { name: 'Fear delay' })).toHaveLength(2);
   });
-  it('uses the same canonical Core Functional Job child flow for Tab and Add child', async () => {
+  it('uses one canonical grouped Core Functional Job menu for Tab and right click', async () => {
     const user = userEvent.setup(); render(<MapSpike />);
     await user.click(screen.getByRole('button', { name: 'Add element' })); await user.click(screen.getByRole('button', { name: 'Client side' })); await user.type(screen.getByLabelText('Title'), 'Make progress'); await user.click(screen.getByRole('button', { name: 'Create element' }));
-    await user.click(screen.getByRole('button', { name: 'Make progress' })); fireEvent.keyDown(window, { key: 'Tab' });
-    const chooser = screen.getByRole('menu', { name: 'Add' }); expect(within(chooser).getAllByRole('menuitem').map(item => item.textContent)).toEqual(['Related Job', 'Desired Outcome', 'Repulsor', 'Cancel']);
-    const related = within(chooser).getByRole('menuitem', { name: 'Related Job' }); const outcome = within(chooser).getByRole('menuitem', { name: 'Desired Outcome' }); const resistance = within(chooser).getByRole('menuitem', { name: 'Repulsor' }); const cancel = within(chooser).getByRole('menuitem', { name: 'Cancel' }); expect(related).toHaveFocus();
-    fireEvent.keyDown(related, { key: 'ArrowDown' }); expect(outcome).toHaveFocus(); fireEvent.keyDown(outcome, { key: 'ArrowDown' }); expect(resistance).toHaveFocus(); fireEvent.keyDown(resistance, { key: 'ArrowDown' }); expect(cancel).toHaveFocus(); fireEvent.keyDown(cancel, { key: 'ArrowDown' }); expect(related).toHaveFocus();
-    fireEvent.keyDown(related, { key: 'ArrowUp' }); expect(cancel).toHaveFocus(); fireEvent.keyDown(cancel, { key: 'End' }); expect(cancel).toHaveFocus(); fireEvent.keyDown(cancel, { key: 'Home' }); expect(related).toHaveFocus(); fireEvent.keyDown(related, { key: 'Enter' });
+    const node = screen.getByRole('button', { name: 'Make progress' }); await user.click(node); fireEvent.keyDown(window, { key: 'Tab' });
+    let menu = screen.getByRole('menu', { name: 'Entity context menu' });
+    const expected = ['Related Job', 'Desired Outcome', 'Repulsor', 'Add sibling', 'Duplicate', 'Open in Entity Inspector', 'Cancel'];
+    expect(within(menu).getAllByRole('menuitem').map(item => item.textContent)).toEqual(expected);
+    expect(menu).toHaveAttribute('data-invocation', 'keyboard'); expect(menu).toHaveAttribute('data-anchor-x', '280'); expect(menu).toHaveAttribute('data-anchor-y', '100');
+    for (const heading of ['Child entities', 'Resistance', 'Structure', 'Entity', 'Actions']) expect(within(menu).getByText(heading)).not.toHaveAttribute('role', 'menuitem');
+    const related = within(menu).getByRole('menuitem', { name: 'Related Job' }); const outcome = within(menu).getByRole('menuitem', { name: 'Desired Outcome' }); const resistance = within(menu).getByRole('menuitem', { name: 'Repulsor' }); const sibling = within(menu).getByRole('menuitem', { name: 'Add sibling' }); const cancel = within(menu).getByRole('menuitem', { name: 'Cancel' });
+    expect(related).toHaveFocus(); fireEvent.keyDown(related, { key: 'ArrowDown' }); expect(outcome).toHaveFocus(); fireEvent.keyDown(outcome, { key: 'ArrowDown' }); expect(resistance).toHaveFocus(); fireEvent.keyDown(resistance, { key: 'ArrowDown' }); expect(sibling).toHaveFocus(); fireEvent.keyDown(sibling, { key: 'ArrowUp' }); expect(resistance).toHaveFocus();
+    fireEvent.keyDown(resistance, { key: 'End' }); expect(cancel).toHaveFocus(); fireEvent.keyDown(cancel, { key: 'ArrowDown' }); expect(related).toHaveFocus(); fireEvent.keyDown(related, { key: 'ArrowUp' }); expect(cancel).toHaveFocus(); fireEvent.keyDown(cancel, { key: 'Home' }); expect(related).toHaveFocus();
+    fireEvent.keyDown(related, { key: 'Escape' }); expect(node).toHaveFocus();
+    fireEvent.contextMenu(node, { clientX: 320, clientY: 180 }); menu = screen.getByRole('menu', { name: 'Entity context menu' });
+    expect(within(menu).getAllByRole('menuitem').map(item => item.textContent)).toEqual(expected); expect(menu).toHaveAttribute('data-invocation', 'pointer'); expect(menu).toHaveAttribute('data-anchor-x', '320'); expect(menu).toHaveAttribute('data-anchor-y', '180'); expect(within(menu).queryByRole('menuitem', { name: 'Add' })).not.toBeInTheDocument();
+    fireEvent.keyDown(within(menu).getByRole('menuitem', { name: 'Related Job' }), { key: ' ' });
     const editor = contextualEditor('Add Related Job'); await user.type(editor.getByLabelText('Title'), 'Coordinate team'); await user.click(editor.getByRole('button', { name: 'Create' }));
-    expect(screen.getByRole('button', { name: 'Coordinate team' })).toBeInTheDocument(); expect(screen.queryByText('related job of')).not.toBeInTheDocument();
-    const reverseTab = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, cancelable: true }); fireEvent(window, reverseTab); expect(reverseTab.defaultPrevented).toBe(true); expect(contextualEditor('Add Repulsor').getByText('Resists: Coordinate team')).toBeInTheDocument(); await user.click(contextualEditor('Add Repulsor').getByRole('button', { name: 'Cancel' }));
-    fireEvent.contextMenu(screen.getByRole('button', { name: 'Coordinate team' })); await user.click(screen.getByRole('menuitem', { name: 'Add Repulsor' })); const repulsor = contextualEditor('Add Repulsor'); await user.type(repulsor.getByLabelText('Title'), 'Fear coordination'); await user.click(repulsor.getByRole('button', { name: 'Create' })); expect(screen.getByRole('button', { name: 'Fear coordination' })).toBeInTheDocument();
-    fireEvent.contextMenu(screen.getByRole('button', { name: 'Make progress' })); expect(screen.getByRole('menuitem', { name: 'Add Repulsor' })).toBeInTheDocument(); await user.click(screen.getByRole('menuitem', { name: 'Add' })); expect(screen.getByRole('menu', { name: 'Add' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Coordinate team' })).toBeInTheDocument();
   });
   it('keeps context-menu and Shift+Tab Repulsor targets aligned across Client roots', async () => {
     const user = userEvent.setup(); render(<MapSpike />);
@@ -244,10 +249,10 @@ describe('map-first authoring interactions', () => {
       const tab = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true }); fireEvent(window, tab);
       expect(tab.defaultPrevented).toBe(true); await user.click(screen.getByRole('menuitem', { name: 'Cancel' }));
       const reverseTab = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, cancelable: true }); fireEvent(window, reverseTab); expect(reverseTab.defaultPrevented).toBe(true); expect(contextualEditor('Add Repulsor').getByText(`Resists: ${title}`)).toBeInTheDocument(); await user.click(contextualEditor('Add Repulsor').getByRole('button', { name: 'Cancel' }));
-      fireEvent.contextMenu(screen.getByRole('button', { name: title })); expect(screen.getByRole('menuitem', { name: 'Add Repulsor' })).toHaveAttribute('aria-keyshortcuts', 'Shift+Tab'); expect(screen.getByRole('menuitem', { name: 'Add' })).toBeInTheDocument(); await user.click(screen.getByRole('menuitem', { name: 'Add Repulsor' })); expect(contextualEditor('Add Repulsor').getByText(`Resists: ${title}`)).toBeInTheDocument(); await user.click(contextualEditor('Add Repulsor').getByRole('button', { name: 'Cancel' }));
+      fireEvent.contextMenu(screen.getByRole('button', { name: title })); expect(screen.getByRole('menuitem', { name: 'Repulsor' })).toHaveAttribute('aria-keyshortcuts', 'Shift+Tab'); expect(screen.queryByRole('menuitem', { name: 'Add' })).not.toBeInTheDocument(); await user.click(screen.getByRole('menuitem', { name: 'Repulsor' })); expect(contextualEditor('Add Repulsor').getByText(`Resists: ${title}`)).toBeInTheDocument(); await user.click(contextualEditor('Add Repulsor').getByRole('button', { name: 'Cancel' }));
     }
     const financial = screen.getByRole('button', { name: 'Save' });
-    fireEvent.contextMenu(financial); expect(screen.getByRole('menuitem', { name: 'Add Repulsor' })).toHaveAttribute('aria-keyshortcuts', 'Shift+Tab'); await user.click(screen.getByRole('menuitem', { name: 'Add Repulsor' }));
+    fireEvent.contextMenu(financial); expect(screen.getByRole('menuitem', { name: 'Repulsor' })).toHaveAttribute('aria-keyshortcuts', 'Shift+Tab'); await user.click(screen.getByRole('menuitem', { name: 'Repulsor' }));
     let editor = contextualEditor('Add Repulsor'); expect(editor.getByText('Resists: Save')).toBeInTheDocument(); await user.type(editor.getByLabelText('Title'), 'Budget concern'); await user.click(editor.getByRole('button', { name: 'Create' }));
     const financialId = financial.getAttribute('data-node-id'); const menuRepulsorId = screen.getByRole('button', { name: 'Budget concern' }).getAttribute('data-node-id');
     expect(document.querySelector(`[data-source="${menuRepulsorId}"][data-target="${financialId}"]`)).toHaveAttribute('data-marker', 'arrowclosed');
@@ -262,7 +267,7 @@ describe('map-first authoring interactions', () => {
     await user.click(screen.getByRole('button', { name: 'Core A' })); fireEvent.keyDown(window, { key: 'Tab' }); await user.click(screen.getByRole('menuitem', { name: 'Desired Outcome' })); let editor = contextualEditor('Add Desired Outcome'); await user.type(editor.getByLabelText('Title'), 'Faster'); await user.click(editor.getByRole('button', { name: 'Create' }));
     fireEvent.keyDown(window, { key: 'Enter' }); editor = contextualEditor('Add Desired Outcome'); expect(editor.getByLabelText('Title')).toHaveValue(''); await user.type(editor.getByLabelText('Title'), 'Safer'); await user.click(editor.getByRole('button', { name: 'Create' }));
     const inspector = await openInspector(user); expect(inspector.getByLabelText('Semantic parent')).not.toHaveValue(''); await user.selectOptions(inspector.getByLabelText('Semantic parent'), within(inspector.getByLabelText('Semantic parent')).getByRole('option', { name: 'Core B' })); await user.click(inspector.getByRole('button', { name: 'Apply changes' })); expect(screen.getByText('Changes applied.')).toBeInTheDocument();
-    await openMap(user); fireEvent.contextMenu(screen.getByRole('button', { name: 'Safer' })); expect(screen.queryByRole('menuitem', { name: 'Add' })).not.toBeInTheDocument(); expect(screen.queryByRole('menuitem', { name: 'Add Repulsor' })).not.toBeInTheDocument(); await user.click(screen.getByRole('menuitem', { name: 'Duplicate' })); expect(screen.getAllByRole('button', { name: 'Safer' })).toHaveLength(2);
+    await openMap(user); fireEvent.contextMenu(screen.getByRole('button', { name: 'Safer' })); expect(screen.queryByRole('menuitem', { name: 'Add' })).not.toBeInTheDocument(); expect(screen.queryByRole('menuitem', { name: 'Repulsor' })).not.toBeInTheDocument(); await user.click(screen.getByRole('menuitem', { name: 'Duplicate' })); expect(screen.getAllByRole('button', { name: 'Safer' })).toHaveLength(2);
   });
   it('creates same-kind Client-side siblings and duplicates without inventing a Tab child', async () => {
     const user = userEvent.setup(); render(<MapSpike />);
@@ -278,8 +283,8 @@ describe('map-first authoring interactions', () => {
     expect(tab.defaultPrevented).toBe(true);
     expect(screen.getByRole('menuitem', { name: 'Repulsor' })).toBeInTheDocument(); fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Repulsor' }), { key: 'Escape' });
     fireEvent.contextMenu(screen.getByRole('button', { name: 'Feel confident' }));
-    expect(screen.getByRole('menuitem', { name: 'Add' })).toBeInTheDocument();
-    expect(screen.getByRole('menuitem', { name: 'Add Repulsor' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Add' })).not.toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Repulsor' })).toBeInTheDocument();
     await user.click(screen.getByRole('menuitem', { name: 'Add sibling' }));
     expect(contextualEditor('Add Emotional Job').getByLabelText('Title')).toHaveValue('');
     await user.click(contextualEditor('Add Emotional Job').getByRole('button', { name: 'Cancel' }));

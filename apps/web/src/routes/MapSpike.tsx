@@ -45,6 +45,7 @@ type Menu =
     }
   | {
       type: 'node';
+      invocation: 'keyboard' | 'pointer';
       client: Point;
       overlay: Point;
       entityId: string;
@@ -57,18 +58,9 @@ type Quick = {
   flow: Point;
   positioned: boolean;
 };
-type ChildChooser = {
-  parentEntityId: string;
-  anchor: Point;
-  overlay: Point;
-  flow: Point;
-  positioned: boolean;
-};
-type ContextualAddCommand =
-  | { id: string; label: string; kind: 'child'; entityKind?: ContextualClientEntityKind }
-  | { id: 'repulsor'; label: 'Repulsor'; kind: 'repulsor' }
-  | { id: 'cancel'; label: 'Cancel'; kind: 'cancel' };
-type ContextualAddGroup = { id: string; heading: string; commands: ContextualAddCommand[] };
+type EntityContextCommandId = 'related-job' | 'desired-outcome' | 'canonical-child' | 'repulsor' | 'sibling' | 'duplicate' | 'inspector' | 'open-link' | 'cancel';
+type EntityContextCommand = { id: EntityContextCommandId; label: string; shortcut?: string; href?: string; action: () => void };
+type EntityContextCommandGroup = { id: string; heading: string; commands: EntityContextCommand[] };
 type BottomUpDraft = {
   targetId: string;
   outcomeMode: 'direct' | 'outcomes';
@@ -96,21 +88,6 @@ const draft = (kind: ProvisionalEntityKind = 'product'): Draft => ({
 });
 const isControl = (target: EventTarget | null) => target instanceof HTMLElement && Boolean(target.closest('input, textarea, select, button, [role="combobox"], [contenteditable], form, [role="dialog"], [role="menu"], [role="listbox"], [popover], .contextual-editor'));
 const hasCanonicalChild = (entity: Entity) => entity.kind === 'product' || entity.kind === 'offer' || entity.kind === 'touchpoint' || entity.kind === 'core_functional_job' || entity.kind === 'consumption_chain_job' || entity.kind === 'related_job';
-function contextualAddGroups(entity: Entity): ContextualAddGroup[] {
-  const children: ContextualAddCommand[] = entity.kind === 'core_functional_job'
-    ? [
-        { id: 'related-job', label: 'Related Job', kind: 'child', entityKind: 'related_job' },
-        { id: 'desired-outcome', label: 'Desired Outcome', kind: 'child', entityKind: 'desired_outcome' },
-      ]
-    : hasCanonicalChild(entity)
-      ? [{ id: 'canonical-child', label: KIND_LABELS[entity.kind === 'product' ? 'offer' : entity.kind === 'offer' || entity.kind === 'touchpoint' ? 'touchpoint' : 'desired_outcome'], kind: 'child' }]
-      : [];
-  const groups: ContextualAddGroup[] = [];
-  if (children.length) groups.push({ id: 'children', heading: 'Child entities', commands: children });
-  if (isRepulsorTargetKind(entity.kind)) groups.push({ id: 'resistance', heading: 'Resistance', commands: [{ id: 'repulsor', label: 'Repulsor', kind: 'repulsor' }] });
-  if (groups.length) groups.push({ id: 'actions', heading: 'Actions', commands: [{ id: 'cancel', label: 'Cancel', kind: 'cancel' }] });
-  return groups;
-}
 const safeUrl = (url?: string) => (url && !/^\s*(javascript|data):/i.test(url) ? url : undefined);
 export const normalizeTitleLineBreaks = (value: string) => value.replace(/[\r\n\u2028\u2029]+/g, ' ');
 export function resizeAutoGrowingField(field: HTMLTextAreaElement) {
@@ -281,7 +258,6 @@ export function MapSpike() {
   const [menu, setMenu] = useState<Menu | null>(null);
   const [inlineEdit, setInlineEdit] = useState<{ entityId: string; title: string } | null>(null);
   const [quick, setQuick] = useState<Quick | null>(null);
-  const [childChooser, setChildChooser] = useState<ChildChooser | null>(null);
   const [bottomUp, setBottomUp] = useState<BottomUpDraft | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const copiedRef = useRef(copiedId);
@@ -323,22 +299,16 @@ export function MapSpike() {
   }, [menu?.positioned]);
 
   useLayoutEffect(() => {
-    if (!childChooser?.positioned) return;
-    contextualEditorRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')?.focus();
-  }, [childChooser?.positioned]);
-
-  useLayoutEffect(() => {
     const panel = panelRef.current;
     const element = contextualEditorRef.current;
-    if (!panel || !element || (!quick && !childChooser)) return;
+    if (!panel || !element || !quick) return;
     const bounds = element.getBoundingClientRect();
-    const anchor = quick?.anchor ?? childChooser!.anchor;
+    const anchor = quick.anchor;
     const overlay = contextMenuPoint(anchor, panel.getBoundingClientRect(), {
       width: bounds.width,
       height: bounds.height,
     });
-    if (quick) setQuick((current) => (current && (current.overlay.x !== overlay.x || current.overlay.y !== overlay.y || !current.positioned) ? { ...current, overlay, positioned: true } : current));
-    else setChildChooser((current) => (current && (current.overlay.x !== overlay.x || current.overlay.y !== overlay.y || !current.positioned) ? { ...current, overlay, positioned: true } : current));
+    setQuick((current) => (current && (current.overlay.x !== overlay.x || current.overlay.y !== overlay.y || !current.positioned) ? { ...current, overlay, positioned: true } : current));
   });
 
   function draftFor(entity: Entity, source = document): Draft {
@@ -368,7 +338,6 @@ export function MapSpike() {
     setSelectedId(id);
     setMode('idle');
     setQuick(null);
-    setChildChooser(null);
     setBottomUp(null);
     setMenu(null);
     setMessage('');
@@ -463,15 +432,6 @@ export function MapSpike() {
     const d = childDraft(entity, contextualKind);
     if (!d) return;
     setQuick({ draft: d, flow, anchor, overlay, positioned: false });
-    setChildChooser(null);
-    setMenu(null);
-    setMessage('');
-  }
-  function startContextualAdd(id: string) {
-    const entity = documentRef.current.entities.find((candidate) => candidate.id === id);
-    if (!entity || contextualAddGroups(entity).length === 0) return;
-    const flow = relatedPlacement(id);
-    setChildChooser({ parentEntityId: id, flow, anchor: screenForFlow(flow), overlay: { x: 0, y: 0 }, positioned: false });
     setMenu(null);
     setMessage('');
   }
@@ -488,7 +448,6 @@ export function MapSpike() {
       overlay: { x: 0, y: 0 },
       positioned: false,
     });
-    setChildChooser(null);
     setMenu(null);
     setMessage('');
   }
@@ -505,6 +464,37 @@ export function MapSpike() {
       positioned: false,
     });
     setMenu(null);
+    setMessage('');
+  }
+  function entityContextCommandGroups(entity: Entity): EntityContextCommandGroup[] {
+    const children: EntityContextCommand[] = entity.kind === 'core_functional_job'
+      ? [
+          { id: 'related-job', label: 'Related Job', action: () => startChild(entity.id, 'related_job') },
+          { id: 'desired-outcome', label: 'Desired Outcome', action: () => startChild(entity.id, 'desired_outcome') },
+        ]
+      : hasCanonicalChild(entity)
+        ? [{ id: 'canonical-child', label: KIND_LABELS[entity.kind === 'product' ? 'offer' : entity.kind === 'offer' || entity.kind === 'touchpoint' ? 'touchpoint' : 'desired_outcome'], action: () => startChild(entity.id) }]
+        : [];
+    const groups: EntityContextCommandGroup[] = [];
+    if (children.length) groups.push({ id: 'children', heading: 'Child entities', commands: children });
+    if (isRepulsorTargetKind(entity.kind)) groups.push({ id: 'resistance', heading: 'Resistance', commands: [{ id: 'repulsor', label: 'Repulsor', shortcut: 'Shift+Tab', action: () => startRepulsor(entity.id) }] });
+    groups.push({ id: 'structure', heading: 'Structure', commands: [
+      { id: 'sibling', label: 'Add sibling', action: () => startSibling(entity.id) },
+      { id: 'duplicate', label: 'Duplicate', action: () => duplicate(entity.id) },
+    ] });
+    const entityCommands: EntityContextCommand[] = [{ id: 'inspector', label: 'Open in Entity Inspector', action: () => { select(entity.id); setActiveWorkspaceView('inspector'); } }];
+    const url = entity.kind === 'touchpoint' ? safeUrl(entity.url) : undefined;
+    if (url) entityCommands.push({ id: 'open-link', label: 'Open link', href: url, action: () => undefined });
+    groups.push({ id: 'entity', heading: 'Entity', commands: entityCommands });
+    groups.push({ id: 'actions', heading: 'Actions', commands: [{ id: 'cancel', label: 'Cancel', action: closeMenuAndRestoreFocus }] });
+    return groups;
+  }
+  function openEntityContextMenu(entityId: string) {
+    const entity = documentRef.current.entities.find((candidate) => candidate.id === entityId);
+    if (!entity) return;
+    const client = screenForFlow(relatedPlacement(entityId));
+    menuOwnerRef.current = globalThis.document.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(entityId)}"]`);
+    setMenu({ type: 'node', invocation: 'keyboard', entityId, client, overlay: { x: 0, y: 0 }, positioned: false });
     setMessage('');
   }
   function applyProductIntentDraft(current: MapDocument, productId: string, values: Record<string, string[]>) {
@@ -620,13 +610,12 @@ export function MapSpike() {
       if (event.key === 'Escape') {
         setMenu(null);
         setQuick(null);
-        setChildChooser(null);
         return;
       }
       if (isControl(event.target)) return;
       const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
       const workspaceModifier = isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
-      const interactionOwnsKeyboard = Boolean(menu || quick || childChooser || bottomUp || inlineEdit || mode === 'create');
+      const interactionOwnsKeyboard = Boolean(menu || quick || bottomUp || inlineEdit || mode === 'create');
       if (event.code === 'Space' && event.shiftKey && workspaceModifier && !event.altKey && !interactionOwnsKeyboard) {
         event.preventDefault();
         setActiveWorkspaceView(activeWorkspaceViewRef.current === 'map' ? 'inspector' : 'map');
@@ -644,9 +633,9 @@ export function MapSpike() {
         if (entity && event.shiftKey && isRepulsorTargetKind(entity.kind)) {
           event.preventDefault();
           startRepulsor(entity.id);
-        } else if (entity && !event.shiftKey && contextualAddGroups(entity).length > 0) {
+        } else if (entity && !event.shiftKey) {
           event.preventDefault();
-          startContextualAdd(entity.id);
+          openEntityContextMenu(entity.id);
         }
       } else if (!modifier && event.key === 'Enter' && selectedRef.current) {
         event.preventDefault();
@@ -1370,11 +1359,7 @@ export function MapSpike() {
     else if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
-      if (childChooser) {
-        const ownerId = childChooser.parentEntityId;
-        setChildChooser(null);
-        focusEntity(ownerId);
-      } else closeMenuAndRestoreFocus();
+      closeMenuAndRestoreFocus();
       return;
     } else if ((event.key === 'Enter' || event.key === ' ') && current >= 0) {
       event.preventDefault();
@@ -1432,7 +1417,7 @@ export function MapSpike() {
         <div>
           <Link to="/">VEE Software</Link>
           <h1>Map-first authoring spike</h1>
-          <p>In-memory authored 2D map. Select a node and press Tab to open its contextual Add menu.</p>
+          <p>In-memory authored 2D map. Select a node and press Tab or right click to open its Entity Context Menu.</p>
         </div>
         <button
           className="primary"
@@ -1503,8 +1488,10 @@ export function MapSpike() {
               const client = { x: e.clientX, y: e.clientY };
               const panel = panelRef.current;
               if (!panel) return;
+              if (selectedRef.current !== node.id) select(node.id);
               setMenu({
                 type: 'node',
+                invocation: 'pointer',
                 client,
                 overlay: overlayPoint(client, panel.getBoundingClientRect()),
                 entityId: node.id,
@@ -1530,6 +1517,10 @@ export function MapSpike() {
               ref={menuRef}
               className="context-menu"
               role="menu"
+              aria-label={menu.type === 'node' ? 'Entity context menu' : 'Add entity'}
+              data-invocation={menu.type === 'node' ? menu.invocation : 'pointer'}
+              data-anchor-x={menu.client.x}
+              data-anchor-y={menu.client.y}
               onKeyDown={handleMenuKeyDown}
               style={{
                 left: menu.overlay.x,
@@ -1579,76 +1570,23 @@ export function MapSpike() {
                 (() => {
                   const entity = document.entities.find((e) => e.id === menu.entityId);
                   if (!entity) return null;
-                  const url = entity.kind === 'touchpoint' ? safeUrl(entity.url) : undefined;
                   return (
                     <>
-                      {contextualAddGroups(entity).length > 0 && (
-                        <button role="menuitem" onClick={() => startContextualAdd(entity.id)}>
-                          Add
-                        </button>
-                      )}
-                      {isRepulsorTargetKind(entity.kind) && (
-                        <button role="menuitem" aria-keyshortcuts="Shift+Tab" onClick={() => startRepulsor(entity.id)}>
-                          Add Repulsor
-                        </button>
-                      )}
-                      <button role="menuitem" onClick={() => startSibling(entity.id)}>
-                        Add sibling
-                      </button>
-                      <button role="menuitem" onClick={() => duplicate(entity.id)}>
-                        Duplicate
-                      </button>
-                      <button role="menuitem" onClick={() => { select(entity.id); setActiveWorkspaceView('inspector'); }}>
-                        Open in Entity Inspector
-                      </button>
-                      {url && (
-                        <a role="menuitem" href={url} target="_blank" rel="noreferrer">
-                          Open link
-                        </a>
-                      )}
+                      <h3>Add</h3>
+                      {entityContextCommandGroups(entity).map((group) => (
+                        <div className="context-menu-group" key={group.id}>
+                          <span>{group.heading}</span>
+                          {group.commands.map((command) => command.href ? (
+                            <a key={command.id} role="menuitem" href={command.href} target="_blank" rel="noreferrer" onClick={() => setMenu(null)}>{command.label}</a>
+                          ) : (
+                            <button key={command.id} type="button" role="menuitem" {...(command.shortcut ? { 'aria-keyshortcuts': command.shortcut } : {})} onClick={command.action}>{command.label}</button>
+                          ))}
+                        </div>
+                      ))}
                     </>
                   );
                 })()
               )}
-            </div>
-          )}
-          {childChooser && (
-            <div
-              ref={(element) => {
-                contextualEditorRef.current = element;
-                menuRef.current = element;
-              }}
-              className="contextual-editor context-menu"
-              role="menu"
-              aria-label="Add"
-              onKeyDown={handleMenuKeyDown}
-              style={{
-                left: childChooser.overlay.x,
-                top: childChooser.overlay.y,
-                visibility: childChooser.positioned ? 'visible' : 'hidden',
-              }}
-            >
-              <h3>Add</h3>
-              {contextualAddGroups(document.entities.find((entity) => entity.id === childChooser.parentEntityId)!).map((group) => (
-                <div className="context-menu-group" key={group.id}>
-                  <span>{group.heading}</span>
-                  {group.commands.map((command) => (
-                    <button
-                      key={command.id}
-                      type="button"
-                      role="menuitem"
-                      {...(command.kind === 'repulsor' ? { 'aria-keyshortcuts': 'Shift+Tab' } : {})}
-                      onClick={() => {
-                        if (command.kind === 'child') startChild(childChooser.parentEntityId, command.entityKind);
-                        else if (command.kind === 'repulsor') startRepulsor(childChooser.parentEntityId);
-                        else { setChildChooser(null); focusEntity(childChooser.parentEntityId); }
-                      }}
-                    >
-                      {command.label}
-                    </button>
-                  ))}
-                </div>
-              ))}
             </div>
           )}
           {quick && quickForm(quick)}
