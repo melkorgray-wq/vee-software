@@ -34,6 +34,10 @@ type Draft = {
   contextualCoreJobIds: string[];
   financialOutcomeIds: string[];
   url: string;
+  productPrerequisite: 'existing' | 'new';
+  newProductTitle: string;
+  offerPrerequisite: 'existing' | 'new';
+  newOfferTitle: string;
 };
 type Menu =
   | {
@@ -85,6 +89,10 @@ const draft = (kind: ProvisionalEntityKind = 'product'): Draft => ({
   contextualCoreJobIds: [],
   financialOutcomeIds: [],
   url: '',
+  productPrerequisite: 'existing',
+  newProductTitle: '',
+  offerPrerequisite: 'existing',
+  newOfferTitle: '',
 });
 const isControl = (target: EventTarget | null) => target instanceof HTMLElement && Boolean(target.closest('input, textarea, select, button, [role="combobox"], [contenteditable], form, [role="dialog"], [role="menu"], [role="listbox"], [popover], .contextual-editor'));
 const hasCanonicalChild = (entity: Entity) => entity.kind === 'product' || entity.kind === 'offer' || entity.kind === 'touchpoint' || entity.kind === 'core_functional_job' || entity.kind === 'consumption_chain_job' || entity.kind === 'related_job';
@@ -127,6 +135,17 @@ function AutoGrowingTitleField({ value, onChange, autoFocus = false }: { value: 
         }}
       />
     </label>
+  );
+}
+function ProductPrerequisiteFields({ draftValue, setDraftValue, document }: { draftValue: Draft; setDraftValue: (value: Draft) => void; document: MapDocument }) {
+  return (
+    <fieldset>
+      <legend>Which Product does this Offer package?</legend>
+      <label className="checkbox"><input type="radio" name="product-prerequisite" checked={draftValue.productPrerequisite === 'existing'} onChange={() => setDraftValue({ ...draftValue, productPrerequisite: 'existing', linkedProductId: '' })} />Choose an existing Product</label>
+      {draftValue.productPrerequisite === 'existing' && <select aria-label="Existing Product" required value={draftValue.linkedProductId} onChange={(event) => setDraftValue({ ...draftValue, linkedProductId: event.target.value })}><option value="">Choose a Product</option>{document.entities.filter((entity) => entity.kind === 'product').map((entity) => <option key={entity.id} value={entity.id}>{entity.title}</option>)}</select>}
+      <label className="checkbox"><input type="radio" name="product-prerequisite" checked={draftValue.productPrerequisite === 'new'} onChange={() => setDraftValue({ ...draftValue, productPrerequisite: 'new', linkedProductId: '' })} />Create new Product</label>
+      {draftValue.productPrerequisite === 'new' && <label>New Product title<input required value={draftValue.newProductTitle} onChange={(event) => setDraftValue({ ...draftValue, newProductTitle: event.target.value })} /></label>}
+    </fieldset>
   );
 }
 function ContainerCombobox({ value, query, document, onChange }: { value: string; query: string; document: MapDocument; onChange: (id: string, query: string, create?: boolean) => void }) {
@@ -571,6 +590,51 @@ export function MapSpike() {
       setQuick(null);
       setMode('idle');
       setActiveWorkspaceView(continuation);
+      setMessage('Element created.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Element could not be created.');
+    }
+  }
+  function commitInspectorRoot(d: Draft, x: number, y: number) {
+    try {
+      let next = document;
+      let productId = d.linkedProductId;
+      let offerId = d.linkedOfferIds[0] ?? '';
+      let placementIndex = document.entities.length;
+      const addPrerequisite = (kind: 'product' | 'offer', title: string, linkedProductId?: string) => {
+        const entityId = crypto.randomUUID();
+        const placement = { entityId, title, viewId: VIEW_ID, x: 80 + placementIndex * 30, y: 80 + placementIndex++ * 30 };
+        next = kind === 'offer'
+          ? addEntity(next, { ...placement, kind, linkedProductId: linkedProductId!, relationshipId: crypto.randomUUID() })
+          : addEntity(next, { ...placement, kind });
+        return entityId;
+      };
+
+      if (d.kind === 'offer' || (d.kind === 'touchpoint' && d.offerPrerequisite === 'new')) {
+        if (d.productPrerequisite === 'new') {
+          if (!d.newProductTitle.trim()) throw new Error('A new Product title is required.');
+          productId = addPrerequisite('product', d.newProductTitle);
+        }
+        if (!productId) throw new Error('Choose or create the Product this Offer packages.');
+      }
+      if (d.kind === 'touchpoint' && d.offerPrerequisite === 'new') {
+        if (!d.newOfferTitle.trim()) throw new Error('A new Offer title is required.');
+        offerId = addPrerequisite('offer', d.newOfferTitle, productId);
+      }
+      if (d.kind === 'touchpoint' && !offerId) throw new Error('Choose or create the Offer presented at this Touchpoint.');
+
+      const targetId = crypto.randomUUID();
+      const common = { entityId: targetId, title: d.title, viewId: VIEW_ID, x, y };
+      next = d.kind === 'offer'
+        ? addEntity(next, { ...common, kind: 'offer', linkedProductId: productId, relationshipId: crypto.randomUUID() })
+        : d.kind === 'touchpoint'
+          ? addEntity(next, { ...common, kind: 'touchpoint', linkedOfferIds: [offerId], relationshipIds: [crypto.randomUUID()] })
+          : addEntity(next, { ...common, kind: 'product' });
+      setDocument(next);
+      setSelectedId(targetId);
+      setEditDraft(draftFor(next.entities.find((entity) => entity.id === targetId)!, next));
+      setMode('idle');
+      setActiveWorkspaceView('inspector');
       setMessage('Element created.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Element could not be created.');
@@ -1603,7 +1667,8 @@ export function MapSpike() {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                commit(createDraft, 80 + document.entities.length * 30, 80 + document.entities.length * 30, 'inspector');
+                if (createDraft.side === 'business') commitInspectorRoot(createDraft, 80 + document.entities.length * 30, 80 + document.entities.length * 30);
+                else commit(createDraft, 80 + document.entities.length * 30, 80 + document.entities.length * 30, 'inspector');
               }}
             >
               <h3>Add an element</h3>
@@ -1641,45 +1706,18 @@ export function MapSpike() {
               )}
               <AutoGrowingTitleField autoFocus value={createDraft.title} onChange={(title) => setCreateDraft({ ...createDraft, title })} />
               {createDraft.kind === 'offer' && (
-                <label>
-                  Linked Product
-                  <select
-                    required
-                    value={createDraft.linkedProductId}
-                    onChange={(e) => setCreateDraft({ ...createDraft, linkedProductId: e.target.value })}
-                  >
-                    <option value="">Choose a Product</option>
-                    {document.entities
-                      .filter((e) => e.kind === 'product')
-                      .map((e) => (
-                        <option key={e.id} value={e.id}>
-                          {e.title}
-                        </option>
-                      ))}
-                  </select>
-                </label>
+                <ProductPrerequisiteFields draftValue={createDraft} setDraftValue={setCreateDraft} document={document} />
               )}
               {createDraft.kind === 'touchpoint' && (
                 <>
                   <fieldset>
-                    <legend>Linked Offers</legend>
-                    {document.entities
-                      .filter((e) => e.kind === 'offer')
-                      .map((o) => (
-                        <label className="checkbox" key={o.id}>
-                          <input
-                            type="checkbox"
-                            onChange={(e) =>
-                              setCreateDraft({
-                                ...createDraft,
-                                linkedOfferIds: e.target.checked ? [...createDraft.linkedOfferIds, o.id] : createDraft.linkedOfferIds.filter((id) => id !== o.id),
-                              })
-                            }
-                          />
-                          {o.title}
-                        </label>
-                      ))}
+                    <legend>Which Offer is presented at this Touchpoint?</legend>
+                    <label className="checkbox"><input type="radio" name="offer-prerequisite" checked={createDraft.offerPrerequisite === 'existing'} onChange={() => setCreateDraft({ ...createDraft, offerPrerequisite: 'existing', linkedOfferIds: [] })} />Choose an existing Offer</label>
+                    {createDraft.offerPrerequisite === 'existing' && <select aria-label="Existing Offer" required value={createDraft.linkedOfferIds[0] ?? ''} onChange={(e) => setCreateDraft({ ...createDraft, linkedOfferIds: e.target.value ? [e.target.value] : [] })}><option value="">Choose an Offer</option>{document.entities.filter((entity) => entity.kind === 'offer').map((entity) => <option key={entity.id} value={entity.id}>{entity.title}</option>)}</select>}
+                    <label className="checkbox"><input type="radio" name="offer-prerequisite" checked={createDraft.offerPrerequisite === 'new'} onChange={() => setCreateDraft({ ...createDraft, offerPrerequisite: 'new', linkedOfferIds: [], productPrerequisite: 'existing', linkedProductId: '' })} />Create new Offer</label>
+                    {createDraft.offerPrerequisite === 'new' && <label>New Offer title<input required value={createDraft.newOfferTitle} onChange={(e) => setCreateDraft({ ...createDraft, newOfferTitle: e.target.value })} /></label>}
                   </fieldset>
+                  {createDraft.offerPrerequisite === 'new' && <ProductPrerequisiteFields draftValue={createDraft} setDraftValue={setCreateDraft} document={document} />}
                   {touchFields(createDraft, setCreateDraft)}
                 </>
               )}

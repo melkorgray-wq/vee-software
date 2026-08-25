@@ -84,6 +84,32 @@ describe('map-first authoring interactions', () => {
     expect(business).toHaveAttribute('aria-pressed', 'true'); expect(client).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByLabelText('Business element type')).toHaveValue('product');
   });
+  it('requires an Offer root Product and supports existing or inline Product completion', async () => {
+    const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user);
+    await user.click(screen.getByRole('button', { name: 'Add element' })); await user.selectOptions(screen.getByLabelText('Business element type'), 'offer');
+    expect(screen.getByRole('group', { name: 'Which Product does this Offer package?' })).toBeInTheDocument(); expect(screen.queryByText('Linked Product')).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText('Title'), 'Subscription'); await user.click(screen.getByRole('button', { name: 'Create' }));
+    expect(screen.getByRole('heading', { name: 'Add an element' })).toBeInTheDocument(); expect(screen.queryByRole('button', { name: 'Subscription' })).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('Existing Product'), screen.getByRole('option', { name: 'Orbit' })); await user.click(screen.getByRole('button', { name: 'Create' }));
+    expect(screen.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument(); await openMap(user);
+    const productId = screen.getByRole('button', { name: 'Orbit' }).getAttribute('data-node-id'); const offerId = screen.getByRole('button', { name: 'Subscription' }).getAttribute('data-node-id'); expect(document.querySelector(`[data-source="${productId}"][data-target="${offerId}"]`)).toBeInTheDocument();
+
+    await openInspector(user); await user.click(screen.getByRole('button', { name: 'Add element' })); await user.selectOptions(screen.getByLabelText('Business element type'), 'offer'); await user.type(screen.getByLabelText('Title'), 'Bundle'); await user.click(screen.getByLabelText('Create new Product')); expect(screen.getByLabelText('New Product title')).toBeRequired(); await user.type(screen.getByLabelText('New Product title'), 'Nova'); await user.click(screen.getByRole('button', { name: 'Create' }));
+    expect(screen.getByRole('heading', { name: 'Bundle' })).toBeInTheDocument(); await openMap(user); expect(screen.getByRole('button', { name: 'Nova' })).toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Bundle' })).toBeInTheDocument();
+  });
+  it('completes a Touchpoint root from an existing Offer without asking for Product', async () => {
+    const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await quickOffer(user); await openInspector(user); await user.click(screen.getByRole('button', { name: 'Add element' })); await user.selectOptions(screen.getByLabelText('Business element type'), 'touchpoint');
+    expect(screen.getByRole('group', { name: 'Which Offer is presented at this Touchpoint?' })).toBeInTheDocument(); expect(screen.queryByText('Linked Offers')).not.toBeInTheDocument(); expect(screen.queryByText('Which Product does this Offer package?')).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText('Title'), 'Checkout'); await user.selectOptions(screen.getByLabelText('Existing Offer'), screen.getByRole('option', { name: 'Subscription' })); await user.click(screen.getByRole('button', { name: 'Create' })); expect(screen.getByRole('heading', { name: 'Checkout' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Linked Offers' })).toBeInTheDocument();
+  });
+  it('atomically chains inline Product and Offer prerequisites for a Touchpoint and ignores stale hidden drafts', async () => {
+    const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await user.click(screen.getByRole('button', { name: 'Add element' })); await user.selectOptions(screen.getByLabelText('Business element type'), 'touchpoint'); await user.type(screen.getByLabelText('Title'), 'Checkout');
+    await user.click(screen.getByLabelText('Create new Offer')); expect(screen.getByLabelText('New Offer title')).toBeRequired(); expect(screen.getByRole('group', { name: 'Which Product does this Offer package?' })).toBeInTheDocument(); await user.type(screen.getByLabelText('New Offer title'), 'Inline Offer'); await user.click(screen.getByLabelText('Create new Product')); await user.type(screen.getByLabelText('New Product title'), 'Inline Product');
+    await user.clear(screen.getByLabelText('New Offer title')); await user.click(screen.getByRole('button', { name: 'Create' })); expect(screen.queryByRole('button', { name: 'Inline Product' })).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText('New Offer title'), 'Inline Offer'); await user.click(screen.getByRole('button', { name: 'Create' })); expect(screen.getByRole('heading', { name: 'Checkout' })).toBeInTheDocument(); await openMap(user);
+    const product = screen.getByRole('button', { name: 'Inline Product' }); const offer = screen.getByRole('button', { name: 'Inline Offer' }); const touchpoint = screen.getByRole('button', { name: 'Checkout' }); expect(document.querySelector(`[data-source="${product.getAttribute('data-node-id')}"][data-target="${offer.getAttribute('data-node-id')}"]`)).toBeInTheDocument(); expect(document.querySelector(`[data-source="${offer.getAttribute('data-node-id')}"][data-target="${touchpoint.getAttribute('data-node-id')}"]`)).toBeInTheDocument();
+  });
   it('auto-grows contextual titles for typing and paste while committing a single-line title', async () => {
     vi.spyOn(HTMLTextAreaElement.prototype, 'scrollHeight', 'get').mockImplementation(function (this: HTMLTextAreaElement) { return this.value.length > 35 ? 76 : 38; });
     const user = userEvent.setup(); render(<MapSpike />);
