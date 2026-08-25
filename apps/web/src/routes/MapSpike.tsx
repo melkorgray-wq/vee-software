@@ -17,6 +17,7 @@ const INITIAL_DOCUMENT = createEmptyMapDocument({
 type Side = 'business' | 'client';
 type WorkspaceView = 'map' | 'inspector';
 type PostCreateContinuation = WorkspaceView;
+type LocationDraft = { kind: 'none' } | { kind: 'existing'; containerId: string } | { kind: 'new'; title: string };
 type Draft = {
   title: string;
   side: Side;
@@ -27,8 +28,7 @@ type Draft = {
   productIntentOutcomes: Record<string, string[]>;
   locatedInId: string;
   locatedInQuery: string;
-  locationPrerequisite: 'none' | 'existing' | 'new';
-  newContainerTitle: string;
+  locationDraft: LocationDraft;
   parentTouchpointId: string;
   parentEntityId: string;
   resistedTargetIds: string[];
@@ -84,8 +84,7 @@ const draft = (kind: ProvisionalEntityKind = 'product'): Draft => ({
   productIntentOutcomes: {},
   locatedInId: '',
   locatedInQuery: '',
-  locationPrerequisite: 'none',
-  newContainerTitle: '',
+  locationDraft: { kind: 'none' },
   parentTouchpointId: '',
   parentEntityId: '',
   resistedTargetIds: [],
@@ -152,7 +151,7 @@ function ProductPrerequisiteFields({ draftValue, setDraftValue, document }: { dr
     </fieldset>
   );
 }
-function ContainerCombobox({ value, query, document, onChange }: { value: string; query: string; document: MapDocument; onChange: (id: string, query: string, create?: boolean) => void }) {
+function ContainerCombobox({ value, query, document, onChange }: { value: string; query: string; document: MapDocument; onChange: (selection: LocationDraft, query: string) => void }) {
   const [open, setOpen] = useState(false);
   const normalized = query.trim().toLocaleLowerCase();
   const matches = document.touchpointContainers.filter((c) => c.title.toLocaleLowerCase().includes(normalized));
@@ -169,7 +168,7 @@ function ContainerCombobox({ value, query, document, onChange }: { value: string
           onFocus={() => setOpen(true)}
           onChange={(e) => {
             setOpen(true);
-            onChange('', e.target.value);
+            onChange({ kind: 'none' }, e.target.value);
           }}
           onKeyDown={(e) => {
             if (e.key === 'Escape' && open) {
@@ -188,7 +187,7 @@ function ContainerCombobox({ value, query, document, onChange }: { value: string
               aria-selected={value === c.id}
               key={c.id}
               onClick={() => {
-                onChange(c.id, c.title);
+                onChange({ kind: 'existing', containerId: c.id }, c.title);
                 setOpen(false);
               }}
             >
@@ -198,8 +197,10 @@ function ContainerCombobox({ value, query, document, onChange }: { value: string
           {normalized && !exact && (
             <button
               type="button"
+              role="option"
+              aria-selected={false}
               onClick={() => {
-                onChange('', query.trim(), true);
+                onChange({ kind: 'new', title: query.trim() }, query.trim());
                 setOpen(false);
               }}
             >
@@ -627,12 +628,10 @@ export function MapSpike() {
       }
       if (d.kind === 'touchpoint' && !offerId) throw new Error('Choose or create the Offer presented at this Touchpoint.');
 
-      let locatedInId = d.locationPrerequisite === 'existing' ? d.locatedInId : '';
-      if (d.kind === 'touchpoint' && d.locationPrerequisite === 'existing' && !locatedInId) throw new Error('Choose an existing location or skip location.');
-      if (d.kind === 'touchpoint' && d.locationPrerequisite === 'new') {
-        if (!d.newContainerTitle.trim()) throw new Error('A new location title is required.');
+      let locatedInId = d.locationDraft.kind === 'existing' ? d.locationDraft.containerId : '';
+      if (d.kind === 'touchpoint' && d.locationDraft.kind === 'new') {
         locatedInId = crypto.randomUUID();
-        next = addTouchpointContainer(next, { id: locatedInId, title: d.newContainerTitle });
+        next = addTouchpointContainer(next, { id: locatedInId, title: d.locationDraft.title });
       }
 
       const targetId = crypto.randomUUID();
@@ -736,28 +735,23 @@ export function MapSpike() {
     activateWorkspaceView(view);
     globalThis.document.getElementById(`${view}-workspace-tab`)?.focus();
   }
-  function containerChange(setter: (d: Draft) => void, d: Draft, id: string, query: string, create?: boolean) {
-    if (create) {
+  function containerChange(setter: (d: Draft) => void, d: Draft, selection: LocationDraft, query: string) {
+    if (selection.kind === 'new') {
       const existing = document.touchpointContainers.find((c) => c.title.trim().toLocaleLowerCase() === query.toLocaleLowerCase());
-      if (existing)
-        setter({
-          ...d,
-          locatedInId: existing.id,
-          locatedInQuery: existing.title,
-        });
+      if (existing) setter({ ...d, locatedInId: existing.id, locatedInQuery: existing.title });
       else {
         const id = crypto.randomUUID();
         setDocument((current) => addTouchpointContainer(current, { id, title: query }));
         setter({ ...d, locatedInId: id, locatedInQuery: query });
       }
-    } else setter({ ...d, locatedInId: id, locatedInQuery: query });
+    } else setter({ ...d, locatedInId: selection.kind === 'existing' ? selection.containerId : '', locatedInQuery: query });
   }
   function touchFields(d: Draft, setter: (d: Draft) => void, inspector = false) {
     if (d.kind !== 'touchpoint') return null;
     const touchpoints = parentTouchpointOptions(document, inspector ? (selectedId ?? undefined) : undefined);
     return (
       <>
-        <ContainerCombobox value={d.locatedInId} query={d.locatedInQuery} document={document} onChange={(id, q, create) => containerChange(setter, d, id, q, create)} />
+        <ContainerCombobox value={d.locatedInId} query={d.locatedInQuery} document={document} onChange={(selection, q) => containerChange(setter, d, selection, q)} />
         <label>
           URL <span>(optional)</span>
           <input value={d.url} onChange={(e) => setter({ ...d, url: e.target.value })} />
@@ -828,14 +822,12 @@ export function MapSpike() {
   function rootTouchpointContextFields(d: Draft, setter: (d: Draft) => void) {
     return (
       <>
-        <fieldset>
-          <legend>Where does this Touchpoint exist?</legend>
-          <label className="checkbox"><input type="radio" name="location-prerequisite" checked={d.locationPrerequisite === 'none'} onChange={() => setter({ ...d, locationPrerequisite: 'none', locatedInId: '', locatedInQuery: '', newContainerTitle: '' })} />No location selected</label>
-          <label className="checkbox"><input type="radio" name="location-prerequisite" checked={d.locationPrerequisite === 'existing'} onChange={() => setter({ ...d, locationPrerequisite: 'existing', locatedInId: '', locatedInQuery: '', newContainerTitle: '' })} />Choose an existing location</label>
-          {d.locationPrerequisite === 'existing' && <select aria-label="Existing location" required value={d.locatedInId} onChange={(event) => setter({ ...d, locatedInId: event.target.value })}><option value="">Choose a location</option>{document.touchpointContainers.map((container) => <option key={container.id} value={container.id}>{container.title}</option>)}</select>}
-          <label className="checkbox"><input type="radio" name="location-prerequisite" checked={d.locationPrerequisite === 'new'} onChange={() => setter({ ...d, locationPrerequisite: 'new', locatedInId: '', locatedInQuery: '' })} />Create new location</label>
-          {d.locationPrerequisite === 'new' && <label>New location title<input required value={d.newContainerTitle} onChange={(event) => setter({ ...d, newContainerTitle: event.target.value })} /></label>}
-        </fieldset>
+        <ContainerCombobox
+          value={d.locationDraft.kind === 'existing' ? d.locationDraft.containerId : ''}
+          query={d.locatedInQuery}
+          document={document}
+          onChange={(locationDraft, locatedInQuery) => setter({ ...d, locationDraft, locatedInQuery })}
+        />
         <label>
           URL <span>(optional)</span>
           <input value={d.url} onChange={(event) => setter({ ...d, url: event.target.value })} />
