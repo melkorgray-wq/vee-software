@@ -27,6 +27,8 @@ type Draft = {
   productIntentOutcomes: Record<string, string[]>;
   locatedInId: string;
   locatedInQuery: string;
+  locationPrerequisite: 'none' | 'existing' | 'new';
+  newContainerTitle: string;
   parentTouchpointId: string;
   parentEntityId: string;
   resistedTargetIds: string[];
@@ -82,6 +84,8 @@ const draft = (kind: ProvisionalEntityKind = 'product'): Draft => ({
   productIntentOutcomes: {},
   locatedInId: '',
   locatedInQuery: '',
+  locationPrerequisite: 'none',
+  newContainerTitle: '',
   parentTouchpointId: '',
   parentEntityId: '',
   resistedTargetIds: [],
@@ -623,12 +627,20 @@ export function MapSpike() {
       }
       if (d.kind === 'touchpoint' && !offerId) throw new Error('Choose or create the Offer presented at this Touchpoint.');
 
+      let locatedInId = d.locationPrerequisite === 'existing' ? d.locatedInId : '';
+      if (d.kind === 'touchpoint' && d.locationPrerequisite === 'existing' && !locatedInId) throw new Error('Choose an existing location or skip location.');
+      if (d.kind === 'touchpoint' && d.locationPrerequisite === 'new') {
+        if (!d.newContainerTitle.trim()) throw new Error('A new location title is required.');
+        locatedInId = crypto.randomUUID();
+        next = addTouchpointContainer(next, { id: locatedInId, title: d.newContainerTitle });
+      }
+
       const targetId = crypto.randomUUID();
       const common = { entityId: targetId, title: d.title, viewId: VIEW_ID, x, y };
       next = d.kind === 'offer'
         ? addEntity(next, { ...common, kind: 'offer', linkedProductId: productId, relationshipId: crypto.randomUUID() })
         : d.kind === 'touchpoint'
-          ? addEntity(next, { ...common, kind: 'touchpoint', linkedOfferIds: [offerId], relationshipIds: [crypto.randomUUID()] })
+          ? addEntity(next, { ...common, kind: 'touchpoint', linkedOfferIds: [offerId], relationshipIds: [crypto.randomUUID()], ...(locatedInId ? { locatedInId } : {}), ...(d.url.trim() ? { url: d.url } : {}) })
           : addEntity(next, { ...common, kind: 'product' });
       setDocument(next);
       setSelectedId(targetId);
@@ -810,6 +822,24 @@ export function MapSpike() {
             </label>
           </>
         )}
+      </>
+    );
+  }
+  function rootTouchpointContextFields(d: Draft, setter: (d: Draft) => void) {
+    return (
+      <>
+        <fieldset>
+          <legend>Where does this Touchpoint exist?</legend>
+          <label className="checkbox"><input type="radio" name="location-prerequisite" checked={d.locationPrerequisite === 'none'} onChange={() => setter({ ...d, locationPrerequisite: 'none', locatedInId: '', locatedInQuery: '', newContainerTitle: '' })} />No location selected</label>
+          <label className="checkbox"><input type="radio" name="location-prerequisite" checked={d.locationPrerequisite === 'existing'} onChange={() => setter({ ...d, locationPrerequisite: 'existing', locatedInId: '', locatedInQuery: '', newContainerTitle: '' })} />Choose an existing location</label>
+          {d.locationPrerequisite === 'existing' && <select aria-label="Existing location" required value={d.locatedInId} onChange={(event) => setter({ ...d, locatedInId: event.target.value })}><option value="">Choose a location</option>{document.touchpointContainers.map((container) => <option key={container.id} value={container.id}>{container.title}</option>)}</select>}
+          <label className="checkbox"><input type="radio" name="location-prerequisite" checked={d.locationPrerequisite === 'new'} onChange={() => setter({ ...d, locationPrerequisite: 'new', locatedInId: '', locatedInQuery: '' })} />Create new location</label>
+          {d.locationPrerequisite === 'new' && <label>New location title<input required value={d.newContainerTitle} onChange={(event) => setter({ ...d, newContainerTitle: event.target.value })} /></label>}
+        </fieldset>
+        <label>
+          URL <span>(optional)</span>
+          <input value={d.url} onChange={(event) => setter({ ...d, url: event.target.value })} />
+        </label>
       </>
     );
   }
@@ -1718,7 +1748,7 @@ export function MapSpike() {
                     {createDraft.offerPrerequisite === 'new' && <label>New Offer title<input required value={createDraft.newOfferTitle} onChange={(e) => setCreateDraft({ ...createDraft, newOfferTitle: e.target.value })} /></label>}
                   </fieldset>
                   {createDraft.offerPrerequisite === 'new' && <ProductPrerequisiteFields draftValue={createDraft} setDraftValue={setCreateDraft} document={document} />}
-                  {touchFields(createDraft, setCreateDraft)}
+                  {rootTouchpointContextFields(createDraft, setCreateDraft)}
                 </>
               )}
               <div className="actions">
