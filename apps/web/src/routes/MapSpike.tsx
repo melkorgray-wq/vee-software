@@ -1603,17 +1603,17 @@ export function MapSpike() {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                commit(createDraft, 80 + document.entities.length * 30, 80 + document.entities.length * 30, postCreateContinuation(e));
+                commit(createDraft, 80 + document.entities.length * 30, 80 + document.entities.length * 30, 'inspector');
               }}
             >
               <h3>Add an element</h3>
               <fieldset>
                 <legend>Choose a side</legend>
                 <div className="choice-row">
-                  <button type="button" onClick={() => setCreateDraft(draft('product'))}>
+                  <button type="button" aria-pressed={createDraft.side === 'business'} onClick={() => setCreateDraft(draft('product'))}>
                     Business side
                   </button>
-                  <button type="button" onClick={() => setCreateDraft(draft('core_functional_job'))}>
+                  <button type="button" aria-pressed={createDraft.side === 'client'} onClick={() => setCreateDraft(draft('core_functional_job'))}>
                     Client side
                   </button>
                 </div>
@@ -1684,8 +1684,7 @@ export function MapSpike() {
                 </>
               )}
               <div className="actions">
-                <button className="primary" name="continuation" value="map">Create element</button>
-                <button name="continuation" value="inspector">Create &amp; open Inspector</button>
+                <button className="primary">Create</button>
                 <button type="button" onClick={() => setMode('idle')}>
                   Cancel
                 </button>
