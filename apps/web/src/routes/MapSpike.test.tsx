@@ -17,6 +17,8 @@ function contextualEditor(name: string) { return within(screen.getByRole('headin
 async function openInspector(user: ReturnType<typeof userEvent.setup>) { await user.click(screen.getByRole('tab', { name: 'Entity Inspector' })); return within(screen.getByRole('tabpanel', { name: 'Entity Inspector' })); }
 async function openMap(user: ReturnType<typeof userEvent.setup>) { await user.click(screen.getByRole('tab', { name: 'Map' })); }
 async function quickOffer(user: ReturnType<typeof userEvent.setup>) { await user.click(screen.getByRole('button', { name: 'Orbit' })); fireEvent.keyDown(window, { key: 'Tab' }); await user.click(screen.getByRole('menuitem', { name: 'Offer' })); const editor = contextualEditor('Add Offer'); await user.type(editor.getByLabelText('Title'), 'Subscription'); await user.click(editor.getByRole('button', { name: 'Create' })); }
+function nodePoint(name: string) { const node = screen.getByRole('button', { name }); return { x: Number(node.getAttribute('data-x')), y: Number(node.getAttribute('data-y')) }; }
+function nodesOverlap(a: { x: number; y: number }, aDiameter: number, b: { x: number; y: number }, bDiameter: number) { return a.x < b.x + bDiameter && a.x + aDiameter > b.x && a.y < b.y + bDiameter && a.y + aDiameter > b.y; }
 
 describe('map-first authoring interactions', () => {
   it('edits authored Business and Client titles inline with commit, cancel, and keyboard ownership', async () => {
@@ -149,6 +151,24 @@ describe('map-first authoring interactions', () => {
     await user.clear(screen.getByLabelText('New Offer title')); await user.click(screen.getByRole('button', { name: 'Create' })); expect(screen.queryByRole('button', { name: 'Inline Product' })).not.toBeInTheDocument();
     await user.type(screen.getByLabelText('New Offer title'), 'Inline Offer'); await user.click(screen.getByRole('button', { name: 'Create' })); expect(screen.getByRole('heading', { name: 'Checkout' })).toBeInTheDocument(); await openMap(user);
     const product = screen.getByRole('button', { name: 'Inline Product' }); const offer = screen.getByRole('button', { name: 'Inline Offer' }); const touchpoint = screen.getByRole('button', { name: 'Checkout' }); expect(document.querySelector(`[data-source="${product.getAttribute('data-node-id')}"][data-target="${offer.getAttribute('data-node-id')}"]`)).toBeInTheDocument(); expect(document.querySelector(`[data-source="${offer.getAttribute('data-node-id')}"][data-target="${touchpoint.getAttribute('data-node-id')}"]`)).toBeInTheDocument();
+    const productPoint = nodePoint('Inline Product'); const offerPoint = nodePoint('Inline Offer'); const touchpointPoint = nodePoint('Checkout');
+    expect(nodesOverlap(productPoint, 136, offerPoint, 116)).toBe(false); expect(nodesOverlap(productPoint, 136, touchpointPoint, 96)).toBe(false); expect(nodesOverlap(offerPoint, 116, touchpointPoint, 96)).toBe(false);
+    expect(offerPoint.x).toBeGreaterThan(productPoint.x); expect(touchpointPoint.x).toBeGreaterThan(offerPoint.x);
+  });
+  it('self-constructs a mixed existing Product, new Offer, and new Touchpoint without moving the anchor', async () => {
+    const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); const before = nodePoint('Orbit'); await openInspector(user);
+    await user.click(screen.getByRole('button', { name: 'Add element' })); await user.selectOptions(screen.getByLabelText('Business element type'), 'touchpoint'); await user.type(screen.getByLabelText('Title'), 'Mixed Touchpoint'); await user.click(screen.getByLabelText('Create new Offer')); await user.type(screen.getByLabelText('New Offer title'), 'Mixed Offer'); await user.selectOptions(screen.getByLabelText('Existing Product'), screen.getByRole('option', { name: 'Orbit' })); await user.click(screen.getByRole('button', { name: 'Create' }));
+    expect(screen.getByRole('heading', { name: 'Mixed Touchpoint' })).toBeInTheDocument(); await openMap(user);
+    const product = nodePoint('Orbit'); const offer = nodePoint('Mixed Offer'); const touchpoint = nodePoint('Mixed Touchpoint');
+    expect(product).toEqual(before); expect(nodesOverlap(product, 136, offer, 116)).toBe(false); expect(nodesOverlap(product, 136, touchpoint, 96)).toBe(false); expect(nodesOverlap(offer, 116, touchpoint, 96)).toBe(false);
+  });
+  it('keeps Inspector birth-batch geometry independent of generated UUID values', async () => {
+    const createBatch = async (uuid: () => string) => {
+      vi.stubGlobal('crypto', { randomUUID: uuid }); const user = userEvent.setup(); render(<MapSpike />); await user.click(screen.getByRole('button', { name: 'Add element' })); await user.selectOptions(screen.getByLabelText('Business element type'), 'touchpoint'); await user.type(screen.getByLabelText('Title'), 'Deterministic Touchpoint'); await user.click(screen.getByLabelText('Create new Offer')); await user.type(screen.getByLabelText('New Offer title'), 'Deterministic Offer'); await user.click(screen.getByLabelText('Create new Product')); await user.type(screen.getByLabelText('New Product title'), 'Deterministic Product'); await user.click(screen.getByRole('button', { name: 'Create' })); await openMap(user);
+      const result = [nodePoint('Deterministic Product'), nodePoint('Deterministic Offer'), nodePoint('Deterministic Touchpoint')]; cleanup(); return result;
+    };
+    let ascending = 0; const first = await createBatch(() => `ascending-${++ascending}`); let descending = 100; const second = await createBatch(() => `descending-${--descending}`);
+    expect(second).toEqual(first);
   });
   it('auto-grows contextual titles for typing and paste while committing a single-line title', async () => {
     vi.spyOn(HTMLTextAreaElement.prototype, 'scrollHeight', 'get').mockImplementation(function (this: HTMLTextAreaElement) { return this.value.length > 35 ? 76 : 38; });
