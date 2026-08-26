@@ -238,6 +238,19 @@ describe('map-first authoring interactions', () => {
     await openInspector(user);
     expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).toHaveTextContent('Inspect immediately');
   });
+  it('places a standalone Inspector root in a free niche without moving authored nodes', async () => {
+    const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user);
+    const product = screen.getByRole('button', { name: 'Orbit' });
+    expect(product).toHaveAttribute('data-x', '80'); expect(product).toHaveAttribute('data-y', '80');
+    await user.click(screen.getByRole('button', { name: 'Add element' }));
+    await user.click(screen.getByRole('button', { name: 'Client side' }));
+    await user.type(screen.getByLabelText('Title'), 'Standalone need');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+    await openMap(user);
+    expect(screen.getByRole('button', { name: 'Standalone need' })).toHaveAttribute('data-x', '90');
+    expect(screen.getByRole('button', { name: 'Standalone need' })).toHaveAttribute('data-y', '-60');
+    expect(product).toHaveAttribute('data-x', '80'); expect(product).toHaveAttribute('data-y', '80');
+  });
   it('does not create or change workspace when root creation is invalid or cancelled', async () => {
     const user = userEvent.setup(); render(<MapSpike />);
     await user.click(screen.getByRole('button', { name: 'Add element' }));
