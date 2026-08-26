@@ -3,6 +3,8 @@ import type { MapDocument, ProvisionalEntityKind, Relationship } from '@vee/doma
 export interface Point { x: number; y: number }
 export interface PanelRect { left: number; top: number; width: number; height: number }
 export interface OverlaySize { width: number; height: number }
+export interface MapBounds { left: number; top: number; right: number; bottom: number }
+export interface MapViewport extends Point { zoom: number }
 export type SiblingDraft = { kind: ProvisionalEntityKind; title: ''; linkedProductId: string; linkedOfferIds: string[]; locatedInId: string; locatedInQuery: string; parentTouchpointId: string; parentEntityId: string; resistedTargetIds: string[]; url: '' };
 
 export function overlayPoint(client: Point, panel: PanelRect, overlay = { width: 208, height: 224 }): Point {
@@ -24,7 +26,34 @@ export function contextMenuPoint(client: Point, panel: PanelRect, menu: OverlayS
   const y = anchor.y + menu.height + gutter <= panel.height
     ? anchor.y
     : anchor.y - menu.height >= gutter ? anchor.y - menu.height : Math.max(gutter, Math.min(anchor.y, maximum.y));
-  return { x, y };
+  const clamp = (value: number, size: number, panelSize: number) => {
+    const upper = panelSize - size - gutter;
+    return upper >= gutter ? Math.max(gutter, Math.min(value, upper)) : gutter;
+  };
+  return { x: clamp(x, menu.width, panel.width), y: clamp(y, menu.height, panel.height) };
+}
+
+/** Plans the smallest camera change that reveals local map bounds inside a safe inset. */
+export function revealViewport(bounds: MapBounds, panel: Pick<PanelRect, 'width' | 'height'>, viewport: MapViewport, inset = 40): MapViewport | null {
+  const availableWidth = Math.max(1, panel.width - inset * 2);
+  const availableHeight = Math.max(1, panel.height - inset * 2);
+  const boundsWidth = Math.max(1, bounds.right - bounds.left);
+  const boundsHeight = Math.max(1, bounds.bottom - bounds.top);
+  const targetZoom = Math.min(viewport.zoom, availableWidth / boundsWidth, availableHeight / boundsHeight);
+  if (targetZoom < viewport.zoom) {
+    return {
+      x: panel.width / 2 - ((bounds.left + bounds.right) / 2) * targetZoom,
+      y: panel.height / 2 - ((bounds.top + bounds.bottom) / 2) * targetZoom,
+      zoom: targetZoom,
+    };
+  }
+  const screen = { left: bounds.left * viewport.zoom + viewport.x, right: bounds.right * viewport.zoom + viewport.x, top: bounds.top * viewport.zoom + viewport.y, bottom: bounds.bottom * viewport.zoom + viewport.y };
+  let x = viewport.x; let y = viewport.y;
+  if (screen.left < inset) x += inset - screen.left;
+  else if (screen.right > panel.width - inset) x -= screen.right - (panel.width - inset);
+  if (screen.top < inset) y += inset - screen.top;
+  else if (screen.bottom > panel.height - inset) y -= screen.bottom - (panel.height - inset);
+  return x === viewport.x && y === viewport.y ? null : { x, y, zoom: viewport.zoom };
 }
 
 export function parentTouchpointOptions(document: MapDocument, childId?: string) {

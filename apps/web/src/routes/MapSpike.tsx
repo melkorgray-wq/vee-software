@@ -4,7 +4,7 @@ import '@xyflow/react/dist/style.css';
 import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, createEmptyMapDocument, duplicateEntity, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, selectAllLinkedOfferIntentsForTouchpoint, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, setTouchpointIntentSelections, setTouchpointMitigations, updateEntity, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointInput, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship, type TouchpointTopDownSelection } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
-import { contextMenuPoint, linkedOfferIds, overlayPoint, parentTouchpointOptions, siblingDraft, siblingPlacement, type Point } from '../map-interaction';
+import { contextMenuPoint, linkedOfferIds, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, type Point } from '../map-interaction';
 import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, type ProposedPlacementRelation } from '../map-placement';
 import { Link } from '../router';
 
@@ -268,6 +268,7 @@ export function MapSpike() {
   const menuOwnerRef = useRef<HTMLElement | null>(null);
   const contextualEditorRef = useRef<HTMLElement>(null);
   const flowRef = useRef<ReactFlowInstance<Node<MapNodeData>> | null>(null);
+  const pendingInspectorRevealRef = useRef<string | null>(null);
   const [document, setDocument] = useState<MapDocument>(INITIAL_DOCUMENT);
   const documentRef = useRef(document);
   documentRef.current = document;
@@ -442,6 +443,36 @@ export function MapSpike() {
   function screenForFlow(point: Point): Point {
     return flowRef.current?.flowToScreenPosition(point) ?? point;
   }
+  function entityScreenAnchor(id: string): Point | null {
+    const source = documentRef.current;
+    const placement = source.placements.find((p) => p.entityId === id && p.viewId === VIEW_ID);
+    const entity = source.entities.find((candidate) => candidate.id === id);
+    if (!placement || !entity) return null;
+    const layout = layoutForEntity(entity);
+    return screenForFlow({ x: placement.x + layout.diameter, y: placement.y + layout.diameter / 2 });
+  }
+  function immediateNeighbors(source: MapDocument, id: string): string[] {
+    return source.relationships.flatMap((relationship) => {
+      const values = Object.entries(relationship).filter(([key, value]) => key !== 'id' && key !== 'kind' && typeof value === 'string').map(([, value]) => value as string);
+      return values.includes(id) ? values.filter((value) => value !== id && source.entities.some((entity) => entity.id === value)) : [];
+    });
+  }
+  function revealEntities(source: MapDocument, ids: string[]) {
+    const panel = panelRef.current; const instance = flowRef.current;
+    if (!panel || !instance || panel.hidden) return;
+    const rects = [...new Set(ids)].flatMap((id) => {
+      const placement = source.placements.find((candidate) => candidate.entityId === id && candidate.viewId === VIEW_ID);
+      const entity = source.entities.find((candidate) => candidate.id === id);
+      if (!placement || !entity) return [];
+      const diameter = layoutForEntity(entity).diameter;
+      return [{ left: placement.x, top: placement.y, right: placement.x + diameter, bottom: placement.y + diameter }];
+    });
+    if (!rects.length) return;
+    const bounds = rects.reduce((result, rect) => ({ left: Math.min(result.left, rect.left), top: Math.min(result.top, rect.top), right: Math.max(result.right, rect.right), bottom: Math.max(result.bottom, rect.bottom) }), rects[0]!);
+    const panelBounds = panel.getBoundingClientRect();
+    const next = revealViewport(bounds, panelBounds, instance.getViewport());
+    if (next) void instance.setViewport(next, { duration: 180 });
+  }
   function relatedPlacement(id: string) {
     const source = documentRef.current;
     const placement = source.placements.find((p) => p.entityId === id && p.viewId === VIEW_ID)!;
@@ -472,10 +503,10 @@ export function MapSpike() {
     const entity = documentRef.current.entities.find((e) => e.id === id);
     if (!entity || !hasCanonicalChild(entity)) return;
     const flow = relatedPlacement(id);
-    const anchor = screenForFlow(flow);
+    const anchor = entityScreenAnchor(id);
     const overlay = { x: 0, y: 0 };
     const d = childDraft(entity, contextualKind);
-    if (!d) return;
+    if (!d || !anchor) return;
     setQuick({ draft: d, flow, anchor, overlay, positioned: false });
     setMenu(null);
     setMessage('');
@@ -489,7 +520,7 @@ export function MapSpike() {
     setQuick({
       draft: d,
       flow,
-      anchor: screenForFlow(flow),
+      anchor: entityScreenAnchor(targetId) ?? screenForFlow(flow),
       overlay: { x: 0, y: 0 },
       positioned: false,
     });
@@ -504,7 +535,7 @@ export function MapSpike() {
     setQuick({
       draft: { ...draft(context.kind), ...context },
       flow,
-      anchor: screenForFlow(flow),
+      anchor: entityScreenAnchor(id) ?? screenForFlow(flow),
       overlay: { x: 0, y: 0 },
       positioned: false,
     });
@@ -537,7 +568,8 @@ export function MapSpike() {
   function openEntityContextMenu(entityId: string) {
     const entity = documentRef.current.entities.find((candidate) => candidate.id === entityId);
     if (!entity) return;
-    const client = screenForFlow(relatedPlacement(entityId));
+    const client = entityScreenAnchor(entityId);
+    if (!client) return;
     menuOwnerRef.current = globalThis.document.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(entityId)}"]`);
     setMenu({ type: 'node', invocation: 'keyboard', entityId, client, overlay: { x: 0, y: 0 }, positioned: false });
     setMessage('');
@@ -616,6 +648,8 @@ export function MapSpike() {
       setQuick(null);
       setMode('idle');
       setActiveWorkspaceView(continuation);
+      if (continuation === 'map') requestAnimationFrame(() => revealEntities(next, [id, ...immediateNeighbors(next, id)]));
+      else pendingInspectorRevealRef.current = id;
       setMessage('Element created.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Element could not be created.');
@@ -673,6 +707,7 @@ export function MapSpike() {
       setEditDraft(draftFor(next.entities.find((entity) => entity.id === targetId)!, next));
       setMode('idle');
       setActiveWorkspaceView('inspector');
+      pendingInspectorRevealRef.current = targetId;
       setMessage('Element created.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Element could not be created.');
@@ -702,6 +737,7 @@ export function MapSpike() {
       setEditDraft(draftFor(created, next));
       setMenu(null);
       setMessage('Element duplicated.');
+      requestAnimationFrame(() => revealEntities(next, [entityId, id]));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Element could not be duplicated.');
     }
@@ -720,7 +756,7 @@ export function MapSpike() {
       const interactionOwnsKeyboard = Boolean(menu || quick || bottomUp || inlineEdit || mode === 'create');
       if (event.code === 'Space' && event.shiftKey && workspaceModifier && !event.altKey && !interactionOwnsKeyboard) {
         event.preventDefault();
-        setActiveWorkspaceView(activeWorkspaceViewRef.current === 'map' ? 'inspector' : 'map');
+        activateWorkspaceView(activeWorkspaceViewRef.current === 'map' ? 'inspector' : 'map');
         return;
       }
       const modifier = event.ctrlKey || event.metaKey;
@@ -749,6 +785,11 @@ export function MapSpike() {
   });
   function activateWorkspaceView(view: WorkspaceView) {
     setActiveWorkspaceView(view);
+    if (view === 'map' && pendingInspectorRevealRef.current) {
+      const id = pendingInspectorRevealRef.current;
+      pendingInspectorRevealRef.current = null;
+      requestAnimationFrame(() => revealEntities(documentRef.current, [id, ...immediateNeighbors(documentRef.current, id)]));
+    }
   }
   function startRootCreation() {
     setMode('create');
@@ -1565,6 +1606,7 @@ export function MapSpike() {
             nodeTypes={{ mapNode: MapNode }}
             edgeTypes={{ [MAP_EDGE_TYPE]: MapEdge }}
             fitView
+            fitViewOptions={{ maxZoom: 1 }}
             nodesConnectable={false}
             edgesFocusable={false}
             deleteKeyCode={null}

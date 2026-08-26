@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { addEntity, addTouchpointContainer, createEmptyMapDocument, duplicateEntity } from '@vee/domain';
-import { contextMenuPoint, linkedOfferIds, overlayPoint, parentTouchpointOptions, siblingDraft, siblingPlacement } from './map-interaction';
+import { contextMenuPoint, linkedOfferIds, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement } from './map-interaction';
 
 it('converts client coordinates to clamped panel-local overlay coordinates', () => {
   const panel = { left: 300, top: 120, width: 700, height: 500 };
@@ -40,6 +40,26 @@ it('keeps the panel gutter when an overlay is taller than the panel', () => {
 
 it('clamps a menu inside the panel gutter when neither side of the anchor fits', () => {
   expect(contextMenuPoint({ x: 200, y: 150 }, { left: 100, top: 50, width: 200, height: 200 }, { width: 180, height: 180 })).toEqual({ x: 12, y: 12 });
+});
+
+it('clamps overlays whose anchors are beyond every panel edge', () => {
+  const panel = { left: 100, top: 50, width: 600, height: 400 };
+  expect(contextMenuPoint({ x: -50, y: -80 }, panel, { width: 160, height: 120 })).toEqual({ x: 8, y: 8 });
+  expect(contextMenuPoint({ x: 900, y: 700 }, panel, { width: 160, height: 120 })).toEqual({ x: 432, y: 272 });
+});
+
+it('does not move a camera that already reveals the local bounds', () => {
+  expect(revealViewport({ left: 100, top: 100, right: 300, bottom: 250 }, { width: 800, height: 600 }, { x: 0, y: 0, zoom: 1 })).toBeNull();
+});
+
+it('minimally pans to reveal local bounds while preserving zoom', () => {
+  expect(revealViewport({ left: 650, top: 100, right: 850, bottom: 250 }, { width: 800, height: 600 }, { x: 0, y: 0, zoom: 1 })).toEqual({ x: -90, y: 0, zoom: 1 });
+});
+
+it('zooms out only enough when local bounds cannot fit and never zooms in', () => {
+  expect(revealViewport({ left: 0, top: 0, right: 1000, bottom: 500 }, { width: 800, height: 600 }, { x: 0, y: 0, zoom: 1 })?.zoom).toBeCloseTo(.72);
+  const small = revealViewport({ left: 100, top: 100, right: 200, bottom: 200 }, { width: 800, height: 600 }, { x: -100, y: -100, zoom: .5 });
+  expect(small?.zoom ?? .5).not.toBeGreaterThan(.5);
 });
 
 it('derives duplicated Touchpoints as valid current-document parents', () => {

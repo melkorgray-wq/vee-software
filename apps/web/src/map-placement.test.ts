@@ -41,16 +41,16 @@ it('centers rings on occupied rectangle bounds rather than the coordinate averag
   document = add(document, 'left-b', 'touchpoint', 0, 0);
   document = add(document, 'right', 'touchpoint', 1000, 0);
   const point = findFreePlacement(document, VIEW, layout('touchpoint'));
-  // Occupied bounds are 0..1096, so their center is x=548; the first clockwise
-  // candidate is directly above it and has top-left x=500.
-  expect(point.x).toBeCloseTo(500);
-  expect(point.y).toBeCloseTo(-120);
+  // Occupied bounds are 0..1096, so their center is x=548; the first candidate
+  // is directly right of it.
+  expect(point.x).toBeCloseTo(620);
+  expect(point.y).toBeCloseTo(0);
 });
 
 function ringBlockers() {
   let document = empty();
   for (let order = 0; order < 16; order += 1) {
-    const angle = -Math.PI / 2 + order * Math.PI * 2 / 16;
+    const angle = order * Math.PI * 2 / 16;
     document = add(document, `block-${order}`, 'touchpoint', Math.cos(angle) * 120 - 48, Math.sin(angle) * 120 - 48);
   }
   return document;
@@ -66,7 +66,7 @@ it('uses another valid candidate in the first ring when that ring is partially o
 
 it('advances only when the entire first ring is physically blocked', () => {
   const point = findFreePlacement(ringBlockers(), VIEW, layout('touchpoint'));
-  expect(point).toEqual({ x: -47.999999999999986, y: -288 });
+  expect(point).toEqual({ x: 192, y: -48 });
 });
 
 it('prefers less soft-guard intrusion among physically valid candidates in the nearest ring', () => {
@@ -90,12 +90,12 @@ it('treats guard zones as soft and does not leave the nearest physically valid r
   expect(Math.hypot(point.x + 48, point.y + 48)).toBeCloseTo(120);
 });
 
-it('is repeatable and resolves equal candidates clockwise from 12 o’clock', () => {
+it('is repeatable and resolves equal candidates clockwise from 3 o’clock', () => {
   const document = add(empty(), 'center', 'product', 0, 0);
   const first = findFreePlacement(document, VIEW, layout('product'));
   expect(first).toEqual(findFreePlacement(document, VIEW, layout('product')));
-  expect(first.x).toBeCloseTo(0);
-  expect(first.y).toBeCloseTo(-160);
+  expect(first.x).toBeCloseTo(160);
+  expect(first.y).toBeCloseTo(0);
 });
 
 it('isolates occupied geometry by view', () => {
@@ -118,27 +118,28 @@ it('repairs a preferred-point collision in the nearest deterministic local ring 
   expect(JSON.stringify(document.placements)).toBe(before);
 });
 
-it('places a related child around its anchor without assuming rightward growth', () => {
+it('starts an equal-score related niche ring to the right', () => {
   const document = add(empty(), 'anchor', 'product', 100, 100);
   const point = findRelatedPlacement(document, VIEW, layout('offer'), ['anchor'], [{ sourceId: 'anchor', targetId: 'new' }]);
-  expect(point.x + 58).toBeCloseTo(168);
-  expect(point.y + 58).toBeLessThan(100);
+  expect(point.x + 58).toBeCloseTo(322);
+  expect(point.y + 58).toBeCloseTo(168);
   expect(overlaps(point, 116, document.placements[0]!, 136)).toBe(false);
 });
 
-it('uses another direction in the same related ring when the first clockwise niche is blocked', () => {
+it('uses another direction in the same related ring when the right-first niche is blocked', () => {
   let document = add(empty(), 'anchor', 'product', 100, 100);
-  document = add(document, 'top-blocker', 'touchpoint', 120, -64);
+  document = add(document, 'right-blocker', 'touchpoint', 270, 120);
   const point = findRelatedPlacement(document, VIEW, layout('offer'), ['anchor'], [{ sourceId: 'anchor', targetId: 'new' }]);
   const anchorCenter = { x: 168, y: 168 };
   expect(Math.hypot(point.x + 58 - anchorCenter.x, point.y + 58 - anchorCenter.y)).toBeCloseTo(154);
-  expect(point.x + 58).toBeGreaterThan(anchorCenter.x);
+  expect(point.x + 58).not.toBeCloseTo(anchorCenter.x + 154);
+  expect(overlaps(point, 116, document.placements[1]!, 96)).toBe(false);
 });
 
 it('isolates relation anchors and visible-edge heuristics to the current view', () => {
   let document = add(empty(), 'anchor', 'product', 0, 0);
   document = add(document, 'other-view-blocker', 'product', 0, -164, 'other-view');
   const point = findRelatedPlacement(document, VIEW, layout('offer'), ['anchor'], [{ sourceId: 'anchor', targetId: 'new' }]);
-  expect(point.x + 58).toBeCloseTo(68);
-  expect(point.y + 58).toBeLessThan(0);
+  expect(point.x + 58).toBeCloseTo(222);
+  expect(point.y + 58).toBeCloseTo(68);
 });

@@ -62,8 +62,8 @@ function segmentRunsThroughRect(a: Point, b: Point, rect: Rect): boolean {
 }
 
 function clockwisePoint(origin: Point, radius: number, order: number, diameter: number): Point {
-  // Twelve o'clock is a stable, arbitrary starting angle; candidates then sweep clockwise.
-  const angle = -Math.PI / 2 + order * (Math.PI * 2 / DIRECTIONS_PER_RING);
+  // Three o'clock starts the stable full-circle tie-break; stronger scores still win.
+  const angle = order * (Math.PI * 2 / DIRECTIONS_PER_RING);
   return { x: origin.x + Math.cos(angle) * radius - diameter / 2, y: origin.y + Math.sin(angle) * radius - diameter / 2 };
 }
 
