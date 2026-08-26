@@ -268,7 +268,7 @@ export function MapSpike() {
   const menuOwnerRef = useRef<HTMLElement | null>(null);
   const contextualEditorRef = useRef<HTMLElement>(null);
   const flowRef = useRef<ReactFlowInstance<Node<MapNodeData>> | null>(null);
-  const pendingInspectorRevealRef = useRef<string | null>(null);
+  const pendingInspectorRevealRef = useRef<string[] | null>(null);
   const [document, setDocument] = useState<MapDocument>(INITIAL_DOCUMENT);
   const documentRef = useRef(document);
   documentRef.current = document;
@@ -649,37 +649,43 @@ export function MapSpike() {
       setMode('idle');
       setActiveWorkspaceView(continuation);
       if (continuation === 'map') requestAnimationFrame(() => revealEntities(next, [id, ...immediateNeighbors(next, id)]));
-      else pendingInspectorRevealRef.current = id;
+      else pendingInspectorRevealRef.current = [id, ...immediateNeighbors(next, id)];
       setMessage('Element created.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Element could not be created.');
     }
   }
-  function commitInspectorRoot(d: Draft, x: number, y: number) {
+  function commitInspectorRoot(d: Draft) {
     try {
       let next = document;
       let productId = d.linkedProductId;
       let offerId = d.linkedOfferIds[0] ?? '';
-      let placementIndex = document.entities.length;
-      const addPrerequisite = (kind: 'product' | 'offer', title: string, linkedProductId?: string) => {
+      const revealIds: string[] = [];
+      const addProduct = (title: string) => {
         const entityId = crypto.randomUUID();
-        const placement = { entityId, title, viewId: VIEW_ID, x: 80 + placementIndex * 30, y: 80 + placementIndex++ * 30 };
-        next = kind === 'offer'
-          ? addEntity(next, { ...placement, kind, linkedProductId: linkedProductId!, relationshipId: crypto.randomUUID() })
-          : addEntity(next, { ...placement, kind });
+        const placement = findFreePlacement(next, VIEW_ID, layoutForEntity({ kind: 'product', title }));
+        next = addEntity(next, { entityId, title, kind: 'product', viewId: VIEW_ID, ...placement });
+        revealIds.push(entityId);
+        return entityId;
+      };
+      const addOffer = (title: string, anchorProductId: string) => {
+        const entityId = crypto.randomUUID();
+        const placement = findRelatedPlacement(next, VIEW_ID, layoutForEntity({ kind: 'offer', title }), [anchorProductId], [{ sourceId: anchorProductId, targetId: '__new__' }]);
+        next = addEntity(next, { entityId, title, kind: 'offer', viewId: VIEW_ID, ...placement, linkedProductId: anchorProductId, relationshipId: crypto.randomUUID() });
+        revealIds.push(entityId);
         return entityId;
       };
 
       if (d.kind === 'offer' || (d.kind === 'touchpoint' && d.offerPrerequisite === 'new')) {
         if (d.productPrerequisite === 'new') {
           if (!d.newProductTitle.trim()) throw new Error('A new Product title is required.');
-          productId = addPrerequisite('product', d.newProductTitle);
+          productId = addProduct(d.newProductTitle);
         }
         if (!productId) throw new Error('Choose or create the Product this Offer packages.');
       }
       if (d.kind === 'touchpoint' && d.offerPrerequisite === 'new') {
         if (!d.newOfferTitle.trim()) throw new Error('A new Offer title is required.');
-        offerId = addPrerequisite('offer', d.newOfferTitle, productId);
+        offerId = addOffer(d.newOfferTitle, productId);
       }
       if (d.kind === 'touchpoint' && !offerId) throw new Error('Choose or create the Offer presented at this Touchpoint.');
 
@@ -689,14 +695,10 @@ export function MapSpike() {
         next = addTouchpointContainer(next, { id: locatedInId, title: d.locationDraft.title });
       }
 
-      // Only a single-node creation with an already placed prerequisite enters the
-      // relation solver. Multi-new-node prerequisite batches retain their old layout.
-      if (next === document && ((d.kind === 'offer' && productId) || (d.kind === 'touchpoint' && offerId))) {
-        const placement = automaticPlacement({ ...d, linkedProductId: productId, linkedOfferIds: offerId ? [offerId] : [] }, undefined, next);
-        x = placement.x; y = placement.y;
-      }
+      const targetDraft = { ...d, linkedProductId: productId, linkedOfferIds: offerId ? [offerId] : [] };
+      const placement = automaticPlacement(targetDraft, undefined, next);
       const targetId = crypto.randomUUID();
-      const common = { entityId: targetId, title: d.title, viewId: VIEW_ID, x, y };
+      const common = { entityId: targetId, title: d.title, viewId: VIEW_ID, ...placement };
       next = d.kind === 'offer'
         ? addEntity(next, { ...common, kind: 'offer', linkedProductId: productId, relationshipId: crypto.randomUUID() })
         : d.kind === 'touchpoint'
@@ -707,7 +709,11 @@ export function MapSpike() {
       setEditDraft(draftFor(next.entities.find((entity) => entity.id === targetId)!, next));
       setMode('idle');
       setActiveWorkspaceView('inspector');
-      pendingInspectorRevealRef.current = targetId;
+      revealIds.push(targetId);
+      if (d.kind === 'offer' && !revealIds.includes(productId)) revealIds.unshift(productId);
+      if (d.kind === 'touchpoint' && !revealIds.includes(offerId)) revealIds.unshift(offerId);
+      if (d.kind === 'touchpoint' && productId && !revealIds.includes(productId) && d.offerPrerequisite === 'new') revealIds.unshift(productId);
+      pendingInspectorRevealRef.current = revealIds;
       setMessage('Element created.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Element could not be created.');
@@ -786,9 +792,9 @@ export function MapSpike() {
   function activateWorkspaceView(view: WorkspaceView) {
     setActiveWorkspaceView(view);
     if (view === 'map' && pendingInspectorRevealRef.current) {
-      const id = pendingInspectorRevealRef.current;
+      const ids = pendingInspectorRevealRef.current;
       pendingInspectorRevealRef.current = null;
-      requestAnimationFrame(() => revealEntities(documentRef.current, [id, ...immediateNeighbors(documentRef.current, id)]));
+      requestAnimationFrame(() => revealEntities(documentRef.current, ids));
     }
   }
   function startRootCreation() {
@@ -1759,13 +1765,11 @@ export function MapSpike() {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                if (createDraft.side === 'business' && createDraft.kind !== 'product') {
-                  commitInspectorRoot(createDraft, 80 + document.entities.length * 30, 80 + document.entities.length * 30);
-                  return;
+                if (createDraft.side === 'business') commitInspectorRoot(createDraft);
+                else {
+                  const placement = findFreePlacement(document, VIEW_ID, layoutForEntity(createDraft));
+                  commit(createDraft, placement.x, placement.y, 'inspector');
                 }
-                const placement = findFreePlacement(document, VIEW_ID, layoutForEntity(createDraft));
-                if (createDraft.side === 'business') commitInspectorRoot(createDraft, placement.x, placement.y);
-                else commit(createDraft, placement.x, placement.y, 'inspector');
               }}
             >
               <h3>Add an element</h3>
