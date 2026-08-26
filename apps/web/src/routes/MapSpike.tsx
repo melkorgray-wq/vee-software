@@ -2,9 +2,10 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type 
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, createEmptyMapDocument, duplicateEntity, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, selectAllLinkedOfferIntentsForTouchpoint, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, setTouchpointIntentSelections, setTouchpointMitigations, updateEntity, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointInput, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship, type TouchpointTopDownSelection } from '@vee/domain';
-import { deriveMapEdges, deriveMapNodes, KIND_LABELS, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
+import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, linkedOfferIds, overlayPoint, parentTouchpointOptions, siblingDraft, siblingPlacement, type Point } from '../map-interaction';
+import { findFreePlacement } from '../map-placement';
 import { Link } from '../router';
 
 const VIEW_ID = 'spike-view';
@@ -1290,13 +1291,13 @@ export function MapSpike() {
       const title = window.prompt(`Title for ${KIND_LABELS[kind]}`)?.trim();
       if (!title) return;
       const entityId = crypto.randomUUID();
+      const placement = findFreePlacement(document, VIEW_ID, layoutForEntity({ kind, title }));
       const next = addEntity(document, {
         entityId,
         title,
         kind,
         viewId: VIEW_ID,
-        x: 80 + document.entities.length * 30,
-        y: 80 + document.entities.length * 30,
+        ...placement,
       });
       setDocument(next);
       setter({
@@ -1689,8 +1690,13 @@ export function MapSpike() {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                if (createDraft.side === 'business') commitInspectorRoot(createDraft, 80 + document.entities.length * 30, 80 + document.entities.length * 30);
-                else commit(createDraft, 80 + document.entities.length * 30, 80 + document.entities.length * 30, 'inspector');
+                if (createDraft.side === 'business' && createDraft.kind !== 'product') {
+                  commitInspectorRoot(createDraft, 80 + document.entities.length * 30, 80 + document.entities.length * 30);
+                  return;
+                }
+                const placement = findFreePlacement(document, VIEW_ID, layoutForEntity(createDraft));
+                if (createDraft.side === 'business') commitInspectorRoot(createDraft, placement.x, placement.y);
+                else commit(createDraft, placement.x, placement.y, 'inspector');
               }}
             >
               <h3>Add an element</h3>
