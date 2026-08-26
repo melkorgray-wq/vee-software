@@ -5,7 +5,7 @@ import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpoint
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, linkedOfferIds, overlayPoint, parentTouchpointOptions, siblingDraft, siblingPlacement, type Point } from '../map-interaction';
-import { findFreePlacement } from '../map-placement';
+import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, type ProposedPlacementRelation } from '../map-placement';
 import { Link } from '../router';
 
 const VIEW_ID = 'spike-view';
@@ -448,6 +448,26 @@ export function MapSpike() {
     const related = source.relationships.filter((r) => (r.kind === 'product_packaged_as_offer' && r.productId === id) || (r.kind === 'offer_presented_at_touchpoint' && r.offerId === id) || (r.kind === 'touchpoint_contains_touchpoint' && r.parentTouchpointId === id) || (r.kind === 'core_functional_job_has_related_job' && r.coreFunctionalJobId === id) || (r.kind === 'job_has_desired_outcome' && r.jobId === id) || (r.kind === 'repulsor_resists' && r.targetEntityId === id)).length;
     return { x: placement.x + 190, y: placement.y + related * 125 };
   }
+  function automaticPlacement(d: Draft, preferredPoint?: Point, source = documentRef.current): Point {
+    const anchors: string[] = [];
+    const relations: ProposedPlacementRelation[] = [];
+    const addAnchor = (id: string, newNodeIsSource = false) => {
+      if (!id) return;
+      anchors.push(id);
+      relations.push(newNodeIsSource ? { sourceId: '__new__', targetId: id } : { sourceId: id, targetId: '__new__' });
+    };
+    if (d.kind === 'offer') addAnchor(d.linkedProductId);
+    if (d.kind === 'touchpoint') {
+      d.linkedOfferIds.forEach((id) => addAnchor(id));
+      addAnchor(d.parentTouchpointId);
+    }
+    if (isContextualClientEntityKind(d.kind)) addAnchor(d.parentEntityId);
+    if (d.kind === 'repulsor') d.resistedTargetIds.forEach((id) => addAnchor(id, true));
+    const nodeLayout = layoutForEntity(d);
+    if (anchors.length) return findRelatedPlacement(source, VIEW_ID, nodeLayout, anchors, relations);
+    if (preferredPoint) return findPlacementNearPoint(source, VIEW_ID, nodeLayout, preferredPoint);
+    return findFreePlacement(source, VIEW_ID, nodeLayout);
+  }
   function startChild(id: string, contextualKind?: ContextualClientEntityKind) {
     const entity = documentRef.current.entities.find((e) => e.id === id);
     if (!entity || !hasCanonicalChild(entity)) return;
@@ -635,6 +655,12 @@ export function MapSpike() {
         next = addTouchpointContainer(next, { id: locatedInId, title: d.locationDraft.title });
       }
 
+      // Only a single-node creation with an already placed prerequisite enters the
+      // relation solver. Multi-new-node prerequisite batches retain their old layout.
+      if (next === document && ((d.kind === 'offer' && productId) || (d.kind === 'touchpoint' && offerId))) {
+        const placement = automaticPlacement({ ...d, linkedProductId: productId, linkedOfferIds: offerId ? [offerId] : [] }, undefined, next);
+        x = placement.x; y = placement.y;
+      }
       const targetId = crypto.randomUUID();
       const common = { entityId: targetId, title: d.title, viewId: VIEW_ID, x, y };
       next = d.kind === 'offer'
@@ -1309,7 +1335,7 @@ export function MapSpike() {
       const title = window.prompt('Title for Desired Outcome')?.trim();
       if (!title) return;
       const entityId = crypto.randomUUID();
-      const placement = relatedPlacement(jobId);
+      const placement = findRelatedPlacement(document, VIEW_ID, layoutForEntity({ kind: 'desired_outcome', title }), [jobId], [{ sourceId: jobId, targetId: '__new__' }]);
       const next = addEntity(document, {
         entityId,
         title,
@@ -1475,7 +1501,8 @@ export function MapSpike() {
         }}
         onSubmit={(e) => {
           e.preventDefault();
-          commit(q.draft, q.flow.x, q.flow.y, postCreateContinuation(e));
+          const placement = automaticPlacement(q.draft, q.flow);
+          commit(q.draft, placement.x, placement.y, postCreateContinuation(e));
         }}
         onKeyDown={(e: ReactKeyboardEvent) => {
           if (e.key === 'Escape') {

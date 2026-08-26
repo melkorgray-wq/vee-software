@@ -339,7 +339,9 @@ The current visual direction is therefore role/level-driven hierarchy, for examp
 
 Node size remains a derived rendering property. It must never encode Evidence, confidence, popularity, conversion, or future attraction/repulsion force in the authored 2D view.
 
-The authored map should use a simple structural layout rather than a force layout: newly created canonical children should receive predictable readable placement and sibling spacing, while explicit manual dragging remains a local override. Existing manually positioned branches should not be unexpectedly rearranged without a user action such as Layout branch / Reset layout.
+The current Software Alpha placement contract treats existing authored placements as fixed during automatic birth placement. An unanchored root searches deterministic outward rings around the occupied-map bounds, while a canvas-created root treats the user's Map click as its preferred top-left birth position and repairs a physical collision locally. A single new entity with one or more already placed relation anchors instead searches outward around the equal-weight anchor region. Relation proximity has priority over eliminating edge crossings, and relationship direction implies no compass direction.
+
+Automatic birth placement forbids physical node overlap using actual rendered node geometry. Within the nearest physically usable ring, the solver prefers fewer proposed-edge crossings, then fewer existing edges through the new node, cleaner soft-guard spacing, and finally deterministic clockwise order. Edge conflicts are approximated with straight center-to-center segments as a local placement heuristic; this is not global graph-planarity optimization and does not change rendered edge geometry. Multi-new-node birth-batch placement and post-create camera behavior remain deferred. Manual dragging remains an authored local override and does not use this collision rule.
 
 Touchpoint URL/link affordances should remain peripheral to the node's primary content rather than overlap title text. The map is for quick opening and structural work; the Inspector remains the editing surface for the locator itself.
 
