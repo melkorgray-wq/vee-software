@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { createEmptyMapDocument, type Entity, type MapDocument, type ProvisionalEntityKind } from '@vee/domain';
 import { layoutForEntity } from './map-adapter';
-import { EMPTY_MAP_PLACEMENT, findFreePlacement } from './map-placement';
+import { EMPTY_MAP_PLACEMENT, findFreePlacement, findPlacementNearPoint, findRelatedPlacement } from './map-placement';
 
 const VIEW = 'view';
 const empty = () => createEmptyMapDocument({ mapId: 'map', title: 'Map', viewId: VIEW, viewTitle: 'View' });
@@ -101,4 +101,44 @@ it('is repeatable and resolves equal candidates clockwise from 12 o’clock', ()
 it('isolates occupied geometry by view', () => {
   const otherViewOnly = add(empty(), 'elsewhere', 'product', 500, 500, 'other-view');
   expect(findFreePlacement(otherViewOnly, VIEW, layout('touchpoint'))).toEqual(EMPTY_MAP_PLACEMENT);
+});
+
+it('preserves a physically free preferred top-left point exactly', () => {
+  const document = add(empty(), 'existing', 'product', 0, 0);
+  expect(findPlacementNearPoint(document, VIEW, layout('touchpoint'), { x: 400, y: 250 })).toEqual({ x: 400, y: 250 });
+});
+
+it('repairs a preferred-point collision in the nearest deterministic local ring across sides', () => {
+  const document = add(empty(), 'business-product', 'product', 100, 100);
+  const before = JSON.stringify(document.placements);
+  const point = findPlacementNearPoint(document, VIEW, layout('core_functional_job'), { x: 100, y: 100 });
+  expect(overlaps(point, 116, document.placements[0]!, 136)).toBe(false);
+  expect(Math.hypot(point.x + 58 - 158, point.y + 58 - 158)).toBeCloseTo(150);
+  expect(point).toEqual(findPlacementNearPoint(document, VIEW, layout('core_functional_job'), { x: 100, y: 100 }));
+  expect(JSON.stringify(document.placements)).toBe(before);
+});
+
+it('places a related child around its anchor without assuming rightward growth', () => {
+  const document = add(empty(), 'anchor', 'product', 100, 100);
+  const point = findRelatedPlacement(document, VIEW, layout('offer'), ['anchor'], [{ sourceId: 'anchor', targetId: 'new' }]);
+  expect(point.x + 58).toBeCloseTo(168);
+  expect(point.y + 58).toBeLessThan(100);
+  expect(overlaps(point, 116, document.placements[0]!, 136)).toBe(false);
+});
+
+it('uses another direction in the same related ring when the first clockwise niche is blocked', () => {
+  let document = add(empty(), 'anchor', 'product', 100, 100);
+  document = add(document, 'top-blocker', 'touchpoint', 120, -64);
+  const point = findRelatedPlacement(document, VIEW, layout('offer'), ['anchor'], [{ sourceId: 'anchor', targetId: 'new' }]);
+  const anchorCenter = { x: 168, y: 168 };
+  expect(Math.hypot(point.x + 58 - anchorCenter.x, point.y + 58 - anchorCenter.y)).toBeCloseTo(154);
+  expect(point.x + 58).toBeGreaterThan(anchorCenter.x);
+});
+
+it('isolates relation anchors and visible-edge heuristics to the current view', () => {
+  let document = add(empty(), 'anchor', 'product', 0, 0);
+  document = add(document, 'other-view-blocker', 'product', 0, -164, 'other-view');
+  const point = findRelatedPlacement(document, VIEW, layout('offer'), ['anchor'], [{ sourceId: 'anchor', targetId: 'new' }]);
+  expect(point.x + 58).toBeCloseTo(68);
+  expect(point.y + 58).toBeLessThan(0);
 });
