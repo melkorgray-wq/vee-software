@@ -1,4 +1,4 @@
-import type { Entity, MapDocument, TouchpointIntentDraft as DomainTouchpointIntentDraft, TouchpointIntentFinancialLeaf, TouchpointIntentJobLeaf } from '@vee/domain';
+import { addTouchpointContainer, applyTouchpointIntentDraft, relevantRepulsorsForTouchpoint, setTouchpointMitigations, updateEntity, type Entity, type MapDocument, type TouchpointIntentDraft as DomainTouchpointIntentDraft, type TouchpointIntentFinancialLeaf, type TouchpointIntentJobLeaf } from '@vee/domain';
 
 export type TouchpointJobLeaf = TouchpointIntentJobLeaf;
 export type TouchpointFinancialLeaf = TouchpointIntentFinancialLeaf;
@@ -58,10 +58,62 @@ const normalized = (draft: TouchpointIntentDraft) => ({
   financial: draft.financialLeaves.filter((leaf) => leaf.contributorOfferIds.length || draft.pendingFinancialLeafIds.includes(leaf.financialDesiredOutcomeId)).map((leaf) => [leaf.financialDesiredOutcomeId, [...leaf.contributorOfferIds].sort()]).sort(),
 });
 export const equalTouchpointIntentDraft = (left: TouchpointIntentDraft, right: TouchpointIntentDraft) => JSON.stringify(normalized(left)) === JSON.stringify(normalized(right));
-export const validateTouchpointIntentDraft = (draft: TouchpointIntentDraft): string | undefined =>
+export const validateTouchpointIntentDraft = (draft: TouchpointIntentDraft, linkedOfferIds?: string[]): string | undefined =>
   draft.pendingJobLeafIds.some((id) => !draft.jobLeaves.find((leaf) => leaf.semanticLeafId === id)?.contributorOfferIds.length)
   || draft.pendingFinancialLeafIds.some((id) => !draft.financialLeaves.find((leaf) => leaf.financialDesiredOutcomeId === id)?.contributorOfferIds.length)
-    ? 'Choose at least one contributing Offer for every selected Client-intent leaf.' : undefined;
+    ? 'Choose at least one contributing Offer for every selected Client-intent leaf.'
+    : linkedOfferIds && [...draft.jobLeaves, ...draft.financialLeaves].some(leaf => leaf.contributorOfferIds.some(id => !linkedOfferIds.includes(id)))
+      ? 'Every contributing Offer must remain linked to this Touchpoint.' : undefined;
+
+export type TouchpointEditDraft = {
+  title: string;
+  linkedOfferIds: string[];
+  parentTouchpointId: string;
+  locatedInId: string;
+  locatedInQuery: string;
+  locationDraft: { kind: 'none' } | { kind: 'existing'; containerId: string } | { kind: 'new'; title: string };
+  url: string;
+  mitigatedRepulsorIds: string[];
+  touchpointIntent: TouchpointIntentDraft;
+};
+
+/** Builds the complete Touchpoint edit transaction without mutating the durable input document. */
+export function applyTouchpointEditDraft(document: MapDocument, input: { touchpointId: string; draft: TouchpointEditDraft; newId: () => string }): MapDocument {
+  const validationError = validateTouchpointIntentDraft(input.draft.touchpointIntent, input.draft.linkedOfferIds);
+  if (validationError) throw new Error(validationError);
+
+  let next = document;
+  let locatedInId = input.draft.locatedInId;
+  if (input.draft.locationDraft.kind === 'new') {
+    const title = input.draft.locationDraft.title.trim();
+    if (!title) throw new Error('Located in requires a name.');
+    const existing = next.touchpointContainers.find(container => container.title.trim().toLocaleLowerCase() === title.toLocaleLowerCase());
+    locatedInId = existing?.id ?? input.newId();
+    if (!existing) next = addTouchpointContainer(next, { id: locatedInId, title });
+  } else if (input.draft.locationDraft.kind === 'existing') locatedInId = input.draft.locationDraft.containerId;
+
+  const oldOffers = document.relationships.filter(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === input.touchpointId);
+  const parent = document.relationships.find(relation => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === input.touchpointId);
+  next = updateEntity(next, {
+    entityId: input.touchpointId,
+    title: input.draft.title,
+    locatedInId,
+    url: input.draft.url,
+    linkedOfferIds: input.draft.linkedOfferIds,
+    relationshipIds: input.draft.linkedOfferIds.map((_, index) => oldOffers[index]?.id ?? input.newId()),
+    ...(input.draft.parentTouchpointId ? { parentTouchpointId: input.draft.parentTouchpointId, parentRelationshipId: parent?.id ?? input.newId() } : {}),
+  });
+  next = applyTouchpointIntentDraft(next, { touchpointId: input.touchpointId, draft: input.draft.touchpointIntent, newId: input.newId });
+
+  const retained = next.relationships.flatMap(relation => relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === input.touchpointId ? [relation.repulsorId] : []);
+  const relevant = new Set(relevantRepulsorsForTouchpoint(next, input.touchpointId).map(repulsor => repulsor.id));
+  const desired = input.draft.mitigatedRepulsorIds.filter(id => relevant.has(id));
+  return setTouchpointMitigations(next, {
+    touchpointId: input.touchpointId,
+    repulsorIds: desired,
+    newRelationshipIds: desired.filter(id => !retained.includes(id)).map(() => input.newId()),
+  });
+}
 
 /** Copies only currently-authored Offer intent into the local draft; it never authors an upstream path. */
 export function selectCurrentOfferIntent(document: MapDocument, draft: TouchpointIntentDraft, offerIds: string[]): TouchpointIntentDraft {
