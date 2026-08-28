@@ -733,6 +733,12 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
     let review = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
     expect(within(review).getByText('path to Make progress → Finish faster will be removed; alternative: Consulting')).toBeInTheDocument();
     await user.click(within(review).getByRole('button', { name: 'Cancel' })); expect(review).not.toBeInTheDocument();
+    expect(linkedOffers.getByRole('checkbox', { name: 'Subscription' })).not.toBeChecked();
+    expect(document.relationships).toContainEqual(expect.objectContaining({ kind: 'offer_presented_at_touchpoint', offerId: 'offer-a', touchpointId: 'touch' }));
+    expect(document.touchpointJobSelections).toEqual(expect.arrayContaining([
+      expect.objectContaining({ touchpointId: 'touch', offerId: 'offer-a' }),
+      expect.objectContaining({ touchpointId: 'touch', offerId: 'offer-b' }),
+    ]));
     await user.click(inspector.getByRole('button', { name: 'Apply changes' })); review = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
     await user.click(within(review).getByRole('button', { name: 'Apply changes' }));
     expect(linkedOffers.getByRole('checkbox', { name: 'Subscription' })).not.toBeChecked(); expect(linkedOffers.getByRole('checkbox', { name: 'Consulting' })).toBeChecked();
