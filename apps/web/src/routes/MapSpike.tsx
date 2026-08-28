@@ -7,7 +7,7 @@ import { MapEdge } from '../map-edge';
 import { contextMenuPoint, linkedOfferIds, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, type Point } from '../map-interaction';
 import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, type ProposedPlacementRelation } from '../map-placement';
 import { Link } from '../router';
-import { createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, financialLeafKey, jobLeafKey, validateTouchpointIntentDraft, type TouchpointIntentDraft } from './touchpoint-edit';
+import { createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, jobLeafKey, validateTouchpointIntentDraft, type TouchpointIntentDraft } from './touchpoint-edit';
 
 const VIEW_ID = 'spike-view';
 const INITIAL_DOCUMENT = createEmptyMapDocument({
@@ -1044,7 +1044,7 @@ export function MapSpike() {
       </fieldset>
     );
   }
-  function touchpointIntentFields(touchpointId: string) {
+  function touchpointIntentFields() {
     if (!editDraft?.touchpointIntent) return null;
     const intentDraft = editDraft.touchpointIntent;
     const offers = editDraft.linkedOfferIds;
@@ -1740,7 +1740,7 @@ export function MapSpike() {
               {contextualJobFields(editDraft, setEditDraft)}
               {repulsorTargetsField(editDraft, setEditDraft)}
               {touchFields(editDraft, setEditDraft, true)}
-              {selected.kind === 'touchpoint' && touchpointIntentFields(selected.id)}
+              {selected.kind === 'touchpoint' && touchpointIntentFields()}
               {selected.kind === 'touchpoint' && safeUrl(editDraft.url) && (
                 <a href={safeUrl(editDraft.url)} target="_blank" rel="noreferrer">
                   Open {editDraft.title}
