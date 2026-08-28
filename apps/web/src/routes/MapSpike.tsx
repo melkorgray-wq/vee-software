@@ -1,13 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, createEmptyMapDocument, duplicateEntity, getOfferIntentChangeImpact, getProductIntentChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, setTouchpointIntentSelections, setTouchpointMitigations, updateEntity, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointInput, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship } from '@vee/domain';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, authorTouchpointIntentBottomUp, createEmptyMapDocument, duplicateEntity, getOfferIntentChangeImpact, getProductIntentChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, setTouchpointMitigations, updateEntity, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointInput, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, linkedOfferIds, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, type Point } from '../map-interaction';
 import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, type ProposedPlacementRelation } from '../map-placement';
 import { Link } from '../router';
-import { createTouchpointIntentDraft, durableTouchpointSelections, entityTitle, equalTouchpointIntentDraft, financialLeafKey, jobLeafKey, validateTouchpointIntentDraft, type TouchpointIntentDraft } from './touchpoint-edit';
+import { createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, financialLeafKey, jobLeafKey, validateTouchpointIntentDraft, type TouchpointIntentDraft } from './touchpoint-edit';
 
 const VIEW_ID = 'spike-view';
 const INITIAL_DOCUMENT = createEmptyMapDocument({
@@ -1786,28 +1786,7 @@ export function MapSpike() {
                     const intentDraft = editDraft.touchpointIntent!;
                     const validationError = validateTouchpointIntentDraft(intentDraft);
                     if (validationError) throw new Error(validationError);
-                    for (const leaf of intentDraft.jobLeaves.filter((item) => item.contributorOfferIds.length)) {
-                      const productFor = (offerId: string) => next.relationships.flatMap((relation) => relation.kind === 'product_packaged_as_offer' && relation.offerId === offerId ? [relation.productId] : [])[0];
-                      const products = [...new Set(leaf.contributorOfferIds.map(productFor).filter((id): id is string => Boolean(id)))];
-                      const missingProducts = products.filter(productId => !next.productJobIntents.some(intent => intent.productId === productId && intent.jobId === leaf.jobId));
-                      const missingOffers = leaf.contributorOfferIds.filter(offerId => {
-                        const intent = next.productJobIntents.find(item => item.productId === productFor(offerId) && item.jobId === leaf.jobId);
-                        return !intent || !next.offerJobSelections.some(selection => selection.offerId === offerId && selection.productJobIntentId === intent.id);
-                      });
-                      next = authorTouchpointIntentBottomUp(next, {
-                        touchpointId: selected.id, contributingOfferIds: leaf.contributorOfferIds, jobId: leaf.jobId,
-                        addressedDesiredOutcomeIds: leaf.desiredOutcomeId ? [leaf.desiredOutcomeId] : [],
-                        productJobIntentIds: missingProducts.map(() => crypto.randomUUID()), offerJobSelectionIds: missingOffers.map(() => crypto.randomUUID()),
-                        touchpointSelectionIds: leaf.contributorOfferIds.map(() => crypto.randomUUID()),
-                      });
-                    }
-                    for (const leaf of intentDraft.financialLeaves.filter((item) => item.contributorOfferIds.length)) {
-                      const missing = leaf.contributorOfferIds.filter(offerId => !next.offerFinancialIntents.some(intent => intent.offerId === offerId && intent.financialDesiredOutcomeId === leaf.financialDesiredOutcomeId));
-                      next = authorTouchpointIntentBottomUp(next, { touchpointId: selected.id, contributingOfferIds: leaf.contributorOfferIds,
-                        financialDesiredOutcomeId: leaf.financialDesiredOutcomeId, offerFinancialIntentIds: missing.map(() => crypto.randomUUID()),
-                        touchpointSelectionIds: leaf.contributorOfferIds.map(() => crypto.randomUUID()) });
-                    }
-                    next = setTouchpointIntentSelections(next, { touchpointId: selected.id, selections: durableTouchpointSelections(next, intentDraft, () => crypto.randomUUID()) });
+                    next = applyTouchpointIntentDraft(next, { touchpointId: selected.id, draft: intentDraft, newId: () => crypto.randomUUID() });
                     const retained = next.relationships.flatMap((relation) => (relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === selected.id ? [relation.repulsorId] : []));
                     const relevant = new Set(relevantRepulsorsForTouchpoint(next, selected.id).map((repulsor) => repulsor.id));
                     const desired = editDraft.mitigatedRepulsorIds.filter((id) => relevant.has(id));
