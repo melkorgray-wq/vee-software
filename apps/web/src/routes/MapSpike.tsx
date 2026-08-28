@@ -1,13 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, createEmptyMapDocument, duplicateEntity, getOfferIntentChangeImpact, getProductIntentChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, setTouchpointMitigations, updateEntity, updateProductJobIntent, updateRepulsorTargets, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship } from '@vee/domain';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, createEmptyMapDocument, duplicateEntity, getOfferIntentChangeImpact, getProductIntentChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateProductJobIntent, updateRepulsorTargets, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, linkedOfferIds, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, type Point } from '../map-interaction';
 import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, type ProposedPlacementRelation } from '../map-placement';
 import { Link } from '../router';
-import { createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, jobLeafKey, selectCurrentOfferIntent, validateTouchpointIntentDraft, type TouchpointIntentDraft } from './touchpoint-edit';
+import { applyTouchpointEditDraft, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, jobLeafKey, selectCurrentOfferIntent, validateTouchpointIntentDraft, type TouchpointIntentDraft } from './touchpoint-edit';
 
 const VIEW_ID = 'spike-view';
 const INITIAL_DOCUMENT = createEmptyMapDocument({
@@ -376,6 +376,7 @@ export function MapSpike() {
       result.parentTouchpointId = source.relationships.find((r): r is Extract<Relationship, { kind: 'touchpoint_contains_touchpoint' }> => r.kind === 'touchpoint_contains_touchpoint' && r.childTouchpointId === entity.id)?.parentTouchpointId ?? '';
       result.locatedInId = entity.locatedInId ?? '';
       result.locatedInQuery = source.touchpointContainers.find((c) => c.id === entity.locatedInId)?.title ?? '';
+      result.locationDraft = entity.locatedInId ? { kind: 'existing', containerId: entity.locatedInId } : { kind: 'none' };
       result.url = entity.url ?? '';
       result.mitigatedRepulsorIds = source.relationships.flatMap((relation) => (relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === entity.id ? [relation.repulsorId] : []));
       result.touchpointIntent = createTouchpointIntentDraft(source, entity.id);
@@ -385,6 +386,28 @@ export function MapSpike() {
     if (entity.kind === 'desired_outcome') result.parentEntityId = source.relationships.find((r): r is Extract<Relationship, { kind: 'job_has_desired_outcome' }> => r.kind === 'job_has_desired_outcome' && r.desiredOutcomeId === entity.id)?.jobId ?? '';
     if (entity.kind === 'repulsor') result.resistedTargetIds = source.relationships.filter((r): r is Extract<Relationship, { kind: 'repulsor_resists' }> => r.kind === 'repulsor_resists' && r.repulsorId === entity.id).map((r) => r.targetEntityId);
     return result;
+  }
+  function applyTouchpointChanges(pending = pendingAfterApplyRef.current): boolean {
+    const durable = documentRef.current;
+    const entity = durable.entities.find(candidate => candidate.id === selectedRef.current);
+    const currentDraft = editDraft;
+    if (entity?.kind !== 'touchpoint' || !currentDraft?.touchpointIntent) return false;
+    try {
+      const next = applyTouchpointEditDraft(durable, {
+        touchpointId: entity.id,
+        draft: { ...currentDraft, touchpointIntent: currentDraft.touchpointIntent },
+        newId: () => crypto.randomUUID(),
+      });
+      setDocument(next);
+      setEditDraft(draftFor(next.entities.find(candidate => candidate.id === entity.id)!, next));
+      setMessage('Changes applied.');
+      pendingAfterApplyRef.current = null;
+      pending?.();
+      return true;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Changes could not be applied.');
+      return false;
+    }
   }
   function resetProductSession(entity: Entity | undefined, source = document) {
     setProductExpanded({});
@@ -417,7 +440,7 @@ export function MapSpike() {
   }
   function select(id: string | null) {
     if (id === selectedRef.current) return;
-    if ((selected?.kind === 'product' || selected?.kind === 'offer') && inspectorDirty) {
+    if ((selected?.kind === 'product' || selected?.kind === 'offer' || selected?.kind === 'touchpoint') && inspectorDirty) {
       setProductConfirmation({ mode: 'dirty', pending: () => performSelect(id), returnFocus: globalThis.document.activeElement as HTMLElement | null });
       return;
     }
@@ -440,6 +463,13 @@ export function MapSpike() {
     if (commitTitle !== false) {
       const entity = documentRef.current.entities.find((candidate) => candidate.id === edit.entityId);
       if (!entity) return;
+      if (entity.kind === 'touchpoint') {
+        setEditDraft(current => current ? { ...current, title: commitTitle } : { ...draftFor(entity, documentRef.current), title: commitTitle });
+        setMessage('Touchpoint title added to unsaved changes.');
+        setInlineEdit(null);
+        focusEntity(edit.entityId);
+        return;
+      }
       const current = draftFor(entity, documentRef.current);
       try {
         const next = updateEntity(documentRef.current, {
@@ -857,7 +887,7 @@ export function MapSpike() {
     setActiveWorkspaceView('inspector');
   }
   function startRootCreation() {
-    if ((selected?.kind === 'product' || selected?.kind === 'offer') && inspectorDirty) {
+    if ((selected?.kind === 'product' || selected?.kind === 'offer' || selected?.kind === 'touchpoint') && inspectorDirty) {
       setProductConfirmation({ mode: 'dirty', pending: performRootCreation, returnFocus: globalThis.document.activeElement as HTMLElement | null });
       return;
     }
@@ -871,22 +901,17 @@ export function MapSpike() {
     globalThis.document.getElementById(`${view}-workspace-tab`)?.focus();
   }
   function containerChange(setter: (d: EditDraft) => void, d: EditDraft, selection: LocationDraft, query: string) {
-    if (selection.kind === 'new') {
-      const existing = document.touchpointContainers.find((c) => c.title.trim().toLocaleLowerCase() === query.toLocaleLowerCase());
-      if (existing) setter({ ...d, locatedInId: existing.id, locatedInQuery: existing.title });
-      else {
-        const id = crypto.randomUUID();
-        setDocument((current) => addTouchpointContainer(current, { id, title: query }));
-        setter({ ...d, locatedInId: id, locatedInQuery: query });
-      }
-    } else setter({ ...d, locatedInId: selection.kind === 'existing' ? selection.containerId : '', locatedInQuery: query });
+    const existing = selection.kind === 'new' ? document.touchpointContainers.find((c) => c.title.trim().toLocaleLowerCase() === query.toLocaleLowerCase()) : undefined;
+    setter(existing
+      ? { ...d, locatedInId: existing.id, locatedInQuery: existing.title, locationDraft: { kind: 'existing', containerId: existing.id } }
+      : { ...d, locatedInId: selection.kind === 'existing' ? selection.containerId : '', locatedInQuery: query, locationDraft: selection });
   }
   function touchFields(d: EditDraft, setter: (d: EditDraft) => void, inspector = false) {
     if (d.kind !== 'touchpoint') return null;
     const touchpoints = parentTouchpointOptions(document, inspector ? (selectedId ?? undefined) : undefined);
     return (
       <>
-        <ContainerCombobox value={d.locatedInId} query={d.locatedInQuery} document={document} onChange={(selection, q) => containerChange(setter, d, selection, q)} />
+        <ContainerCombobox value={d.locationDraft.kind === 'existing' ? d.locationDraft.containerId : d.locatedInId} query={d.locatedInQuery} document={document} onChange={(selection, q) => containerChange(setter, d, selection, q)} />
         <label>
           URL <span>(optional)</span>
           <input value={d.url} onChange={(e) => setter({ ...d, url: e.target.value })} />
@@ -1602,6 +1627,10 @@ export function MapSpike() {
             <form
               onSubmit={(e: FormEvent) => {
                 e.preventDefault();
+                if (selected.kind === 'touchpoint') {
+                  applyTouchpointChanges();
+                  return;
+                }
                 try {
                   if (selected.kind === 'product') {
                     const impact = getProductIntentChangeImpact(document, { productId: selected.id, intents: Object.entries(editDraft.productIntentOutcomes).filter(([jobId]) => !editDraft.stagedClientEntities.some(entity => entity.id === jobId && !entity.title.trim())).map(([jobId, addressedDesiredOutcomeIds]) => ({ jobId, addressedDesiredOutcomeIds })) });
@@ -1637,21 +1666,6 @@ export function MapSpike() {
                         }
                       : {}),
                   });
-                  if (selected.kind === 'touchpoint') {
-                    const intentDraft = editDraft.touchpointIntent!;
-                    const validationError = validateTouchpointIntentDraft(intentDraft);
-                    if (validationError) throw new Error(validationError);
-                    next = applyTouchpointIntentDraft(next, { touchpointId: selected.id, draft: intentDraft, newId: () => crypto.randomUUID() });
-                    const retained = next.relationships.flatMap((relation) => (relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === selected.id ? [relation.repulsorId] : []));
-                    const relevant = new Set(relevantRepulsorsForTouchpoint(next, selected.id).map((repulsor) => repulsor.id));
-                    const desired = editDraft.mitigatedRepulsorIds.filter((id) => relevant.has(id));
-                    const additions = desired.filter((id) => !retained.includes(id));
-                    next = setTouchpointMitigations(next, {
-                      touchpointId: selected.id,
-                      repulsorIds: desired,
-                      newRelationshipIds: additions.map(() => crypto.randomUUID()),
-                    });
-                  }
                   if (selected.kind === 'repulsor') {
                     const existingTargetIds = document.relationships.flatMap((r) => (r.kind === 'repulsor_resists' && r.repulsorId === selected.id ? [r.targetEntityId] : []));
                     const addedCount = editDraft.resistedTargetIds.filter((id) => !existingTargetIds.includes(id)).length;
@@ -1760,7 +1774,7 @@ export function MapSpike() {
               )}
               <div className={`apply-footer ${inspectorDirty ? 'dirty' : ''}`}>
                 {inspectorDirty && <span>Unsaved changes</span>}
-                <button className="primary" disabled={!inspectorDirty || Boolean(editDraft.touchpointIntent && validateTouchpointIntentDraft(editDraft.touchpointIntent))}>Apply changes</button>
+                <button className="primary" disabled={!inspectorDirty || Boolean(editDraft.touchpointIntent && validateTouchpointIntentDraft(editDraft.touchpointIntent, editDraft.linkedOfferIds))}>Apply changes</button>
               </div>
             </form>
           ) : (
@@ -1783,7 +1797,7 @@ export function MapSpike() {
       {productConfirmation && (
         <div className="confirmation-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeProductConfirmation(); }}>
           <div ref={confirmationRef} role="dialog" aria-modal="true" aria-labelledby="product-confirmation-title" className="confirmation-dialog" onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); closeProductConfirmation(); } }}>
-            <h2 id="product-confirmation-title">{productConfirmation.mode === 'dirty' ? `Unsaved ${selected?.kind === 'offer' ? 'Offer' : 'Product'} changes` : 'This change affects downstream intent'}</h2>
+            <h2 id="product-confirmation-title">{productConfirmation.mode === 'dirty' ? `Unsaved ${selected?.kind === 'offer' ? 'Offer' : selected?.kind === 'touchpoint' ? 'Touchpoint' : 'Product'} changes` : 'This change affects downstream intent'}</h2>
             {productConfirmation.mode === 'impact' && productConfirmation.owner === 'product' && (
               <div className="impact-list">
                 {productConfirmation.impact.offerJobSelectionIds.map(id => { const selection = document.offerJobSelections.find(item => item.id === id); const offer = document.entities.find(entity => entity.id === selection?.offerId); const intent = document.productJobIntents.find(item => item.id === selection?.productJobIntentId); const job = document.entities.find(entity => entity.id === intent?.jobId); return <p key={id}><strong>{offer?.title}</strong><span>loses {job?.title}</span></p>; })}
@@ -1799,7 +1813,7 @@ export function MapSpike() {
             )}
             <div className="actions">
               {productConfirmation.mode === 'dirty' ? <>
-                <button type="button" className="primary" onClick={() => { pendingAfterApplyRef.current = productConfirmation.pending; setProductConfirmation(null); globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); }}>Apply</button>
+                <button type="button" className="primary" disabled={selected?.kind === 'touchpoint' && Boolean(editDraft?.touchpointIntent && validateTouchpointIntentDraft(editDraft.touchpointIntent, editDraft.linkedOfferIds))} onClick={() => { const pending = productConfirmation.pending; setProductConfirmation(null); if (selected?.kind === 'touchpoint') applyTouchpointChanges(pending); else { pendingAfterApplyRef.current = pending; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>Apply</button>
                 <button type="button" onClick={() => { const pending = productConfirmation.pending; setProductConfirmation(null); setEditDraft(selected ? draftFor(selected) : null); resetProductSession(selected); pending(); }}>Discard</button>
                 <button type="button" onClick={closeProductConfirmation}>Keep editing</button>
               </> : <>

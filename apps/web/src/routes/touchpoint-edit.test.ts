@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyMapDocument, type MapDocument } from '@vee/domain';
-import { createTouchpointIntentDraft, equalTouchpointIntentDraft, selectCurrentOfferIntent, touchpointIntentCatalogue, validateTouchpointIntentDraft } from './touchpoint-edit';
+import { applyTouchpointEditDraft, createTouchpointIntentDraft, equalTouchpointIntentDraft, selectCurrentOfferIntent, touchpointIntentCatalogue, validateTouchpointIntentDraft } from './touchpoint-edit';
 
 function fixture(): MapDocument {
   return {
@@ -71,5 +71,37 @@ describe('Touchpoint edit intent draft', () => {
     expect(selected.financialLeaves[0]?.contributorOfferIds).toEqual(['offer-b']);
     expect(selected.pendingJobLeafIds).toEqual([]);
     expect(document.touchpointJobSelections).toHaveLength(2);
+  });
+
+  it('atomically applies structure, materialized intent, and mitigation from one draft', () => {
+    const document = fixture();
+    document.entities.push({ id: 'repulsor', kind: 'repulsor', title: 'Doubt' });
+    document.relationships.push({ id: 'resists', kind: 'repulsor_resists', repulsorId: 'repulsor', targetEntityId: 'job' });
+    const intent = createTouchpointIntentDraft(document, 'touch');
+    intent.jobLeaves.find(leaf => leaf.semanticLeafId === 'do-a')!.contributorOfferIds = ['offer-a'];
+    intent.jobLeaves.find(leaf => leaf.semanticLeafId === 'do-b')!.contributorOfferIds = [];
+    const nextId = (() => { let value = 0; return () => `new-${++value}`; })();
+
+    const next = applyTouchpointEditDraft(document, { touchpointId: 'touch', newId: nextId, draft: {
+      title: 'Edited touchpoint', linkedOfferIds: ['offer-a'], parentTouchpointId: '', locatedInId: '', locatedInQuery: 'Website',
+      locationDraft: { kind: 'new', title: 'Website' }, url: 'https://example.test', mitigatedRepulsorIds: ['repulsor'], touchpointIntent: intent,
+    } });
+
+    expect(document.entities.find(entity => entity.id === 'touch')?.title).toBe('Touchpoint');
+    expect(document.touchpointContainers).toEqual([]);
+    expect(next.entities.find(entity => entity.id === 'touch')).toMatchObject({ title: 'Edited touchpoint', locatedInId: 'new-1', url: 'https://example.test' });
+    expect(next.touchpointJobSelections).toHaveLength(1);
+    expect(next.relationships).toContainEqual(expect.objectContaining({ kind: 'touchpoint_mitigates_repulsor', touchpointId: 'touch', repulsorId: 'repulsor' }));
+  });
+
+  it('rejects unresolved or unlinked contributors without changing the durable document', () => {
+    const document = fixture();
+    const intent = createTouchpointIntentDraft(document, 'touch');
+    intent.pendingJobLeafIds = ['emotional'];
+    const snapshot = structuredClone(document);
+    expect(() => applyTouchpointEditDraft(document, { touchpointId: 'touch', newId: () => 'unused', draft: {
+      title: 'Not applied', linkedOfferIds: ['offer-a'], parentTouchpointId: '', locatedInId: '', locatedInQuery: '', locationDraft: { kind: 'none' }, url: '', mitigatedRepulsorIds: [], touchpointIntent: intent,
+    } })).toThrow(/contributing Offer/);
+    expect(document).toEqual(snapshot);
   });
 });
