@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, removeProductJobIntent, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, createEmptyMapDocument, duplicateEntity, movePlacement, updateEntity, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct } from './index';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, removeProductJobIntent, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, createEmptyMapDocument, duplicateEntity, movePlacement, updateEntity, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct } from './index';
 
 const place = { viewId: 'view', x: 10, y: 20 };
 const empty = () => createEmptyMapDocument({ mapId: 'map', title: 'Map', viewId: 'view', viewTitle: 'View' });
@@ -494,6 +494,25 @@ describe('Touchpoint intent scope', () => {
       d = applyTouchpointIntentDraft(d, { touchpointId: 'touch', draft: draft([{ jobId: 'job', semanticLeafId: 'outcome', desiredOutcomeId: 'outcome', contributorOfferIds: ['offer-b'] }]), newId: ids('remove') });
       expect(d.touchpointJobSelections).toEqual([expect.objectContaining({ offerId: 'offer-b', addressedDesiredOutcomeIds: ['outcome'] })]);
       expect(d.offerJobSelections.map(selection => selection.offerId).sort()).toEqual(['offer', 'offer-b']);
+    });
+
+    it('reports durable paths lost with an Offer link and identifies retained semantic alternatives', () => {
+      let d = applyTouchpointIntentDraft(twoOfferScope(), { touchpointId: 'touch', draft: draft(
+        [{ jobId: 'job', semanticLeafId: 'outcome', desiredOutcomeId: 'outcome', contributorOfferIds: ['offer', 'offer-b'] }],
+      ), newId: ids() });
+      d = addEntity(d, { ...place, entityId: 'fdo', title: 'Affordable', kind: 'financial_desired_outcome' });
+      d = applyTouchpointIntentDraft(d, { touchpointId: 'touch', draft: draft(
+        [{ jobId: 'job', semanticLeafId: 'outcome', desiredOutcomeId: 'outcome', contributorOfferIds: ['offer', 'offer-b'] }],
+        [{ financialDesiredOutcomeId: 'fdo', contributorOfferIds: ['offer'] }],
+      ), newId: ids('financial') });
+      const upstream = { product: structuredClone(d.productJobIntents), offer: structuredClone(d.offerJobSelections), financial: structuredClone(d.offerFinancialIntents) };
+
+      expect(getTouchpointLinkedOfferChangeImpact(d, { touchpointId: 'touch', linkedOfferIds: ['offer-b'] })).toEqual([
+        expect.objectContaining({ kind: 'job', offerId: 'offer', jobId: 'job', desiredOutcomeIds: ['outcome'], alternativeContributingOfferIds: ['offer-b'] }),
+        expect.objectContaining({ kind: 'financial', offerId: 'offer', financialDesiredOutcomeId: 'fdo', alternativeContributingOfferIds: [] }),
+      ]);
+      expect({ product: d.productJobIntents, offer: d.offerJobSelections, financial: d.offerFinancialIntents }).toEqual(upstream);
+      expect(getTouchpointLinkedOfferChangeImpact(d, { touchpointId: 'touch', linkedOfferIds: ['offer', 'offer-b'] })).toEqual([]);
     });
 
     it('an error in one path leaves neither local nor newly created upstream changes', () => {

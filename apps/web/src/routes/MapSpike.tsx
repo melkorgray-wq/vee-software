@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, createEmptyMapDocument, duplicateEntity, getOfferIntentChangeImpact, getProductIntentChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateProductJobIntent, updateRepulsorTargets, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship } from '@vee/domain';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, createEmptyMapDocument, duplicateEntity, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateProductJobIntent, updateRepulsorTargets, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, linkedOfferIds, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, type Point } from '../map-interaction';
@@ -74,7 +74,8 @@ type EntityContextCommandGroup = { id: string; heading: string; commands: Entity
 type ProductConfirmation =
   | { mode: 'dirty'; pending: () => void; returnFocus: HTMLElement | null }
   | { mode: 'impact'; owner: 'product'; pending?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getProductIntentChangeImpact> }
-  | { mode: 'impact'; owner: 'offer'; pending?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getOfferIntentChangeImpact> };
+  | { mode: 'impact'; owner: 'offer'; pending?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getOfferIntentChangeImpact> }
+  | { mode: 'impact'; owner: 'touchpoint'; pending?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getTouchpointLinkedOfferChangeImpact> };
 const draft = (kind: ProvisionalEntityKind = 'product'): EditDraft => ({
   title: '',
   side: isClientRootEntityKind(kind) || isContextualClientEntityKind(kind) || kind === 'repulsor' ? 'client' : 'business',
@@ -387,12 +388,18 @@ export function MapSpike() {
     if (entity.kind === 'repulsor') result.resistedTargetIds = source.relationships.filter((r): r is Extract<Relationship, { kind: 'repulsor_resists' }> => r.kind === 'repulsor_resists' && r.repulsorId === entity.id).map((r) => r.targetEntityId);
     return result;
   }
-  function applyTouchpointChanges(pending = pendingAfterApplyRef.current): boolean {
+  function applyTouchpointChanges(pending = pendingAfterApplyRef.current, returnFocus?: HTMLElement | null): boolean {
     const durable = documentRef.current;
     const entity = durable.entities.find(candidate => candidate.id === selectedRef.current);
     const currentDraft = editDraft;
     if (entity?.kind !== 'touchpoint' || !currentDraft?.touchpointIntent) return false;
     try {
+      const impact = getTouchpointLinkedOfferChangeImpact(durable, { touchpointId: entity.id, linkedOfferIds: currentDraft.linkedOfferIds });
+      if (!productApplyBypassRef.current && impact.length) {
+        setProductConfirmation({ mode: 'impact', owner: 'touchpoint', impact, ...(pending ? { pending } : {}), returnFocus: returnFocus ?? globalThis.document.activeElement as HTMLElement | null });
+        return false;
+      }
+      productApplyBypassRef.current = false;
       const next = applyTouchpointEditDraft(durable, {
         touchpointId: entity.id,
         draft: { ...currentDraft, touchpointIntent: currentDraft.touchpointIntent },
@@ -1811,14 +1818,19 @@ export function MapSpike() {
                 {productConfirmation.impact.touchpointFinancialSelectionIds.map(id => { const selection = document.touchpointFinancialSelections.find(item => item.id === id); const touchpoint = document.entities.find(entity => entity.id === selection?.touchpointId); const outcome = document.entities.find(entity => entity.id === selection?.financialDesiredOutcomeId); return <p key={id}><strong>{touchpoint?.title}</strong><span>loses {outcome?.title}</span></p>; })}
               </div>
             )}
+            {productConfirmation.mode === 'impact' && productConfirmation.owner === 'touchpoint' && (
+              <div className="impact-list">
+                {productConfirmation.impact.map((path) => { const offer = document.entities.find(entity => entity.id === path.offerId); const alternatives = path.alternativeContributingOfferIds.map(id => document.entities.find(entity => entity.id === id)?.title).filter(Boolean).join(', '); return <p key={`${path.kind}:${path.offerId}:${path.touchpointSelectionIds.join(':')}:${path.kind === 'job' ? path.desiredOutcomeIds.join(':') : path.financialDesiredOutcomeId}`}><strong>{offer?.title}</strong><span>path to {path.kind === 'job' ? [document.entities.find(entity => entity.id === path.jobId)?.title, ...path.desiredOutcomeIds.map(id => document.entities.find(entity => entity.id === id)?.title)].filter(Boolean).join(' → ') : document.entities.find(entity => entity.id === path.financialDesiredOutcomeId)?.title} will be removed{alternatives ? `; alternative: ${alternatives}` : ''}</span></p>; })}
+              </div>
+            )}
             <div className="actions">
               {productConfirmation.mode === 'dirty' ? <>
-                <button type="button" className="primary" disabled={selected?.kind === 'touchpoint' && Boolean(editDraft?.touchpointIntent && validateTouchpointIntentDraft(editDraft.touchpointIntent, editDraft.linkedOfferIds))} onClick={() => { const pending = productConfirmation.pending; setProductConfirmation(null); if (selected?.kind === 'touchpoint') applyTouchpointChanges(pending); else { pendingAfterApplyRef.current = pending; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>Apply</button>
+                <button type="button" className="primary" disabled={selected?.kind === 'touchpoint' && Boolean(editDraft?.touchpointIntent && validateTouchpointIntentDraft(editDraft.touchpointIntent, editDraft.linkedOfferIds))} onClick={() => { const pending = productConfirmation.pending; const returnFocus = productConfirmation.returnFocus; setProductConfirmation(null); if (selected?.kind === 'touchpoint') applyTouchpointChanges(pending, returnFocus); else { pendingAfterApplyRef.current = pending; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>Apply</button>
                 <button type="button" onClick={() => { const pending = productConfirmation.pending; setProductConfirmation(null); setEditDraft(selected ? draftFor(selected) : null); resetProductSession(selected); pending(); }}>Discard</button>
                 <button type="button" onClick={closeProductConfirmation}>Keep editing</button>
               </> : <>
                 <button type="button" onClick={closeProductConfirmation}>Cancel</button>
-                <button type="button" className="primary" onClick={() => { productApplyBypassRef.current = true; setProductConfirmation(null); globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); }}>Apply changes</button>
+                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; productApplyBypassRef.current = true; setProductConfirmation(null); if (confirmation.owner === 'touchpoint') applyTouchpointChanges(confirmation.pending, confirmation.returnFocus); else globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); }}>Apply changes</button>
               </>}
             </div>
           </div>
