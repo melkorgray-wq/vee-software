@@ -7,7 +7,7 @@ import { MapEdge } from '../map-edge';
 import { contextMenuPoint, linkedOfferIds, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, type Point } from '../map-interaction';
 import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, type ProposedPlacementRelation } from '../map-placement';
 import { Link } from '../router';
-import { createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, jobLeafKey, validateTouchpointIntentDraft, type TouchpointIntentDraft } from './touchpoint-edit';
+import { createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, jobLeafKey, selectCurrentOfferIntent, validateTouchpointIntentDraft, type TouchpointIntentDraft } from './touchpoint-edit';
 
 const VIEW_ID = 'spike-view';
 const INITIAL_DOCUMENT = createEmptyMapDocument({
@@ -1050,32 +1050,43 @@ export function MapSpike() {
     const offers = editDraft.linkedOfferIds;
     const setIntent = (next: TouchpointIntentDraft) => setEditDraft({ ...editDraft, touchpointIntent: next });
     const snapshotSelected = (key: string) => intentDraft.durableBranchSnapshot.touchpointIntentLeafIds.includes(key);
-    const isSelected = (leaf: TouchpointIntentDraft['jobLeaves'][number]) => leaf.contributorOfferIds.length > 0;
+    const isJobSelected = (leaf: TouchpointIntentDraft['jobLeaves'][number]) => leaf.contributorOfferIds.length > 0 || intentDraft.pendingJobLeafIds.includes(leaf.semanticLeafId);
+    const isFinancialSelected = (leaf: TouchpointIntentDraft['financialLeaves'][number]) => leaf.contributorOfferIds.length > 0 || intentDraft.pendingFinancialLeafIds.includes(leaf.financialDesiredOutcomeId);
     const contributorNames = (ids: string[]) => ids.map(id => entityTitle(document, id)).join(', ');
     const toggleJobLeaf = (leaf: TouchpointIntentDraft['jobLeaves'][number], checked: boolean) => setIntent({
       ...intentDraft,
       pendingJobLeafIds: checked ? [...new Set([...intentDraft.pendingJobLeafIds, leaf.semanticLeafId])] : intentDraft.pendingJobLeafIds.filter(id => id !== leaf.semanticLeafId),
-      jobLeaves: intentDraft.jobLeaves.map(item => item.semanticLeafId === leaf.semanticLeafId ? { ...item, contributorOfferIds: checked ? [...offers] : [] } : item),
+      jobLeaves: intentDraft.jobLeaves.map(item => item.semanticLeafId === leaf.semanticLeafId ? { ...item, contributorOfferIds: checked && offers.length === 1 ? [offers[0]!] : [] } : item),
     });
     const toggleFinancialLeaf = (leaf: TouchpointIntentDraft['financialLeaves'][number], checked: boolean) => setIntent({
       ...intentDraft,
       pendingFinancialLeafIds: checked ? [...new Set([...intentDraft.pendingFinancialLeafIds, leaf.financialDesiredOutcomeId])] : intentDraft.pendingFinancialLeafIds.filter(id => id !== leaf.financialDesiredOutcomeId),
-      financialLeaves: intentDraft.financialLeaves.map(item => item.financialDesiredOutcomeId === leaf.financialDesiredOutcomeId ? { ...item, contributorOfferIds: checked ? [...offers] : [] } : item),
+      financialLeaves: intentDraft.financialLeaves.map(item => item.financialDesiredOutcomeId === leaf.financialDesiredOutcomeId ? { ...item, contributorOfferIds: checked && offers.length === 1 ? [offers[0]!] : [] } : item),
     });
+    const toggleJobContributor = (leaf: TouchpointIntentDraft['jobLeaves'][number], offerId: string, checked: boolean) => setIntent({ ...intentDraft,
+      pendingJobLeafIds: [...new Set([...intentDraft.pendingJobLeafIds, leaf.semanticLeafId])],
+      jobLeaves: intentDraft.jobLeaves.map(item => item.semanticLeafId === leaf.semanticLeafId ? { ...item, contributorOfferIds: checked ? [...new Set([...item.contributorOfferIds, offerId])] : item.contributorOfferIds.filter(id => id !== offerId) } : item),
+    });
+    const toggleFinancialContributor = (leaf: TouchpointIntentDraft['financialLeaves'][number], offerId: string, checked: boolean) => setIntent({ ...intentDraft,
+      pendingFinancialLeafIds: [...new Set([...intentDraft.pendingFinancialLeafIds, leaf.financialDesiredOutcomeId])],
+      financialLeaves: intentDraft.financialLeaves.map(item => item.financialDesiredOutcomeId === leaf.financialDesiredOutcomeId ? { ...item, contributorOfferIds: checked ? [...new Set([...item.contributorOfferIds, offerId])] : item.contributorOfferIds.filter(id => id !== offerId) } : item),
+    });
+    const contributorChooser = (leaf: TouchpointIntentDraft['jobLeaves'][number]) => offers.length > 1 && isJobSelected(leaf) && <div className="contributor-chooser" role="group" aria-label={`Contributors for ${entityTitle(document, leaf.semanticLeafId)}`}>{offers.map(offerId => <label className="checkbox" key={offerId}><input type="checkbox" checked={leaf.contributorOfferIds.includes(offerId)} onChange={event => toggleJobContributor(leaf, offerId, event.target.checked)} />{entityTitle(document, offerId)}</label>)}</div>;
+    const financialContributorChooser = (leaf: TouchpointIntentDraft['financialLeaves'][number]) => offers.length > 1 && isFinancialSelected(leaf) && <div className="contributor-chooser" role="group" aria-label={`Contributors for ${entityTitle(document, leaf.financialDesiredOutcomeId)}`}>{offers.map(offerId => <label className="checkbox" key={offerId}><input type="checkbox" checked={leaf.contributorOfferIds.includes(offerId)} onChange={event => toggleFinancialContributor(leaf, offerId, event.target.checked)} />{entityTitle(document, offerId)}</label>)}</div>;
     const jobs = document.entities.filter(entity => ['core_functional_job', 'related_job', 'emotional_job', 'social_job', 'consumption_chain_job'].includes(entity.kind));
     const jobGroups = jobs.map(job => ({ job, leaves: intentDraft.jobLeaves.filter(leaf => leaf.jobId === job.id) }));
     const groupWasSelected = ({ leaves }: (typeof jobGroups)[number]) => leaves.some(leaf => snapshotSelected(jobLeafKey(leaf)));
     const renderJob = ({ job, leaves }: (typeof jobGroups)[number]) => {
       const bearsOutcomes = job.kind === 'core_functional_job' || job.kind === 'related_job' || job.kind === 'consumption_chain_job';
       const expanded = Boolean(offerExpanded[`touchpoint:${job.id}`]);
-      const selectedCount = leaves.filter(isSelected).length;
+      const selectedCount = leaves.filter(isJobSelected).length;
       const state = selectedCount === 0 ? 'inactive' : selectedCount === leaves.length ? 'active' : 'partial';
       const related = job.kind === 'related_job' ? document.relationships.find((relation): relation is Extract<Relationship, { kind: 'core_functional_job_has_related_job' }> => relation.kind === 'core_functional_job_has_related_job' && relation.relatedJobId === job.id) : undefined;
       const relatedTitle = related && entityTitle(document, related.coreFunctionalJobId);
       if (!bearsOutcomes) {
         const leaf = leaves[0]!;
-        return <div className={`intent-job ${isSelected(leaf) ? 'selected' : ''}`} key={job.id}>
-          <div className="intent-job-heading"><span className="disclosure-placeholder" /><label className="intent-selection"><input type="checkbox" checked={isSelected(leaf)} disabled={!offers.length} onChange={event => toggleJobLeaf(leaf, event.target.checked)} /><span><strong>{job.title}</strong><small>{KIND_LABELS[job.kind]}</small>{isSelected(leaf) && <small className="intent-contributors">Contributors: {contributorNames(leaf.contributorOfferIds)}</small>}</span></label></div>
+        return <div className={`intent-job ${isJobSelected(leaf) ? 'selected' : ''}`} key={job.id}>
+          <div className="intent-job-heading"><span className="disclosure-placeholder" /><label className="intent-selection"><input type="checkbox" checked={isJobSelected(leaf)} disabled={!offers.length} onChange={event => toggleJobLeaf(leaf, event.target.checked)} /><span><strong>{job.title}</strong><small>{KIND_LABELS[job.kind]}</small>{leaf.contributorOfferIds.length > 0 && <small className="intent-contributors">{offers.length === 1 ? `via ${contributorNames(leaf.contributorOfferIds)}` : `Contributors: ${contributorNames(leaf.contributorOfferIds)}`}</small>}</span></label></div>{contributorChooser(leaf)}
         </div>;
       }
       return <div className={`intent-job intent-${state}`} key={job.id}>
@@ -1084,7 +1095,7 @@ export function MapSpike() {
           <span className="intent-job-label"><strong>{job.title}</strong><small>{KIND_LABELS[job.kind]} · {state}</small>{relatedTitle && <small className="related-context">Related to: {relatedTitle}</small>}</span>
         </div>
         {expanded && <div className="intent-branches">
-          {leaves.map(leaf => <label className="intent-selection" key={leaf.semanticLeafId}><input type="checkbox" aria-label={entityTitle(document, leaf.semanticLeafId)} checked={isSelected(leaf)} disabled={!offers.length} onChange={event => toggleJobLeaf(leaf, event.target.checked)} /><span><strong>{entityTitle(document, leaf.semanticLeafId)}</strong><small>Desired Outcome</small>{isSelected(leaf) && <small className="intent-contributors">Contributors: {contributorNames(leaf.contributorOfferIds)}</small>}</span></label>)}
+          {leaves.map(leaf => <div className="intent-leaf" key={leaf.semanticLeafId}><label className="intent-selection"><input type="checkbox" aria-label={entityTitle(document, leaf.semanticLeafId)} checked={isJobSelected(leaf)} disabled={!offers.length} onChange={event => toggleJobLeaf(leaf, event.target.checked)} /><span><strong>{entityTitle(document, leaf.semanticLeafId)}</strong><small>Desired Outcome</small>{leaf.contributorOfferIds.length > 0 && <small className="intent-contributors">{offers.length === 1 ? `via ${contributorNames(leaf.contributorOfferIds)}` : `Contributors: ${contributorNames(leaf.contributorOfferIds)}`}</small>}</span></label>{contributorChooser(leaf)}</div>)}
           {!leaves.length && <span className="unfinished-branch">Desired Outcome not described yet</span>}
         </div>}
       </div>;
@@ -1092,12 +1103,13 @@ export function MapSpike() {
     const selectedJobs = jobGroups.filter(groupWasSelected);
     const otherJobs = jobGroups.filter(group => !groupWasSelected(group));
     return <>
+      <button type="button" className="text-action" disabled={!offers.length} onClick={() => setIntent(selectCurrentOfferIntent(document, intentDraft, offers))}>Select all current Offer intent</button>
       <fieldset className="client-intent"><legend>Client intent</legend>
         <h4>Touchpoint intent</h4>{selectedJobs.length ? selectedJobs.map(renderJob) : <p className="immutable-note">No Touchpoint intent selected.</p>}
         <h4>Other Client intent</h4>{otherJobs.length ? otherJobs.map(renderJob) : <p className="immutable-note">No other Client intent.</p>}
       </fieldset>
       <fieldset className="client-intent"><legend>Financial intent</legend>
-        {intentDraft.financialLeaves.map(leaf => <label className="intent-selection financial-intent" key={leaf.financialDesiredOutcomeId}><input type="checkbox" checked={leaf.contributorOfferIds.length > 0} disabled={!offers.length} onChange={event => toggleFinancialLeaf(leaf, event.target.checked)} /><span><strong>{entityTitle(document, leaf.financialDesiredOutcomeId)}</strong><small>Financial Desired Outcome</small>{leaf.contributorOfferIds.length > 0 && <small className="intent-contributors">Contributors: {contributorNames(leaf.contributorOfferIds)}</small>}</span></label>)}
+        {intentDraft.financialLeaves.map(leaf => <div className="intent-leaf" key={leaf.financialDesiredOutcomeId}><label className="intent-selection financial-intent"><input type="checkbox" checked={isFinancialSelected(leaf)} disabled={!offers.length} onChange={event => toggleFinancialLeaf(leaf, event.target.checked)} /><span><strong>{entityTitle(document, leaf.financialDesiredOutcomeId)}</strong><small>Financial Desired Outcome</small>{leaf.contributorOfferIds.length > 0 && <small className="intent-contributors">{offers.length === 1 ? `via ${contributorNames(leaf.contributorOfferIds)}` : `Contributors: ${contributorNames(leaf.contributorOfferIds)}`}</small>}</span></label>{financialContributorChooser(leaf)}</div>)}
       </fieldset>
       {validateTouchpointIntentDraft(intentDraft) && <p role="alert">{validateTouchpointIntentDraft(intentDraft)}</p>}
     </>;
