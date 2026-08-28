@@ -63,4 +63,33 @@ export const validateTouchpointIntentDraft = (draft: TouchpointIntentDraft): str
   || draft.pendingFinancialLeafIds.some((id) => !draft.financialLeaves.find((leaf) => leaf.financialDesiredOutcomeId === id)?.contributorOfferIds.length)
     ? 'Choose at least one contributing Offer for every selected Client-intent leaf.' : undefined;
 
+/** Copies only currently-authored Offer intent into the local draft; it never authors an upstream path. */
+export function selectCurrentOfferIntent(document: MapDocument, draft: TouchpointIntentDraft, offerIds: string[]): TouchpointIntentDraft {
+  const jobContributors = new Map<string, Set<string>>();
+  const financialContributors = new Map<string, Set<string>>();
+  for (const offerId of offerIds) {
+    for (const selection of document.offerJobSelections.filter(item => item.offerId === offerId)) {
+      const intent = document.productJobIntents.find(item => item.id === selection.productJobIntentId);
+      const job = intent && document.entities.find(entity => entity.id === intent.jobId);
+      if (!intent || !job) continue;
+      const semanticLeafIds = doBearing.has(job.kind) ? intent.addressedDesiredOutcomeIds : direct.has(job.kind) ? [job.id] : [];
+      for (const leafId of semanticLeafIds) {
+        const contributors = jobContributors.get(leafId) ?? new Set<string>();
+        contributors.add(offerId); jobContributors.set(leafId, contributors);
+      }
+    }
+    for (const intent of document.offerFinancialIntents.filter(item => item.offerId === offerId)) {
+      const contributors = financialContributors.get(intent.financialDesiredOutcomeId) ?? new Set<string>();
+      contributors.add(offerId); financialContributors.set(intent.financialDesiredOutcomeId, contributors);
+    }
+  }
+  const jobLeaves = draft.jobLeaves.map(leaf => ({ ...leaf, contributorOfferIds: [...new Set([...leaf.contributorOfferIds, ...(jobContributors.get(leaf.semanticLeafId) ?? [])])] }));
+  const financialLeaves = draft.financialLeaves.map(leaf => ({ ...leaf, contributorOfferIds: [...new Set([...leaf.contributorOfferIds, ...(financialContributors.get(leaf.financialDesiredOutcomeId) ?? [])])] }));
+  return {
+    ...draft, jobLeaves, financialLeaves,
+    pendingJobLeafIds: draft.pendingJobLeafIds.filter(id => !jobLeaves.find(leaf => leaf.semanticLeafId === id)?.contributorOfferIds.length),
+    pendingFinancialLeafIds: draft.pendingFinancialLeafIds.filter(id => !financialLeaves.find(leaf => leaf.financialDesiredOutcomeId === id)?.contributorOfferIds.length),
+  };
+}
+
 export const entityTitle = (document: MapDocument, id: string): Entity['title'] => document.entities.find((entity) => entity.id === id)?.title ?? id;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyMapDocument, type MapDocument } from '@vee/domain';
-import { createTouchpointIntentDraft, equalTouchpointIntentDraft, touchpointIntentCatalogue, validateTouchpointIntentDraft } from './touchpoint-edit';
+import { createTouchpointIntentDraft, equalTouchpointIntentDraft, selectCurrentOfferIntent, touchpointIntentCatalogue, validateTouchpointIntentDraft } from './touchpoint-edit';
 
 function fixture(): MapDocument {
   return {
@@ -46,5 +46,30 @@ describe('Touchpoint edit intent draft', () => {
     expect(equalTouchpointIntentDraft(left, right)).toBe(false);
     right.pendingJobLeafIds = ['emotional'];
     expect(validateTouchpointIntentDraft(right)).toMatch(/contributing Offer/);
+  });
+
+  it('copies valid current Offer intent into the draft with per-Offer attribution', () => {
+    const document = fixture();
+    document.productJobIntents.push(
+      { id: 'emotional-intent', productId: 'product', jobId: 'emotional', addressedDesiredOutcomeIds: [] },
+      { id: 'incomplete-intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: [] },
+    );
+    document.offerJobSelections.push(
+      { id: 'offer-emotional', offerId: 'offer-a', productJobIntentId: 'emotional-intent' },
+      { id: 'offer-incomplete', offerId: 'offer-a', productJobIntentId: 'incomplete-intent' },
+    );
+    document.offerFinancialIntents.push({ id: 'financial-intent', offerId: 'offer-b', financialDesiredOutcomeId: 'fdo' });
+    const original = createTouchpointIntentDraft(document, 'touch');
+    original.jobLeaves.forEach(leaf => { leaf.contributorOfferIds = []; });
+    original.financialLeaves.forEach(leaf => { leaf.contributorOfferIds = []; });
+    original.pendingJobLeafIds = ['emotional'];
+
+    const selected = selectCurrentOfferIntent(document, original, ['offer-a', 'offer-b']);
+
+    expect(selected.jobLeaves.find(leaf => leaf.semanticLeafId === 'do-a')?.contributorOfferIds).toEqual(['offer-a', 'offer-b']);
+    expect(selected.jobLeaves.find(leaf => leaf.semanticLeafId === 'emotional')?.contributorOfferIds).toEqual(['offer-a']);
+    expect(selected.financialLeaves[0]?.contributorOfferIds).toEqual(['offer-b']);
+    expect(selected.pendingJobLeafIds).toEqual([]);
+    expect(document.touchpointJobSelections).toHaveLength(2);
   });
 });
