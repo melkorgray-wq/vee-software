@@ -289,6 +289,7 @@ export function MapSpike() {
   const [productExpanded, setProductExpanded] = useState<Record<string, boolean>>({});
   const [productIntentSectionIds, setProductIntentSectionIds] = useState<string[]>([]);
   const [rememberedProductOutcomes, setRememberedProductOutcomes] = useState<Record<string, string[]>>({});
+  const rememberedProductOutcomesRef = useRef<Record<string, string[]>>({});
   const [productConfirmation, setProductConfirmation] = useState<ProductConfirmation | null>(null);
   const confirmationRef = useRef<HTMLDivElement>(null);
   const productApplyBypassRef = useRef(false);
@@ -388,6 +389,7 @@ export function MapSpike() {
   }
   function resetProductSession(entity: Entity | undefined, source = document) {
     setProductExpanded({});
+    rememberedProductOutcomesRef.current = {};
     setRememberedProductOutcomes({});
     setProductAddingKind(false);
     setProductInline(null);
@@ -1414,9 +1416,13 @@ export function MapSpike() {
     const toggleJob = (jobId: string, checked: boolean) => {
       const values = { ...d.productIntentOutcomes };
       const isStaged = staged.some(entity => entity.id === jobId);
-      if (checked) values[jobId] = isStaged ? (values[jobId] ?? []) : (rememberedProductOutcomes[jobId] ?? values[jobId] ?? []);
+      if (checked) values[jobId] = isStaged ? (values[jobId] ?? []) : (rememberedProductOutcomesRef.current[jobId] ?? rememberedProductOutcomes[jobId] ?? values[jobId] ?? []);
       else {
-        if (!isStaged) setRememberedProductOutcomes(current => ({ ...current, [jobId]: [...(values[jobId] ?? [])] }));
+        if (!isStaged) {
+          const remembered = [...(values[jobId] ?? [])];
+          rememberedProductOutcomesRef.current = { ...rememberedProductOutcomesRef.current, [jobId]: remembered };
+          setRememberedProductOutcomes(current => ({ ...current, [jobId]: remembered }));
+        }
         delete values[jobId];
       }
       update(values, checked ? staged : staged.filter(entity => entity.id !== jobId && entity.parentEntityId !== jobId));

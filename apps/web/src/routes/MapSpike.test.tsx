@@ -531,11 +531,11 @@ describe('map-first authoring interactions', () => {
     const otherHeading = within(intent).getByRole('heading', { name: 'Other Client Jobs' });
     await user.click(within(intent).getByRole('button', { name: 'Expand Make progress' }));
     expect(otherHeading.compareDocumentPosition(within(intent).getByText('Make progress')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    await user.click(within(intent).getByLabelText(/Make progress/));
+    await user.click(within(intent).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ }));
     expect(otherHeading.compareDocumentPosition(within(intent).getByText('Make progress')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await user.click(within(intent).getByLabelText('Finish faster'));
-    await user.click(within(intent).getByLabelText(/Make progress/)); expect(within(intent).getByLabelText('Finish faster')).not.toBeChecked();
-    await user.click(within(intent).getByLabelText(/Make progress/)); expect(within(intent).getByLabelText('Finish faster')).toBeChecked();
+    await user.click(within(intent).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ })); expect(within(intent).getByLabelText('Finish faster')).not.toBeChecked();
+    await user.click(within(intent).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ })); expect(within(intent).getByLabelText('Finish faster')).toBeChecked();
     await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
     expect(within(intent).getByRole('heading', { name: 'Product intent' }).compareDocumentPosition(within(intent).getByText('Make progress')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
@@ -546,7 +546,7 @@ describe('map-first authoring interactions', () => {
     await user.click(screen.getByRole('button', { name: 'Add element' })); const guard = screen.getByRole('dialog', { name: 'Unsaved Product changes' }); expect(guard).toBeInTheDocument();
     await user.click(within(guard).getByRole('button', { name: 'Keep editing' })); expect(inspector.getByLabelText('Title')).toHaveValue('Orbit draft');
     await user.click(screen.getByRole('button', { name: 'Add element' })); await user.click(within(screen.getByRole('dialog', { name: 'Unsaved Product changes' })).getByRole('button', { name: 'Discard' }));
-    expect(screen.getByRole('heading', { name: 'Add an element' })).toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Orbit' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Add an element' })).toBeInTheDocument(); await openMap(user); expect(screen.getByRole('button', { name: 'Orbit' })).toBeInTheDocument();
   });
 });
 
