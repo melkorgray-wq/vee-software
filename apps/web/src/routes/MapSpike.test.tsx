@@ -550,6 +550,33 @@ describe('map-first authoring interactions', () => {
     await user.click(screen.getByRole('button', { name: 'Add element' })); await user.click(within(screen.getByRole('dialog', { name: 'Unsaved Product changes' })).getByRole('button', { name: 'Discard' }));
     expect(screen.getByRole('heading', { name: 'Add an element' })).toBeInTheDocument(); await openMap(user); expect(screen.getByRole('button', { name: 'Orbit' })).toBeInTheDocument();
   });
+  it('guards a dirty Touchpoint session and applies, discards, or keeps its single draft before pending navigation', async () => {
+    const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await quickOffer(user);
+    await user.click(screen.getByRole('button', { name: 'Subscription' })); fireEvent.keyDown(window, { key: 'Tab' });
+    await user.click(screen.getByRole('menuitem', { name: 'Touchpoint' })); const creator = contextualEditor('Add Touchpoint');
+    await user.type(creator.getByLabelText('Title'), 'Checkout'); await user.click(creator.getByRole('button', { name: 'Create & open Inspector' }));
+
+    const inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
+    const title = inspector.getByLabelText('Title'); await user.clear(title); await user.type(title, 'Checkout draft');
+    await openMap(user); expect(screen.queryByRole('dialog', { name: 'Unsaved Touchpoint changes' })).not.toBeInTheDocument();
+    await openInspector(user); expect(inspector.getByLabelText('Title')).toHaveValue('Checkout draft');
+
+    await user.click(screen.getByRole('button', { name: 'Add element' })); let guard = screen.getByRole('dialog', { name: 'Unsaved Touchpoint changes' });
+    await user.click(within(guard).getByRole('button', { name: 'Keep editing' }));
+    expect(inspector.getByLabelText('Title')).toHaveValue('Checkout draft'); expect(screen.queryByRole('heading', { name: 'Add an element' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Add element' })); guard = screen.getByRole('dialog', { name: 'Unsaved Touchpoint changes' });
+    await user.click(within(guard).getByRole('button', { name: 'Apply' }));
+    expect(screen.getByRole('heading', { name: 'Add an element' })).toBeInTheDocument(); await user.click(screen.getByRole('button', { name: 'Cancel' })); await openMap(user);
+    expect(screen.getByRole('button', { name: 'Checkout draft' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Checkout draft' })); await openInspector(user);
+    await user.clear(inspector.getByLabelText('Title')); await user.type(inspector.getByLabelText('Title'), 'Discarded title');
+    await user.click(screen.getByRole('button', { name: 'Add element' })); guard = screen.getByRole('dialog', { name: 'Unsaved Touchpoint changes' });
+    await user.click(within(guard).getByRole('button', { name: 'Discard' }));
+    expect(screen.getByRole('heading', { name: 'Add an element' })).toBeInTheDocument(); await user.click(screen.getByRole('button', { name: 'Cancel' })); await openMap(user);
+    expect(screen.getByRole('button', { name: 'Checkout draft' })).toBeInTheDocument(); expect(screen.queryByRole('button', { name: 'Discarded title' })).not.toBeInTheDocument();
+  });
 });
 
 it('renders an accessible peripheral link only for a safe Touchpoint URL', () => {

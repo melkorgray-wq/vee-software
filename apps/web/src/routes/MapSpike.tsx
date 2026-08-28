@@ -435,6 +435,17 @@ export function MapSpike() {
       setOfferSelectionMemory({});
     }
   }
+  function guardsDirtySession(entity: Entity | undefined): boolean {
+    return Boolean(entity && (entity.kind === 'product' || entity.kind === 'offer' || entity.kind === 'touchpoint') && inspectorDirty);
+  }
+  function discardDirtySession(pending: () => void) {
+    const durable = documentRef.current;
+    const entity = durable.entities.find(candidate => candidate.id === selectedRef.current);
+    setProductConfirmation(null);
+    setEditDraft(entity ? draftFor(entity, durable) : null);
+    resetProductSession(entity, durable);
+    pending();
+  }
   function performSelect(id: string | null) {
     setSelectedId(id);
     setMode('idle');
@@ -447,7 +458,7 @@ export function MapSpike() {
   }
   function select(id: string | null) {
     if (id === selectedRef.current) return;
-    if ((selected?.kind === 'product' || selected?.kind === 'offer' || selected?.kind === 'touchpoint') && inspectorDirty) {
+    if (guardsDirtySession(selected)) {
       setProductConfirmation({ mode: 'dirty', pending: () => performSelect(id), returnFocus: globalThis.document.activeElement as HTMLElement | null });
       return;
     }
@@ -894,7 +905,7 @@ export function MapSpike() {
     setActiveWorkspaceView('inspector');
   }
   function startRootCreation() {
-    if ((selected?.kind === 'product' || selected?.kind === 'offer' || selected?.kind === 'touchpoint') && inspectorDirty) {
+    if (guardsDirtySession(selected)) {
       setProductConfirmation({ mode: 'dirty', pending: performRootCreation, returnFocus: globalThis.document.activeElement as HTMLElement | null });
       return;
     }
@@ -1826,7 +1837,7 @@ export function MapSpike() {
             <div className="actions">
               {productConfirmation.mode === 'dirty' ? <>
                 <button type="button" className="primary" disabled={selected?.kind === 'touchpoint' && Boolean(editDraft?.touchpointIntent && validateTouchpointIntentDraft(editDraft.touchpointIntent, editDraft.linkedOfferIds))} onClick={() => { const pending = productConfirmation.pending; const returnFocus = productConfirmation.returnFocus; setProductConfirmation(null); if (selected?.kind === 'touchpoint') applyTouchpointChanges(pending, returnFocus); else { pendingAfterApplyRef.current = pending; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>Apply</button>
-                <button type="button" onClick={() => { const pending = productConfirmation.pending; setProductConfirmation(null); setEditDraft(selected ? draftFor(selected) : null); resetProductSession(selected); pending(); }}>Discard</button>
+                <button type="button" onClick={() => discardDirtySession(productConfirmation.pending)}>Discard</button>
                 <button type="button" onClick={closeProductConfirmation}>Keep editing</button>
               </> : <>
                 <button type="button" onClick={closeProductConfirmation}>Cancel</button>
