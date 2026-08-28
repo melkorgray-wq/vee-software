@@ -382,6 +382,45 @@ export interface OfferIntentChangeImpact {
   touchpointJobSelectionIds: string[];
   touchpointFinancialSelectionIds: string[];
 }
+export type TouchpointLinkedOfferImpactPath =
+  | { kind: 'job'; offerId: string; jobId: string; desiredOutcomeIds: string[]; touchpointSelectionIds: string[]; alternativeContributingOfferIds: string[] }
+  | { kind: 'financial'; offerId: string; financialDesiredOutcomeId: string; touchpointSelectionIds: string[]; alternativeContributingOfferIds: string[] };
+
+/** Compares durable Touchpoint attribution with its final structural Offer links without changing upstream intent. */
+export function getTouchpointLinkedOfferChangeImpact(document: MapDocument, input: { touchpointId: string; linkedOfferIds: string[] }): TouchpointLinkedOfferImpactPath[] {
+  const currentLinked = linkedOfferIds(document, input.touchpointId);
+  unique(input.linkedOfferIds, 'duplicate_linked_offer');
+  input.linkedOfferIds.forEach(id => entityOfKind(document, id, 'offer', 'Linked Offer'));
+  const finalLinked = new Set(input.linkedOfferIds);
+  const removedOffers = new Set([...currentLinked].filter(id => !finalLinked.has(id)));
+  const jobLeaves = document.touchpointJobSelections.flatMap(selection => {
+    if (selection.touchpointId !== input.touchpointId || !removedOffers.has(selection.offerId)) return [];
+    const intent = document.productJobIntents.find(candidate => candidate.id === selection.productJobIntentId);
+    if (!intent) return [];
+    const semanticLeafIds = selection.addressedDesiredOutcomeIds.length ? selection.addressedDesiredOutcomeIds : [intent.jobId];
+    return semanticLeafIds.map(semanticLeafId => ({ selection, intent, semanticLeafId }));
+  });
+  const financialLeaves = document.touchpointFinancialSelections.filter(selection => selection.touchpointId === input.touchpointId && removedOffers.has(selection.offerId));
+  return [
+    ...jobLeaves.map(({ selection, intent, semanticLeafId }): TouchpointLinkedOfferImpactPath => ({
+      kind: 'job', offerId: selection.offerId, jobId: intent.jobId,
+      desiredOutcomeIds: semanticLeafId === intent.jobId ? [] : [semanticLeafId],
+      touchpointSelectionIds: [selection.id],
+      alternativeContributingOfferIds: document.touchpointJobSelections.flatMap(candidate => {
+        if (candidate.touchpointId !== input.touchpointId || candidate.offerId === selection.offerId || !finalLinked.has(candidate.offerId)) return [];
+        const candidateIntent = document.productJobIntents.find(item => item.id === candidate.productJobIntentId);
+        if (candidateIntent?.jobId !== intent.jobId) return [];
+        const candidateLeaves = candidate.addressedDesiredOutcomeIds.length ? candidate.addressedDesiredOutcomeIds : [candidateIntent.jobId];
+        return candidateLeaves.includes(semanticLeafId) ? [candidate.offerId] : [];
+      }),
+    })),
+    ...financialLeaves.map((selection): TouchpointLinkedOfferImpactPath => ({
+      kind: 'financial', offerId: selection.offerId, financialDesiredOutcomeId: selection.financialDesiredOutcomeId,
+      touchpointSelectionIds: [selection.id],
+      alternativeContributingOfferIds: document.touchpointFinancialSelections.flatMap(candidate => candidate.touchpointId === input.touchpointId && candidate.offerId !== selection.offerId && finalLinked.has(candidate.offerId) && candidate.financialDesiredOutcomeId === selection.financialDesiredOutcomeId ? [candidate.offerId] : []),
+    })),
+  ];
+}
 
 /** Calculates downstream selections pruned by atomically replacing an Offer draft. */
 export function getOfferIntentChangeImpact(document: MapDocument, input: { offerId: string; productId: string; productJobIntentIds: string[]; financialDesiredOutcomeIds: string[] }): OfferIntentChangeImpact {
