@@ -1,24 +1,8 @@
-import type { Entity, MapDocument, TouchpointTopDownSelection } from '@vee/domain';
+import type { Entity, MapDocument, TouchpointIntentDraft as DomainTouchpointIntentDraft, TouchpointIntentFinancialLeaf, TouchpointIntentJobLeaf } from '@vee/domain';
 
-export type TouchpointJobLeaf = {
-  jobId: string;
-  semanticLeafId: string;
-  desiredOutcomeId?: string;
-  contributorOfferIds: string[];
-};
-
-export type TouchpointFinancialLeaf = {
-  financialDesiredOutcomeId: string;
-  contributorOfferIds: string[];
-};
-
-export type TouchpointIntentDraft = {
-  jobLeaves: TouchpointJobLeaf[];
-  financialLeaves: TouchpointFinancialLeaf[];
-  pendingJobLeafIds: string[];
-  pendingFinancialLeafIds: string[];
-  durableBranchSnapshot: { touchpointIntentLeafIds: string[]; otherClientIntentLeafIds: string[] };
-};
+export type TouchpointJobLeaf = TouchpointIntentJobLeaf;
+export type TouchpointFinancialLeaf = TouchpointIntentFinancialLeaf;
+export type TouchpointIntentDraft = DomainTouchpointIntentDraft & { durableBranchSnapshot: { touchpointIntentLeafIds: string[]; otherClientIntentLeafIds: string[] } };
 
 const doBearing = new Set(['core_functional_job', 'related_job', 'consumption_chain_job']);
 const direct = new Set(['emotional_job', 'social_job']);
@@ -78,20 +62,5 @@ export const validateTouchpointIntentDraft = (draft: TouchpointIntentDraft): str
   draft.pendingJobLeafIds.some((id) => !draft.jobLeaves.find((leaf) => leaf.semanticLeafId === id)?.contributorOfferIds.length)
   || draft.pendingFinancialLeafIds.some((id) => !draft.financialLeaves.find((leaf) => leaf.financialDesiredOutcomeId === id)?.contributorOfferIds.length)
     ? 'Choose at least one contributing Offer for every selected Client-intent leaf.' : undefined;
-
-export function durableTouchpointSelections(document: MapDocument, draft: TouchpointIntentDraft, id: () => string): TouchpointTopDownSelection[] {
-  const jobs = draft.jobLeaves.flatMap((leaf) => leaf.contributorOfferIds.map((offerId) => {
-    const productId = document.relationships.flatMap((relation) => relation.kind === 'product_packaged_as_offer' && relation.offerId === offerId ? [relation.productId] : [])[0];
-    const intent = document.productJobIntents.find((item) => item.productId === productId && item.jobId === leaf.jobId);
-    if (!intent) throw new Error('The contributing Product intent has not been completed.');
-    return { id: id(), kind: 'job' as const, offerId, productJobIntentId: intent.id, addressedDesiredOutcomeIds: leaf.desiredOutcomeId ? [leaf.desiredOutcomeId] : [] };
-  }));
-  const financial = draft.financialLeaves.flatMap((leaf) => leaf.contributorOfferIds.map((offerId) => {
-    const intent = document.offerFinancialIntents.find((item) => item.offerId === offerId && item.financialDesiredOutcomeId === leaf.financialDesiredOutcomeId);
-    if (!intent) throw new Error('The contributing Offer financial intent has not been completed.');
-    return { id: id(), kind: 'financial' as const, offerId, offerFinancialIntentId: intent.id };
-  }));
-  return [...jobs, ...financial];
-}
 
 export const entityTitle = (document: MapDocument, id: string): Entity['title'] => document.entities.find((entity) => entity.id === id)?.title ?? id;

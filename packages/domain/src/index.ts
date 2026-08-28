@@ -168,9 +168,33 @@ export type TouchpointTopDownSelection =
   | { id: string; kind: 'job'; offerId: string; productJobIntentId: string; addressedDesiredOutcomeIds: string[] }
   | { id: string; kind: 'financial'; offerId: string; offerFinancialIntentId: string };
 
+export interface TouchpointIntentJobLeaf { jobId: string; semanticLeafId: string; desiredOutcomeId?: string; contributorOfferIds: string[] }
+export interface TouchpointIntentFinancialLeaf { financialDesiredOutcomeId: string; contributorOfferIds: string[] }
+export interface TouchpointIntentDraft {
+  jobLeaves: TouchpointIntentJobLeaf[];
+  financialLeaves: TouchpointIntentFinancialLeaf[];
+  pendingJobLeafIds: string[];
+  pendingFinancialLeafIds: string[];
+}
+
 /** Replaces the authored local scope; upstream Product and Offer intent is never mutated. */
 export function setTouchpointIntentSelections(document: MapDocument, input: { touchpointId: string; selections: TouchpointTopDownSelection[] }): MapDocument {
-  const linked = linkedOfferIds(document, input.touchpointId); assertFreshRecordIds(document, input.selections.map(selection => selection.id));
+  const linked = linkedOfferIds(document, input.touchpointId);
+  const currentIds = new Set([
+    ...document.touchpointJobSelections.filter(selection => selection.touchpointId === input.touchpointId).map(selection => selection.id),
+    ...document.touchpointFinancialSelections.filter(selection => selection.touchpointId === input.touchpointId).map(selection => selection.id),
+  ]);
+  for (const selection of input.selections) if (currentIds.has(selection.id)) {
+    const retained = selection.kind === 'job'
+      ? document.touchpointJobSelections.find(candidate => candidate.id === selection.id && candidate.touchpointId === input.touchpointId && candidate.offerId === selection.offerId && candidate.productJobIntentId === selection.productJobIntentId && candidate.addressedDesiredOutcomeIds.length === selection.addressedDesiredOutcomeIds.length && candidate.addressedDesiredOutcomeIds.every(id => selection.addressedDesiredOutcomeIds.includes(id)))
+      : document.touchpointFinancialSelections.find(candidate => candidate.id === selection.id && candidate.touchpointId === input.touchpointId && candidate.offerId === selection.offerId && candidate.offerFinancialIntentId === selection.offerFinancialIntentId);
+    if (!retained) throw new DomainError('invalid_retained_touchpoint_selection_id', 'A retained Touchpoint selection ID must belong to the same authored path.');
+  }
+  assertFreshRecordIds({
+    ...document,
+    touchpointJobSelections: document.touchpointJobSelections.filter(selection => !currentIds.has(selection.id)),
+    touchpointFinancialSelections: document.touchpointFinancialSelections.filter(selection => !currentIds.has(selection.id)),
+  }, input.selections.map(selection => selection.id));
   const semantic = new Set<string>(); const jobs: TouchpointJobSelection[] = []; const financial: TouchpointFinancialSelection[] = [];
   for (const selection of input.selections) {
     if (!linked.has(selection.offerId)) throw new DomainError('contributing_offer_not_linked', 'A contributing Offer must be linked to the Touchpoint.');
@@ -192,6 +216,74 @@ export function setTouchpointIntentSelections(document: MapDocument, input: { to
     }
   }
   return pruneIrrelevantTouchpointMitigations({ ...document, touchpointJobSelections: [...document.touchpointJobSelections.filter(selection => selection.touchpointId !== input.touchpointId), ...jobs], touchpointFinancialSelections: [...document.touchpointFinancialSelections.filter(selection => selection.touchpointId !== input.touchpointId), ...financial] });
+}
+
+/** Atomically completes upstream intent required by a full Touchpoint-local draft. */
+export function applyTouchpointIntentDraft(document: MapDocument, input: { touchpointId: string; draft: TouchpointIntentDraft; newId: () => string }): MapDocument {
+  const linked = linkedOfferIds(document, input.touchpointId);
+  unique(input.draft.pendingJobLeafIds, 'duplicate_pending_touchpoint_leaf');
+  unique(input.draft.pendingFinancialLeafIds, 'duplicate_pending_touchpoint_leaf');
+
+  const jobsByLeaf = new Map(input.draft.jobLeaves.map(leaf => [leaf.semanticLeafId, leaf]));
+  const financialByLeaf = new Map(input.draft.financialLeaves.map(leaf => [leaf.financialDesiredOutcomeId, leaf]));
+  if (jobsByLeaf.size !== input.draft.jobLeaves.length || financialByLeaf.size !== input.draft.financialLeaves.length) throw new DomainError('duplicate_touchpoint_leaf', 'Touchpoint intent leaves must be unique.');
+  for (const leafId of input.draft.pendingJobLeafIds) if (!jobsByLeaf.get(leafId)?.contributorOfferIds.length) throw new DomainError('missing_contributing_offer', 'Every selected or pending Touchpoint intent leaf requires a contributing Offer.');
+  for (const leafId of input.draft.pendingFinancialLeafIds) if (!financialByLeaf.get(leafId)?.contributorOfferIds.length) throw new DomainError('missing_contributing_offer', 'Every selected or pending Touchpoint intent leaf requires a contributing Offer.');
+
+  const groupedJobs = new Map<string, { jobId: string; offerId: string; outcomeIds: string[] }>();
+  for (const leaf of input.draft.jobLeaves) {
+    unique(leaf.contributorOfferIds, 'duplicate_contributing_offer');
+    const job = document.entities.find(entity => entity.id === leaf.jobId);
+    if (!job || !(PRODUCT_JOB_KINDS as readonly string[]).includes(job.kind)) throw new DomainError('invalid_product_job_reference', 'Job does not reference an eligible existing entity.');
+    if (isDesiredOutcomeBearingJob(job.kind)) {
+      if (!leaf.desiredOutcomeId || leaf.semanticLeafId !== leaf.desiredOutcomeId) throw new DomainError('missing_touchpoint_desired_outcome', 'A DO-bearing Touchpoint Job path requires a Desired Outcome.');
+      entityOfKind(document, leaf.desiredOutcomeId, 'desired_outcome', 'Touchpoint Desired Outcome');
+      if (!document.relationships.some(relation => relation.kind === 'job_has_desired_outcome' && relation.jobId === leaf.jobId && relation.desiredOutcomeId === leaf.desiredOutcomeId)) throw new DomainError('desired_outcome_not_owned_by_job', 'Every selected Desired Outcome must belong to its Job.');
+    } else if (leaf.desiredOutcomeId || leaf.semanticLeafId !== leaf.jobId) throw new DomainError('desired_outcome_not_allowed', 'Emotional and Social Jobs use a direct path without a Desired Outcome subset.');
+    for (const offerId of leaf.contributorOfferIds) {
+      if (!linked.has(offerId)) throw new DomainError('contributing_offer_not_linked', 'A contributing Offer must be linked to the Touchpoint.');
+      productForOffer(document, offerId);
+      const key = `${leaf.jobId}\u0000${offerId}`; const grouped = groupedJobs.get(key) ?? { jobId: leaf.jobId, offerId, outcomeIds: [] };
+      if (leaf.desiredOutcomeId) grouped.outcomeIds.push(leaf.desiredOutcomeId);
+      groupedJobs.set(key, grouped);
+    }
+  }
+
+  for (const leaf of input.draft.financialLeaves) {
+    unique(leaf.contributorOfferIds, 'duplicate_contributing_offer');
+    entityOfKind(document, leaf.financialDesiredOutcomeId, 'financial_desired_outcome', 'Financial Desired Outcome');
+    for (const offerId of leaf.contributorOfferIds) {
+      if (!linked.has(offerId)) throw new DomainError('contributing_offer_not_linked', 'A contributing Offer must be linked to the Touchpoint.');
+      productForOffer(document, offerId);
+    }
+  }
+
+  let next = document;
+  for (const grouped of groupedJobs.values()) {
+    const productId = productForOffer(next, grouped.offerId);
+    const missingProduct = !next.productJobIntents.some(intent => intent.productId === productId && intent.jobId === grouped.jobId);
+    const intent = next.productJobIntents.find(candidate => candidate.productId === productId && candidate.jobId === grouped.jobId);
+    const missingOffer = !intent || !next.offerJobSelections.some(selection => selection.offerId === grouped.offerId && selection.productJobIntentId === intent.id);
+    next = authorTouchpointIntentBottomUp(next, { touchpointId: input.touchpointId, contributingOfferIds: [grouped.offerId], jobId: grouped.jobId, addressedDesiredOutcomeIds: [...new Set(grouped.outcomeIds)], productJobIntentIds: missingProduct ? [input.newId()] : [], offerJobSelectionIds: missingOffer ? [input.newId()] : [], touchpointSelectionIds: [input.newId()] });
+  }
+  for (const leaf of input.draft.financialLeaves) for (const offerId of leaf.contributorOfferIds) {
+    const missing = !next.offerFinancialIntents.some(intent => intent.offerId === offerId && intent.financialDesiredOutcomeId === leaf.financialDesiredOutcomeId);
+    next = authorTouchpointIntentBottomUp(next, { touchpointId: input.touchpointId, contributingOfferIds: [offerId], financialDesiredOutcomeId: leaf.financialDesiredOutcomeId, offerFinancialIntentIds: missing ? [input.newId()] : [], touchpointSelectionIds: [input.newId()] });
+  }
+
+  const selections: TouchpointTopDownSelection[] = [];
+  for (const grouped of groupedJobs.values()) {
+    const outcomeIds = [...new Set(grouped.outcomeIds)];
+    const productId = productForOffer(next, grouped.offerId); const intent = next.productJobIntents.find(candidate => candidate.productId === productId && candidate.jobId === grouped.jobId)!;
+    const existing = document.touchpointJobSelections.find(selection => selection.touchpointId === input.touchpointId && selection.offerId === grouped.offerId && selection.productJobIntentId === intent.id && selection.addressedDesiredOutcomeIds.length === outcomeIds.length && selection.addressedDesiredOutcomeIds.every(id => outcomeIds.includes(id)));
+    selections.push({ id: existing?.id ?? input.newId(), kind: 'job', offerId: grouped.offerId, productJobIntentId: intent.id, addressedDesiredOutcomeIds: outcomeIds });
+  }
+  for (const leaf of input.draft.financialLeaves) for (const offerId of leaf.contributorOfferIds) {
+    const intent = next.offerFinancialIntents.find(candidate => candidate.offerId === offerId && candidate.financialDesiredOutcomeId === leaf.financialDesiredOutcomeId)!;
+    const existing = document.touchpointFinancialSelections.find(selection => selection.touchpointId === input.touchpointId && selection.offerId === offerId && selection.offerFinancialIntentId === intent.id);
+    selections.push({ id: existing?.id ?? input.newId(), kind: 'financial', offerId, offerFinancialIntentId: intent.id });
+  }
+  return setTouchpointIntentSelections(next, { touchpointId: input.touchpointId, selections });
 }
 
 export function selectAllLinkedOfferIntentsForTouchpoint(document: MapDocument, input: { touchpointId: string; jobSelectionIds: string[]; financialSelectionIds: string[] }): MapDocument {

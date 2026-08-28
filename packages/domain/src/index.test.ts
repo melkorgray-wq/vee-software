@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, removeProductJobIntent, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateProductJobIntent, addTouchpointContainer, createEmptyMapDocument, duplicateEntity, movePlacement, updateEntity, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct } from './index';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, removeProductJobIntent, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, createEmptyMapDocument, duplicateEntity, movePlacement, updateEntity, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct } from './index';
 
 const place = { viewId: 'view', x: 10, y: 20 };
 const empty = () => createEmptyMapDocument({ mapId: 'map', title: 'Map', viewId: 'view', viewTitle: 'View' });
@@ -353,6 +353,37 @@ describe('Touchpoint intent scope', () => {
     expect(d.productJobIntents).toEqual([{ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['outcome'] }]);
     expect(d.offerJobSelections).toHaveLength(1);
     expect(d.touchpointJobSelections[0]).toMatchObject({ touchpointId: 'touch', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['outcome'] });
+  });
+  it('atomically applies a full draft, retains upstream scope and prunes mitigation after local removal', () => {
+    let d = scoped();
+    d = addEntity(d, { ...place, entityId: 'other-outcome', title: 'Other', kind: 'desired_outcome', parentEntityId: 'job', relationshipId: 'owns-other' });
+    d = addEntity(d, { ...place, entityId: 'emotional', title: 'Confident', kind: 'emotional_job' });
+    d = addEntity(d, { ...place, entityId: 'fdo', title: 'Affordable', kind: 'financial_desired_outcome' });
+    d = addEntity(d, { ...place, entityId: 'repulsor', title: 'Friction', kind: 'repulsor', resistedTargetIds: ['job'], relationshipIds: ['resists'] });
+    d = addProductJobIntent(d, { id: 'existing-intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['other-outcome'] });
+    const ids = (() => { let index = 0; return () => `generated-${++index}`; })();
+    const draft = { jobLeaves: [
+      { jobId: 'job', semanticLeafId: 'outcome', desiredOutcomeId: 'outcome', contributorOfferIds: ['offer'] },
+      { jobId: 'emotional', semanticLeafId: 'emotional', contributorOfferIds: ['offer'] },
+    ], financialLeaves: [{ financialDesiredOutcomeId: 'fdo', contributorOfferIds: ['offer'] }], pendingJobLeafIds: [], pendingFinancialLeafIds: [] };
+    d = applyTouchpointIntentDraft(d, { touchpointId: 'touch', draft, newId: ids });
+    expect(d.productJobIntents.find(intent => intent.id === 'existing-intent')?.addressedDesiredOutcomeIds).toEqual(['other-outcome', 'outcome']);
+    expect(d.productJobIntents.some(intent => intent.jobId === 'fdo')).toBe(false);
+    expect(d.touchpointJobSelections).toEqual(expect.arrayContaining([
+      expect.objectContaining({ offerId: 'offer', addressedDesiredOutcomeIds: ['outcome'] }),
+      expect.objectContaining({ offerId: 'offer', addressedDesiredOutcomeIds: [] }),
+    ]));
+    d = setTouchpointMitigations(d, { touchpointId: 'touch', repulsorIds: ['repulsor'], newRelationshipIds: ['mitigates'] });
+    const upstream = { productJobIntents: d.productJobIntents, offerJobSelections: d.offerJobSelections, offerFinancialIntents: d.offerFinancialIntents };
+    d = applyTouchpointIntentDraft(d, { touchpointId: 'touch', draft: { ...draft, jobLeaves: [], financialLeaves: [] }, newId: ids });
+    expect(d).toMatchObject(upstream); expect(d.touchpointJobSelections).toEqual([]); expect(d.touchpointFinancialSelections).toEqual([]);
+    expect(d.relationships.some(relation => relation.kind === 'touchpoint_mitigates_repulsor')).toBe(false);
+  });
+  it('rejects invalid or contributor-less draft paths without mutating the input', () => {
+    const d = scoped(); const before = structuredClone(d); let ids = 0;
+    expect(() => applyTouchpointIntentDraft(d, { touchpointId: 'touch', draft: { jobLeaves: [{ jobId: 'job', semanticLeafId: 'job', contributorOfferIds: ['offer'] }], financialLeaves: [], pendingJobLeafIds: [], pendingFinancialLeafIds: [] }, newId: () => `id-${++ids}` })).toThrow(/requires a Desired Outcome/);
+    expect(() => applyTouchpointIntentDraft(d, { touchpointId: 'touch', draft: { jobLeaves: [{ jobId: 'job', semanticLeafId: 'outcome', desiredOutcomeId: 'outcome', contributorOfferIds: [] }], financialLeaves: [], pendingJobLeafIds: ['outcome'], pendingFinancialLeafIds: [] }, newId: () => `id-${++ids}` })).toThrow(/contributing Offer/);
+    expect(d).toEqual(before); expect(d.productJobIntents).toEqual([]);
   });
   it('supports top-down all scope and narrowing while rejecting outcomes outside upstream scope', () => {
     let d = scoped();
