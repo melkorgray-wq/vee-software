@@ -94,7 +94,14 @@ export function addProductJobIntent(document: MapDocument, input: ProductJobInte
 export function updateProductJobIntent(document: MapDocument, input: ProductJobIntent): MapDocument {
   if (!document.productJobIntents.some(intent => intent.id === input.id)) throw new DomainError('unknown_product_job_intent', 'Product Job Intent does not exist.');
   validateProductJobIntent(document, input, input.id);
-  return pruneIrrelevantTouchpointMitigations({ ...document, productJobIntents: document.productJobIntents.map(intent => intent.id === input.id ? { ...input, addressedDesiredOutcomeIds: [...input.addressedDesiredOutcomeIds] } : intent) });
+  const allowed = new Set(input.addressedDesiredOutcomeIds);
+  const job = document.entities.find(entity => entity.id === input.jobId)!;
+  const touchpointJobSelections = document.touchpointJobSelections.flatMap(selection => {
+    if (selection.productJobIntentId !== input.id) return [selection];
+    const addressedDesiredOutcomeIds = selection.addressedDesiredOutcomeIds.filter(id => allowed.has(id));
+    return isDesiredOutcomeBearingJob(job.kind) && !addressedDesiredOutcomeIds.length ? [] : [{ ...selection, addressedDesiredOutcomeIds }];
+  });
+  return pruneIrrelevantTouchpointMitigations({ ...document, touchpointJobSelections, productJobIntents: document.productJobIntents.map(intent => intent.id === input.id ? { ...input, addressedDesiredOutcomeIds: [...input.addressedDesiredOutcomeIds] } : intent) });
 }
 export function removeProductJobIntent(document: MapDocument, intentId: string): MapDocument {
   if (!document.productJobIntents.some(intent => intent.id === intentId)) throw new DomainError('unknown_product_job_intent', 'Product Job Intent does not exist.');
@@ -274,6 +281,29 @@ export function distributeOfferFinancialIntent(document: MapDocument, input: { o
 }
 
 export interface CascadeImpactSummary { offerJobSelectionIds: string[]; offerFinancialIntentIds: string[]; touchpointJobSelectionIds: string[]; touchpointFinancialSelectionIds: string[] }
+export interface ProductIntentChangeImpact {
+  offerJobSelectionIds: string[];
+  touchpointJobSelectionIds: string[];
+  narrowedTouchpointSelections: { touchpointJobSelectionId: string; removedDesiredOutcomeIds: string[] }[];
+}
+
+/** Calculates the durable downstream records affected by replacing one Product's Job intent. */
+export function getProductIntentChangeImpact(document: MapDocument, input: { productId: string; intents: { jobId: string; addressedDesiredOutcomeIds: string[] }[] }): ProductIntentChangeImpact {
+  entityOfKind(document, input.productId, 'product', 'Product');
+  const proposed = new Map(input.intents.map(intent => [intent.jobId, new Set(intent.addressedDesiredOutcomeIds)]));
+  const existing = document.productJobIntents.filter(intent => intent.productId === input.productId);
+  const removedIntentIds = new Set(existing.filter(intent => !proposed.has(intent.jobId)).map(intent => intent.id));
+  const offerJobSelectionIds = document.offerJobSelections.filter(selection => removedIntentIds.has(selection.productJobIntentId)).map(selection => selection.id);
+  const touchpointJobSelectionIds = document.touchpointJobSelections.filter(selection => removedIntentIds.has(selection.productJobIntentId)).map(selection => selection.id);
+  const narrowedTouchpointSelections = document.touchpointJobSelections.flatMap(selection => {
+    const intent = existing.find(candidate => candidate.id === selection.productJobIntentId);
+    if (!intent || removedIntentIds.has(intent.id)) return [];
+    const scope = proposed.get(intent.jobId);
+    const removedDesiredOutcomeIds = selection.addressedDesiredOutcomeIds.filter(id => !scope?.has(id));
+    return removedDesiredOutcomeIds.length ? [{ touchpointJobSelectionId: selection.id, removedDesiredOutcomeIds }] : [];
+  });
+  return { offerJobSelectionIds, touchpointJobSelectionIds, narrowedTouchpointSelections };
+}
 export function getIntentRemovalImpact(document: MapDocument, input: { offerJobSelectionId?: string; offerFinancialIntentId?: string }): CascadeImpactSummary {
   const job = input.offerJobSelectionId ? document.offerJobSelections.find(selection => selection.id === input.offerJobSelectionId) : undefined;
   const financial = input.offerFinancialIntentId ? document.offerFinancialIntents.find(intent => intent.id === input.offerFinancialIntentId) : undefined;
