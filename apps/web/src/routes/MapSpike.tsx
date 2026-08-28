@@ -264,14 +264,14 @@ export function MapNode({ data }: { data: MapNodeData }) {
   );
 }
 
-export function MapSpike() {
+export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocument?: MapDocument } = {}) {
   const panelRef = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuOwnerRef = useRef<HTMLElement | null>(null);
   const contextualEditorRef = useRef<HTMLElement>(null);
   const flowRef = useRef<ReactFlowInstance<Node<MapNodeData>> | null>(null);
   const pendingInspectorRevealRef = useRef<string[] | null>(null);
-  const [document, setDocument] = useState<MapDocument>(INITIAL_DOCUMENT);
+  const [document, setDocument] = useState<MapDocument>(initialDocument);
   const documentRef = useRef(document);
   documentRef.current = document;
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -951,12 +951,18 @@ export function MapSpike() {
                     <input
                       type="checkbox"
                       checked={d.linkedOfferIds.includes(o.id)}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        const linkedOfferIds = e.target.checked ? [...d.linkedOfferIds, o.id] : d.linkedOfferIds.filter((id) => id !== o.id);
                         setter({
                           ...d,
-                          linkedOfferIds: e.target.checked ? [...d.linkedOfferIds, o.id] : d.linkedOfferIds.filter((id) => id !== o.id),
-                        })
-                      }
+                          linkedOfferIds,
+                          ...(d.touchpointIntent ? { touchpointIntent: !e.target.checked ? {
+                              ...d.touchpointIntent,
+                              jobLeaves: d.touchpointIntent.jobLeaves.map(leaf => ({ ...leaf, contributorOfferIds: leaf.contributorOfferIds.filter(id => id !== o.id) })),
+                              financialLeaves: d.touchpointIntent.financialLeaves.map(leaf => ({ ...leaf, contributorOfferIds: leaf.contributorOfferIds.filter(id => id !== o.id) })),
+                          } : d.touchpointIntent } : {}),
+                        });
+                      }}
                     />
                     {o.title}
                   </label>
