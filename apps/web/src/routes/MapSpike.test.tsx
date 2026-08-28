@@ -303,7 +303,8 @@ describe('map-first authoring interactions', () => {
     expect(screen.getByRole('tab', { name: 'Entity Inspector' })).toHaveAttribute('aria-selected', 'true');
     const inspector = screen.getByRole('tabpanel', { name: 'Entity Inspector' }); expect(inspector).toHaveTextContent('Immediate touchpoint');
     expect(within(inspector).getByLabelText('Located in')).toHaveValue(''); expect(within(inspector).getByLabelText(/URL/)).toHaveValue('');
-    expect(within(inspector).getByRole('group', { name: 'Which Client intent does this concrete Touchpoint work with?' })).toBeInTheDocument();
+    expect(within(inspector).getByRole('group', { name: 'Client intent' })).toBeInTheDocument();
+    expect(within(inspector).getByRole('group', { name: 'Financial intent' })).toBeInTheDocument();
   });
   it('opens the context-menu target in Entity Inspector and replaces the prior selection', async () => {
     const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await quickOffer(user);
@@ -494,17 +495,16 @@ describe('map-first authoring interactions', () => {
     const inspector = await openInspector(user); expect((inspector.getByLabelText('Parent Touchpoint') as HTMLSelectElement).value).toMatch(/^id-/);
     expect(inspector.getByLabelText('Located in')).toBeInTheDocument(); expect(inspector.getByLabelText(/URL/)).toBeInTheDocument();
   });
-  it('rejects incomplete Core Functional Job intent at the Touchpoint boundary', async () => {
+  it('shows an incomplete DO-bearing Job as a disclosure-only unfinished branch', async () => {
     const user = userEvent.setup(); render(<MapSpike />);
     await user.click(screen.getByRole('button', { name: 'Add element' })); await user.click(screen.getByRole('button', { name: 'Client side' })); await user.type(screen.getByLabelText('Title'), 'Make progress'); await user.click(screen.getByRole('button', { name: 'Create' })); await openMap(user);
-    const jobId = screen.getByRole('button', { name: 'Make progress' }).getAttribute('data-node-id');
     await globalProduct(user); await quickOffer(user); await user.click(screen.getByRole('button', { name: 'Subscription' })); fireEvent.keyDown(window, { key: 'Tab' });
     await user.click(screen.getByRole('menuitem', { name: 'Touchpoint' })); const creator = contextualEditor('Add Touchpoint'); await user.type(creator.getByLabelText('Title'), 'Checkout'); await user.click(creator.getByRole('button', { name: 'Create' }));
-    const touchpointId = screen.getByRole('button', { name: 'Checkout' }).getAttribute('data-node-id'); const inspector = await openInspector(user);
-    await user.click(inspector.getByRole('button', { name: 'Add client intent' })); const editor = within(inspector.getByRole('dialog', { name: 'Add client intent' }));
-    await user.click(editor.getByLabelText(/Make progress/)); expect(editor.getByText(/Contributing Offer:/)).toBeInTheDocument(); expect(within(editor.getByRole('region', { name: 'Change preview' })).getByText('The Product will record this Client intent.')).toBeInTheDocument();
-    expect(editor.getByRole('button', { name: 'Confirm client intent' })).toBeDisabled();
-    expect(within(inspector.getByRole('group', { name: 'Which Client intent does this concrete Touchpoint work with?' })).queryByLabelText('Make progress')).not.toBeInTheDocument(); expect(document.querySelector(`[data-source="${jobId}"][data-target="${touchpointId}"]`)).not.toBeInTheDocument();
+    const inspector = await openInspector(user); const intent = within(inspector.getByRole('group', { name: 'Client intent' }));
+    expect(intent.getByRole('heading', { name: 'Touchpoint intent' })).toBeInTheDocument(); expect(intent.getByRole('heading', { name: 'Other Client intent' })).toBeInTheDocument();
+    expect(intent.queryByRole('checkbox', { name: /Make progress/ })).not.toBeInTheDocument();
+    await user.click(intent.getByRole('button', { name: 'Expand Make progress' })); expect(intent.getByText('Desired Outcome not described yet')).toBeInTheDocument();
+    for (const removed of ['Add client intent', 'Confirm client intent', 'Change preview']) expect(inspector.queryByText(removed)).not.toBeInTheDocument();
   });
   it('cancels a minimal Touchpoint draft without mutating the map', async () => {
     const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await quickOffer(user);
