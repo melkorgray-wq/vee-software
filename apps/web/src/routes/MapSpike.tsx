@@ -69,6 +69,9 @@ type Quick = {
 type EntityContextCommandId = 'related-job' | 'desired-outcome' | 'canonical-child' | 'repulsor' | 'sibling' | 'duplicate' | 'inspector' | 'open-link' | 'cancel';
 type EntityContextCommand = { id: EntityContextCommandId; label: string; shortcut?: string; href?: string; action: () => void };
 type EntityContextCommandGroup = { id: string; heading: string; commands: EntityContextCommand[] };
+type ProductConfirmation =
+  | { mode: 'dirty'; pending: () => void; returnFocus: HTMLElement | null }
+  | { mode: 'impact'; pending?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getProductIntentChangeImpact> };
 type BottomUpDraft = {
   targetId: string;
   outcomeMode: 'direct' | 'outcomes';
@@ -284,6 +287,12 @@ export function MapSpike() {
   const [createDraft, setCreateDraft] = useState<Draft>(draft());
   const [editDraft, setEditDraft] = useState<Draft | null>(null);
   const [productExpanded, setProductExpanded] = useState<Record<string, boolean>>({});
+  const [productIntentSectionIds, setProductIntentSectionIds] = useState<string[]>([]);
+  const [rememberedProductOutcomes, setRememberedProductOutcomes] = useState<Record<string, string[]>>({});
+  const [productConfirmation, setProductConfirmation] = useState<ProductConfirmation | null>(null);
+  const confirmationRef = useRef<HTMLDivElement>(null);
+  const productApplyBypassRef = useRef(false);
+  const pendingAfterApplyRef = useRef<(() => void) | null>(null);
   const [productAddingKind, setProductAddingKind] = useState(false);
   const [productInline, setProductInline] = useState<{ kind: 'job'; entityKind: 'core_functional_job' | 'emotional_job' | 'social_job' | 'consumption_chain_job' } | { kind: 'outcome'; jobId: string } | null>(null);
   const [productInlineTitle, setProductInlineTitle] = useState('');
@@ -344,6 +353,16 @@ export function MapSpike() {
     setQuick((current) => (current && (current.overlay.x !== overlay.x || current.overlay.y !== overlay.y || !current.positioned) ? { ...current, overlay, positioned: true } : current));
   });
 
+  useLayoutEffect(() => {
+    if (!productConfirmation) return;
+    confirmationRef.current?.querySelector<HTMLElement>('button')?.focus();
+  }, [productConfirmation]);
+  function closeProductConfirmation() {
+    const target = productConfirmation?.returnFocus;
+    setProductConfirmation(null);
+    requestAnimationFrame(() => target?.focus());
+  }
+
   function draftFor(entity: Entity, source = document): Draft {
     const result = draft(entity.kind);
     result.title = entity.title;
@@ -367,15 +386,32 @@ export function MapSpike() {
     if (entity.kind === 'repulsor') result.resistedTargetIds = source.relationships.filter((r): r is Extract<Relationship, { kind: 'repulsor_resists' }> => r.kind === 'repulsor_resists' && r.repulsorId === entity.id).map((r) => r.targetEntityId);
     return result;
   }
-  function select(id: string | null) {
+  function resetProductSession(entity: Entity | undefined, source = document) {
+    setProductExpanded({});
+    setRememberedProductOutcomes({});
+    setProductAddingKind(false);
+    setProductInline(null);
+    setProductInlineTitle('');
+    setProductIntentSectionIds(entity?.kind === 'product' ? source.productJobIntents.filter(intent => intent.productId === entity.id).map(intent => intent.jobId) : []);
+  }
+  function performSelect(id: string | null) {
     setSelectedId(id);
     setMode('idle');
     setQuick(null);
     setBottomUp(null);
     setMenu(null);
     setMessage('');
-    const entity = document.entities.find((e) => e.id === id);
-    setEditDraft(entity ? draftFor(entity) : null);
+    const entity = documentRef.current.entities.find((e) => e.id === id);
+    setEditDraft(entity ? draftFor(entity, documentRef.current) : null);
+    resetProductSession(entity, documentRef.current);
+  }
+  function select(id: string | null) {
+    if (id === selectedRef.current) return;
+    if (selected?.kind === 'product' && inspectorDirty) {
+      setProductConfirmation({ mode: 'dirty', pending: () => performSelect(id), returnFocus: globalThis.document.activeElement as HTMLElement | null });
+      return;
+    }
+    performSelect(id);
   }
   function focusEntity(id: string) {
     const escaped = CSS.escape(id);
@@ -804,10 +840,18 @@ export function MapSpike() {
       requestAnimationFrame(() => revealEntities(documentRef.current, ids));
     }
   }
-  function startRootCreation() {
+  function performRootCreation() {
     setMode('create');
     setCreateDraft(draft());
+    resetProductSession(undefined);
     setActiveWorkspaceView('inspector');
+  }
+  function startRootCreation() {
+    if (selected?.kind === 'product' && inspectorDirty) {
+      setProductConfirmation({ mode: 'dirty', pending: performRootCreation, returnFocus: globalThis.document.activeElement as HTMLElement | null });
+      return;
+    }
+    performRootCreation();
   }
   function handleTabKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
@@ -1369,8 +1413,12 @@ export function MapSpike() {
     const update = (values: Record<string, string[]>, stagedClientEntities = staged) => setter({ ...d, productIntentOutcomes: values, stagedClientEntities });
     const toggleJob = (jobId: string, checked: boolean) => {
       const values = { ...d.productIntentOutcomes };
-      if (checked) values[jobId] = values[jobId] ?? [];
-      else delete values[jobId];
+      const isStaged = staged.some(entity => entity.id === jobId);
+      if (checked) values[jobId] = isStaged ? (values[jobId] ?? []) : (rememberedProductOutcomes[jobId] ?? values[jobId] ?? []);
+      else {
+        if (!isStaged) setRememberedProductOutcomes(current => ({ ...current, [jobId]: [...(values[jobId] ?? [])] }));
+        delete values[jobId];
+      }
       update(values, checked ? staged : staged.filter(entity => entity.id !== jobId && entity.parentEntityId !== jobId));
     };
     const toggleOutcome = (jobId: string, outcomeId: string, checked: boolean) => {
@@ -1392,10 +1440,12 @@ export function MapSpike() {
       const selected = job.id in d.productIntentOutcomes;
       const bearsOutcomes = job.kind === 'core_functional_job' || job.kind === 'related_job' || job.kind === 'consumption_chain_job';
       const outcomes = bearsOutcomes ? [...document.relationships.flatMap(relation => relation.kind === 'job_has_desired_outcome' && relation.jobId === job.id ? document.entities.filter(entity => entity.id === relation.desiredOutcomeId) : []), ...staged.filter(entity => entity.kind === 'desired_outcome' && entity.parentEntityId === job.id)] : [];
+      const relatedParent = job.kind === 'related_job' ? document.relationships.find((relation): relation is Extract<Relationship, { kind: 'core_functional_job_has_related_job' }> => relation.kind === 'core_functional_job_has_related_job' && relation.relatedJobId === job.id) : undefined;
+      const relatedParentTitle = document.entities.find(entity => entity.id === relatedParent?.coreFunctionalJobId)?.title;
       return <div className={`intent-job ${selected ? 'selected' : ''}`} key={job.id}>
         <div className="intent-job-heading">
           {bearsOutcomes ? <button type="button" className="disclosure" aria-label={`${expanded[job.id] ? 'Collapse' : 'Expand'} ${job.title}`} aria-expanded={Boolean(expanded[job.id])} onClick={() => setExpanded(current => ({ ...current, [job.id]: !current[job.id] }))}>{expanded[job.id] ? '▾' : '▸'}</button> : <span className="disclosure-placeholder" />}
-          <label className="intent-selection"><input type="checkbox" checked={selected} onChange={event => toggleJob(job.id, event.target.checked)} /><span><strong>{job.title}</strong><small>{KIND_LABELS[job.kind]}</small></span></label>
+          <label className="intent-selection"><input type="checkbox" checked={selected} onChange={event => toggleJob(job.id, event.target.checked)} /><span><strong>{job.title}</strong><small>{KIND_LABELS[job.kind]}</small>{relatedParentTitle && <small className="related-context">Related to: {relatedParentTitle}</small>}</span></label>
         </div>
         {bearsOutcomes && expanded[job.id] && <div className="intent-branches">
           {outcomes.map(outcome => <label className="checkbox intent-outcome" key={outcome.id}><input type="checkbox" checked={(d.productIntentOutcomes[job.id] ?? []).includes(outcome.id)} onChange={event => toggleOutcome(job.id, outcome.id, event.target.checked)} />{outcome.title}</label>)}
@@ -1404,11 +1454,11 @@ export function MapSpike() {
         </div>}
       </div>;
     };
-    const selectedJobs = jobs.filter(job => job.id in d.productIntentOutcomes);
-    const availableJobs = jobs.filter(job => !(job.id in d.productIntentOutcomes));
+    const selectedJobs = jobs.filter(job => productIntentSectionIds.includes(job.id) || staged.some(entity => entity.id === job.id));
+    const availableJobs = jobs.filter(job => !productIntentSectionIds.includes(job.id) && !staged.some(entity => entity.id === job.id));
     return <fieldset className="client-intent"><legend>Client intent</legend>
-      <h4>Selected/current intent</h4>{selectedJobs.length ? selectedJobs.map(renderJob) : <p className="immutable-note">No Client Jobs selected.</p>}
-      <h4>Available Client Jobs</h4>{availableJobs.map(renderJob)}
+      <h4>Product intent</h4>{selectedJobs.length ? selectedJobs.map(renderJob) : <p className="immutable-note">No Client Jobs selected.</p>}
+      <h4>Other Client Jobs</h4>{availableJobs.map(renderJob)}
       {inline?.kind === 'job' ? <input autoFocus aria-label="New Client Job title" value={inlineTitle} onChange={event => setInlineTitle(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); finishInline(); } if (event.key === 'Escape') { event.preventDefault(); setInline(null); setInlineTitle(''); } }} /> : addingKind ? <div className="choice-row" role="group" aria-label="Client Job kind">{(['core_functional_job','emotional_job','social_job','consumption_chain_job'] as const).map(kind => <button type="button" key={kind} onClick={() => { setInline({ kind: 'job', entityKind: kind }); setInlineTitle(''); }}>{KIND_LABELS[kind]}</button>)}<button type="button" onClick={() => setAddingKind(false)}>Cancel</button></div> : <button type="button" className="text-action" onClick={() => setAddingKind(true)}>+ Add Client Job</button>}
     </fieldset>;
   }
@@ -1791,13 +1841,11 @@ export function MapSpike() {
                 try {
                   if (selected.kind === 'product') {
                     const impact = getProductIntentChangeImpact(document, { productId: selected.id, intents: Object.entries(editDraft.productIntentOutcomes).filter(([jobId]) => !editDraft.stagedClientEntities.some(entity => entity.id === jobId && !entity.title.trim())).map(([jobId, addressedDesiredOutcomeIds]) => ({ jobId, addressedDesiredOutcomeIds })) });
-                    if (impact.offerJobSelectionIds.length || impact.touchpointJobSelectionIds.length || impact.narrowedTouchpointSelections.length) {
-                      const offerTitles = new Set(impact.offerJobSelectionIds.flatMap(id => { const selection = document.offerJobSelections.find(candidate => candidate.id === id); return document.entities.filter(entity => entity.id === selection?.offerId).map(entity => entity.title); }));
-                      const touchpointIds = [...impact.touchpointJobSelectionIds, ...impact.narrowedTouchpointSelections.map(item => item.touchpointJobSelectionId)];
-                      const touchpointTitles = new Set(touchpointIds.flatMap(id => { const selection = document.touchpointJobSelections.find(candidate => candidate.id === id); return document.entities.filter(entity => entity.id === selection?.touchpointId).map(entity => entity.title); }));
-                      const paths = [...offerTitles, ...touchpointTitles].map(title => `${title}\n→ loses or narrows Client intent`).join('\n\n');
-                      if (!window.confirm(`This change affects downstream intent.\n\n${paths}\n\nApply changes?`)) return;
+                    if (!productApplyBypassRef.current && (impact.offerJobSelectionIds.length || impact.touchpointJobSelectionIds.length || impact.narrowedTouchpointSelections.length)) {
+                      setProductConfirmation({ mode: 'impact', impact, returnFocus: globalThis.document.activeElement as HTMLElement | null });
+                      return;
                     }
+                    productApplyBypassRef.current = false;
                   }
                   const old = document.relationships.filter((r) => r.kind === 'offer_presented_at_touchpoint' && r.touchpointId === selected.id);
                   const parent = document.relationships.find((r) => r.kind === 'touchpoint_contains_touchpoint' && r.childTouchpointId === selected.id);
@@ -1874,8 +1922,13 @@ export function MapSpike() {
                     });
                   }
                   setDocument(next);
-                  setEditDraft(draftFor(next.entities.find(entity => entity.id === selected.id)!, next));
+                  const appliedEntity = next.entities.find(entity => entity.id === selected.id)!;
+                  setEditDraft(draftFor(appliedEntity, next));
+                  resetProductSession(appliedEntity, next);
                   setMessage('Changes applied.');
+                  const pending = pendingAfterApplyRef.current;
+                  pendingAfterApplyRef.current = null;
+                  pending?.();
                 } catch (error) {
                   setMessage(error instanceof Error ? error.message : 'Changes could not be applied.');
                 }
@@ -1948,6 +2001,30 @@ export function MapSpike() {
           )}
         </section>
       </div>
+      {productConfirmation && (
+        <div className="confirmation-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeProductConfirmation(); }}>
+          <div ref={confirmationRef} role="dialog" aria-modal="true" aria-labelledby="product-confirmation-title" className="confirmation-dialog" onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); closeProductConfirmation(); } }}>
+            <h2 id="product-confirmation-title">{productConfirmation.mode === 'dirty' ? 'Unsaved Product changes' : 'This change affects downstream intent'}</h2>
+            {productConfirmation.mode === 'impact' && (
+              <div className="impact-list">
+                {productConfirmation.impact.offerJobSelectionIds.map(id => { const selection = document.offerJobSelections.find(item => item.id === id); const offer = document.entities.find(entity => entity.id === selection?.offerId); const intent = document.productJobIntents.find(item => item.id === selection?.productJobIntentId); const job = document.entities.find(entity => entity.id === intent?.jobId); return <p key={id}><strong>{offer?.title}</strong><span>loses {job?.title}</span></p>; })}
+                {productConfirmation.impact.touchpointJobSelectionIds.map(id => { const selection = document.touchpointJobSelections.find(item => item.id === id); const touchpoint = document.entities.find(entity => entity.id === selection?.touchpointId); const intent = document.productJobIntents.find(item => item.id === selection?.productJobIntentId); const job = document.entities.find(entity => entity.id === intent?.jobId); return <p key={id}><strong>{touchpoint?.title}</strong><span>loses {job?.title}</span></p>; })}
+                {productConfirmation.impact.narrowedTouchpointSelections.map(item => { const selection = document.touchpointJobSelections.find(candidate => candidate.id === item.touchpointJobSelectionId); const touchpoint = document.entities.find(entity => entity.id === selection?.touchpointId); return <p key={item.touchpointJobSelectionId}><strong>{touchpoint?.title}</strong><span>loses {item.removedDesiredOutcomeIds.map(id => document.entities.find(entity => entity.id === id)?.title).join(', ')}</span></p>; })}
+              </div>
+            )}
+            <div className="actions">
+              {productConfirmation.mode === 'dirty' ? <>
+                <button type="button" className="primary" onClick={() => { pendingAfterApplyRef.current = productConfirmation.pending; setProductConfirmation(null); globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); }}>Apply</button>
+                <button type="button" onClick={() => { const pending = productConfirmation.pending; setProductConfirmation(null); setEditDraft(selected ? draftFor(selected) : null); resetProductSession(selected); pending(); }}>Discard</button>
+                <button type="button" onClick={closeProductConfirmation}>Keep editing</button>
+              </> : <>
+                <button type="button" onClick={closeProductConfirmation}>Cancel</button>
+                <button type="button" className="primary" onClick={() => { productApplyBypassRef.current = true; setProductConfirmation(null); globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); }}>Apply changes</button>
+              </>}
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
