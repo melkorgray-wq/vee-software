@@ -56,7 +56,10 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .inspector label.intent-selection { display: flex; flex-direction: row; align-items: start; gap: .55rem; font-weight: 400; }
 .intent-selection input { width: auto; margin-top: .25rem; }
 .intent-selection span { display: grid; gap: .2rem; }
-.intent-selection small { color: rgba(255,255,255,.55); font-size: .68rem; letter-spacing: .06em; text-transform: uppercase; }
+.intent-job-label { display: grid; gap: .2rem; }
+.intent-selection small, .intent-job-label small { color: rgba(255,255,255,.55); font-size: .68rem; letter-spacing: .06em; text-transform: uppercase; }
+.intent-contributors { text-transform: none !important; letter-spacing: normal !important; }
+.intent-partial { border-color: var(--border-soft); }
 .intent-branches { display: grid; gap: .35rem; margin: .35rem 0 0 2.9rem; padding-left: .8rem; border-left: 1px solid var(--border-subtle); }
 .readonly-outcome { color: rgba(255,255,255,.82); }
 .financial-intent { margin: .55rem 0; }
