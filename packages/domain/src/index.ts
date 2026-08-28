@@ -286,6 +286,26 @@ export interface ProductIntentChangeImpact {
   touchpointJobSelectionIds: string[];
   narrowedTouchpointSelections: { touchpointJobSelectionId: string; removedDesiredOutcomeIds: string[] }[];
 }
+export interface OfferIntentChangeImpact {
+  touchpointJobSelectionIds: string[];
+  touchpointFinancialSelectionIds: string[];
+}
+
+/** Calculates downstream selections pruned by atomically replacing an Offer draft. */
+export function getOfferIntentChangeImpact(document: MapDocument, input: { offerId: string; productId: string; productJobIntentIds: string[]; financialDesiredOutcomeIds: string[] }): OfferIntentChangeImpact {
+  entityOfKind(document, input.offerId, 'offer', 'Offer');
+  entityOfKind(document, input.productId, 'product', 'Product');
+  const allowedJobs = new Set(input.productJobIntentIds);
+  for (const intentId of allowedJobs) if (!document.productJobIntents.some(intent => intent.id === intentId && intent.productId === input.productId)) throw new DomainError('offer_selection_wrong_product', 'Offer selections must belong to the Offer Product.');
+  const allowedFinancial = new Set(input.financialDesiredOutcomeIds);
+  input.financialDesiredOutcomeIds.forEach(id => entityOfKind(document, id, 'financial_desired_outcome', 'Financial Desired Outcome'));
+  const removedJobSelections = new Set(document.offerJobSelections.filter(selection => selection.offerId === input.offerId && !allowedJobs.has(selection.productJobIntentId)).map(selection => selection.id));
+  const removedFinancialIntents = new Set(document.offerFinancialIntents.filter(intent => intent.offerId === input.offerId && !allowedFinancial.has(intent.financialDesiredOutcomeId)).map(intent => intent.id));
+  return {
+    touchpointJobSelectionIds: document.touchpointJobSelections.filter(selection => selection.offerId === input.offerId && removedJobSelections.has(document.offerJobSelections.find(item => item.offerId === input.offerId && item.productJobIntentId === selection.productJobIntentId)?.id ?? '')).map(selection => selection.id),
+    touchpointFinancialSelectionIds: document.touchpointFinancialSelections.filter(selection => selection.offerId === input.offerId && removedFinancialIntents.has(selection.offerFinancialIntentId)).map(selection => selection.id),
+  };
+}
 
 /** Calculates the durable downstream records affected by replacing one Product's Job intent. */
 export function getProductIntentChangeImpact(document: MapDocument, input: { productId: string; intents: { jobId: string; addressedDesiredOutcomeIds: string[] }[] }): ProductIntentChangeImpact {
