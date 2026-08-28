@@ -481,7 +481,7 @@ describe('Touchpoint intent scope', () => {
       expect(d.offerFinancialIntents).toHaveLength(1); expect(d.touchpointFinancialSelections).toHaveLength(1);
     });
 
-    it('removing a durable local Touchpoint leaf preserves upstream Product and Offer scope', () => {
+    it('removing a local leaf preserves upstream scope', () => {
       const withLeaf = applyTouchpointIntentDraft(scoped(), { touchpointId: 'touch', draft: draft([{ jobId: 'job', semanticLeafId: 'outcome', desiredOutcomeId: 'outcome', contributorOfferIds: ['offer'] }]), newId: ids() });
       const withoutLeaf = applyTouchpointIntentDraft(withLeaf, { touchpointId: 'touch', draft: draft(), newId: ids('remove') });
       expect(withoutLeaf.productJobIntents).toEqual(withLeaf.productJobIntents); expect(withoutLeaf.offerJobSelections).toEqual(withLeaf.offerJobSelections);
@@ -496,7 +496,7 @@ describe('Touchpoint intent scope', () => {
       expect(d.offerJobSelections.map(selection => selection.offerId).sort()).toEqual(['offer', 'offer-b']);
     });
 
-    it('reports durable paths lost with an Offer link and identifies retained semantic alternatives', () => {
+    it('unlink review identifies alternate contributors', () => {
       let d = applyTouchpointIntentDraft(twoOfferScope(), { touchpointId: 'touch', draft: draft(
         [{ jobId: 'job', semanticLeafId: 'outcome', desiredOutcomeId: 'outcome', contributorOfferIds: ['offer', 'offer-b'] }],
       ), newId: ids() });
@@ -515,7 +515,7 @@ describe('Touchpoint intent scope', () => {
       expect(getTouchpointLinkedOfferChangeImpact(d, { touchpointId: 'touch', linkedOfferIds: ['offer', 'offer-b'] })).toEqual([]);
     });
 
-    it('an error in one path leaves neither local nor newly created upstream changes', () => {
+    it('Apply error leaves no partial local or upstream changes', () => {
       const d = twoOfferScope(); const before = structuredClone(d);
       expect(() => applyTouchpointIntentDraft(d, { touchpointId: 'touch', draft: draft([
         { jobId: 'job', semanticLeafId: 'outcome', desiredOutcomeId: 'outcome', contributorOfferIds: ['offer'] },
@@ -524,7 +524,7 @@ describe('Touchpoint intent scope', () => {
       expect(d).toEqual(before); expect(d.productJobIntents).toEqual([]); expect(d.offerJobSelections).toEqual([]); expect(d.touchpointJobSelections).toEqual([]);
     });
 
-    it('mitigation pruning and relevance are computed from the final post-intent state', () => {
+    it('mitigation is checked against post-intent relevance', () => {
       let d = twoOfferScope();
       d = addEntity(d, { ...place, entityId: 'other-job', title: 'Other Job', kind: 'core_functional_job' });
       d = addEntity(d, { ...place, entityId: 'other-do', title: 'Other outcome', kind: 'desired_outcome', parentEntityId: 'other-job', relationshipId: 'owns-other-do' });

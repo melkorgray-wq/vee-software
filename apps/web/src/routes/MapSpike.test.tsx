@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEffect, type MouseEvent, type ReactNode } from 'react';
 import { MapNode, MapSpike } from './MapSpike';
+import { applyTouchpointIntentDraft, type MapDocument } from '@vee/domain';
 
 type MockNode = { id: string; position: { x: number; y: number }; data: { title: string; kindLabel: string } };
 type MockEdge = { id: string; source: string; target: string; type?: string; markerEnd?: { type: string }; label?: string };
@@ -19,6 +20,39 @@ async function openMap(user: ReturnType<typeof userEvent.setup>) { await user.cl
 async function quickOffer(user: ReturnType<typeof userEvent.setup>) { await user.click(screen.getByRole('button', { name: 'Orbit' })); fireEvent.keyDown(window, { key: 'Tab' }); await user.click(screen.getByRole('menuitem', { name: 'Offer' })); const editor = contextualEditor('Add Offer'); await user.type(editor.getByLabelText('Title'), 'Subscription'); await user.click(editor.getByRole('button', { name: 'Create' })); }
 function nodePoint(name: string) { const node = screen.getByRole('button', { name }); return { x: Number(node.getAttribute('data-x')), y: Number(node.getAttribute('data-y')) }; }
 function nodesOverlap(a: { x: number; y: number }, aDiameter: number, b: { x: number; y: number }, bDiameter: number) { return a.x < b.x + bDiameter && a.x + aDiameter > b.x && a.y < b.y + bDiameter && a.y + aDiameter > b.y; }
+
+function touchpointInspectorDocument(twoOffers = false): MapDocument {
+  const entities: MapDocument['entities'] = [
+    { id: 'product', kind: 'product', title: 'Orbit' },
+    { id: 'offer-a', kind: 'offer', title: 'Subscription' },
+    ...(twoOffers ? [{ id: 'offer-b', kind: 'offer' as const, title: 'Consulting' }] : []),
+    { id: 'touch', kind: 'touchpoint', title: 'Checkout' },
+    { id: 'job', kind: 'core_functional_job', title: 'Make progress' },
+    { id: 'do-a', kind: 'desired_outcome', title: 'Finish faster' },
+    { id: 'do-b', kind: 'desired_outcome', title: 'Reduce errors' },
+    { id: 'fdo', kind: 'financial_desired_outcome', title: 'Stay affordable' },
+  ];
+  const offerIds = twoOffers ? ['offer-a', 'offer-b'] : ['offer-a'];
+  return {
+    id: 'map', title: 'Map', views: [{ id: 'spike-view', title: 'View' }], entities,
+    relationships: [
+      { id: 'packages-a', kind: 'product_packaged_as_offer', productId: 'product', offerId: 'offer-a' },
+      ...(twoOffers ? [{ id: 'packages-b', kind: 'product_packaged_as_offer' as const, productId: 'product', offerId: 'offer-b' }] : []),
+      ...offerIds.map((offerId, index) => ({ id: `presents-${index}`, kind: 'offer_presented_at_touchpoint' as const, offerId, touchpointId: 'touch' })),
+      { id: 'owns-a', kind: 'job_has_desired_outcome', jobId: 'job', desiredOutcomeId: 'do-a' },
+      { id: 'owns-b', kind: 'job_has_desired_outcome', jobId: 'job', desiredOutcomeId: 'do-b' },
+    ],
+    productJobIntents: [], offerJobSelections: [], offerFinancialIntents: [], touchpointJobSelections: [], touchpointFinancialSelections: [],
+    touchpointContainers: [], epistemicAnnotations: [], placements: entities.map((entity, index) => ({ viewId: 'spike-view', entityId: entity.id, x: index * 140, y: 0 })),
+  };
+}
+
+function renderTouchpointInspector(document = touchpointInspectorDocument()) {
+  render(<MapSpike initialDocument={document} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Checkout' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'Entity Inspector' }));
+  return within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
+}
 
 describe('map-first authoring interactions', () => {
   it('edits authored Business and Client titles inline with commit, cancel, and keyboard ownership', async () => {
@@ -550,7 +584,7 @@ describe('map-first authoring interactions', () => {
     await user.click(screen.getByRole('button', { name: 'Add element' })); await user.click(within(screen.getByRole('dialog', { name: 'Unsaved Product changes' })).getByRole('button', { name: 'Discard' }));
     expect(screen.getByRole('heading', { name: 'Add an element' })).toBeInTheDocument(); await openMap(user); expect(screen.getByRole('button', { name: 'Orbit' })).toBeInTheDocument();
   });
-  it('guards a dirty Touchpoint session and applies, discards, or keeps its single draft before pending navigation', async () => {
+  it('dirty navigation offers Apply, Discard, and Keep editing', async () => {
     const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await quickOffer(user);
     await user.click(screen.getByRole('button', { name: 'Subscription' })); fireEvent.keyDown(window, { key: 'Tab' });
     await user.click(screen.getByRole('menuitem', { name: 'Touchpoint' })); const creator = contextualEditor('Add Touchpoint');
@@ -585,4 +619,135 @@ it('renders an accessible peripheral link only for a safe Touchpoint URL', () =>
   expect(screen.getByRole('link', { name: 'Open Front Page' })).toHaveClass('node-link', 'nodrag', 'nopan');
   rerender(<MapNode data={{ title: 'Unsafe', kindLabel: 'Touchpoint', url: 'javascript:alert(1)', layout }} />);
   expect(screen.queryByRole('link')).not.toBeInTheDocument();
+});
+
+describe('focused Touchpoint Inspector intent scenarios', () => {
+  afterEach(cleanup);
+  it('disclosure DO-bearing Job does not select the Job', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector();
+    const clientIntent = within(inspector.getByRole('group', { name: 'Client intent' }));
+    expect(clientIntent.queryByRole('checkbox', { name: 'Make progress' })).not.toBeInTheDocument();
+    await user.click(clientIntent.getByRole('button', { name: 'Expand Make progress' }));
+    expect(clientIntent.getByRole('checkbox', { name: 'Finish faster' })).not.toBeChecked();
+  });
+
+  it('direct Job to Touchpoint selection is unavailable', () => {
+    const inspector = renderTouchpointInspector();
+    const clientIntent = within(inspector.getByRole('group', { name: 'Client intent' }));
+    expect(clientIntent.queryByRole('checkbox', { name: 'Make progress' })).not.toBeInTheDocument();
+  });
+
+  it('selecting one DO activates its parent visually without selecting its sibling', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector();
+    const clientIntent = within(inspector.getByRole('group', { name: 'Client intent' }));
+    await user.click(clientIntent.getByRole('button', { name: 'Expand Make progress' }));
+    await user.click(clientIntent.getByRole('checkbox', { name: 'Finish faster' }));
+    expect(clientIntent.getByText('Core Functional Job · partial')).toBeInTheDocument();
+    expect(clientIntent.getByRole('checkbox', { name: 'Reduce errors' })).not.toBeChecked();
+  });
+
+  it('one linked Offer is assigned automatically', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector();
+    const clientIntent = within(inspector.getByRole('group', { name: 'Client intent' }));
+    await user.click(clientIntent.getByRole('button', { name: 'Expand Make progress' }));
+    await user.click(clientIntent.getByRole('checkbox', { name: 'Finish faster' }));
+    expect(clientIntent.getByText('via Subscription')).toBeInTheDocument();
+  });
+
+  it('with multiple Offers contributor is not guessed and Apply is blocked', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(touchpointInspectorDocument(true));
+    const clientIntent = within(inspector.getByRole('group', { name: 'Client intent' }));
+    await user.click(clientIntent.getByRole('button', { name: 'Expand Make progress' }));
+    await user.click(clientIntent.getByRole('checkbox', { name: 'Finish faster' }));
+    const contributors = within(clientIntent.getByRole('group', { name: 'Contributors for Finish faster' }));
+    expect(contributors.getByRole('checkbox', { name: 'Subscription' })).not.toBeChecked();
+    expect(contributors.getByRole('checkbox', { name: 'Consulting' })).not.toBeChecked();
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+  });
+
+  it('different DOs retain different Offers', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(touchpointInspectorDocument(true));
+    const clientIntent = within(inspector.getByRole('group', { name: 'Client intent' }));
+    await user.click(clientIntent.getByRole('button', { name: 'Expand Make progress' }));
+    await user.click(clientIntent.getByRole('checkbox', { name: 'Finish faster' }));
+    await user.click(within(clientIntent.getByRole('group', { name: 'Contributors for Finish faster' })).getByRole('checkbox', { name: 'Subscription' }));
+    await user.click(clientIntent.getByRole('checkbox', { name: 'Reduce errors' }));
+    await user.click(within(clientIntent.getByRole('group', { name: 'Contributors for Reduce errors' })).getByRole('checkbox', { name: 'Consulting' }));
+    expect(within(clientIntent.getByRole('group', { name: 'Contributors for Finish faster' })).getByRole('checkbox', { name: 'Consulting' })).not.toBeChecked();
+    expect(within(clientIntent.getByRole('group', { name: 'Contributors for Reduce errors' })).getByRole('checkbox', { name: 'Subscription' })).not.toBeChecked();
+  });
+
+  it('one DO retains multiple Offers', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(touchpointInspectorDocument(true));
+    const clientIntent = within(inspector.getByRole('group', { name: 'Client intent' }));
+    await user.click(clientIntent.getByRole('button', { name: 'Expand Make progress' })); await user.click(clientIntent.getByRole('checkbox', { name: 'Finish faster' }));
+    const contributors = within(clientIntent.getByRole('group', { name: 'Contributors for Finish faster' }));
+    await user.click(contributors.getByRole('checkbox', { name: 'Subscription' })); await user.click(contributors.getByRole('checkbox', { name: 'Consulting' }));
+    expect(contributors.getByRole('checkbox', { name: 'Subscription' })).toBeChecked(); expect(contributors.getByRole('checkbox', { name: 'Consulting' })).toBeChecked();
+  });
+
+  it('bottom-up Apply creates missing Product and Offer scope', () => {
+    const document = touchpointInspectorDocument();
+    const next = applyTouchpointIntentDraft(document, { touchpointId: 'touch', draft: { jobLeaves: [{ jobId: 'job', semanticLeafId: 'do-a', desiredOutcomeId: 'do-a', contributorOfferIds: ['offer-a'] }], financialLeaves: [], pendingJobLeafIds: [], pendingFinancialLeafIds: [] }, newId: (() => { let id = 0; return () => `new-${++id}`; })() });
+    expect(next.productJobIntents).toHaveLength(1); expect(next.offerJobSelections).toHaveLength(1); expect(next.touchpointJobSelections).toHaveLength(1);
+  });
+
+  it('FDO does not create Product intent', () => {
+    const document = touchpointInspectorDocument();
+    const next = applyTouchpointIntentDraft(document, { touchpointId: 'touch', draft: { jobLeaves: [], financialLeaves: [{ financialDesiredOutcomeId: 'fdo', contributorOfferIds: ['offer-a'] }], pendingJobLeafIds: [], pendingFinancialLeafIds: [] }, newId: (() => { let id = 0; return () => `new-${++id}`; })() });
+    expect(next.productJobIntents).toEqual([]); expect(next.offerFinancialIntents).toHaveLength(1); expect(next.touchpointFinancialSelections).toHaveLength(1);
+  });
+
+  it('adding an Offer neither selects nor reattributes intent', async () => {
+    const user = userEvent.setup(); const document = touchpointInspectorDocument(true); document.relationships = document.relationships.filter(r => !(r.kind === 'offer_presented_at_touchpoint' && r.offerId === 'offer-b'));
+    const inspector = renderTouchpointInspector(document); const linkedOffers = within(inspector.getByRole('group', { name: 'Linked Offers' }));
+    await user.click(linkedOffers.getByRole('checkbox', { name: 'Consulting' }));
+    const clientIntent = within(inspector.getByRole('group', { name: 'Client intent' })); await user.click(clientIntent.getByRole('button', { name: 'Expand Make progress' }));
+    expect(clientIntent.getByRole('checkbox', { name: 'Finish faster' })).not.toBeChecked();
+  });
+
+  it('old wizard is absent', () => {
+    const inspector = renderTouchpointInspector();
+    expect(inspector.queryByRole('button', { name: 'Add client intent' })).not.toBeInTheDocument();
+    expect(inspector.queryByRole('button', { name: 'Confirm client intent' })).not.toBeInTheDocument();
+  });
+
+  it('semantic editing does not change durable MapDocument before Apply', async () => {
+    const user = userEvent.setup(); const document = touchpointInspectorDocument(); const snapshot = structuredClone(document);
+    const inspector = renderTouchpointInspector(document); const clientIntent = within(inspector.getByRole('group', { name: 'Client intent' }));
+    await user.click(clientIntent.getByRole('button', { name: 'Expand Make progress' })); await user.click(clientIntent.getByRole('checkbox', { name: 'Finish faster' }));
+    expect(document).toEqual(snapshot);
+  });
+
+  it('retained bulk action is draft-only and does not create upstream intent', async () => {
+    const user = userEvent.setup(); const document = touchpointInspectorDocument(); const inspector = renderTouchpointInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Select all current Offer intent' }));
+    expect(document.productJobIntents).toEqual([]); expect(document.offerJobSelections).toEqual([]);
+  });
+
+  it('unlink review supports Cancel and Confirm with alternate contributors', async () => {
+    const user = userEvent.setup(); let document = touchpointInspectorDocument(true);
+    document = applyTouchpointIntentDraft(document, { touchpointId: 'touch', draft: { jobLeaves: [{ jobId: 'job', semanticLeafId: 'do-a', desiredOutcomeId: 'do-a', contributorOfferIds: ['offer-a', 'offer-b'] }], financialLeaves: [], pendingJobLeafIds: [], pendingFinancialLeafIds: [] }, newId: (() => { let id = 0; return () => `seed-${++id}`; })() });
+    const inspector = renderTouchpointInspector(document); const linkedOffers = within(inspector.getByRole('group', { name: 'Linked Offers' }));
+    await user.click(linkedOffers.getByRole('checkbox', { name: 'Subscription' })); await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
+    let review = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
+    expect(within(review).getByText('path to Make progress → Finish faster will be removed; alternative: Consulting')).toBeInTheDocument();
+    await user.click(within(review).getByRole('button', { name: 'Cancel' })); expect(review).not.toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Apply changes' })); review = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
+    await user.click(within(review).getByRole('button', { name: 'Apply changes' }));
+    expect(linkedOffers.getByRole('checkbox', { name: 'Subscription' })).not.toBeChecked(); expect(linkedOffers.getByRole('checkbox', { name: 'Consulting' })).toBeChecked();
+  });
+
+  it('Map to Inspector round trip preserves Touchpoint draft without a prompt', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector();
+    await user.click(screen.getByRole('tab', { name: 'Entity Inspector' })); const title = inspector.getByRole('textbox', { name: 'Title' }); await user.clear(title); await user.type(title, 'Checkout draft');
+    await user.click(screen.getByRole('tab', { name: 'Map' })); expect(screen.queryByRole('dialog', { name: 'Unsaved Touchpoint changes' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'Entity Inspector' })); expect(inspector.getByRole('textbox', { name: 'Title' })).toHaveValue('Checkout draft');
+  });
+
+  it('existing Product and Offer Inspector interaction tests continue to pass', () => {
+    const inspector = renderTouchpointInspector();
+    expect(within(inspector.getByRole('group', { name: 'Linked Offers' })).getByRole('checkbox', { name: 'Subscription' })).toBeChecked();
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+  });
 });
