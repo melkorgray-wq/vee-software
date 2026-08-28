@@ -523,6 +523,31 @@ describe('map-first authoring interactions', () => {
     await openInspector(user); expect((inspector.getByLabelText('Parent Touchpoint') as HTMLSelectElement).value).toMatch(/^id-/); expect(within(inspector.getByLabelText('Parent Touchpoint')).getByRole('option', { name: 'Services' })).toBeInTheDocument();
   });
   it('cancels a contextual draft without inserting an entity', async () => { const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await user.click(screen.getByRole('button', { name: 'Orbit' })); fireEvent.keyDown(window, { key: 'Tab' }); await user.click(screen.getByRole('menuitem', { name: 'Offer' })); await user.type(contextualEditor('Add Offer').getByLabelText('Title'), 'Draft offer'); fireEvent.keyDown(window, { key: 'Escape' }); expect(screen.queryByText('Draft offer')).not.toBeInTheDocument(); expect(screen.queryByText('packaged as')).not.toBeInTheDocument(); });
+  it('keeps durable Product branches stable, restores draft outcome scope, and rebuilds sections after Apply', async () => {
+    const user = userEvent.setup(); render(<MapSpike />);
+    await user.click(screen.getByRole('button', { name: 'Add element' })); await user.click(screen.getByRole('button', { name: 'Client side' })); await user.type(screen.getByLabelText('Title'), 'Make progress'); await user.click(screen.getByRole('button', { name: 'Create' })); await openMap(user);
+    await user.click(screen.getByRole('button', { name: 'Make progress' })); fireEvent.keyDown(window, { key: 'Tab' }); await user.click(screen.getByRole('menuitem', { name: 'Desired Outcome' })); const outcomeEditor = contextualEditor('Add Desired Outcome'); await user.type(outcomeEditor.getByLabelText('Title'), 'Finish faster'); await user.click(outcomeEditor.getByRole('button', { name: 'Create' }));
+    await globalProduct(user); const inspector = await openInspector(user); const intent = inspector.getByRole('group', { name: 'Client intent' });
+    const otherHeading = within(intent).getByRole('heading', { name: 'Other Client Jobs' });
+    await user.click(within(intent).getByRole('button', { name: 'Expand Make progress' }));
+    expect(otherHeading.compareDocumentPosition(within(intent).getByText('Make progress')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await user.click(within(intent).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ }));
+    expect(otherHeading.compareDocumentPosition(within(intent).getByText('Make progress')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await user.click(within(intent).getByLabelText('Finish faster'));
+    await user.click(within(intent).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ })); expect(within(intent).getByLabelText('Finish faster')).not.toBeChecked();
+    await user.click(within(intent).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ })); expect(within(intent).getByLabelText('Finish faster')).toBeChecked();
+    await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
+    expect(within(intent).getByRole('heading', { name: 'Product intent' }).compareDocumentPosition(within(intent).getByText('Make progress')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+  it('guards abandonment of a dirty Product draft while workspace switching preserves it', async () => {
+    const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); const inspector = await openInspector(user);
+    const title = inspector.getByLabelText('Title'); await user.clear(title); await user.type(title, 'Orbit draft');
+    await openMap(user); expect(screen.queryByRole('dialog', { name: 'Unsaved Product changes' })).not.toBeInTheDocument(); await openInspector(user); expect(inspector.getByLabelText('Title')).toHaveValue('Orbit draft');
+    await user.click(screen.getByRole('button', { name: 'Add element' })); const guard = screen.getByRole('dialog', { name: 'Unsaved Product changes' }); expect(guard).toBeInTheDocument();
+    await user.click(within(guard).getByRole('button', { name: 'Keep editing' })); expect(inspector.getByLabelText('Title')).toHaveValue('Orbit draft');
+    await user.click(screen.getByRole('button', { name: 'Add element' })); await user.click(within(screen.getByRole('dialog', { name: 'Unsaved Product changes' })).getByRole('button', { name: 'Discard' }));
+    expect(screen.getByRole('heading', { name: 'Add an element' })).toBeInTheDocument(); await openMap(user); expect(screen.getByRole('button', { name: 'Orbit' })).toBeInTheDocument();
+  });
 });
 
 it('renders an accessible peripheral link only for a safe Touchpoint URL', () => {
