@@ -752,10 +752,9 @@ describe('searchable Touchpoint connection picker', () => {
     await user.click(inspector.getByRole('button', { name: 'Add connection' }));
     await user.click(inspector.getByRole('button', { name: /Finish faster/ }));
     await user.click(inspector.getByRole('button', { name: 'Add selected connection' }));
-    expect(within(inspector.getByRole('region', { name: 'Connected' })).queryByText('Finish faster')).not.toBeInTheDocument();
-    await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
     expect(within(inspector.getByRole('region', { name: 'Connected' })).getByRole('button', { name: 'Make progress' })).toBeInTheDocument();
     expect(within(inspector.getByRole('region', { name: 'Connected' })).getByRole('button', { name: 'Finish faster' })).toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
   });
 
   it('repositions only the Touchpoint after its represented intent route commits', async () => {
@@ -766,7 +765,6 @@ describe('searchable Touchpoint connection picker', () => {
     await user.click(inspector.getByRole('button', { name: 'Add connection' }));
     await user.click(inspector.getByRole('button', { name: /Finish faster/ }));
     await user.click(inspector.getByRole('button', { name: 'Add selected connection' }));
-    await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
     await user.click(screen.getByRole('tab', { name: 'Map' }));
     expect(nodePoint('Checkout')).not.toEqual(before.get('touch'));
     for (const [entityId, point] of before) {
@@ -782,6 +780,17 @@ describe('searchable Touchpoint connection picker', () => {
     await user.click(inspector.getByRole('button', { name: /Finish faster/ }));
     await user.click(inspector.getByRole('button', { name: 'Cancel' }));
     expect(document).toEqual(snapshot); expect(inspector.getByRole('region', { name: 'Connected' })).toHaveTextContent('No connections yet.');
+  });
+
+  it('with multiple Offers contributor is not guessed and commit is blocked', async () => {
+    const user = userEvent.setup(); const document = touchpointInspectorDocument(true); const snapshot = structuredClone(document); const inspector = renderTouchpointInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Add connection' }));
+    await user.click(inspector.getByRole('button', { name: /Finish faster/ }));
+    const contributors = within(inspector.getByRole('group', { name: 'Contributing Offers' }));
+    expect(contributors.getByRole('checkbox', { name: 'Subscription' })).not.toBeChecked();
+    expect(contributors.getByRole('checkbox', { name: 'Consulting' })).not.toBeChecked();
+    expect(inspector.getByRole('button', { name: 'Add selected connection' })).toBeDisabled();
+    expect(document).toEqual(snapshot);
   });
 
   it('direct Job to Touchpoint selection is unavailable', async () => {
