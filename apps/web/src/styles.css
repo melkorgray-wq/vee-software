@@ -94,6 +94,11 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .satellite-content { gap: .08rem; line-height: 1; }
 .satellite-title { -webkit-line-clamp: 2; line-clamp: 2; }
 .satellite-disclosure { white-space: normal; }
+.react-flow__edge.map-edge.relation-dimmed { opacity: .18; }
+.relation-focused { outline: 3px solid var(--color-primary); outline-offset: 5px; border-radius: 50%; }
+.relation-target-overlay { position: absolute; z-index: 10; top: calc(100% + .5rem); display: grid; min-width: 12rem; padding: .35rem; border: 1px solid var(--border-soft); border-radius: .35rem; background: var(--surface-solid-2); text-align: left; }
+.relation-target-overlay [role="option"] { padding: .35rem .5rem; }
+.relation-target-overlay [aria-selected="true"] { color: var(--color-foreground); background: rgba(255,72,0,.28); }
 .inline-node-title { box-sizing: border-box; width: 100%; min-height: 2.4em; padding: .2rem; border: 1px solid var(--color-primary); border-radius: .25rem; color: inherit; background: var(--surface-solid-1); font: inherit; font-size: var(--node-title-size); line-height: 1.08; text-align: center; resize: none; }
 .react-flow__controls button { color: var(--color-foreground); background: var(--surface-solid-2); border-color: var(--border-subtle); }
 .context-menu, .contextual-editor { position: absolute; z-index: 20; display: grid; gap: .4rem; min-width: 12rem; padding: .65rem; border: 1px solid var(--border-soft); border-radius: .4rem; background: var(--surface-solid-2); box-shadow: 0 .75rem 2rem rgba(0,0,0,.45); }

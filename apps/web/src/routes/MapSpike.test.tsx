@@ -84,6 +84,22 @@ describe('map-first authoring interactions', () => {
     expect(within(group).getByText('2')).toHaveAccessibleName('2 targets');
     expect(screen.getAllByRole('button', { name: /Desired Outcome group/ })).toHaveLength(1);
   });
+
+  it('traverses Relations mode by exact accessible names and follows or inspects the concrete target', async () => {
+    const user = userEvent.setup(); render(<MapSpike initialDocument={touchpointInspectorDocument()} />);
+    await user.click(screen.getByRole('button', { name: 'Make progress' }));
+    fireEvent.keyDown(window, { key: 'r' });
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    const targets = screen.getByRole('listbox', { name: 'Desired Outcome relation targets' });
+    expect(within(targets).getByRole('option', { name: 'Finish faster', selected: true })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(screen.getByRole('button', { name: 'Finish faster' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Make progress' }));
+    fireEvent.keyDown(window, { key: 'r' }); fireEvent.keyDown(window, { key: 'ArrowDown' });
+    fireEvent.keyDown(window, { code: 'Space', key: ' ', ctrlKey: true, shiftKey: true });
+    expect(screen.getByRole('tab', { name: 'Entity Inspector' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).toHaveTextContent('Finish faster');
+  });
   it('satellite title disclosure is viewport-aware', () => {
     render(<section id="map-workspace-panel"><MapNode data={{ title: 'Desired Outcome group (2)', kindLabel: 'Desired Outcome', layout: { diameter: 54, titleFontSize: 12, kindFontSize: 10, contentWidth: 42, compactTitle: true }, satellite: { kind: 'desired_outcome', targetIds: ['a', 'b'], titles: ['A very long concrete target title', 'Another concrete target title'] } }} /></section>);
     fireEvent.focus(screen.getByLabelText('Desired Outcome: A very long concrete target title, Another concrete target title'));

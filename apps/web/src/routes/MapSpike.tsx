@@ -6,6 +6,8 @@ import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpoint
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, disclosureOverlayPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction, type Point, type WorkspaceShortcutState } from '../map-interaction';
+import { focusedRelationTarget, inactiveRelationsMode, reduceRelationsMode, relationEdgeClassName, type RelationsMode } from '../map-relations-mode';
+import { relationGroupsForEntity, relevantPhysicalEdgeIds } from '../map-relation-projection';
 import { emptyInspectorHistory, inspectorHistoryReducer, traverseInspectorHistory } from '../inspector-navigation';
 import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, type ProposedPlacementRelation } from '../map-placement';
 import { Link } from '../router';
@@ -278,9 +280,10 @@ export function MapNode({ data }: { data: MapNodeData }) {
     '--node-content-width': `${data.layout.contentWidth}px`,
   } as CSSProperties;
   if (data.satellite) return (
-    <div className="node-content satellite-content" style={style}>
+    <div className={`node-content satellite-content${data.satellite.focused ? ' relation-focused' : ''}`} style={style}>
       <strong ref={titleRef} className="node-title satellite-title" tabIndex={0} aria-label={`${data.kindLabel}: ${data.satellite.titles.join(', ')}`} onMouseEnter={() => setTitleHovered(true)} onMouseLeave={() => setTitleHovered(false)} onFocus={() => setTitleFocused(true)} onBlur={() => setTitleFocused(false)}>{data.kindLabel}</strong>
       <span aria-label={`${data.satellite.targetIds.length} targets`}>{data.satellite.targetIds.length}</span>
+      {data.satellite.focused && <div className="relation-target-overlay" role="listbox" aria-label={`${data.kindLabel} relation targets`}>{data.satellite.titles.map((title, index) => <div role="option" aria-selected={data.satellite?.targetIds[index] === data.satellite?.focusedTargetId} key={data.satellite?.targetIds[index]}>{title}</div>)}</div>}
       {disclosed && createPortal(<div ref={disclosureRef} role="tooltip" className="title-disclosure satellite-disclosure" style={{ left: disclosure?.x ?? 8, top: disclosure?.y ?? 8, visibility: disclosure ? 'visible' : 'hidden' }} onMouseEnter={() => setDisclosureHovered(true)} onMouseLeave={() => setDisclosureHovered(false)}>{data.satellite.titles.join(', ')}</div>, disclosure?.owner ?? titleRef.current?.closest<HTMLElement>('#map-workspace-panel') ?? globalThis.document.body)}
     </div>
   );
@@ -313,6 +316,9 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const documentRef = useRef(document);
   documentRef.current = document;
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [relationsMode, setRelationsMode] = useState<RelationsMode>(inactiveRelationsMode);
+  const relationsModeRef = useRef(relationsMode);
+  relationsModeRef.current = relationsMode;
   const [inspectorHistory, dispatchInspectorHistory] = useReducer(inspectorHistoryReducer, undefined, emptyInspectorHistory);
   const [activeWorkspaceView, setActiveWorkspaceView] = useState<WorkspaceView>('map');
   const activeWorkspaceViewRef = useRef(activeWorkspaceView);
@@ -344,6 +350,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const copiedRef = useRef(copiedId);
   copiedRef.current = copiedId;
   const [message, setMessage] = useState('');
+  const focusedGroup = relationsMode.state === 'inactive' ? undefined : relationsMode.groups[relationsMode.groupIndex];
+  const relationTargetId = focusedRelationTarget(relationsMode);
   const nodes = deriveMapNodes(document, VIEW_ID, selectedId).map((node) => ({
     ...node,
     type: 'mapNode',
@@ -353,9 +361,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       inlineTitle: inlineEdit.title,
       onInlineTitleCommit: (title: string) => finishInlineTitleEdit(title),
       onInlineTitleCancel: () => finishInlineTitleEdit(false),
-    } : { ...node.data, ...(!node.data.satellite ? { onTitleDoubleClick: () => startInlineTitleEdit(node.id) } : {}) },
+    } : { ...node.data, ...(node.data.satellite ? { satellite: { ...node.data.satellite, focused: node.id === `satellite:${relationsMode.state === 'inactive' ? '' : relationsMode.sourceId}:${focusedGroup?.satelliteKind}`, ...(relationTargetId ? { focusedTargetId: relationTargetId } : {}) } } : { onTitleDoubleClick: () => startInlineTitleEdit(node.id) }) },
   }));
-  const edges = deriveMapEdges(document);
+  const relevantEdgeIds = relationsMode.state === 'concrete-list' && relationTargetId ? new Set(relevantPhysicalEdgeIds(document, relationsMode.sourceId, relationTargetId)) : null;
+  const edges = deriveMapEdges(document).map(edge => ({ ...edge, className: relationEdgeClassName(edge.className, edge.id, relevantEdgeIds) }));
   const selected = document.entities.find((e) => e.id === selectedId);
   const inspectorDirty = Boolean(selected && editDraft && (() => { const baseline = draftFor(selected); return JSON.stringify({ ...editDraft, touchpointIntent: undefined }) !== JSON.stringify({ ...baseline, touchpointIntent: undefined }) || Boolean(editDraft.touchpointIntent && baseline.touchpointIntent && !equalTouchpointIntentDraft(editDraft.touchpointIntent, baseline.touchpointIntent)); })());
 
@@ -498,6 +507,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     pending();
   }
   function performSelect(id: string | null) {
+    setRelationsMode(inactiveRelationsMode());
     setSelectedId(id);
     setMode('idle');
     setQuick(null);
@@ -508,7 +518,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     resetProductSession(entity, documentRef.current);
   }
   function select(id: string | null) {
-    if (id === selectedRef.current) return;
+    if (id === selectedRef.current) {
+      if (relationsModeRef.current.state !== 'inactive') setRelationsMode(inactiveRelationsMode());
+      return;
+    }
     if (guardsDirtySession(selected)) {
       setProductConfirmation({ mode: 'dirty', pending: () => performSelect(id), returnFocus: globalThis.document.activeElement as HTMLElement | null });
       return;
@@ -922,12 +935,32 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        if (relationsModeRef.current.state !== 'inactive') {
+          event.preventDefault();
+          const previous = relationsModeRef.current;
+          const next = reduceRelationsMode(previous, { type: 'escape' }).mode;
+          setRelationsMode(next);
+          if (next.state === 'inactive') requestAnimationFrame(() => {
+            const escaped = CSS.escape(previous.sourceId);
+            globalThis.document.querySelector<HTMLElement>(`.react-flow__node[data-id="${escaped}"], [data-node-id="${escaped}"]`)?.focus();
+          });
+          return;
+        }
         setMenu(null);
         setQuick(null);
         return;
       }
       const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
       if (matchesWorkspaceShortcut(event, isMac)) {
+        const relationTarget = focusedRelationTarget(relationsModeRef.current);
+        if (relationTarget && activeWorkspaceViewRef.current === 'map') {
+          event.preventDefault();
+          setRelationsMode(inactiveRelationsMode());
+          performSelect(relationTarget);
+          activateWorkspaceView('inspector');
+          requestAnimationFrame(() => globalThis.document.getElementById('inspector-workspace-tab')?.focus());
+          return;
+        }
         const shortcutState: WorkspaceShortcutState = productConfirmation?.mode === 'impact'
           ? 'impact-confirmation'
           : quick || inlineEdit || productInline || productAddingKind ? 'inline-edit'
@@ -952,7 +985,23 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       }
       if (isEditableControl(event.target) || isKeyboardOwnedControl(event.target)) return;
       const modifier = event.ctrlKey || event.metaKey;
-      if (modifier && event.key.toLowerCase() === 'c' && selectedRef.current) {
+      const relationMode = relationsModeRef.current;
+      if (!modifier && relationMode.state !== 'inactive' && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter'].includes(event.key)) {
+        event.preventDefault();
+        const type = event.key === 'ArrowLeft' ? 'previous-group' : event.key === 'ArrowRight' ? 'next-group' : event.key === 'ArrowUp' ? 'previous-target' : event.key === 'ArrowDown' ? 'next-target' : 'follow-target';
+        const result = reduceRelationsMode(relationMode, { type });
+        setRelationsMode(result.mode);
+        if (result.followedTargetId) {
+          performSelect(result.followedTargetId);
+          requestAnimationFrame(() => revealEntities(documentRef.current, [result.followedTargetId!]));
+        }
+      } else if (!modifier && event.key.toLowerCase() === 'r' && selectedRef.current && activeWorkspaceViewRef.current === 'map') {
+        const groups = relationGroupsForEntity(documentRef.current, selectedRef.current);
+        if (groups.length) {
+          event.preventDefault();
+          setRelationsMode(reduceRelationsMode(relationMode, { type: 'enter', sourceId: selectedRef.current, groups }).mode);
+        }
+      } else if (modifier && event.key.toLowerCase() === 'c' && selectedRef.current) {
         event.preventDefault();
         setCopiedId(selectedRef.current);
       } else if (modifier && event.key.toLowerCase() === 'v' && copiedRef.current) {
