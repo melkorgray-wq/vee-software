@@ -732,7 +732,9 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
     await user.click(linkedOffers.getByRole('checkbox', { name: 'Subscription' })); await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
     let review = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
     expect(within(review).getByText('path to Make progress → Finish faster will be removed; alternative: Consulting')).toBeInTheDocument();
+    const originalApply = inspector.getByRole('button', { name: 'Apply changes' });
     await user.click(within(review).getByRole('button', { name: 'Cancel' })); expect(review).not.toBeInTheDocument();
+    await vi.waitFor(() => expect(originalApply).toHaveFocus());
     expect(linkedOffers.getByRole('checkbox', { name: 'Subscription' })).not.toBeChecked();
     expect(document.relationships).toContainEqual(expect.objectContaining({ kind: 'offer_presented_at_touchpoint', offerId: 'offer-a', touchpointId: 'touch' }));
     expect(document.touchpointJobSelections).toEqual(expect.arrayContaining([
@@ -742,6 +744,42 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
     await user.click(inspector.getByRole('button', { name: 'Apply changes' })); review = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
     await user.click(within(review).getByRole('button', { name: 'Apply changes' }));
     expect(linkedOffers.getByRole('checkbox', { name: 'Subscription' })).not.toBeChecked(); expect(linkedOffers.getByRole('checkbox', { name: 'Consulting' })).toBeChecked();
+    await vi.waitFor(() => expect(inspector.getByRole('textbox', { name: 'Title' })).toHaveFocus());
+    await user.click(screen.getByRole('tab', { name: 'Map' }));
+    const map = screen.getByLabelText('Map canvas');
+    expect(map.querySelector('[data-source="offer-a"][data-target="touch"]')).not.toBeInTheDocument();
+    expect(map.querySelector('[data-source="offer-b"][data-target="touch"]')).toBeInTheDocument();
+  });
+
+  it('touchpoint unlink confirmation commits once after a prior cancel', async () => {
+    const user = userEvent.setup(); let document = touchpointInspectorDocument(true);
+    document = applyTouchpointIntentDraft(document, { touchpointId: 'touch', draft: { jobLeaves: [{ jobId: 'job', semanticLeafId: 'do-a', desiredOutcomeId: 'do-a', contributorOfferIds: ['offer-a', 'offer-b'] }], financialLeaves: [], pendingJobLeafIds: [], pendingFinancialLeafIds: [] }, newId: (() => { let id = 0; return () => `seed-${++id}`; })() });
+    const inspector = renderTouchpointInspector(document); const linkedOffers = within(inspector.getByRole('group', { name: 'Linked Offers' }));
+    await user.click(linkedOffers.getByRole('checkbox', { name: 'Subscription' }));
+    const apply = inspector.getByRole('button', { name: 'Apply changes' }); await user.click(apply);
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+    await user.click(apply); await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Apply changes' }));
+    expect(screen.getByRole('status')).toHaveTextContent('Changes applied.');
+    expect(apply).toBeDisabled();
+    expect(linkedOffers.getByRole('checkbox', { name: 'Subscription' })).not.toBeChecked();
+    const clientIntent = within(inspector.getByRole('group', { name: 'Client intent' })); await user.click(clientIntent.getByRole('button', { name: 'Expand Make progress' }));
+    const retainedLeaf = clientIntent.getByText('Finish faster').closest<HTMLElement>('.intent-leaf')!;
+    expect(within(retainedLeaf).getByText('via Consulting')).toBeInTheDocument();
+    expect(within(retainedLeaf).queryByText(/Subscription/)).not.toBeInTheDocument();
+  });
+
+  it('touchpoint unlink confirmation failure preserves the complete durable document', async () => {
+    const user = userEvent.setup(); let document = touchpointInspectorDocument(true);
+    document = applyTouchpointIntentDraft(document, { touchpointId: 'touch', draft: { jobLeaves: [{ jobId: 'job', semanticLeafId: 'do-a', desiredOutcomeId: 'do-a', contributorOfferIds: ['offer-a', 'offer-b'] }], financialLeaves: [], pendingJobLeafIds: [], pendingFinancialLeafIds: [] }, newId: (() => { let id = 0; return () => `seed-${++id}`; })() });
+    const inspector = renderTouchpointInspector(document); const linkedOffers = within(inspector.getByRole('group', { name: 'Linked Offers' }));
+    await user.click(linkedOffers.getByRole('checkbox', { name: 'Subscription' })); await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
+    vi.stubGlobal('crypto', { randomUUID: () => 'seed-1' });
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Apply changes' }));
+    expect(screen.getByRole('status')).toHaveTextContent(/record ID|already exists/i);
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).not.toBeDisabled();
+    await user.click(screen.getByRole('tab', { name: 'Map' })); const map = screen.getByLabelText('Map canvas');
+    expect(map.querySelector('[data-source="offer-a"][data-target="touch"]')).toBeInTheDocument();
+    expect(map.querySelector('[data-source="offer-b"][data-target="touch"]')).toBeInTheDocument();
   });
 
   it('Map to Inspector round trip preserves Touchpoint draft without a prompt', async () => {

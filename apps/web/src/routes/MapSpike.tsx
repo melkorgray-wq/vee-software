@@ -362,6 +362,12 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setProductConfirmation(null);
     requestAnimationFrame(() => target?.focus());
   }
+  function restoreTouchpointApplyFocus(target?: HTMLElement | null) {
+    requestAnimationFrame(() => {
+      if (target?.isConnected && !target.matches(':disabled')) target.focus();
+      else globalThis.document.querySelector<HTMLElement>('#inspector-workspace-panel form input[name="title"], #inspector-workspace-panel form input[required]')?.focus();
+    });
+  }
 
   function draftFor(entity: Entity, source = document): EditDraft {
     const result = draft(entity.kind);
@@ -388,21 +394,25 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     if (entity.kind === 'repulsor') result.resistedTargetIds = source.relationships.filter((r): r is Extract<Relationship, { kind: 'repulsor_resists' }> => r.kind === 'repulsor_resists' && r.repulsorId === entity.id).map((r) => r.targetEntityId);
     return result;
   }
-  function applyTouchpointChanges(pending = pendingAfterApplyRef.current, returnFocus?: HTMLElement | null): boolean {
+  function applyTouchpointChanges(pending = pendingAfterApplyRef.current, returnFocus?: HTMLElement | null, confirmed = false): boolean {
     const durable = documentRef.current;
     const entity = durable.entities.find(candidate => candidate.id === selectedRef.current);
     const currentDraft = editDraft;
     if (entity?.kind !== 'touchpoint' || !currentDraft?.touchpointIntent) return false;
     try {
       const impact = getTouchpointLinkedOfferChangeImpact(durable, { touchpointId: entity.id, linkedOfferIds: currentDraft.linkedOfferIds });
-      if (!productApplyBypassRef.current && impact.length) {
+      if (!confirmed && impact.length) {
         setProductConfirmation({ mode: 'impact', owner: 'touchpoint', impact, ...(pending ? { pending } : {}), returnFocus: returnFocus ?? globalThis.document.activeElement as HTMLElement | null });
         return false;
       }
-      productApplyBypassRef.current = false;
+      const postConfirmationDraft = confirmed ? {
+        ...currentDraft.touchpointIntent,
+        jobLeaves: currentDraft.touchpointIntent.jobLeaves.map(leaf => ({ ...leaf, contributorOfferIds: leaf.contributorOfferIds.filter(id => currentDraft.linkedOfferIds.includes(id)) })),
+        financialLeaves: currentDraft.touchpointIntent.financialLeaves.map(leaf => ({ ...leaf, contributorOfferIds: leaf.contributorOfferIds.filter(id => currentDraft.linkedOfferIds.includes(id)) })),
+      } : currentDraft.touchpointIntent;
       const next = applyTouchpointEditDraft(durable, {
         touchpointId: entity.id,
-        draft: { ...currentDraft, touchpointIntent: currentDraft.touchpointIntent },
+        draft: { ...currentDraft, touchpointIntent: postConfirmationDraft },
         newId: () => crypto.randomUUID(),
       });
       setDocument(next);
@@ -410,6 +420,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       setMessage('Changes applied.');
       pendingAfterApplyRef.current = null;
       pending?.();
+      restoreTouchpointApplyFocus(returnFocus);
       return true;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Changes could not be applied.');
@@ -1847,7 +1858,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 <button type="button" onClick={closeProductConfirmation}>Keep editing</button>
               </> : <>
                 <button type="button" onClick={closeProductConfirmation}>Cancel</button>
-                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; productApplyBypassRef.current = true; setProductConfirmation(null); if (confirmation.owner === 'touchpoint') applyTouchpointChanges(confirmation.pending, confirmation.returnFocus); else globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); }}>Apply changes</button>
+                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; setProductConfirmation(null); if (confirmation.owner === 'touchpoint') applyTouchpointChanges(confirmation.pending, confirmation.returnFocus, true); else { productApplyBypassRef.current = true; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>Apply changes</button>
               </>}
             </div>
           </div>
