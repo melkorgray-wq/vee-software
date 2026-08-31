@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useReducer, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -6,6 +6,7 @@ import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpoint
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, disclosureOverlayPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction, type Point, type WorkspaceShortcutState } from '../map-interaction';
+import { emptyInspectorHistory, inspectorHistoryReducer, traverseInspectorHistory } from '../inspector-navigation';
 import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, type ProposedPlacementRelation } from '../map-placement';
 import { Link } from '../router';
 import { applyTouchpointEditDraft, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, jobLeafKey, selectCurrentOfferIntent, validateTouchpointIntentDraft, type TouchpointIntentDraft } from './touchpoint-edit';
@@ -305,6 +306,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const documentRef = useRef(document);
   documentRef.current = document;
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [inspectorHistory, dispatchInspectorHistory] = useReducer(inspectorHistoryReducer, undefined, emptyInspectorHistory);
   const [activeWorkspaceView, setActiveWorkspaceView] = useState<WorkspaceView>('map');
   const activeWorkspaceViewRef = useRef(activeWorkspaceView);
   activeWorkspaceViewRef.current = activeWorkspaceView;
@@ -504,6 +506,31 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       return;
     }
     performSelect(id);
+  }
+  function performInspectorNavigation(id: string, history = inspectorHistory, push = true) {
+    if (!documentRef.current.entities.some(entity => entity.id === id)) return;
+    performSelect(id);
+    if (push) dispatchInspectorHistory({ type: 'push', entityId: id });
+    else dispatchInspectorHistory({ type: 'replace', history });
+  }
+  function navigateInspector(id: string) {
+    if (id === selectedRef.current) return;
+    const pending = () => performInspectorNavigation(id);
+    if (guardsDirtySession(selected)) {
+      setProductConfirmation({ mode: 'dirty', pending, returnFocus: globalThis.document.activeElement as HTMLElement | null });
+      return;
+    }
+    pending();
+  }
+  function traverseInspector(direction: 'back' | 'forward') {
+    const result = traverseInspectorHistory(inspectorHistory, direction, id => documentRef.current.entities.some(entity => entity.id === id));
+    if (!result) return;
+    const pending = () => performInspectorNavigation(result.targetId, result.history, false);
+    if (guardsDirtySession(selected)) {
+      setProductConfirmation({ mode: 'dirty', pending, returnFocus: globalThis.document.activeElement as HTMLElement | null });
+      return;
+    }
+    pending();
   }
   function focusEntity(id: string) {
     const escaped = CSS.escape(id);
@@ -942,6 +969,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   });
   function activateWorkspaceView(view: WorkspaceView) {
     setActiveWorkspaceView(view);
+    if (view === 'inspector' && selectedRef.current) dispatchInspectorHistory({ type: 'push', entityId: selectedRef.current });
     if (view === 'map' && pendingInspectorRevealRef.current) {
       const ids = pendingInspectorRevealRef.current;
       pendingInspectorRevealRef.current = null;
@@ -997,7 +1025,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               {document.entities
                 .filter((e) => e.kind === 'offer')
                 .map((o) => (
-                  <label className="checkbox" key={o.id}>
+                  <div className="connected-choice" key={o.id}><label className="checkbox">
                     <input
                       type="checkbox"
                       checked={d.linkedOfferIds.includes(o.id)}
@@ -1015,7 +1043,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                       }}
                     />
                     {o.title}
-                  </label>
+                  </label><button type="button" className="connected-title" onClick={() => navigateInspector(o.id)}>{o.title}</button></div>
                 ))}
             </fieldset>
             <fieldset>
@@ -1625,6 +1653,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         </section>
         <section id="inspector-workspace-panel" role="tabpanel" aria-labelledby="inspector-workspace-tab" className="inspector" hidden={activeWorkspaceView !== 'inspector'}>
           <h2 id="inspector-title">Entity Inspector</h2>
+          <nav className="inspector-history" aria-label="Inspector history">
+            <button type="button" aria-label="Inspector Back" disabled={!traverseInspectorHistory(inspectorHistory, 'back', id => document.entities.some(entity => entity.id === id))} onClick={() => traverseInspector('back')}>Back</button>
+            <button type="button" aria-label="Inspector Forward" disabled={!traverseInspectorHistory(inspectorHistory, 'forward', id => document.entities.some(entity => entity.id === id))} onClick={() => traverseInspector('forward')}>Forward</button>
+          </nav>
           {message && !quick && (
             <p className="status-message" role="status">
               {message}
@@ -1808,6 +1840,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 <input required value={editDraft.title} onChange={(e) => setEditDraft({ ...editDraft, title: e.target.value })} />
               </label>
               {selected.kind === 'offer' && (
+                <div className="connected-field">
                 <label>
                   Linked Product
                   <select
@@ -1833,6 +1866,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                       ))}
                   </select>
                 </label>
+                {document.entities.find(entity => entity.id === editDraft.linkedProductId) && <button type="button" className="connected-title" onClick={() => navigateInspector(editDraft.linkedProductId)}>{entityTitle(document, editDraft.linkedProductId)}</button>}
+                </div>
               )}
               {productIntentFields(editDraft, setEditDraft)}
               {offerIntentFields(editDraft, setEditDraft)}
