@@ -845,4 +845,41 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
     expect(within(inspector.getByRole('group', { name: 'Linked Offers' })).getByRole('checkbox', { name: 'Subscription' })).toBeChecked();
     expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
   });
+
+  it('connected entity titles navigate directly between Inspectors', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector();
+    await user.click(within(inspector.getByRole('group', { name: 'Linked Offers' })).getByRole('button', { name: 'Subscription' }));
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Orbit' }));
+    expect(inspector.getByRole('heading', { name: 'Orbit' })).toBeInTheDocument();
+  });
+
+  it('Inspector Back and Forward preserve shared Map selection', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector();
+    await user.click(within(inspector.getByRole('group', { name: 'Linked Offers' })).getByRole('button', { name: 'Subscription' }));
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    expect(inspector.getByRole('heading', { name: 'Checkout' })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Forward' }));
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+    await openMap(user); await openInspector(user);
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+  });
+
+  it('dirty Inspector navigation uses the existing abandonment guard', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector();
+    await user.clear(inspector.getByRole('textbox', { name: 'Title' })); await user.type(inspector.getByRole('textbox', { name: 'Title' }), 'Checkout draft');
+    await user.click(within(inspector.getByRole('group', { name: 'Linked Offers' })).getByRole('button', { name: 'Subscription' }));
+    const guard = screen.getByRole('dialog', { name: 'Unsaved Touchpoint changes' });
+    await user.click(within(guard).getByRole('button', { name: 'Keep editing' }));
+    expect(inspector.getByRole('textbox', { name: 'Title' })).toHaveValue('Checkout draft');
+    await user.click(within(inspector.getByRole('group', { name: 'Linked Offers' })).getByRole('button', { name: 'Subscription' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Unsaved Touchpoint changes' })).getByRole('button', { name: 'Discard' }));
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+  });
+
+  it('history controls expose exact accessible names', () => {
+    const inspector = renderTouchpointInspector();
+    expect(inspector.getByRole('button', { name: 'Inspector Back' })).toBeDisabled();
+    expect(inspector.getByRole('button', { name: 'Inspector Forward' })).toBeDisabled();
+  });
 });
