@@ -1,6 +1,25 @@
 import { expect, it } from 'vitest';
 import { addEntity, addTouchpointContainer, createEmptyMapDocument, duplicateEntity } from '@vee/domain';
-import { contextMenuPoint, linkedOfferIds, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement } from './map-interaction';
+import { contextMenuPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction } from './map-interaction';
+
+it('arbitrates every workspace shortcut interaction state in one policy', () => {
+  expect(workspaceShortcutAction('node')).toBe('switch');
+  expect(workspaceShortcutAction('dismissible-menu')).toBe('dismiss-and-switch');
+  expect(workspaceShortcutAction('tooltip')).toBe('dismiss-and-switch');
+  expect(workspaceShortcutAction('inline-edit')).toBe('ignore');
+  expect(workspaceShortcutAction('create-draft')).toBe('ignore');
+  expect(workspaceShortcutAction('dirty-inspector')).toBe('confirm');
+  expect(workspaceShortcutAction('impact-confirmation')).toBe('ignore');
+  expect(workspaceShortcutAction('node', true)).toBe('ignore');
+});
+
+it('matches the platform workspace modifier without accepting mixed modifiers', () => {
+  const event = { code: 'Space', shiftKey: true, ctrlKey: true, metaKey: false, altKey: false };
+  expect(matchesWorkspaceShortcut(event, false)).toBe(true);
+  expect(matchesWorkspaceShortcut({ ...event, ctrlKey: false, metaKey: true }, true)).toBe(true);
+  expect(matchesWorkspaceShortcut({ ...event, metaKey: true }, false)).toBe(false);
+  expect(matchesWorkspaceShortcut({ ...event, altKey: true }, false)).toBe(false);
+});
 
 it('converts client coordinates to clamped panel-local overlay coordinates', () => {
   const panel = { left: 300, top: 120, width: 700, height: 500 };

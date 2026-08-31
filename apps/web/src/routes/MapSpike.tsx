@@ -4,7 +4,7 @@ import '@xyflow/react/dist/style.css';
 import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, createEmptyMapDocument, duplicateEntity, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateProductJobIntent, updateRepulsorTargets, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
-import { contextMenuPoint, linkedOfferIds, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, type Point } from '../map-interaction';
+import { contextMenuPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction, type Point, type WorkspaceShortcutState } from '../map-interaction';
 import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, type ProposedPlacementRelation } from '../map-placement';
 import { Link } from '../router';
 import { applyTouchpointEditDraft, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, jobLeafKey, selectCurrentOfferIntent, validateTouchpointIntentDraft, type TouchpointIntentDraft } from './touchpoint-edit';
@@ -100,7 +100,8 @@ const draft = (kind: ProvisionalEntityKind = 'product'): EditDraft => ({
   offerPrerequisite: 'existing',
   newOfferTitle: '',
 });
-const isControl = (target: EventTarget | null) => target instanceof HTMLElement && Boolean(target.closest('input, textarea, select, button, [role="combobox"], [contenteditable], form, [role="dialog"], [role="menu"], [role="listbox"], [popover], .contextual-editor'));
+const isEditableControl = (target: EventTarget | null) => target instanceof HTMLElement && (target.contentEditable === 'true' || Boolean(target.closest('input, textarea, select, [role="textbox"], [role="combobox"], [contenteditable]')));
+const isKeyboardOwnedControl = (target: EventTarget | null) => target instanceof HTMLElement && Boolean(target.closest('button, form, [role="dialog"], [role="menu"], [role="listbox"], [popover], .contextual-editor'));
 const hasCanonicalChild = (entity: Entity) => entity.kind === 'product' || entity.kind === 'offer' || entity.kind === 'touchpoint' || entity.kind === 'core_functional_job' || entity.kind === 'consumption_chain_job' || entity.kind === 'related_job';
 const safeUrl = (url?: string) => (url && !/^\s*(javascript|data):/i.test(url) ? url : undefined);
 const normalizeTitleLineBreaks = (value: string) => value.replace(/[\r\n\u2028\u2029]+/g, ' ');
@@ -868,15 +869,31 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         setQuick(null);
         return;
       }
-      if (isControl(event.target)) return;
       const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
-      const workspaceModifier = isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
-      const interactionOwnsKeyboard = Boolean(menu || quick || inlineEdit || mode === 'create');
-      if (event.code === 'Space' && event.shiftKey && workspaceModifier && !event.altKey && !interactionOwnsKeyboard) {
+      if (matchesWorkspaceShortcut(event, isMac)) {
+        const shortcutState: WorkspaceShortcutState = productConfirmation?.mode === 'impact'
+          ? 'impact-confirmation'
+          : quick || inlineEdit || productInline || productAddingKind ? 'inline-edit'
+            : mode === 'create' ? 'create-draft'
+              : guardsDirtySession(selected) ? 'dirty-inspector'
+                : menu ? 'dismissible-menu' : 'node';
+        const action = workspaceShortcutAction(shortcutState, isEditableControl(event.target));
+        if (action === 'ignore') return;
         event.preventDefault();
-        activateWorkspaceView(activeWorkspaceViewRef.current === 'map' ? 'inspector' : 'map');
+        const destination = activeWorkspaceViewRef.current === 'map' ? 'inspector' : 'map';
+        const switchWorkspace = () => {
+          activateWorkspaceView(destination);
+          requestAnimationFrame(() => globalThis.document.getElementById(`${destination}-workspace-tab`)?.focus());
+        };
+        if (action === 'dismiss-and-switch') setMenu(null);
+        if (action === 'confirm') {
+          setProductConfirmation({ mode: 'dirty', pending: switchWorkspace, returnFocus: globalThis.document.activeElement as HTMLElement | null });
+        } else {
+          switchWorkspace();
+        }
         return;
       }
+      if (isEditableControl(event.target) || isKeyboardOwnedControl(event.target)) return;
       const modifier = event.ctrlKey || event.metaKey;
       if (modifier && event.key.toLowerCase() === 'c' && selectedRef.current) {
         event.preventDefault();

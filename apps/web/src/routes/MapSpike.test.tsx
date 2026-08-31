@@ -348,19 +348,36 @@ describe('map-first authoring interactions', () => {
     expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).toHaveTextContent('Subscription');
     await openMap(user); fireEvent.contextMenu(screen.getByRole('button', { name: 'Subscription' })); expect(screen.getByRole('menuitem', { name: 'Open in Entity Inspector' })).toBeInTheDocument();
   });
-  it('toggles workspaces with layout-independent Windows/Linux and macOS shortcuts while preserving selection', async () => {
+  it('workspace shortcut preserves the selected entity in both directions', async () => {
     const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await user.click(screen.getByRole('button', { name: 'Orbit' }));
     fireEvent.keyDown(window, { code: 'Space', key: ' ', ctrlKey: true, shiftKey: true }); expect(screen.getByRole('tab', { name: 'Entity Inspector' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).toHaveTextContent('Orbit');
     fireEvent.keyDown(window, { code: 'Space', key: ' ', ctrlKey: true, shiftKey: true }); expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
-    vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
+    const platform = vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
     fireEvent.keyDown(window, { code: 'Space', key: ' ', metaKey: true, shiftKey: true }); expect(screen.getByRole('tab', { name: 'Entity Inspector' })).toHaveAttribute('aria-selected', 'true');
+    platform.mockRestore();
   });
-  it('does not let the workspace shortcut steal editable or menu-owned keyboard input', async () => {
+  it('workspace shortcut dismisses an entity menu and opens the selected Inspector', async () => {
+    const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); const node = screen.getByRole('button', { name: 'Orbit' }); await user.click(node);
+    fireEvent.keyDown(window, { key: 'Tab' }); expect(screen.getByRole('menu', { name: 'Entity context menu' })).toBeInTheDocument();
+    fireEvent.keyDown(window, { code: 'Space', key: ' ', ctrlKey: true, shiftKey: true });
+    expect(screen.queryByRole('menu', { name: 'Entity context menu' })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Entity Inspector' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).toHaveTextContent('Orbit');
+  });
+  it('workspace shortcut does not steal editable input', async () => {
     const user = userEvent.setup(); render(<MapSpike />); await user.click(screen.getByRole('tab', { name: 'Entity Inspector' }));
     const textarea = document.createElement('textarea'); document.body.append(textarea); textarea.focus(); fireEvent.keyDown(textarea, { code: 'Space', ctrlKey: true, shiftKey: true }); expect(screen.getByRole('tab', { name: 'Entity Inspector' })).toHaveAttribute('aria-selected', 'true'); textarea.remove();
     const editable = document.createElement('div'); editable.contentEditable = 'true'; document.body.append(editable); editable.focus(); fireEvent.keyDown(editable, { code: 'Space', ctrlKey: true, shiftKey: true }); expect(screen.getByRole('tab', { name: 'Entity Inspector' })).toHaveAttribute('aria-selected', 'true'); editable.remove();
-    await openMap(user); fireEvent.contextMenu(screen.getByLabelText('Map canvas')); fireEvent.keyDown(window, { code: 'Space', ctrlKey: true, shiftKey: true }); expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true'); expect(screen.getByRole('menu')).toBeInTheDocument();
+  });
+  it('workspace shortcut cannot bypass impact confirmation', async () => {
+    const user = userEvent.setup(); let document = touchpointInspectorDocument(true);
+    let id = 0; document = applyTouchpointIntentDraft(document, { touchpointId: 'touch', draft: { jobLeaves: [{ jobId: 'job', semanticLeafId: 'do-a', desiredOutcomeId: 'do-a', contributorOfferIds: ['offer-a', 'offer-b'] }], financialLeaves: [], pendingJobLeafIds: [], pendingFinancialLeafIds: [] }, newId: () => `seed-${++id}` });
+    const inspector = renderTouchpointInspector(document); const linkedOffers = within(inspector.getByRole('group', { name: 'Linked Offers' }));
+    await user.click(linkedOffers.getByRole('checkbox', { name: 'Subscription' })); await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
+    const dialog = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
+    fireEvent.keyDown(window, { code: 'Space', key: ' ', ctrlKey: true, shiftKey: true });
+    expect(dialog).toBeInTheDocument(); expect(screen.getByRole('tab', { name: 'Entity Inspector' })).toHaveAttribute('aria-selected', 'true');
   });
   it('focuses and navigates the canvas menu, activates an item, and restores canvas focus on Escape', () => {
     render(<MapSpike />); const canvas = screen.getByLabelText('Map canvas');

@@ -6,6 +6,22 @@ export interface OverlaySize { width: number; height: number }
 export interface MapBounds { left: number; top: number; right: number; bottom: number }
 export interface MapViewport extends Point { zoom: number }
 export type SiblingDraft = { kind: ProvisionalEntityKind; title: ''; linkedProductId: string; linkedOfferIds: string[]; locatedInId: string; locatedInQuery: string; parentTouchpointId: string; parentEntityId: string; resistedTargetIds: string[]; url: '' };
+export type WorkspaceShortcutState = 'node' | 'dismissible-menu' | 'tooltip' | 'inline-edit' | 'create-draft' | 'dirty-inspector' | 'impact-confirmation';
+export type WorkspaceShortcutAction = 'switch' | 'dismiss-and-switch' | 'confirm' | 'ignore';
+
+/** Resolves keyboard ownership before the UI performs any dismissal or workspace transition. */
+export function workspaceShortcutAction(state: WorkspaceShortcutState, editableTarget = false): WorkspaceShortcutAction {
+  if (editableTarget) return 'ignore';
+  if (state === 'dismissible-menu' || state === 'tooltip') return 'dismiss-and-switch';
+  if (state === 'dirty-inspector') return 'confirm';
+  if (state === 'inline-edit' || state === 'create-draft' || state === 'impact-confirmation') return 'ignore';
+  return 'switch';
+}
+
+export function matchesWorkspaceShortcut(event: Pick<KeyboardEvent, 'code' | 'shiftKey' | 'ctrlKey' | 'metaKey' | 'altKey'>, isMac: boolean): boolean {
+  const platformModifier = isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+  return event.code === 'Space' && event.shiftKey && platformModifier && !event.altKey;
+}
 
 export function overlayPoint(client: Point, panel: PanelRect, overlay = { width: 208, height: 224 }): Point {
   return {
