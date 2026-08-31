@@ -14,6 +14,26 @@ export interface SatelliteGroup {
   targets: SatelliteTarget[];
 }
 
+export function relationGroupsForEntity(document: MapDocument, entityId: string): SatelliteGroup[] {
+  return projectMapRelationSatellites(document).filter(group => group.displayOwnerId === entityId);
+}
+
+/** Resolves projection provenance to physical renderer edges without extending semantic paths. */
+export function relevantPhysicalEdgeIds(document: MapDocument, sourceId: string, targetId: string): string[] {
+  const target = document.entities.find(entity => entity.id === targetId);
+  const group = relationGroupsForEntity(document, sourceId).find(candidate => candidate.targets.some(item => item.entityId === targetId));
+  if (!target || !group) return [];
+  const ids = new Set(group.targets.find(item => item.entityId === targetId)?.paths.flat() ?? []);
+  if (group.satelliteKind === 'financial_desired_outcome' && target.kind === 'financial_desired_outcome' && document.entities.some(entity => entity.id === sourceId && entity.kind === 'touchpoint')) {
+    ids.add(`financial-intent-route:${targetId}->${sourceId}`);
+  }
+  if (group.satelliteKind === 'repulsor' && target.kind === 'repulsor' && document.entities.some(entity => entity.id === sourceId && entity.kind === 'touchpoint')) {
+    ids.add(`repulsor-route:${targetId}->${sourceId}`);
+  }
+  const physicalIds = new Set(document.relationships.map(relation => relation.id));
+  return [...ids].filter(id => physicalIds.has(id) || id.startsWith('financial-intent-route:') || id.startsWith('repulsor-route:')).sort(compare);
+}
+
 const compare = (left: string, right: string) => left.localeCompare(right);
 
 /** Pure read-only projection owned by the map adapter boundary, independent of orbit rendering. */
