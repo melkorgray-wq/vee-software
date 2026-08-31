@@ -190,6 +190,18 @@ For Repulsors, `Repulsor ──resists──→ eligible Client-side target` is 
 
 Repulsor impact on an Offer or Product is a derived read-only aggregation through their downstream relevant Touchpoints. Inspector may show that a Repulsor affects an Offer or Product and through which Touchpoints, but this does **not** create authored `Repulsor → Offer` or `Repulsor → Product` graph relationships and does not add new visible edges for those aggregate views.
 
+The accepted read-only **satellite visualization projection** is deliberately narrower than the domain model. Satellites are grouped visual references to existing entities; they are not domain records, relationships, evidence, effects, or claims of causality. Stable entity and record IDs determine their display owners, concrete targets, contributor paths, deduplication, and deterministic ordering.
+
+| source record or derived selector | display owner | satellite kind | concrete target / contributor path |
+| --- | --- | --- | --- |
+| authored `job_has_desired_outcome` | the relationship's actual owning Job | Desired Outcome | the referenced Desired Outcome / relationship ID |
+| authored `OfferFinancialIntent` | the intent's actual Offer | Financial Desired Outcome | the referenced Financial Desired Outcome / intent ID |
+| valid attributed `TouchpointFinancialSelection` | the selected Touchpoint | Financial Desired Outcome | the referenced Financial Desired Outcome / Offer intent and Touchpoint selection IDs |
+| authored `repulsor_resists` | the resisted eligible Client-side target | Repulsor | the referenced Repulsor / resistance relationship ID |
+| `relevantRepulsorsForTouchpoint` | the actual Touchpoint | Repulsor | the relevant Repulsor / supporting resistance and valid local selection IDs |
+
+Desired Outcome ownership is never flattened from its Job. Financial Desired Outcome is never projected to Product. Repulsor aggregation on Product or Offer remains an Inspector-level read-only impact view and does not create a satellite effect without a separate accepted rule. Missing or stale endpoints and contributor records produce no satellite, and no generic or transitive relationship is inferred.
+
 Separately, an author may state optional Business intent with `Touchpoint ──mitigates──→ Repulsor` only while that Repulsor is relevant. This relation says that the Touchpoint is intended to reduce or compensate for the Repulsor; it does not claim that mitigation succeeds. Mitigation is not a prerequisite for the derived Repulsor resistance projection, and Product and Offer have no direct mitigation relation in this slice.
 
 Domain topology records what interacts; neither the derived Repulsor → Touchpoint projection nor the authored Touchpoint → Repulsor mitigation direction encodes interaction strength. Future Evidence or Factual Support will describe why and how strongly the model is supported, and future derived-force logic will determine strength and the resulting attraction or repulsion dynamics. Evidence may therefore support or weaken both a Repulsor and a Touchpoint mitigation claim without changing authored intent into proof. These authored intent projections remain hypotheses rather than outcome evidence. Environment / Context entities remain future work and are not introduced by these semantics.
