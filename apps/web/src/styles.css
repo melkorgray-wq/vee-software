@@ -40,6 +40,12 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .connected-choice { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
 .connected-choice > label.checkbox { flex: 1; }
 .connected-title { width: max-content; text-decoration: underline; text-underline-offset: .18em; }
+.connected-scope, .connection-picker { border: 1px solid var(--border-subtle); border-radius: .5rem; margin: .75rem 0; padding: .75rem; }
+.connected-branch { display: grid; gap: .2rem; margin: .5rem 0; justify-items: start; }
+.connected-leaf { margin-left: 1.25rem; }
+.connection-results { display: grid; gap: .4rem; max-height: 17.5rem; overflow: auto; margin: .65rem 0; }
+.connection-result { display: grid; gap: .15rem; padding: .55rem; text-align: left; }
+.connection-result.selected { outline: 2px solid var(--color-primary); }
 .inspector form { display: grid; gap: 1rem; }
 .inspector label { display: grid; gap: .4rem; font-weight: 650; }
 .inspector label span { font-weight: 400; color: rgba(255,255,255,.65); }

@@ -9,6 +9,35 @@ const direct = new Set(['emotional_job', 'social_job']);
 export const jobLeafKey = (leaf: Pick<TouchpointJobLeaf, 'semanticLeafId'>) => `job:${leaf.semanticLeafId}`;
 export const financialLeafKey = (leaf: Pick<TouchpointFinancialLeaf, 'financialDesiredOutcomeId'>) => `financial:${leaf.financialDesiredOutcomeId}`;
 
+export const CONNECTION_PICKER_KINDS = ['core_functional_job', 'related_job', 'consumption_chain_job', 'emotional_job', 'social_job', 'financial_desired_outcome'] as const;
+export type ConnectionPickerKind = typeof CONNECTION_PICKER_KINDS[number];
+export type ConnectionCandidate =
+  | { kind: 'job'; entity: Entity; semanticLeafId: string; desiredOutcome?: Entity }
+  | { kind: 'financial'; entity: Entity; semanticLeafId: string; desiredOutcome?: undefined };
+
+/** Builds searchable semantic candidates without introducing a second relationship model. */
+export function connectionPickerCatalogue(document: MapDocument, ownerKind: 'product' | 'offer' | 'touchpoint'): ConnectionCandidate[] {
+  const candidates = document.entities.flatMap((entity): ConnectionCandidate[] => {
+    if (direct.has(entity.kind)) return [{ kind: 'job', entity, semanticLeafId: entity.id }];
+    if (!doBearing.has(entity.kind)) return [];
+    return document.relationships.flatMap(relation => {
+      if (relation.kind !== 'job_has_desired_outcome' || relation.jobId !== entity.id) return [];
+      const desiredOutcome = document.entities.find(candidate => candidate.id === relation.desiredOutcomeId && candidate.kind === 'desired_outcome');
+      return desiredOutcome ? [{ kind: 'job' as const, entity, semanticLeafId: desiredOutcome.id, desiredOutcome }] : [];
+    });
+  });
+  if (ownerKind !== 'product') candidates.push(...document.entities.filter(entity => entity.kind === 'financial_desired_outcome').map(entity => ({ kind: 'financial' as const, entity, semanticLeafId: entity.id })));
+  return candidates;
+}
+
+export function filterConnectionCandidates(candidates: ConnectionCandidate[], input: { query: string; kind?: ConnectionPickerKind | undefined }): ConnectionCandidate[] {
+  const query = input.query.trim().toLocaleLowerCase();
+  return candidates.filter(candidate => {
+    if (input.kind && candidate.entity.kind !== input.kind) return false;
+    return !query || candidate.entity.title.toLocaleLowerCase().includes(query) || candidate.desiredOutcome?.title.toLocaleLowerCase().includes(query);
+  });
+}
+
 /** Client entities own this catalogue; upstream Product/Offer intent only determines whether Apply must complete a path. */
 export function touchpointIntentCatalogue(document: MapDocument): { jobs: TouchpointJobLeaf[]; financial: TouchpointFinancialLeaf[] } {
   const jobs = document.entities.flatMap((entity): TouchpointJobLeaf[] => {
