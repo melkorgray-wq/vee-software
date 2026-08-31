@@ -11,6 +11,7 @@ import { relationGroupsForEntity, relevantPhysicalEdgeIds } from '../map-relatio
 import { emptyInspectorHistory, inspectorHistoryReducer, traverseInspectorHistory } from '../inspector-navigation';
 import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, type ProposedPlacementRelation } from '../map-placement';
 import { nearestSpatialCandidate, spatialDirectionForKey } from '../map-spatial-navigation';
+import { enterMoveMode, inactiveMoveMode, moveInMode, moveVectorForKey, type MoveMode } from '../map-move-mode';
 import { Link } from '../router';
 import { CONNECTION_PICKER_KINDS, applyTouchpointEditDraft, connectionPickerCatalogue, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, filterConnectionCandidates, financialLeafKey, jobLeafKey, selectCurrentOfferIntent, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft } from './touchpoint-edit';
 
@@ -320,6 +321,9 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [relationsMode, setRelationsMode] = useState<RelationsMode>(inactiveRelationsMode);
   const relationsModeRef = useRef(relationsMode);
   relationsModeRef.current = relationsMode;
+  const [moveMode, setMoveMode] = useState<MoveMode>(inactiveMoveMode);
+  const moveModeRef = useRef(moveMode);
+  moveModeRef.current = moveMode;
   const [inspectorHistory, dispatchInspectorHistory] = useReducer(inspectorHistoryReducer, undefined, emptyInspectorHistory);
   const [activeWorkspaceView, setActiveWorkspaceView] = useState<WorkspaceView>('map');
   const activeWorkspaceViewRef = useRef(activeWorkspaceView);
@@ -355,6 +359,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const relationTargetId = focusedRelationTarget(relationsMode);
   const nodes = deriveMapNodes(document, VIEW_ID, selectedId).map((node) => ({
     ...node,
+    className: `${node.className ?? ''}${moveMode.state === 'moving' && moveMode.entityId === node.id ? ' move-mode-node' : ''}`.trim(),
     type: 'mapNode',
     draggable: node.data.satellite ? false : inlineEdit?.entityId !== node.id,
     data: inlineEdit?.entityId === node.id ? {
@@ -371,6 +376,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
 
   useEffect(() => {
     if (selectedId && !selected) {
+      setMoveMode(inactiveMoveMode());
       setSelectedId(null);
       setEditDraft(null);
     }
@@ -509,6 +515,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   }
   function performSelect(id: string | null) {
     setRelationsMode(inactiveRelationsMode());
+    setMoveMode(inactiveMoveMode());
     setSelectedId(id);
     setMode('idle');
     setQuick(null);
@@ -936,6 +943,11 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        if (moveModeRef.current.state === 'moving') {
+          event.preventDefault();
+          setMoveMode(inactiveMoveMode());
+          return;
+        }
         if (relationsModeRef.current.state !== 'inactive') {
           event.preventDefault();
           const previous = relationsModeRef.current;
@@ -987,7 +999,12 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       if (isEditableControl(event.target) || isKeyboardOwnedControl(event.target)) return;
       const modifier = event.ctrlKey || event.metaKey;
       const relationMode = relationsModeRef.current;
-      if (!modifier && relationMode.state !== 'inactive' && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter'].includes(event.key)) {
+      const movementVector = moveVectorForKey(event);
+      if (!modifier && !event.altKey && moveModeRef.current.state === 'moving' && movementVector) {
+        event.preventDefault();
+        const next = moveInMode(documentRef.current, VIEW_ID, moveModeRef.current, event);
+        setDocument(next);
+      } else if (!modifier && relationMode.state !== 'inactive' && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter'].includes(event.key)) {
         event.preventDefault();
         const type = event.key === 'ArrowLeft' ? 'previous-group' : event.key === 'ArrowRight' ? 'next-group' : event.key === 'ArrowUp' ? 'previous-target' : event.key === 'ArrowDown' ? 'next-target' : 'follow-target';
         const result = reduceRelationsMode(relationMode, { type });
@@ -1016,7 +1033,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             globalThis.document.querySelector<HTMLElement>(`[data-node-id="${escaped}"], .react-flow__node[data-id="${escaped}"]`)?.focus();
           });
         }
-      } else if (!modifier && event.key.toLowerCase() === 'r' && selectedRef.current && activeWorkspaceViewRef.current === 'map') {
+      } else if (!modifier && event.key.toLowerCase() === 'm' && relationMode.state === 'inactive' && selectedRef.current && activeWorkspaceViewRef.current === 'map') {
+        event.preventDefault();
+        setMoveMode(enterMoveMode(selectedRef.current, false));
+      } else if (!modifier && event.key.toLowerCase() === 'r' && moveModeRef.current.state === 'inactive' && selectedRef.current && activeWorkspaceViewRef.current === 'map') {
         const groups = relationGroupsForEntity(documentRef.current, selectedRef.current);
         if (groups.length) {
           event.preventDefault();
@@ -1046,6 +1066,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     return () => window.removeEventListener('keydown', onKey);
   });
   function activateWorkspaceView(view: WorkspaceView) {
+    setMoveMode(inactiveMoveMode());
     setActiveWorkspaceView(view);
     if (view === 'inspector' && selectedRef.current) dispatchInspectorHistory({ type: 'push', entityId: selectedRef.current });
     if (view === 'map' && pendingInspectorRevealRef.current) {
@@ -1546,6 +1567,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       </div>
       <div className="workspace-panels">
         <section id="map-workspace-panel" role="tabpanel" aria-labelledby="map-workspace-tab" ref={panelRef} className="canvas-panel" aria-label="In-memory VEE map editor" hidden={activeWorkspaceView !== 'map'}>
+          {moveMode.state === 'moving' && <div className="move-mode-indicator" role="status">Move mode · arrows or numpad move the selected node · Escape exits</div>}
           {!document.entities.length && (
             <div className="empty-state">
               <h2>Start an empty map</h2>
