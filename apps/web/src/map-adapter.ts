@@ -1,5 +1,7 @@
 import { isDesiredOutcomeBearingJob, relevantRepulsorsForTouchpoint, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship } from '@vee/domain';
 import { MarkerType, type BuiltInEdge, type Edge, type Node } from '@xyflow/react';
+import { projectMapRelationSatellites, type SatelliteKind } from './map-relation-projection';
+import { placeSatelliteGroups } from './map-satellite-geometry';
 
 type MapEdge = Edge | BuiltInEdge;
 export const MAP_EDGE_TYPE = 'mapEdge';
@@ -15,6 +17,7 @@ export interface MapNodeData extends Record<string, unknown> {
   onInlineTitleCommit?: (title: string) => void;
   onInlineTitleCancel?: () => void;
   onTitleDoubleClick?: () => void;
+  satellite?: { kind: SatelliteKind; targetIds: string[]; titles: string[] };
 }
 const ROLE_LAYOUTS: Record<ProvisionalEntityKind, Pick<NodeLayout, 'diameter' | 'titleFontSize' | 'kindFontSize'>> = {
   product: { diameter: 136, titleFontSize: 16, kindFontSize: 13 },
@@ -45,11 +48,36 @@ export function layoutForEntity(entity: Pick<Entity, 'kind' | 'title'>): NodeLay
   return { ...role, contentWidth: Math.round(role.diameter * .68), compactTitle: entity.title.trim().length > 20 };
 }
 export function deriveMapNodes(document: MapDocument, viewId: string, selectedEntityId: string | null): Node<MapNodeData>[] {
-  return document.placements.filter(p => p.viewId === viewId).flatMap(placement => {
+  const placements = document.placements.filter(p => p.viewId === viewId);
+  const authored = placements.flatMap(placement => {
     const entity = document.entities.find(e => e.id === placement.entityId); if (!entity) return [];
     const layout = layoutForEntity(entity);
     return [{ id: entity.id, position: { x: placement.x, y: placement.y }, selected: entity.id === selectedEntityId, width: layout.diameter, height: layout.diameter, style: { width: layout.diameter, height: layout.diameter }, data: { title: entity.title, kindLabel: KIND_LABELS[entity.kind], layout, ...(entity.kind === 'touchpoint' && entity.url ? { url: entity.url } : {}) }, className: 'map-node' }];
   });
+  const entityById = new Map(document.entities.map(entity => [entity.id, entity]));
+  const placementById = new Map(placements.map(placement => [placement.entityId, placement]));
+  const occupied = authored.map(node => ({ id: node.id, x: node.position.x + (node.width ?? 0) / 2, y: node.position.y + (node.height ?? 0) / 2 }));
+  const groupsByOwner = new Map<string, ReturnType<typeof projectMapRelationSatellites>>();
+  for (const group of projectMapRelationSatellites(document)) groupsByOwner.set(group.displayOwnerId, [...(groupsByOwner.get(group.displayOwnerId) ?? []), group]);
+  const satellites: Node<MapNodeData>[] = [];
+  for (const [ownerId, groups] of groupsByOwner) {
+    const owner = entityById.get(ownerId); const placement = placementById.get(ownerId);
+    if (!owner || !placement) continue;
+    const ownerLayout = layoutForEntity(owner); const diameter = 54;
+    const positioned = placeSatelliteGroups({
+      ownerCenter: { x: placement.x + ownerLayout.diameter / 2, y: placement.y + ownerLayout.diameter / 2 },
+      orbitRadius: ownerLayout.diameter / 2 + diameter / 2 + 18,
+      occupied: occupied.filter(item => item.id !== ownerId),
+      groups: groups.map(group => ({ id: `satellite:${ownerId}:${group.satelliteKind}`, kind: group.satelliteKind, targetIds: group.targets.map(target => target.entityId) })),
+    });
+    for (const group of positioned) {
+      const kind = group.kind as SatelliteKind;
+      const titles = group.targetIds.flatMap(id => entityById.get(id)?.title ?? []);
+      const label = KIND_LABELS[kind];
+      satellites.push({ id: group.id, position: { x: group.position.x - diameter / 2, y: group.position.y - diameter / 2 }, width: diameter, height: diameter, style: { width: diameter, height: diameter }, draggable: false, selectable: false, focusable: false, data: { title: `${label} group (${group.targetIds.length})`, kindLabel: label, layout: { diameter, titleFontSize: 12, kindFontSize: 10, contentWidth: 42, compactTitle: true }, satellite: { kind, targetIds: group.targetIds, titles } }, className: 'map-node map-satellite' });
+    }
+  }
+  return [...authored, ...satellites];
 }
 export function deriveVisibleAuthoredRelationships(document: MapDocument): Relationship[] {
   const nestedTouchpointIds = new Set(document.relationships.flatMap(relationship => relationship.kind === 'touchpoint_contains_touchpoint' ? [relationship.childTouchpointId] : []));

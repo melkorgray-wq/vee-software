@@ -277,6 +277,13 @@ export function MapNode({ data }: { data: MapNodeData }) {
     '--node-kind-size': `${data.layout.kindFontSize}px`,
     '--node-content-width': `${data.layout.contentWidth}px`,
   } as CSSProperties;
+  if (data.satellite) return (
+    <div className="node-content satellite-content" style={style}>
+      <strong ref={titleRef} className="node-title satellite-title" tabIndex={0} aria-label={`${data.kindLabel}: ${data.satellite.titles.join(', ')}`} onMouseEnter={() => setTitleHovered(true)} onMouseLeave={() => setTitleHovered(false)} onFocus={() => setTitleFocused(true)} onBlur={() => setTitleFocused(false)}>{data.kindLabel}</strong>
+      <span aria-label={`${data.satellite.targetIds.length} targets`}>{data.satellite.targetIds.length}</span>
+      {disclosed && createPortal(<div ref={disclosureRef} role="tooltip" className="title-disclosure satellite-disclosure" style={{ left: disclosure?.x ?? 8, top: disclosure?.y ?? 8, visibility: disclosure ? 'visible' : 'hidden' }} onMouseEnter={() => setDisclosureHovered(true)} onMouseLeave={() => setDisclosureHovered(false)}>{data.satellite.titles.join(', ')}</div>, disclosure?.owner ?? titleRef.current?.closest<HTMLElement>('#map-workspace-panel') ?? globalThis.document.body)}
+    </div>
+  );
   return (
     <div className={`node-content${data.layout.compactTitle ? ' compact-title' : ''}`} style={style}>
       <Handle type="target" position={Position.Left} isConnectable={false} />
@@ -340,13 +347,13 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const nodes = deriveMapNodes(document, VIEW_ID, selectedId).map((node) => ({
     ...node,
     type: 'mapNode',
-    draggable: inlineEdit?.entityId !== node.id,
+    draggable: node.data.satellite ? false : inlineEdit?.entityId !== node.id,
     data: inlineEdit?.entityId === node.id ? {
       ...node.data,
       inlineTitle: inlineEdit.title,
       onInlineTitleCommit: (title: string) => finishInlineTitleEdit(title),
       onInlineTitleCancel: () => finishInlineTitleEdit(false),
-    } : { ...node.data, onTitleDoubleClick: () => startInlineTitleEdit(node.id) },
+    } : { ...node.data, ...(!node.data.satellite ? { onTitleDoubleClick: () => startInlineTitleEdit(node.id) } : {}) },
   }));
   const edges = deriveMapEdges(document);
   const selected = document.entities.find((e) => e.id === selectedId);
