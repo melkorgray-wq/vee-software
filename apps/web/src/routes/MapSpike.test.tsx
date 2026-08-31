@@ -7,8 +7,9 @@ import { applyTouchpointIntentDraft, type MapDocument } from '@vee/domain';
 
 type MockNode = { id: string; position: { x: number; y: number }; data: { title: string; kindLabel: string } };
 type MockEdge = { id: string; source: string; target: string; type?: string; markerEnd?: { type: string }; label?: string };
+const { setViewportSpy } = vi.hoisted(() => ({ setViewportSpy: vi.fn(() => Promise.resolve(true)) }));
 vi.mock('@xyflow/react', () => ({
-  ReactFlow: ({ nodes, edges, edgeTypes, nodeTypes, tabIndex, onInit, onNodeClick, onNodeDoubleClick, onNodeContextMenu, onPaneClick, onPaneContextMenu }: { nodes: MockNode[]; edges: MockEdge[]; edgeTypes?: Record<string, unknown>; nodeTypes?: Record<string, (props: { data: MockNode['data'] }) => ReactNode>; tabIndex?: number; onInit: (instance: object) => void; onNodeClick: (event: object, node: MockNode) => void; onNodeDoubleClick: (event: { preventDefault(): void; stopPropagation(): void }, node: MockNode) => void; onNodeContextMenu: (event: MouseEvent, node: MockNode) => void; onPaneClick: () => void; onPaneContextMenu: (event: MouseEvent) => void }) => { useEffect(() => onInit({ screenToFlowPosition: ({ x, y }: { x: number; y: number }) => ({ x: x - 10, y: y - 20 }), flowToScreenPosition: ({ x, y }: { x: number; y: number }) => ({ x: x + 10, y: y + 20 }), getViewport: () => ({ x: 0, y: 0, zoom: 1 }), setViewport: () => Promise.resolve(true) }), [onInit]); const NodeComponent = nodeTypes?.mapNode; return <div aria-label="Map canvas" data-edge-types={Object.keys(edgeTypes ?? {}).join(',')} tabIndex={tabIndex} onContextMenu={onPaneContextMenu}><button onClick={onPaneClick}>Clear selection</button>{nodes.map(node => <div key={node.id}><button aria-label={node.data.title} data-node-id={node.id} data-x={node.position.x} data-y={node.position.y} onClick={() => onNodeClick({}, node)} onDoubleClick={event => onNodeDoubleClick(event, node)} onContextMenu={e => { e.stopPropagation(); onNodeContextMenu(e, node); }}>{NodeComponent ? <NodeComponent data={node.data} /> : node.data.title}</button>{!NodeComponent && <span>{node.data.kindLabel}</span>}</div>)}{edges.map(edge => <span key={edge.id} data-source={edge.source} data-target={edge.target} data-marker={edge.markerEnd?.type} data-edge-type={edge.type}>{edge.label}</span>)}</div>; },
+  ReactFlow: ({ nodes, edges, edgeTypes, nodeTypes, tabIndex, onInit, onNodeClick, onNodeDoubleClick, onNodeContextMenu, onPaneClick, onPaneContextMenu }: { nodes: MockNode[]; edges: MockEdge[]; edgeTypes?: Record<string, unknown>; nodeTypes?: Record<string, (props: { data: MockNode['data'] }) => ReactNode>; tabIndex?: number; onInit: (instance: object) => void; onNodeClick: (event: object, node: MockNode) => void; onNodeDoubleClick: (event: { preventDefault(): void; stopPropagation(): void }, node: MockNode) => void; onNodeContextMenu: (event: MouseEvent, node: MockNode) => void; onPaneClick: () => void; onPaneContextMenu: (event: MouseEvent) => void }) => { useEffect(() => onInit({ screenToFlowPosition: ({ x, y }: { x: number; y: number }) => ({ x: x - 10, y: y - 20 }), flowToScreenPosition: ({ x, y }: { x: number; y: number }) => ({ x: x + 10, y: y + 20 }), getViewport: () => ({ x: 0, y: 0, zoom: 1 }), setViewport: setViewportSpy }), [onInit]); const NodeComponent = nodeTypes?.mapNode; return <div aria-label="Map canvas" data-edge-types={Object.keys(edgeTypes ?? {}).join(',')} tabIndex={tabIndex} onContextMenu={onPaneContextMenu}><button onClick={onPaneClick}>Clear selection</button>{nodes.map(node => <div key={node.id}><button aria-label={node.data.title} data-node-id={node.id} data-x={node.position.x} data-y={node.position.y} onClick={() => onNodeClick({}, node)} onDoubleClick={event => onNodeDoubleClick(event, node)} onContextMenu={e => { e.stopPropagation(); onNodeContextMenu(e, node); }}>{NodeComponent ? <NodeComponent data={node.data} /> : node.data.title}</button>{!NodeComponent && <span>{node.data.kindLabel}</span>}</div>)}{edges.map(edge => <span key={edge.id} data-source={edge.source} data-target={edge.target} data-marker={edge.markerEnd?.type} data-edge-type={edge.type}>{edge.label}</span>)}</div>; },
   BaseEdge: () => null, useInternalNode: () => undefined, useStore: () => [], Background: () => null, Controls: () => null, Handle: () => null, MarkerType: { ArrowClosed: 'arrowclosed' }, Position: { Left: 'left', Right: 'right' },
 }));
 vi.mock('../router', () => ({ Link: ({ children }: { children: ReactNode }) => <a href="/">{children}</a> }));
@@ -55,6 +56,34 @@ function renderTouchpointInspector(document = touchpointInspectorDocument()) {
 }
 
 describe('map-first authoring interactions', () => {
+  it('arrow navigation focuses and reveals an offscreen node without moving it', async () => {
+    const document = touchpointInspectorDocument();
+    document.entities = document.entities.slice(0, 2);
+    document.relationships = [];
+    document.placements = [{ viewId: 'spike-view', entityId: 'product', x: 0, y: 0 }, { viewId: 'spike-view', entityId: 'offer-a', x: 2000, y: 0 }];
+    setViewportSpy.mockClear();
+    render(<MapSpike initialDocument={document} />);
+    const source = screen.getByRole('button', { name: 'Orbit' });
+    const target = screen.getByRole('button', { name: 'Subscription' });
+    const before = { source: nodePoint('Orbit'), target: nodePoint('Subscription') };
+    fireEvent.click(source); fireEvent.keyDown(source, { key: 'ArrowRight', code: 'ArrowRight' });
+    await vi.waitFor(() => expect(target).toHaveFocus());
+    expect(setViewportSpy).toHaveBeenCalled();
+    expect({ source: nodePoint('Orbit'), target: nodePoint('Subscription') }).toEqual(before);
+  });
+
+  it('editable controls retain native arrow behavior', () => {
+    render(<MapSpike initialDocument={touchpointInspectorDocument()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Checkout' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Entity Inspector' }));
+    const title = screen.getByRole('textbox', { name: 'Title' });
+    title.focus();
+    const event = new KeyboardEvent('keydown', { key: 'ArrowLeft', code: 'ArrowLeft', bubbles: true, cancelable: true });
+    title.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(title).toHaveFocus();
+  });
+
   it('edits authored Business and Client titles inline with commit, cancel, and keyboard ownership', async () => {
     const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user);
     const product = screen.getByRole('button', { name: 'Orbit' }); await user.click(product); expect(screen.queryByRole('textbox', { name: /Edit title/ })).not.toBeInTheDocument();
