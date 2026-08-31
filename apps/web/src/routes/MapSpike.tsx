@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useReducer, useRef, useState, type CSSPrope
 import { createPortal } from 'react-dom';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, createEmptyMapDocument, duplicateEntity, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateProductJobIntent, updateRepulsorTargets, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship } from '@vee/domain';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, createEmptyMapDocument, duplicateEntity, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateProductJobIntent, updateRepulsorTargets, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, disclosureOverlayPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction, type Point, type WorkspaceShortcutState } from '../map-interaction';
@@ -14,6 +14,7 @@ import { nearestSpatialCandidate, spatialDirectionForKey } from '../map-spatial-
 import { enterMoveMode, inactiveMoveMode, moveInMode, moveVectorForKey, type MoveMode } from '../map-move-mode';
 import { Link } from '../router';
 import { CONNECTION_PICKER_KINDS, applyTouchpointEditDraft, connectionPickerCatalogue, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, filterConnectionCandidates, financialLeafKey, jobLeafKey, selectCurrentOfferIntent, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft } from './touchpoint-edit';
+import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
 
 const VIEW_ID = 'spike-view';
 const INITIAL_DOCUMENT = createEmptyMapDocument({
@@ -1287,14 +1288,29 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       if (!connectionPicker?.semanticLeafId || !connectionPicker.contributorOfferIds.length) return;
       const jobLeaf = intentDraft.jobLeaves.find(leaf => leaf.semanticLeafId === connectionPicker.semanticLeafId);
       const financialLeaf = intentDraft.financialLeaves.find(leaf => leaf.financialDesiredOutcomeId === connectionPicker.semanticLeafId);
-      setIntent({
+      const nextIntent = {
         ...intentDraft,
         jobLeaves: jobLeaf ? intentDraft.jobLeaves.map(leaf => leaf.semanticLeafId === jobLeaf.semanticLeafId ? { ...leaf, contributorOfferIds: connectionPicker.contributorOfferIds } : leaf) : intentDraft.jobLeaves,
         financialLeaves: financialLeaf ? intentDraft.financialLeaves.map(leaf => leaf.financialDesiredOutcomeId === financialLeaf.financialDesiredOutcomeId ? { ...leaf, contributorOfferIds: connectionPicker.contributorOfferIds } : leaf) : intentDraft.financialLeaves,
         pendingJobLeafIds: jobLeaf ? [...new Set([...intentDraft.pendingJobLeafIds, jobLeaf.semanticLeafId])] : intentDraft.pendingJobLeafIds,
         pendingFinancialLeafIds: financialLeaf ? [...new Set([...intentDraft.pendingFinancialLeafIds, financialLeaf.financialDesiredOutcomeId])] : intentDraft.pendingFinancialLeafIds,
-      });
+      };
+      const readiness = semanticCommitState({ valid: !validateTouchpointIntentDraft(nextIntent, offers), semanticallyComplete: true });
+      const result = commitSemanticOperation(documentRef.current, readiness, durable => applyTouchpointIntentDraft(durable, {
+        touchpointId: selected!.id,
+        draft: nextIntent,
+        newId: () => crypto.randomUUID(),
+      }));
+      if (result.state.status === 'failed') {
+        setMessage(result.state.message);
+        return;
+      }
+      if (result.state.status !== 'complete') return;
+      const next = reconsiderPlacementAfterRelationCommit(documentRef.current, result.document, VIEW_ID, selected!.id);
+      setDocument(next);
+      setEditDraft({ ...editDraft, touchpointIntent: createTouchpointIntentDraft(next, selected!.id) });
       setConnectionPicker(null);
+      setMessage('Connection added.');
     };
     return <>
       <section className="client-intent connected-scope" aria-labelledby="connected-heading"><h4 id="connected-heading">Connected</h4>
