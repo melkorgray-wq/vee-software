@@ -3,6 +3,7 @@ import type { MapDocument, ProvisionalEntityKind, Relationship } from '@vee/doma
 export interface Point { x: number; y: number }
 export interface PanelRect { left: number; top: number; width: number; height: number }
 export interface OverlaySize { width: number; height: number }
+export interface AnchorRect { left: number; top: number; right: number; bottom: number }
 export interface MapBounds { left: number; top: number; right: number; bottom: number }
 export interface MapViewport extends Point { zoom: number }
 export type SiblingDraft = { kind: ProvisionalEntityKind; title: ''; linkedProductId: string; linkedOfferIds: string[]; locatedInId: string; locatedInQuery: string; parentTouchpointId: string; parentEntityId: string; resistedTargetIds: string[]; url: '' };
@@ -47,6 +48,19 @@ export function contextMenuPoint(client: Point, panel: PanelRect, menu: OverlayS
     return upper >= gutter ? Math.max(gutter, Math.min(value, upper)) : gutter;
   };
   return { x: clamp(x, menu.width, panel.width), y: clamp(y, menu.height, panel.height) };
+}
+
+/** Places disclosure UI beside an anchor while retaining it inside its owning panel. */
+export function disclosureOverlayPoint(anchor: AnchorRect, panel: PanelRect, overlay: OverlaySize, gutter = 8): Point {
+  const right = anchor.right - panel.left + gutter;
+  const left = anchor.left - panel.left - overlay.width - gutter;
+  const below = anchor.bottom - panel.top + gutter;
+  const above = anchor.top - panel.top - overlay.height - gutter;
+  const maximumX = Math.max(gutter, panel.width - overlay.width - gutter);
+  const maximumY = Math.max(gutter, panel.height - overlay.height - gutter);
+  const x = right + overlay.width <= panel.width - gutter ? right : left >= gutter ? left : Math.max(gutter, Math.min(right, maximumX));
+  const y = below + overlay.height <= panel.height - gutter ? below : above >= gutter ? above : Math.max(gutter, Math.min(below, maximumY));
+  return { x: maximumX === gutter ? gutter : Math.max(gutter, Math.min(x, maximumX)), y: maximumY === gutter ? gutter : Math.max(gutter, Math.min(y, maximumY)) };
 }
 
 /** Plans the smallest camera change that reveals local map bounds inside a safe inset. */
