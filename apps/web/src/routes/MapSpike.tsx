@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, createEmptyMapDocument, duplicateEntity, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateProductJobIntent, updateRepulsorTargets, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
-import { contextMenuPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction, type Point, type WorkspaceShortcutState } from '../map-interaction';
+import { contextMenuPoint, disclosureOverlayPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction, type Point, type WorkspaceShortcutState } from '../map-interaction';
 import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, type ProposedPlacementRelation } from '../map-placement';
 import { Link } from '../router';
 import { applyTouchpointEditDraft, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, jobLeafKey, selectCurrentOfferIntent, validateTouchpointIntentDraft, type TouchpointIntentDraft } from './touchpoint-edit';
@@ -218,6 +219,16 @@ function ContainerCombobox({ value, query, document, onChange }: { value: string
 }
 function InlineTitleEditor({ title, onCommit, onCancel }: { title: string; onCommit: (title: string) => void; onCancel: () => void }) {
   const [draftTitle, setDraftTitle] = useState(() => title);
+  const completedRef = useRef(false);
+  const commit = (field: HTMLTextAreaElement) => {
+    if (completedRef.current) return;
+    if (!draftTitle.trim()) {
+      requestAnimationFrame(() => field.focus());
+      return;
+    }
+    completedRef.current = true;
+    onCommit(draftTitle);
+  };
   return (
     <textarea
       className="inline-node-title nodrag nopan"
@@ -228,13 +239,15 @@ function InlineTitleEditor({ title, onCommit, onCancel }: { title: string; onCom
       onChange={(event) => setDraftTitle(normalizeTitleLineBreaks(event.target.value))}
       onPointerDown={(event) => event.stopPropagation()}
       onDoubleClick={(event) => event.stopPropagation()}
+      onBlur={(event) => commit(event.currentTarget)}
       onKeyDown={(event) => {
         event.stopPropagation();
         if (event.key === 'Enter') {
           event.preventDefault();
-          onCommit(draftTitle);
+          commit(event.currentTarget);
         } else if (event.key === 'Escape') {
           event.preventDefault();
+          completedRef.current = true;
           onCancel();
         }
       }}
@@ -243,6 +256,21 @@ function InlineTitleEditor({ title, onCommit, onCancel }: { title: string; onCom
 }
 export function MapNode({ data }: { data: MapNodeData }) {
   const url = safeUrl(data.url);
+  const titleRef = useRef<HTMLElement>(null);
+  const disclosureRef = useRef<HTMLDivElement>(null);
+  const [titleHovered, setTitleHovered] = useState(false);
+  const [titleFocused, setTitleFocused] = useState(false);
+  const [disclosureHovered, setDisclosureHovered] = useState(false);
+  const [disclosure, setDisclosure] = useState<{ owner: HTMLElement; x: number; y: number } | null>(null);
+  const disclosed = data.inlineTitle === undefined && (titleHovered || titleFocused || disclosureHovered);
+  useLayoutEffect(() => {
+    const title = titleRef.current;
+    const owner = title?.closest<HTMLElement>('#map-workspace-panel') ?? globalThis.document.body;
+    const overlay = disclosureRef.current;
+    if (!disclosed || !title || !owner || !overlay) return;
+    const point = disclosureOverlayPoint(title.getBoundingClientRect(), owner.getBoundingClientRect(), overlay.getBoundingClientRect());
+    setDisclosure({ owner, ...point });
+  }, [disclosed, data.title]);
   const style = {
     '--node-title-size': `${data.layout.titleFontSize}px`,
     '--node-kind-size': `${data.layout.kindFontSize}px`,
@@ -251,7 +279,7 @@ export function MapNode({ data }: { data: MapNodeData }) {
   return (
     <div className={`node-content${data.layout.compactTitle ? ' compact-title' : ''}`} style={style}>
       <Handle type="target" position={Position.Left} isConnectable={false} />
-      {data.inlineTitle === undefined ? <strong>{data.title}</strong> : (
+      {data.inlineTitle === undefined ? <strong ref={titleRef} className="node-title" tabIndex={0} aria-label={data.title} onMouseEnter={() => setTitleHovered(true)} onMouseLeave={() => setTitleHovered(false)} onFocus={() => setTitleFocused(true)} onBlur={() => setTitleFocused(false)} onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); data.onTitleDoubleClick?.(); }}>{data.title}</strong> : (
         <InlineTitleEditor title={data.inlineTitle} onCommit={(title) => data.onInlineTitleCommit?.(title)} onCancel={() => data.onInlineTitleCancel?.()} />
       )}
       <span>{data.kindLabel}</span>
@@ -261,6 +289,7 @@ export function MapNode({ data }: { data: MapNodeData }) {
         </a>
       )}
       <Handle type="source" position={Position.Right} isConnectable={false} />
+      {disclosed && createPortal(<div ref={disclosureRef} role="tooltip" className="title-disclosure" style={{ left: disclosure?.x ?? 8, top: disclosure?.y ?? 8, visibility: disclosure ? 'visible' : 'hidden' }} onMouseEnter={() => setDisclosureHovered(true)} onMouseLeave={() => setDisclosureHovered(false)}>{data.title}</div>, disclosure?.owner ?? titleRef.current?.closest<HTMLElement>('#map-workspace-panel') ?? globalThis.document.body)}
     </div>
   );
 }
@@ -314,7 +343,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       inlineTitle: inlineEdit.title,
       onInlineTitleCommit: (title: string) => finishInlineTitleEdit(title),
       onInlineTitleCancel: () => finishInlineTitleEdit(false),
-    } : node.data,
+    } : { ...node.data, onTitleDoubleClick: () => startInlineTitleEdit(node.id) },
   }));
   const edges = deriveMapEdges(document);
   const selected = document.entities.find((e) => e.id === selectedId);
@@ -493,13 +522,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     if (commitTitle !== false) {
       const entity = documentRef.current.entities.find((candidate) => candidate.id === edit.entityId);
       if (!entity) return;
-      if (entity.kind === 'touchpoint') {
-        setEditDraft(current => current ? { ...current, title: commitTitle } : { ...draftFor(entity, documentRef.current), title: commitTitle });
-        setMessage('Touchpoint title added to unsaved changes.');
-        setInlineEdit(null);
-        focusEntity(edit.entityId);
-        return;
-      }
       const current = draftFor(entity, documentRef.current);
       try {
         const next = updateEntity(documentRef.current, {
@@ -1489,7 +1511,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             onNodeDoubleClick={(event, node) => {
               event.preventDefault();
               event.stopPropagation();
-              startInlineTitleEdit(node.id);
+              select(node.id);
+              setActiveWorkspaceView('inspector');
             }}
             onNodeContextMenu={(e, node) => {
               e.preventDefault();

@@ -58,15 +58,49 @@ describe('map-first authoring interactions', () => {
   it('edits authored Business and Client titles inline with commit, cancel, and keyboard ownership', async () => {
     const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user);
     const product = screen.getByRole('button', { name: 'Orbit' }); await user.click(product); expect(screen.queryByRole('textbox', { name: /Edit title/ })).not.toBeInTheDocument();
-    await user.dblClick(product); let editor = screen.getByRole('textbox', { name: 'Edit title for Orbit' }); expect(editor).toHaveFocus();
+    await user.dblClick(product.querySelector('.node-title')!); let editor = screen.getByRole('textbox', { name: 'Edit title for Orbit' }); expect(editor).toHaveFocus();
     (editor as HTMLTextAreaElement).setSelectionRange(0, 0); await user.type(editor, 'New ', { skipClick: true }); expect(editor).toHaveValue('New Orbit'); expect((editor as HTMLTextAreaElement).selectionStart).toBe(4);
     (editor as HTMLTextAreaElement).setSelectionRange(4, 9); await user.type(editor, 'Path', { skipClick: true }); expect(editor).toHaveValue('New Path'); expect(screen.getByRole('button', { name: 'Orbit' })).toBeInTheDocument();
     await user.clear(editor); await user.type(editor, 'Orbit renamed\nline'); expect(editor).toHaveValue('Orbit renamed line');
     fireEvent.keyDown(editor, { key: 'Tab' }); expect(screen.queryByRole('heading', { name: 'Add Offer' })).not.toBeInTheDocument(); fireEvent.keyDown(editor, { key: 'Enter' });
     expect(screen.getByRole('button', { name: 'Orbit renamed line' })).toHaveFocus(); expect((await openInspector(user)).getByLabelText('Title')).toHaveValue('Orbit renamed line'); await openMap(user);
     await user.click(screen.getByRole('button', { name: 'Add element' })); await user.click(screen.getByRole('button', { name: 'Client side' })); await user.type(screen.getByLabelText('Title'), 'Client job'); await user.click(screen.getByRole('button', { name: 'Create' })); await openMap(user);
-    const client = screen.getByRole('button', { name: 'Client job' }); await user.dblClick(client); editor = screen.getByRole('textbox', { name: 'Edit title for Client job' }); await user.clear(editor); await user.type(editor, 'Cancelled'); fireEvent.keyDown(editor, { key: 'Escape' });
+    const client = screen.getByRole('button', { name: 'Client job' }); await user.dblClick(client.querySelector('.node-title')!); editor = screen.getByRole('textbox', { name: 'Edit title for Client job' }); await user.clear(editor); await user.type(editor, 'Cancelled'); fireEvent.keyDown(editor, { key: 'Escape' });
     expect(screen.getByRole('button', { name: 'Client job' })).toHaveFocus(); expect(screen.queryByRole('button', { name: 'Cancelled' })).not.toBeInTheDocument();
+  });
+  it('long node title is clamped and exposes its exact title on hover and focus', () => {
+    const title = 'AnExactUnbrokenTitleThatIsFarLongerThanTheRoleSizedNodeCanContain';
+    render(<MapNode data={{ title, kindLabel: 'Product', layout: { diameter: 96, titleFontSize: 14, kindFontSize: 12, contentWidth: 65, compactTitle: true } }} />);
+    const target = screen.getByLabelText(title);
+    expect(target).toHaveClass('node-title');
+    fireEvent.mouseEnter(target); expect(screen.getByRole('tooltip')).toHaveTextContent(title);
+    fireEvent.mouseLeave(target); fireEvent.focus(target); expect(screen.getByRole('tooltip')).toHaveTextContent(title);
+    fireEvent.blur(target); expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+  it('double-clicking the title edits while double-clicking the node body opens Inspector', async () => {
+    const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user);
+    const node = screen.getByRole('button', { name: 'Orbit' });
+    await user.dblClick(node.querySelector('.node-title')!); expect(screen.getByRole('textbox', { name: 'Edit title for Orbit' })).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Edit title for Orbit' }), { key: 'Escape' });
+    await user.dblClick(screen.getByRole('button', { name: 'Orbit' }));
+    expect(screen.getByRole('tab', { name: 'Entity Inspector' })).toHaveAttribute('aria-selected', 'true');
+  });
+  it('blank title exit remains in a valid editing state', async () => {
+    const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user);
+    await user.dblClick(screen.getByRole('button', { name: 'Orbit' }).querySelector('.node-title')!);
+    const editor = screen.getByRole('textbox', { name: 'Edit title for Orbit' }); await user.clear(editor); fireEvent.blur(editor);
+    expect(editor).toBeInTheDocument(); expect(editor).toHaveValue('');
+  });
+  it('inline title commits on Enter blur and Tab', async () => {
+    const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user);
+    let node = screen.getByRole('button', { name: 'Orbit' }); await user.dblClick(node.querySelector('.node-title')!);
+    let editor = screen.getByRole('textbox', { name: 'Edit title for Orbit' }); await user.clear(editor); await user.type(editor, 'Enter title{Enter}');
+    node = screen.getByRole('button', { name: 'Enter title' }); await user.dblClick(node.querySelector('.node-title')!);
+    editor = screen.getByRole('textbox', { name: 'Edit title for Enter title' }); await user.clear(editor); await user.type(editor, 'Blur title'); fireEvent.blur(editor);
+    node = screen.getByRole('button', { name: 'Blur title' }); await user.dblClick(node.querySelector('.node-title')!);
+    editor = screen.getByRole('textbox', { name: 'Edit title for Blur title' }); await user.clear(editor); await user.type(editor, 'Tab title'); await user.tab();
+    expect(screen.getByRole('button', { name: 'Tab title' })).toBeInTheDocument();
+    expect((await openInspector(user)).getByLabelText('Title')).toHaveValue('Tab title');
   });
   beforeEach(() => { let id = 0; vi.stubGlobal('crypto', { randomUUID: () => `id-${++id}` }); }); afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
   it('focuses the shared Title once for pointer and keyboard contextual creation and releases it on exit', async () => {

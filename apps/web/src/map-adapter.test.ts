@@ -115,6 +115,15 @@ it('bounds long-title content independently of topology', () => {
   expect(long.contentWidth).toBeLessThan(long.diameter);
 });
 
+it('keeps every role-sized layout stable for an arbitrary title length', () => {
+  const short = layoutForEntity({ kind: 'product', title: 'A' });
+  const unbroken = layoutForEntity({ kind: 'product', title: 'A'.repeat(500) });
+  expect(unbroken.diameter).toBe(short.diameter);
+  expect(unbroken.contentWidth).toBe(short.contentWidth);
+  expect(unbroken.titleFontSize).toBe(short.titleFontSize);
+  expect(unbroken.kindFontSize).toBe(short.kindFontSize);
+});
+
 it('projects each authored Desired Outcome route once and invents no unresolved Job route', () => {
   let d = chain();
   d = addEntity(d, { entityId: 'job', title: 'Job', kind: 'core_functional_job', viewId: 'v', x: 0, y: 100 });

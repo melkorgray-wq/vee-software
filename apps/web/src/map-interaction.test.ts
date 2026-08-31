@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { addEntity, addTouchpointContainer, createEmptyMapDocument, duplicateEntity } from '@vee/domain';
-import { contextMenuPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction } from './map-interaction';
+import { contextMenuPoint, disclosureOverlayPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction } from './map-interaction';
 
 it('arbitrates every workspace shortcut interaction state in one policy', () => {
   expect(workspaceShortcutAction('node')).toBe('switch');
@@ -65,6 +65,19 @@ it('clamps overlays whose anchors are beyond every panel edge', () => {
   const panel = { left: 100, top: 50, width: 600, height: 400 };
   expect(contextMenuPoint({ x: -50, y: -80 }, panel, { width: 160, height: 120 })).toEqual({ x: 8, y: 8 });
   expect(contextMenuPoint({ x: 900, y: 700 }, panel, { width: 160, height: 120 })).toEqual({ x: 432, y: 272 });
+});
+
+it('flips and clamps title disclosures at all four panel boundaries', () => {
+  const panel = { left: 100, top: 50, width: 400, height: 300 };
+  const overlay = { width: 120, height: 60 };
+  expect(disclosureOverlayPoint({ left: 105, right: 125, top: 150, bottom: 170 }, panel, overlay)).toEqual({ x: 33, y: 128 });
+  expect(disclosureOverlayPoint({ left: 475, right: 495, top: 150, bottom: 170 }, panel, overlay)).toEqual({ x: 247, y: 128 });
+  expect(disclosureOverlayPoint({ left: 250, right: 270, top: 52, bottom: 72 }, panel, overlay)).toEqual({ x: 178, y: 30 });
+  expect(disclosureOverlayPoint({ left: 250, right: 270, top: 325, bottom: 345 }, panel, overlay)).toEqual({ x: 178, y: 207 });
+});
+
+it('keeps an oversized title disclosure at the panel gutter', () => {
+  expect(disclosureOverlayPoint({ left: 150, right: 170, top: 80, bottom: 100 }, { left: 100, top: 50, width: 100, height: 80 }, { width: 160, height: 120 })).toEqual({ x: 8, y: 8 });
 });
 
 it('does not move a camera that already reveals the local bounds', () => {
