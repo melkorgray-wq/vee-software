@@ -8,8 +8,11 @@ export function stableEdgeOffset(edge: EdgeIdentity, edges: readonly EdgeIdentit
   const same = edges.filter(candidate => candidate.source === edge.source && candidate.target === edge.target).sort((a, b) => a.id.localeCompare(b.id));
   const reverse = edges.filter(candidate => candidate.source === edge.target && candidate.target === edge.source);
   const index = same.findIndex(candidate => candidate.id === edge.id);
-  if (!reverse.length) return (index - (same.length - 1) / 2) * CURVE_OFFSET;
-  return CURVE_OFFSET + index * CURVE_OFFSET;
+  if (reverse.length) return CURVE_OFFSET + index * CURVE_OFFSET;
+  if (same.length > 1) return (index - (same.length - 1) / 2) * CURVE_OFFSET;
+  const sharedEndpoint = edges.filter(candidate => candidate.source === edge.source || candidate.target === edge.target).sort((a, b) => a.id.localeCompare(b.id));
+  const sharedIndex = sharedEndpoint.findIndex(candidate => candidate.id === edge.id);
+  return (sharedIndex - (sharedEndpoint.length - 1) / 2) * CURVE_OFFSET;
 }
 export function circularEdgePath(input: { sourceCenter: Point; targetCenter: Point; sourceRadius: number; targetRadius: number; targetPadding?: number; offset?: number }): { source: Point; target: Point; control?: Point; path: string } {
   const points = circleEdgePoints(input.sourceCenter, input.targetCenter, input.sourceRadius, input.targetRadius, input.targetPadding); const offset = input.offset ?? 0;

@@ -192,6 +192,8 @@ Repulsor impact on an Offer or Product is a derived read-only aggregation throug
 
 The accepted read-only **satellite visualization projection** is deliberately narrower than the domain model. Satellites are grouped visual references to existing entities; they are not domain records, relationships, evidence, effects, or claims of causality. Stable entity and record IDs determine their display owners, concrete targets, contributor paths, deduplication, and deterministic ordering.
 
+In the default map, same-kind references for an owner are always visible as one compact group on a single local orbit. The group uses the existing entity-kind label and concrete target count, and discloses the existing target titles within the available map viewport. Orbit placement is a deterministic rendering concern: it may choose a relatively free sector, but it does not move authored nodes. A satellite creates neither a React Flow edge nor a domain relationship or entity record.
+
 | source record or derived selector | display owner | satellite kind | concrete target / contributor path |
 | --- | --- | --- | --- |
 | authored `job_has_desired_outcome` | the relationship's actual owning Job | Desired Outcome | the referenced Desired Outcome / relationship ID |

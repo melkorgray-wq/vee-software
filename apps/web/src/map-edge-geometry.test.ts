@@ -24,4 +24,19 @@ describe('circular map edge geometry', () => {
     const edges = [{ id: 'b', source: 's', target: 't' }, { id: 'a', source: 's', target: 't' }];
     expect(edges.map(edge => stableEdgeOffset(edge, edges))).toEqual([14, -14]);
   });
+  it('fans edges sharing a Touchpoint endpoint with stable distinct offsets', () => {
+    const edges = [{ id: 'b', source: 'job-b', target: 'touchpoint' }, { id: 'a', source: 'job-a', target: 'touchpoint' }];
+    expect(edges.map(edge => stableEdgeOffset(edge, edges))).toEqual([14, -14]);
+    expect([...edges].reverse().map(edge => stableEdgeOffset(edge, [...edges].reverse()))).toEqual([-14, 14]);
+  });
+  it('avoids a closed oval for neighboring parallel edges', () => {
+    const edges = [{ id: 'a', source: 's', target: 't-1' }, { id: 'b', source: 's', target: 't-2' }];
+    const offsets = edges.map(edge => stableEdgeOffset(edge, edges));
+    expect(offsets[0]).toBeLessThan(0); expect(offsets[1]).toBeGreaterThan(0);
+  });
+  it('preserves source and target boundary direction', () => {
+    const result = circularEdgePath({ sourceCenter: { x: 100, y: 0 }, targetCenter: { x: 0, y: 0 }, sourceRadius: 20, targetRadius: 10, offset: 14 });
+    expect(result.source.x).toBe(80); expect(result.target.x).toBe(10);
+    expect(result.path.startsWith('M 80 0')).toBe(true);
+  });
 });

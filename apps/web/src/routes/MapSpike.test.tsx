@@ -77,6 +77,22 @@ describe('map-first authoring interactions', () => {
     fireEvent.mouseLeave(target); fireEvent.focus(target); expect(screen.getByRole('tooltip')).toHaveTextContent(title);
     fireEvent.blur(target); expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
   });
+  it('renders relation groups in the default unfocused map', () => {
+    render(<MapSpike initialDocument={touchpointInspectorDocument()} />);
+    const group = screen.getByRole('button', { name: 'Desired Outcome group (2)' });
+    expect(group).toHaveAttribute('data-node-id', 'satellite:job:desired_outcome');
+    expect(within(group).getByText('2')).toHaveAccessibleName('2 targets');
+    expect(screen.getAllByRole('button', { name: /Desired Outcome group/ })).toHaveLength(1);
+  });
+  it('satellite title disclosure is viewport-aware', () => {
+    render(<section id="map-workspace-panel"><MapNode data={{ title: 'Desired Outcome group (2)', kindLabel: 'Desired Outcome', layout: { diameter: 54, titleFontSize: 12, kindFontSize: 10, contentWidth: 42, compactTitle: true }, satellite: { kind: 'desired_outcome', targetIds: ['a', 'b'], titles: ['A very long concrete target title', 'Another concrete target title'] } }} /></section>);
+    fireEvent.focus(screen.getByLabelText('Desired Outcome: A very long concrete target title, Another concrete target title'));
+    const disclosure = screen.getByRole('tooltip');
+    expect(disclosure).toHaveTextContent('A very long concrete target title, Another concrete target title');
+    expect(disclosure).toHaveClass('satellite-disclosure');
+    expect(Number.parseFloat(disclosure.style.left)).toBeGreaterThanOrEqual(8);
+    expect(Number.parseFloat(disclosure.style.top)).toBeGreaterThanOrEqual(8);
+  });
   it('double-clicking the title edits while double-clicking the node body opens Inspector', async () => {
     const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user);
     const node = screen.getByRole('button', { name: 'Orbit' });
