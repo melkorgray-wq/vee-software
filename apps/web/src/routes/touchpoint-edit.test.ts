@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyMapDocument, type MapDocument } from '@vee/domain';
-import { applyTouchpointEditDraft, createTouchpointIntentDraft, equalTouchpointIntentDraft, selectCurrentOfferIntent, touchpointIntentCatalogue, validateTouchpointIntentDraft } from './touchpoint-edit';
+import { applyTouchpointEditDraft, connectionPickerCatalogue, createTouchpointIntentDraft, equalTouchpointIntentDraft, filterConnectionCandidates, selectCurrentOfferIntent, touchpointIntentCatalogue, validateTouchpointIntentDraft } from './touchpoint-edit';
 
 function fixture(): MapDocument {
   return {
@@ -26,6 +26,23 @@ function fixture(): MapDocument {
 }
 
 describe('Touchpoint edit intent draft', () => {
+  it('connection picker filters by exact entity kind and partial title', () => {
+    const candidates = connectionPickerCatalogue(fixture(), 'touchpoint');
+    expect(filterConnectionCandidates(candidates, { kind: 'core_functional_job', query: '' }).map(candidate => candidate.semanticLeafId)).toEqual(['do-a', 'do-b']);
+    expect(filterConnectionCandidates(candidates, { query: 'safe' }).map(candidate => candidate.semanticLeafId)).toEqual(['emotional']);
+    expect(filterConnectionCandidates(candidates, { query: 'do b' }).map(candidate => candidate.semanticLeafId)).toEqual(['do-b']);
+  });
+
+  it('DO results retain their owning Job', () => {
+    const result = connectionPickerCatalogue(fixture(), 'touchpoint').find(candidate => candidate.semanticLeafId === 'do-a');
+    expect(result).toMatchObject({ kind: 'job', entity: { id: 'job', kind: 'core_functional_job' }, desiredOutcome: { id: 'do-a' } });
+  });
+
+  it('FDO is excluded from Product connection candidates', () => {
+    expect(connectionPickerCatalogue(fixture(), 'product').map(candidate => candidate.semanticLeafId)).not.toContain('fdo');
+    expect(connectionPickerCatalogue(fixture(), 'offer').map(candidate => candidate.semanticLeafId)).toContain('fdo');
+  });
+
   it('catalogues Client-owned semantic leaves independently of upstream intent', () => {
     const catalogue = touchpointIntentCatalogue(fixture());
     expect(catalogue.jobs.map(leaf => leaf.semanticLeafId)).toEqual(['do-a', 'do-b', 'emotional']);
