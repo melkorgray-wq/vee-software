@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { createEmptyMapDocument, type Entity, type MapDocument, type ProvisionalEntityKind } from '@vee/domain';
 import { layoutForEntity } from './map-adapter';
-import { EMPTY_MAP_PLACEMENT, findFreePlacement, findPlacementNearPoint, findRelatedPlacement } from './map-placement';
+import { EMPTY_MAP_PLACEMENT, findFreePlacement, findPlacementNearPoint, findRelatedPlacement, reconsiderPlacementAfterRelationCommit } from './map-placement';
 
 const VIEW = 'view';
 const empty = () => createEmptyMapDocument({ mapId: 'map', title: 'Map', viewId: VIEW, viewTitle: 'View' });
@@ -142,4 +142,60 @@ it('isolates relation anchors and visible-edge heuristics to the current view', 
   const point = findRelatedPlacement(document, VIEW, layout('offer'), ['anchor'], [{ sourceId: 'anchor', targetId: 'new' }]);
   expect(point.x + 58).toBeCloseTo(222);
   expect(point.y + 58).toBeCloseTo(68);
+});
+
+const linkOffer = (document: MapDocument, productId: string, offerId: string): MapDocument => ({
+  ...document,
+  relationships: [...document.relationships, { id: `link-${productId}-${offerId}`, kind: 'product_packaged_as_offer', productId, offerId }],
+});
+
+it('reconsiders only the affected node after a committed relation change', () => {
+  let before = add(empty(), 'product', 'product', 0, 0);
+  before = add(before, 'offer', 'offer', 600, 0);
+  const after = linkOffer(before, 'product', 'offer');
+  const result = reconsiderPlacementAfterRelationCommit(before, after, VIEW, 'offer');
+  expect(result.placements.find(item => item.entityId === 'offer')!.x).toBeLessThan(600);
+  expect(result.placements.find(item => item.entityId === 'product')).toEqual(before.placements.find(item => item.entityId === 'product'));
+});
+
+it('preserves every neighboring authored placement', () => {
+  let before = add(empty(), 'product', 'product', 0, 0);
+  before = add(before, 'offer', 'offer', 700, 0);
+  before = add(before, 'neighbor', 'touchpoint', 350, 220);
+  const result = reconsiderPlacementAfterRelationCommit(before, linkOffer(before, 'product', 'offer'), VIEW, 'offer');
+  expect(result.placements.filter(item => item.entityId !== 'offer')).toEqual(before.placements.filter(item => item.entityId !== 'offer'));
+});
+
+it('prefers a nearby candidate with one crossing over a remote zero-crossing candidate', () => {
+  let before = add(empty(), 'product', 'product', 0, 0);
+  before = add(before, 'offer', 'offer', 700, 0);
+  before = add(before, 'edge-a', 'touchpoint', 350, -100);
+  before = add(before, 'edge-b', 'touchpoint', 350, 100);
+  before = { ...before, relationships: [...before.relationships, { id: 'crossing', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'edge-a', childTouchpointId: 'edge-b' }] };
+  const result = reconsiderPlacementAfterRelationCommit(before, linkOffer(before, 'product', 'offer'), VIEW, 'offer');
+  const moved = result.placements.find(item => item.entityId === 'offer')!;
+  expect(Math.hypot(moved.x - 700, moved.y)).toBeLessThanOrEqual(144);
+  expect(moved.x).toBeLessThan(700);
+});
+
+it('keeps the current placement when benefit is below threshold', () => {
+  let before = add(empty(), 'product', 'product', 0, 0);
+  before = add(before, 'offer', 'offer', 155, 0);
+  const after = linkOffer(before, 'product', 'offer');
+  expect(reconsiderPlacementAfterRelationCommit(before, after, VIEW, 'offer').placements).toEqual(after.placements);
+});
+
+it('does not reposition on cancelled or failed authoring', () => {
+  let before = add(empty(), 'product', 'product', 0, 0);
+  before = add(before, 'offer', 'offer', 600, 0);
+  expect(reconsiderPlacementAfterRelationCommit(before, before, VIEW, 'offer')).toBe(before);
+});
+
+it('is independent of viewport pan and zoom', () => {
+  let before = add(empty(), 'product', 'product', 0, 0);
+  before = add(before, 'offer', 'offer', 600, 0);
+  const after = linkOffer(before, 'product', 'offer');
+  const first = reconsiderPlacementAfterRelationCommit(before, after, VIEW, 'offer');
+  const second = reconsiderPlacementAfterRelationCommit(structuredClone(before), structuredClone(after), VIEW, 'offer');
+  expect(second.placements).toEqual(first.placements);
 });

@@ -9,6 +9,9 @@ const VISUAL_GUARD = 24;
 const RELATION_GAP = 28;
 const DIRECTIONS_PER_RING = 16;
 const MAX_RINGS = 64;
+const RECONSIDERATION_RINGS = 3;
+const RECONSIDERATION_STEP = 48;
+export const MIN_RELATION_DISTANCE_BENEFIT = 32;
 
 interface Rect { left: number; top: number; right: number; bottom: number }
 interface OccupiedNode { entityId: string; rect: Rect; diameter: number; center: Point }
@@ -137,4 +140,56 @@ export function findRelatedPlacement(document: MapDocument, viewId: string, newN
     if (valid.length) return valid.sort((a, b) => a.crossings - b.crossings || a.through - b.through || a.guard - b.guard || a.aggregateDistance - b.aggregateDistance || a.order - b.order)[0]!.point;
   }
   return findFreePlacement(document, viewId, newNodeLayout);
+}
+
+function incidentAnchorIds(document: MapDocument, entityId: string, viewId: string): string[] {
+  const placed = new Set(document.placements.filter(placement => placement.viewId === viewId).map(placement => placement.entityId));
+  return [...new Set(deriveMapEdges(document).flatMap(edge => edge.source === entityId && placed.has(edge.target)
+    ? [edge.target]
+    : edge.target === entityId && placed.has(edge.source) ? [edge.source] : []))].sort();
+}
+
+/**
+ * Applies the bounded post-commit exception for one command-owned placement. The
+ * caller supplies the affected entity explicitly; relation diffs are never inferred
+ * from React rendering, and this function cannot move any neighboring placement.
+ */
+export function reconsiderPlacementAfterRelationCommit(before: MapDocument, committed: MapDocument, viewId: string, affectedEntityId: string): MapDocument {
+  const previousAnchors = incidentAnchorIds(before, affectedEntityId, viewId);
+  const anchors = incidentAnchorIds(committed, affectedEntityId, viewId);
+  if (!anchors.length || JSON.stringify(previousAnchors) === JSON.stringify(anchors)) return committed;
+
+  const placement = committed.placements.find(item => item.viewId === viewId && item.entityId === affectedEntityId);
+  const entity = committed.entities.find(item => item.id === affectedEntityId);
+  if (!placement || !entity) return committed;
+  const diameter = layoutForEntity(entity).diameter;
+  const occupied = occupiedNodes(committed, viewId).filter(item => item.entityId !== affectedEntityId);
+  const centers = new Map(occupied.map(item => [item.entityId, item.center]));
+  const anchorNodes = anchors.flatMap(id => centers.get(id) ?? []);
+  if (!anchorNodes.length) return committed;
+  const nonAffectedEdges = deriveMapEdges(committed).flatMap(edge => {
+    if (edge.source === affectedEntityId || edge.target === affectedEntityId) return [];
+    const source = centers.get(edge.source); const target = centers.get(edge.target);
+    return source && target ? [{ source, target }] : [];
+  });
+  const pointCenter = (point: Point) => ({ x: point.x + diameter / 2, y: point.y + diameter / 2 });
+  const score = (point: Point, order: number) => {
+    const rect = rectAt(point, diameter); const center = pointCenter(point);
+    const relationDistance = anchorNodes.reduce((sum, anchor) => sum + Math.hypot(center.x - anchor.x, center.y - anchor.y), 0);
+    const crossings = anchorNodes.reduce((count, anchor) => count + nonAffectedEdges.filter(edge => segmentsCross(center, anchor, edge.source, edge.target)).length, 0);
+    const through = nonAffectedEdges.filter(edge => segmentRunsThroughRect(edge.source, edge.target, rect)).length;
+    return { point, order, rect, relationDistance, crossings, through, guard: guardIntrusion(rect, occupied), movement: Math.hypot(point.x - placement.x, point.y - placement.y) };
+  };
+  const current = score(placement, -1);
+  const candidates = [current, ...Array.from({ length: RECONSIDERATION_RINGS * DIRECTIONS_PER_RING }, (_, index) => {
+    const ring = Math.floor(index / DIRECTIONS_PER_RING) + 1;
+    const order = index % DIRECTIONS_PER_RING;
+    return score(clockwisePoint(pointCenter(placement), ring * RECONSIDERATION_STEP, order, diameter), index);
+  })].filter(candidate => !occupied.some(item => intersectionArea(candidate.rect, item.rect) > 0));
+  const best = candidates.sort((a, b) => a.relationDistance - b.relationDistance || a.crossings - b.crossings || a.through - b.through || a.guard - b.guard || a.movement - b.movement || a.order - b.order)[0]!;
+  if (current.relationDistance - best.relationDistance < MIN_RELATION_DISTANCE_BENEFIT) return committed;
+  return {
+    ...committed,
+    placements: committed.placements.map(item => item.viewId === viewId && item.entityId === affectedEntityId ? { ...item, x: best.point.x, y: best.point.y } : item),
+  };
 }
