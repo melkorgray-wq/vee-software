@@ -9,7 +9,7 @@ import { contextMenuPoint, disclosureOverlayPoint, linkedOfferIds, matchesWorksp
 import { focusedRelationTarget, inactiveRelationsMode, reduceRelationsMode, relationEdgeClassName, type RelationsMode } from '../map-relations-mode';
 import { relationGroupsForEntity, relevantPhysicalEdgeIds } from '../map-relation-projection';
 import { emptyInspectorHistory, inspectorHistoryReducer, traverseInspectorHistory } from '../inspector-navigation';
-import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, type ProposedPlacementRelation } from '../map-placement';
+import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, reconsiderPlacementAfterRelationCommit, type ProposedPlacementRelation } from '../map-placement';
 import { nearestSpatialCandidate, spatialDirectionForKey } from '../map-spatial-navigation';
 import { enterMoveMode, inactiveMoveMode, moveInMode, moveVectorForKey, type MoveMode } from '../map-move-mode';
 import { Link } from '../router';
@@ -466,11 +466,12 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         jobLeaves: currentDraft.touchpointIntent.jobLeaves.map(leaf => ({ ...leaf, contributorOfferIds: leaf.contributorOfferIds.filter(id => currentDraft.linkedOfferIds.includes(id)) })),
         financialLeaves: currentDraft.touchpointIntent.financialLeaves.map(leaf => ({ ...leaf, contributorOfferIds: leaf.contributorOfferIds.filter(id => currentDraft.linkedOfferIds.includes(id)) })),
       } : currentDraft.touchpointIntent;
-      const next = applyTouchpointEditDraft(durable, {
+      const committed = applyTouchpointEditDraft(durable, {
         touchpointId: entity.id,
         draft: { ...currentDraft, touchpointIntent: postConfirmationDraft },
         newId: () => crypto.randomUUID(),
       });
+      const next = reconsiderPlacementAfterRelationCommit(durable, committed, VIEW_ID, entity.id);
       setDocument(next);
       setEditDraft(draftFor(next.entities.find(candidate => candidate.id === entity.id)!, next));
       setMessage('Changes applied.');
@@ -1892,6 +1893,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                       newIntentIds: editDraft.financialOutcomeIds.filter((id) => !retainedFinancial.includes(id)).map(() => crypto.randomUUID()),
                     });
                   }
+                  next = reconsiderPlacementAfterRelationCommit(document, next, VIEW_ID, selected.id);
                   setDocument(next);
                   const appliedEntity = next.entities.find(entity => entity.id === selected.id)!;
                   setEditDraft(draftFor(appliedEntity, next));

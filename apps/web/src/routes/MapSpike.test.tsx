@@ -758,6 +758,24 @@ describe('searchable Touchpoint connection picker', () => {
     expect(within(inspector.getByRole('region', { name: 'Connected' })).getByRole('button', { name: 'Finish faster' })).toBeInTheDocument();
   });
 
+  it('repositions only the Touchpoint after its represented intent route commits', async () => {
+    const document = touchpointInspectorDocument();
+    document.placements = document.placements.map(placement => placement.entityId === 'touch' ? { ...placement, x: 1200, y: 300 } : placement);
+    const before = new Map(document.placements.map(placement => [placement.entityId, { x: placement.x, y: placement.y }]));
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Add connection' }));
+    await user.click(inspector.getByRole('button', { name: /Finish faster/ }));
+    await user.click(inspector.getByRole('button', { name: 'Add selected connection' }));
+    await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
+    await user.click(screen.getByRole('tab', { name: 'Map' }));
+    expect(nodePoint('Checkout')).not.toEqual(before.get('touch'));
+    for (const [entityId, point] of before) {
+      if (entityId === 'touch') continue;
+      const title = document.entities.find(entity => entity.id === entityId)!.title;
+      expect(nodePoint(title)).toEqual(point);
+    }
+  });
+
   it('cancelled picker leaves the durable document unchanged', async () => {
     const user = userEvent.setup(); const document = touchpointInspectorDocument(); const snapshot = structuredClone(document); const inspector = renderTouchpointInspector(document);
     await user.click(inspector.getByRole('button', { name: 'Add connection' }));
