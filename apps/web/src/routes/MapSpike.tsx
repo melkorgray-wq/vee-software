@@ -10,6 +10,7 @@ import { focusedRelationTarget, inactiveRelationsMode, reduceRelationsMode, rela
 import { relationGroupsForEntity, relevantPhysicalEdgeIds } from '../map-relation-projection';
 import { emptyInspectorHistory, inspectorHistoryReducer, traverseInspectorHistory } from '../inspector-navigation';
 import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, type ProposedPlacementRelation } from '../map-placement';
+import { nearestSpatialCandidate, spatialDirectionForKey } from '../map-spatial-navigation';
 import { Link } from '../router';
 import { CONNECTION_PICKER_KINDS, applyTouchpointEditDraft, connectionPickerCatalogue, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, filterConnectionCandidates, financialLeafKey, jobLeafKey, selectCurrentOfferIntent, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft } from './touchpoint-edit';
 
@@ -105,7 +106,7 @@ const draft = (kind: ProvisionalEntityKind = 'product'): EditDraft => ({
   newOfferTitle: '',
 });
 const isEditableControl = (target: EventTarget | null) => target instanceof HTMLElement && (target.contentEditable === 'true' || Boolean(target.closest('input, textarea, select, [role="textbox"], [role="combobox"], [contenteditable]')));
-const isKeyboardOwnedControl = (target: EventTarget | null) => target instanceof HTMLElement && Boolean(target.closest('button, form, [role="dialog"], [role="menu"], [role="listbox"], [popover], .contextual-editor'));
+const isKeyboardOwnedControl = (target: EventTarget | null) => target instanceof HTMLElement && !target.closest('[data-node-id], .react-flow__node[data-id]') && Boolean(target.closest('button, form, [role="dialog"], [role="menu"], [role="listbox"], [popover], .contextual-editor'));
 const hasCanonicalChild = (entity: Entity) => entity.kind === 'product' || entity.kind === 'offer' || entity.kind === 'touchpoint' || entity.kind === 'core_functional_job' || entity.kind === 'consumption_chain_job' || entity.kind === 'related_job';
 const safeUrl = (url?: string) => (url && !/^\s*(javascript|data):/i.test(url) ? url : undefined);
 const normalizeTitleLineBreaks = (value: string) => value.replace(/[\r\n\u2028\u2029]+/g, ' ');
@@ -994,6 +995,26 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         if (result.followedTargetId) {
           performSelect(result.followedTargetId);
           requestAnimationFrame(() => revealEntities(documentRef.current, [result.followedTargetId!]));
+        }
+      } else if (!modifier && !event.altKey && relationMode.state === 'inactive' && selectedRef.current && activeWorkspaceViewRef.current === 'map' && spatialDirectionForKey(event)) {
+        const source = documentRef.current;
+        const centers = source.placements.flatMap(placement => {
+          if (placement.viewId !== VIEW_ID) return [];
+          const entity = source.entities.find(candidate => candidate.id === placement.entityId);
+          if (!entity) return [];
+          const radius = layoutForEntity(entity).diameter / 2;
+          return [{ id: entity.id, x: placement.x + radius, y: placement.y + radius }];
+        });
+        const current = centers.find(candidate => candidate.id === selectedRef.current);
+        const target = current && nearestSpatialCandidate(current, centers, spatialDirectionForKey(event)!);
+        if (target) {
+          event.preventDefault();
+          performSelect(target.id);
+          requestAnimationFrame(() => {
+            revealEntities(documentRef.current, [target.id]);
+            const escaped = CSS.escape(target.id);
+            globalThis.document.querySelector<HTMLElement>(`[data-node-id="${escaped}"], .react-flow__node[data-id="${escaped}"]`)?.focus();
+          });
         }
       } else if (!modifier && event.key.toLowerCase() === 'r' && selectedRef.current && activeWorkspaceViewRef.current === 'map') {
         const groups = relationGroupsForEntity(documentRef.current, selectedRef.current);
