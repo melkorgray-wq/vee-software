@@ -271,7 +271,8 @@ export function MapNode({ data }: { data: MapNodeData }) {
   const disclosed = data.inlineTitle === undefined && (titleHovered || titleFocused || disclosureHovered);
   useLayoutEffect(() => {
     const title = titleRef.current;
-    const owner = title?.closest<HTMLElement>('#map-workspace-panel') ?? globalThis.document.body;
+    const panel = title?.closest<HTMLElement>('#map-workspace-panel');
+    const owner = panel?.querySelector<HTMLElement>('[data-map-disclosure-layer]') ?? panel ?? globalThis.document.body;
     const overlay = disclosureRef.current;
     if (!disclosed || !title || !owner || !overlay) return;
     const point = disclosureOverlayPoint(title.getBoundingClientRect(), owner.getBoundingClientRect(), overlay.getBoundingClientRect());
@@ -1587,6 +1588,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       </div>
       <div className="workspace-panels">
         <section id="map-workspace-panel" role="tabpanel" aria-labelledby="map-workspace-tab" ref={panelRef} className="canvas-panel" aria-label="In-memory VEE map editor" hidden={activeWorkspaceView !== 'map'}>
+          <div className="map-disclosure-layer" data-map-disclosure-layer />
           {moveMode.state === 'moving' && <div className="move-mode-indicator" role="status">Move mode · arrows or numpad move the selected node · Escape exits</div>}
           {!document.entities.length && (
             <div className="empty-state">
