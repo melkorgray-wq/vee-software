@@ -5,11 +5,11 @@ import { useEffect, type MouseEvent, type ReactNode } from 'react';
 import { MapNode, MapSpike } from './MapSpike';
 import { applyTouchpointIntentDraft, type MapDocument } from '@vee/domain';
 
-type MockNode = { id: string; position: { x: number; y: number }; data: { title: string; kindLabel: string } };
+type MockNode = { id: string; position: { x: number; y: number }; selected?: boolean; data: { title: string; kindLabel: string } };
 type MockEdge = { id: string; source: string; target: string; type?: string; markerEnd?: { type: string }; label?: string };
 const { setViewportSpy } = vi.hoisted(() => ({ setViewportSpy: vi.fn(() => Promise.resolve(true)) }));
 vi.mock('@xyflow/react', () => ({
-  ReactFlow: ({ nodes, edges, edgeTypes, nodeTypes, tabIndex, onInit, onNodeClick, onNodeDoubleClick, onNodeContextMenu, onPaneClick, onPaneContextMenu }: { nodes: MockNode[]; edges: MockEdge[]; edgeTypes?: Record<string, unknown>; nodeTypes?: Record<string, (props: { data: MockNode['data'] }) => ReactNode>; tabIndex?: number; onInit: (instance: object) => void; onNodeClick: (event: object, node: MockNode) => void; onNodeDoubleClick: (event: { preventDefault(): void; stopPropagation(): void }, node: MockNode) => void; onNodeContextMenu: (event: MouseEvent, node: MockNode) => void; onPaneClick: () => void; onPaneContextMenu: (event: MouseEvent) => void }) => { useEffect(() => onInit({ screenToFlowPosition: ({ x, y }: { x: number; y: number }) => ({ x: x - 10, y: y - 20 }), flowToScreenPosition: ({ x, y }: { x: number; y: number }) => ({ x: x + 10, y: y + 20 }), getViewport: () => ({ x: 0, y: 0, zoom: 1 }), setViewport: setViewportSpy }), [onInit]); const NodeComponent = nodeTypes?.mapNode; return <div aria-label="Map canvas" data-edge-types={Object.keys(edgeTypes ?? {}).join(',')} tabIndex={tabIndex} onContextMenu={onPaneContextMenu}><button onClick={onPaneClick}>Clear selection</button>{nodes.map(node => <div key={node.id}><button aria-label={node.data.title} data-node-id={node.id} data-x={node.position.x} data-y={node.position.y} onClick={() => onNodeClick({}, node)} onDoubleClick={event => onNodeDoubleClick(event, node)} onContextMenu={e => { e.stopPropagation(); onNodeContextMenu(e, node); }}>{NodeComponent ? <NodeComponent data={node.data} /> : node.data.title}</button>{!NodeComponent && <span>{node.data.kindLabel}</span>}</div>)}{edges.map(edge => <span key={edge.id} data-source={edge.source} data-target={edge.target} data-marker={edge.markerEnd?.type} data-edge-type={edge.type}>{edge.label}</span>)}</div>; },
+  ReactFlow: ({ nodes, edges, edgeTypes, nodeTypes, tabIndex, disableKeyboardA11y, onInit, onNodeClick, onNodeDoubleClick, onNodeContextMenu, onPaneClick, onPaneContextMenu }: { nodes: MockNode[]; edges: MockEdge[]; edgeTypes?: Record<string, unknown>; nodeTypes?: Record<string, (props: { data: MockNode['data'] }) => ReactNode>; tabIndex?: number; disableKeyboardA11y?: boolean; onInit: (instance: object) => void; onNodeClick: (event: object, node: MockNode) => void; onNodeDoubleClick: (event: { preventDefault(): void; stopPropagation(): void }, node: MockNode) => void; onNodeContextMenu: (event: MouseEvent, node: MockNode) => void; onPaneClick: () => void; onPaneContextMenu: (event: MouseEvent) => void }) => { useEffect(() => onInit({ screenToFlowPosition: ({ x, y }: { x: number; y: number }) => ({ x: x - 10, y: y - 20 }), flowToScreenPosition: ({ x, y }: { x: number; y: number }) => ({ x: x + 10, y: y + 20 }), getViewport: () => ({ x: 0, y: 0, zoom: 1 }), setViewport: setViewportSpy }), [onInit]); const NodeComponent = nodeTypes?.mapNode; const geometry = (edge: MockEdge) => { const source = nodes.find(node => node.id === edge.source)!; const target = nodes.find(node => node.id === edge.target)!; return `${source.position.x},${source.position.y}:${target.position.x},${target.position.y}`; }; return <div aria-label="Map canvas" data-edge-types={Object.keys(edgeTypes ?? {}).join(',')} data-disable-keyboard-a11y={String(Boolean(disableKeyboardA11y))} tabIndex={tabIndex} onContextMenu={onPaneContextMenu}><button onClick={onPaneClick}>Clear selection</button>{nodes.map(node => <div key={node.id}><button aria-label={node.data.title} data-node-id={node.id} data-selected={String(Boolean(node.selected))} data-x={node.position.x} data-y={node.position.y} onClick={() => onNodeClick({}, node)} onDoubleClick={event => onNodeDoubleClick(event, node)} onContextMenu={e => { e.stopPropagation(); onNodeContextMenu(e, node); }}>{NodeComponent ? <NodeComponent data={node.data} /> : node.data.title}</button>{!NodeComponent && <span>{node.data.kindLabel}</span>}</div>)}{edges.map(edge => <span key={edge.id} data-source={edge.source} data-target={edge.target} data-geometry={geometry(edge)} data-marker={edge.markerEnd?.type} data-edge-type={edge.type}>{edge.label}</span>)}</div>; },
   BaseEdge: () => null, useInternalNode: () => undefined, useStore: () => [], Background: () => null, Controls: () => null, Handle: () => null, MarkerType: { ArrowClosed: 'arrowclosed' }, Position: { Left: 'left', Right: 'right' },
 }));
 vi.mock('../router', () => ({ Link: ({ children }: { children: ReactNode }) => <a href="/">{children}</a> }));
@@ -48,6 +48,30 @@ function touchpointInspectorDocument(twoOffers = false): MapDocument {
   };
 }
 
+function emptyCardinalSectorDocument(): MapDocument {
+  const entities: MapDocument['entities'] = [
+    { id: 'fp', kind: 'touchpoint', title: 'FP' },
+    { id: 'team', kind: 'touchpoint', title: 'TEAM Offer' },
+    { id: 'diagonal', kind: 'touchpoint', title: 'Diagonal neighbor' },
+    { id: 'resistance', kind: 'repulsor', title: 'Repulsor' },
+  ];
+  return {
+    id: 'keyboard-map', title: 'Keyboard map', views: [{ id: 'spike-view', title: 'View' }], entities,
+    relationships: [
+      { id: 'edge-a', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'fp', childTouchpointId: 'team' },
+      { id: 'edge-b', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'fp', childTouchpointId: 'diagonal' },
+      { id: 'resists', kind: 'repulsor_resists', repulsorId: 'resistance', targetEntityId: 'fp' },
+    ],
+    productJobIntents: [], offerJobSelections: [], offerFinancialIntents: [], touchpointJobSelections: [], touchpointFinancialSelections: [],
+    touchpointContainers: [], epistemicAnnotations: [], placements: [
+      { viewId: 'spike-view', entityId: 'fp', x: 100, y: 200 },
+      { viewId: 'spike-view', entityId: 'team', x: 500, y: 200 },
+      { viewId: 'spike-view', entityId: 'diagonal', x: 500, y: 400 },
+      { viewId: 'spike-view', entityId: 'resistance', x: 700, y: 200 },
+    ],
+  };
+}
+
 function renderTouchpointInspector(document = touchpointInspectorDocument()) {
   render(<MapSpike initialDocument={document} />);
   fireEvent.click(screen.getByRole('button', { name: 'Checkout' }));
@@ -56,6 +80,64 @@ function renderTouchpointInspector(document = touchpointInspectorDocument()) {
 }
 
 describe('map-first authoring interactions', () => {
+  it('consumes repeated empty north and south commands without changing selection, authored placement, rendered position, or connected edge geometry', () => {
+    render(<MapSpike initialDocument={emptyCardinalSectorDocument()} />);
+    const source = screen.getByRole('button', { name: 'FP' });
+    fireEvent.click(source);
+    source.focus();
+    const beforePosition = nodePoint('FP');
+    const connectedEdges = Array.from(document.querySelectorAll<HTMLElement>('[data-source="fp"]'));
+    expect(connectedEdges).toHaveLength(2);
+    const beforeGeometry = connectedEdges.map(edge => edge.dataset.geometry);
+    expect(screen.getByLabelText('Map canvas')).toHaveAttribute('data-disable-keyboard-a11y', 'true');
+
+    for (const key of ['ArrowUp', 'ArrowDown'] as const) {
+      for (let index = 0; index < 10; index += 1) {
+        const event = new KeyboardEvent('keydown', { key, code: key, bubbles: true, cancelable: true });
+        source.dispatchEvent(event);
+        expect(event.defaultPrevented).toBe(true);
+      }
+    }
+
+    expect(source).toHaveFocus();
+    expect(source).toHaveAttribute('data-selected', 'true');
+    expect(nodePoint('FP')).toEqual(beforePosition);
+    expect(connectedEdges.map(edge => edge.dataset.geometry)).toEqual(beforeGeometry);
+  });
+
+  it('consumes equivalent empty-sector Numpad commands while an authored east candidate still navigates normally', async () => {
+    render(<MapSpike initialDocument={emptyCardinalSectorDocument()} />);
+    const source = screen.getByRole('button', { name: 'FP' });
+    fireEvent.click(source);
+    source.focus();
+    for (const [key, code] of [['8', 'Numpad8'], ['2', 'Numpad2']] as const) {
+      for (let index = 0; index < 10; index += 1) {
+        const event = new KeyboardEvent('keydown', { key, code, bubbles: true, cancelable: true });
+        source.dispatchEvent(event);
+        expect(event.defaultPrevented).toBe(true);
+      }
+    }
+    expect(nodePoint('FP')).toEqual({ x: 100, y: 200 });
+    fireEvent.keyDown(source, { key: 'ArrowRight', code: 'ArrowRight' });
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'TEAM Offer' })).toHaveFocus());
+  });
+
+  it('keeps VEE Move mode authoritative and restores spatial no-op ownership immediately after Escape', async () => {
+    render(<MapSpike initialDocument={emptyCardinalSectorDocument()} />);
+    const source = screen.getByRole('button', { name: 'FP' });
+    fireEvent.click(source);
+    fireEvent.keyDown(source, { key: 'm', code: 'KeyM' });
+    fireEvent.keyDown(source, { key: 'ArrowUp', code: 'ArrowUp' });
+    await vi.waitFor(() => expect(nodePoint('FP')).toEqual({ x: 100, y: 176 }));
+    const movedGeometry = Array.from(document.querySelectorAll<HTMLElement>('[data-source="fp"]')).map(edge => edge.dataset.geometry);
+    expect(movedGeometry.every(geometry => geometry?.startsWith('100,176:'))).toBe(true);
+    fireEvent.keyDown(source, { key: 'Escape', code: 'Escape' });
+    const afterEscape = new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', bubbles: true, cancelable: true });
+    source.dispatchEvent(afterEscape);
+    expect(afterEscape.defaultPrevented).toBe(true);
+    expect(nodePoint('FP')).toEqual({ x: 100, y: 176 });
+  });
+
   it('arrow navigation focuses and reveals an offscreen node without moving it', async () => {
     const document = touchpointInspectorDocument();
     document.entities = document.entities.slice(0, 2);
