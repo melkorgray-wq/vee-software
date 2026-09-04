@@ -370,7 +370,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       onInlineTitleCancel: () => finishInlineTitleEdit(false),
     } : { ...node.data, ...(node.data.satellite ? { satellite: { ...node.data.satellite, focused: node.id === `satellite:${relationsMode.state === 'inactive' ? '' : relationsMode.sourceId}:${focusedGroup?.satelliteKind}`, ...(relationTargetId ? { focusedTargetId: relationTargetId } : {}) } } : { onTitleDoubleClick: () => startInlineTitleEdit(node.id) }) },
   }));
-  const relevantEdgeIds = relationsMode.state === 'concrete-list' && relationTargetId ? new Set(relevantPhysicalEdgeIds(document, relationsMode.sourceId, relationTargetId)) : null;
+  const relevantEdgeIds = relationsMode.state !== 'inactive' && relationTargetId ? new Set(relevantPhysicalEdgeIds(document, relationsMode.sourceId, relationTargetId)) : null;
   const edges = deriveMapEdges(document).map(edge => ({ ...edge, className: relationEdgeClassName(edge.className, edge.id, relevantEdgeIds) }));
   const selected = document.entities.find((e) => e.id === selectedId);
   const inspectorDirty = Boolean(selected && editDraft && (() => { const baseline = draftFor(selected); return JSON.stringify({ ...editDraft, touchpointIntent: undefined }) !== JSON.stringify({ ...baseline, touchpointIntent: undefined }) || Boolean(editDraft.touchpointIntent && baseline.touchpointIntent && !equalTouchpointIntentDraft(editDraft.touchpointIntent, baseline.touchpointIntent)); })());

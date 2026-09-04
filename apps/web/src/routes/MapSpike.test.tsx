@@ -211,6 +211,19 @@ describe('map-first authoring interactions', () => {
     expect(screen.getByRole('tab', { name: 'Entity Inspector' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).toHaveTextContent('Finish faster');
   });
+  it('workspace shortcut opens single relation target inspector', async () => {
+    const user = userEvent.setup();
+    const document = touchpointInspectorDocument();
+    document.offerFinancialIntents = [{ id: 'offer-fdo', offerId: 'offer-a', financialDesiredOutcomeId: 'fdo' }];
+    render(<MapSpike initialDocument={document} />);
+    await user.click(screen.getByRole('button', { name: 'Subscription' }));
+    fireEvent.keyDown(window, { key: 'r' });
+    expect(screen.getByRole('option', { name: 'Stay affordable', selected: true })).toBeInTheDocument();
+    fireEvent.keyDown(window, { code: 'Space', key: ' ', ctrlKey: true, shiftKey: true });
+    expect(screen.getByRole('tab', { name: 'Entity Inspector' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).toHaveTextContent('Stay affordable');
+    expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).not.toHaveTextContent('Subscription');
+  });
   it('satellite title disclosure is viewport-aware', () => {
     render(<section id="map-workspace-panel"><MapNode data={{ title: 'Desired Outcome group (2)', kindLabel: 'Desired Outcome', layout: { diameter: 54, titleFontSize: 12, kindFontSize: 10, contentWidth: 42, compactTitle: true }, satellite: { kind: 'desired_outcome', targetIds: ['a', 'b'], titles: ['A very long concrete target title', 'Another concrete target title'] } }} /></section>);
     fireEvent.focus(screen.getByLabelText('Desired Outcome: A very long concrete target title, Another concrete target title'));

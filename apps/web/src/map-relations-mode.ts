@@ -38,15 +38,18 @@ export function reduceRelationsMode(mode: RelationsMode, action: RelationsModeAc
     const targetIndex = Math.max(0, Math.min(mode.targetIndex + delta, targets.length - 1));
     return { mode: { ...mode, targetIndex } };
   }
-  if (action.type === 'follow-target' && mode.state === 'concrete-list') {
-    const followedTargetId = mode.groups[mode.groupIndex]!.targets[mode.targetIndex]?.entityId;
+  if (action.type === 'follow-target') {
+    const followedTargetId = focusedRelationTarget(mode);
     return followedTargetId ? { mode: inactiveRelationsMode(), followedTargetId } : { mode };
   }
   return { mode };
 }
 
 export function focusedRelationTarget(mode: RelationsMode): string | undefined {
-  return mode.state === 'concrete-list' ? mode.groups[mode.groupIndex]!.targets[mode.targetIndex]?.entityId : undefined;
+  if (mode.state === 'inactive') return undefined;
+  const targets = mode.groups[mode.groupIndex]!.targets;
+  if (mode.state === 'group') return targets.length === 1 ? targets[0]!.entityId : undefined;
+  return targets[mode.targetIndex]?.entityId;
 }
 
 export function relationEdgeClassName(base: string | undefined, edgeId: string, relevantIds: ReadonlySet<string> | null): string {

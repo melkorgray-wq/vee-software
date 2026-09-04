@@ -7,6 +7,7 @@ const groups: SatelliteGroup[] = [
   { displayOwnerId: 'source', satelliteKind: 'desired_outcome', targets: [{ entityId: 'a', paths: [['edge-a']] }, { entityId: 'b', paths: [['edge-b']] }] },
   { displayOwnerId: 'source', satelliteKind: 'repulsor', targets: [{ entityId: 'c', paths: [['edge-c']] }] },
 ];
+const singleTargetGroups: SatelliteGroup[] = [groups[1]!];
 
 it('enters from a focused node and traverses groups deterministically', () => {
   let mode = reduceRelationsMode(inactiveRelationsMode(), { type: 'enter', sourceId: 'source', groups }).mode;
@@ -17,7 +18,7 @@ it('enters from a focused node and traverses groups deterministically', () => {
   expect(mode).toMatchObject({ state: 'group', groupIndex: 0 });
 });
 
-it('navigates concrete targets and backs out one level per Escape', () => {
+it('preserves multi-target concrete-list → Escape → group → Escape → inactive behavior', () => {
   let mode = reduceRelationsMode(inactiveRelationsMode(), { type: 'enter', sourceId: 'source', groups }).mode;
   mode = reduceRelationsMode(mode, { type: 'next-target' }).mode;
   expect(focusedRelationTarget(mode)).toBe('a');
@@ -27,6 +28,26 @@ it('navigates concrete targets and backs out one level per Escape', () => {
   expect(focusedRelationTarget(mode)).toBe('b');
   mode = reduceRelationsMode(mode, { type: 'escape' }).mode;
   expect(mode.state).toBe('group');
+  expect(reduceRelationsMode(mode, { type: 'escape' }).mode).toEqual({ state: 'inactive' });
+});
+
+it('single-target relation group resolves concrete target', () => {
+  const mode = reduceRelationsMode(inactiveRelationsMode(), { type: 'enter', sourceId: 'source', groups: singleTargetGroups }).mode;
+  expect(mode).toMatchObject({ state: 'group', groupIndex: 0 });
+  expect(focusedRelationTarget(mode)).toBe('c');
+  expect(reduceRelationsMode(mode, { type: 'follow-target' })).toEqual({ mode: { state: 'inactive' }, followedTargetId: 'c' });
+});
+
+it('multi-target group does not guess concrete target', () => {
+  let mode = reduceRelationsMode(inactiveRelationsMode(), { type: 'enter', sourceId: 'source', groups: [groups[0]!] }).mode;
+  expect(focusedRelationTarget(mode)).toBeUndefined();
+  expect(reduceRelationsMode(mode, { type: 'follow-target' })).toEqual({ mode });
+  mode = reduceRelationsMode(mode, { type: 'next-target' }).mode;
+  expect(focusedRelationTarget(mode)).toBe('a');
+});
+
+it('escape exits single-target relation focus', () => {
+  const mode = reduceRelationsMode(inactiveRelationsMode(), { type: 'enter', sourceId: 'source', groups: singleTargetGroups }).mode;
   expect(reduceRelationsMode(mode, { type: 'escape' }).mode).toEqual({ state: 'inactive' });
 });
 
