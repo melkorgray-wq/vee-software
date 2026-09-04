@@ -225,11 +225,12 @@ describe('map-first authoring interactions', () => {
     expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).not.toHaveTextContent('Subscription');
   });
   it('satellite title disclosure is viewport-aware', () => {
-    render(<section id="map-workspace-panel"><MapNode data={{ title: 'Desired Outcome group (2)', kindLabel: 'Desired Outcome', layout: { diameter: 54, titleFontSize: 12, kindFontSize: 10, contentWidth: 42, compactTitle: true }, satellite: { kind: 'desired_outcome', targetIds: ['a', 'b'], titles: ['A very long concrete target title', 'Another concrete target title'] } }} /></section>);
+    render(<section id="map-workspace-panel"><div className="map-disclosure-layer" data-map-disclosure-layer /><MapNode data={{ title: 'Desired Outcome group (2)', kindLabel: 'Desired Outcome', layout: { diameter: 54, titleFontSize: 12, kindFontSize: 10, contentWidth: 42, compactTitle: true }, satellite: { kind: 'desired_outcome', targetIds: ['a', 'b'], titles: ['A very long concrete target title', 'Another concrete target title'] } }} /></section>);
     fireEvent.focus(screen.getByLabelText('Desired Outcome: A very long concrete target title, Another concrete target title'));
     const disclosure = screen.getByRole('tooltip');
     expect(disclosure).toHaveTextContent('A very long concrete target title, Another concrete target title');
     expect(disclosure).toHaveClass('satellite-disclosure');
+    expect(disclosure.parentElement).toHaveClass('map-disclosure-layer');
     expect(Number.parseFloat(disclosure.style.left)).toBeGreaterThanOrEqual(8);
     expect(Number.parseFloat(disclosure.style.top)).toBeGreaterThanOrEqual(8);
   });
