@@ -1016,6 +1016,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
           requestAnimationFrame(() => revealEntities(documentRef.current, [result.followedTargetId!]));
         }
       } else if (!modifier && !event.altKey && relationMode.state === 'inactive' && selectedRef.current && activeWorkspaceViewRef.current === 'map' && spatialDirectionForKey(event)) {
+        // VEE owns directional keys in Map mode even when the authored geometry has
+        // no destination. Consuming the empty-sector case also prevents browser
+        // scrolling; React Flow's own node keyboard movement is disabled below.
+        event.preventDefault();
         const source = documentRef.current;
         const centers = source.placements.flatMap(placement => {
           if (placement.viewId !== VIEW_ID) return [];
@@ -1027,7 +1031,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         const current = centers.find(candidate => candidate.id === selectedRef.current);
         const target = current && nearestSpatialCandidate(current, centers, spatialDirectionForKey(event)!);
         if (target) {
-          event.preventDefault();
           performSelect(target.id);
           requestAnimationFrame(() => {
             revealEntities(documentRef.current, [target.id]);
@@ -1602,6 +1605,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             fitViewOptions={{ maxZoom: 1 }}
             nodesConnectable={false}
             edgesFocusable={false}
+            disableKeyboardA11y
             deleteKeyCode={null}
             multiSelectionKeyCode={null}
             onInit={(instance) => {
