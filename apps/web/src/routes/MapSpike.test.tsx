@@ -5,11 +5,11 @@ import { useEffect, useState, type MouseEvent, type ReactNode } from 'react';
 import { isRenderedTitleTruncated, MapNode, MapSpike } from './MapSpike';
 import { applyTouchpointIntentDraft, type MapDocument } from '@vee/domain';
 
-type MockNode = { id: string; position: { x: number; y: number }; selected?: boolean; data: { title: string; kindLabel: string } };
+type MockNode = { id: string; position: { x: number; y: number }; selected?: boolean; className?: string; data: { title: string; kindLabel: string } };
 type MockEdge = { id: string; source: string; target: string; type?: string; markerEnd?: { type: string }; label?: string };
 const { setViewportSpy } = vi.hoisted(() => ({ setViewportSpy: vi.fn(() => Promise.resolve(true)) }));
 vi.mock('@xyflow/react', () => ({
-  ReactFlow: ({ nodes, edges, edgeTypes, nodeTypes, tabIndex, disableKeyboardA11y, onInit, onNodeClick, onNodeDoubleClick, onNodeContextMenu, onPaneClick, onPaneContextMenu }: { nodes: MockNode[]; edges: MockEdge[]; edgeTypes?: Record<string, unknown>; nodeTypes?: Record<string, (props: { data: MockNode['data'] }) => ReactNode>; tabIndex?: number; disableKeyboardA11y?: boolean; onInit: (instance: object) => void; onNodeClick: (event: object, node: MockNode) => void; onNodeDoubleClick: (event: { preventDefault(): void; stopPropagation(): void }, node: MockNode) => void; onNodeContextMenu: (event: MouseEvent, node: MockNode) => void; onPaneClick: () => void; onPaneContextMenu: (event: MouseEvent) => void }) => { useEffect(() => onInit({ screenToFlowPosition: ({ x, y }: { x: number; y: number }) => ({ x: x - 10, y: y - 20 }), flowToScreenPosition: ({ x, y }: { x: number; y: number }) => ({ x: x + 10, y: y + 20 }), getViewport: () => ({ x: 0, y: 0, zoom: 1 }), setViewport: setViewportSpy }), [onInit]); const NodeComponent = nodeTypes?.mapNode; const geometry = (edge: MockEdge) => { const source = nodes.find(node => node.id === edge.source)!; const target = nodes.find(node => node.id === edge.target)!; return `${source.position.x},${source.position.y}:${target.position.x},${target.position.y}`; }; return <div aria-label="Map canvas" data-edge-types={Object.keys(edgeTypes ?? {}).join(',')} data-disable-keyboard-a11y={String(Boolean(disableKeyboardA11y))} tabIndex={tabIndex} onContextMenu={onPaneContextMenu}><button onClick={onPaneClick}>Clear selection</button>{nodes.map(node => <div key={node.id}><button aria-label={node.data.title} data-node-id={node.id} data-selected={String(Boolean(node.selected))} data-x={node.position.x} data-y={node.position.y} onClick={() => onNodeClick({}, node)} onDoubleClick={event => onNodeDoubleClick(event, node)} onContextMenu={e => { e.stopPropagation(); onNodeContextMenu(e, node); }}>{NodeComponent ? <NodeComponent data={node.data} /> : node.data.title}</button>{!NodeComponent && <span>{node.data.kindLabel}</span>}</div>)}{edges.map(edge => <span key={edge.id} data-source={edge.source} data-target={edge.target} data-geometry={geometry(edge)} data-marker={edge.markerEnd?.type} data-edge-type={edge.type}>{edge.label}</span>)}</div>; },
+  ReactFlow: ({ nodes, edges, edgeTypes, nodeTypes, tabIndex, disableKeyboardA11y, onInit, onNodeClick, onNodeDoubleClick, onNodeContextMenu, onPaneClick, onPaneContextMenu }: { nodes: MockNode[]; edges: MockEdge[]; edgeTypes?: Record<string, unknown>; nodeTypes?: Record<string, (props: { data: MockNode['data'] }) => ReactNode>; tabIndex?: number; disableKeyboardA11y?: boolean; onInit: (instance: object) => void; onNodeClick: (event: object, node: MockNode) => void; onNodeDoubleClick: (event: { preventDefault(): void; stopPropagation(): void }, node: MockNode) => void; onNodeContextMenu: (event: MouseEvent, node: MockNode) => void; onPaneClick: () => void; onPaneContextMenu: (event: MouseEvent) => void }) => { useEffect(() => onInit({ screenToFlowPosition: ({ x, y }: { x: number; y: number }) => ({ x: x - 10, y: y - 20 }), flowToScreenPosition: ({ x, y }: { x: number, y: number }) => ({ x: x + 10, y: y + 20 }), getViewport: () => ({ x: 0, y: 0, zoom: 1 }), setViewport: setViewportSpy }), [onInit]); const NodeComponent = nodeTypes?.mapNode; const geometry = (edge: MockEdge) => { const source = nodes.find(node => node.id === edge.source)!; const target = nodes.find(node => node.id === edge.target)!; return `${source.position.x},${source.position.y}:${target.position.x},${target.position.y}`; }; return <div aria-label="Map canvas" data-edge-types={Object.keys(edgeTypes ?? {}).join(',')} data-disable-keyboard-a11y={String(Boolean(disableKeyboardA11y))} tabIndex={tabIndex} onContextMenu={onPaneContextMenu}><button onClick={onPaneClick}>Clear selection</button>{nodes.map(node => <div key={node.id}><button aria-label={node.data.title} data-node-id={node.id} data-node-class={node.className} data-selected={String(Boolean(node.selected))} data-x={node.position.x} data-y={node.position.y} onClick={() => onNodeClick({}, node)} onDoubleClick={event => onNodeDoubleClick(event, node)} onContextMenu={e => { e.stopPropagation(); onNodeContextMenu(e, node); }}>{NodeComponent ? <NodeComponent data={node.data} /> : node.data.title}</button>{!NodeComponent && <span>{node.data.kindLabel}</span>}</div>)}{edges.map(edge => <span key={edge.id} data-source={edge.source} data-target={edge.target} data-geometry={geometry(edge)} data-marker={edge.markerEnd?.type} data-edge-type={edge.type} data-edge-class={(edge as MockEdge & { className?: string }).className}>{edge.label}</span>)}</div>; },
   BaseEdge: () => null, useInternalNode: () => undefined, useStore: () => [], Background: () => null, Controls: () => null, Handle: () => null, MarkerType: { ArrowClosed: 'arrowclosed' }, Position: { Left: 'left', Right: 'right' },
 }));
 vi.mock('../router', () => ({ Link: ({ children }: { children: ReactNode }) => <a href="/">{children}</a> }));
@@ -92,6 +92,56 @@ function renderTouchpointInspector(document = touchpointInspectorDocument()) {
   fireEvent.click(screen.getByRole('tab', { name: 'Entity Inspector' }));
   return within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
 }
+
+function relationLensDocument(multiple = false): MapDocument {
+  const document = touchpointInspectorDocument();
+  if (multiple) {
+    document.entities.push({ id: 'job-2', kind: 'core_functional_job', title: 'Second job' });
+    document.placements.push({ viewId: 'spike-view', entityId: 'job-2', x: 900, y: 0 });
+  }
+  document.productJobIntents = [
+    { id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a', 'do-b'] },
+    ...(multiple ? [{ id: 'intent-2', productId: 'product', jobId: 'job-2', addressedDesiredOutcomeIds: [] }] : []),
+  ];
+  document.offerJobSelections = [{ id: 'offer-selection', offerId: 'offer-a', productJobIntentId: 'intent' }];
+  document.touchpointJobSelections = [{ id: 'touch-selection', touchpointId: 'touch', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] }];
+  return document;
+}
+
+describe('clickable satellite Relation Lens', () => {
+  afterEach(cleanup);
+  it('clicking a single-target primary satellite enters its concrete Relations focus and toggles off without selecting a synthetic ID', async () => {
+    const user = userEvent.setup(); render(<MapSpike initialDocument={relationLensDocument()} />);
+    const primary = document.querySelector<HTMLElement>('[data-node-id="satellite:product:core_functional_job"]')!;
+    await user.click(primary);
+    expect(screen.getByRole('listbox', { name: 'Core Functional Job relation targets' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Stay affordable' })).toHaveAttribute('data-node-class', expect.stringContaining('relation-lens-dimmed'));
+    expect(primary).toHaveAttribute('data-selected', 'false');
+    expect(document.querySelector('[data-node-id="satellite:job:offer"]')).toHaveAttribute('data-node-class', expect.stringContaining('relation-lens-dimmed'));
+    await user.click(primary);
+    expect(screen.getByRole('button', { name: 'Stay affordable' })).not.toHaveAttribute('data-node-class', expect.stringContaining('relation-lens-dimmed'));
+  });
+
+  it('clicking a multi-target satellite focuses its group without premature lens and pointer selection reuses target state', async () => {
+    const user = userEvent.setup(); render(<MapSpike initialDocument={relationLensDocument(true)} />);
+    await user.click(document.querySelector<HTMLElement>('[data-node-id="satellite:product:core_functional_job"]')!);
+    expect(screen.getByRole('button', { name: 'Stay affordable' })).not.toHaveAttribute('data-node-class', expect.stringContaining('relation-lens-dimmed'));
+    await user.click(screen.getByRole('option', { name: 'Make progress' }));
+    expect(screen.getByRole('option', { name: 'Make progress' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: 'Stay affordable' })).toHaveAttribute('data-node-class', expect.stringContaining('relation-lens-dimmed'));
+    await user.click(screen.getByRole('button', { name: 'Stay affordable' }));
+    expect(screen.queryByRole('listbox', { name: 'Core Functional Job relation targets' })).not.toBeInTheDocument();
+  });
+
+  it('temporary DO child satellite is not a lens entry point and satellite double-click does not open Inspector', async () => {
+    const user = userEvent.setup(); render(<MapSpike initialDocument={relationLensDocument()} />);
+    const primary = document.querySelector<HTMLElement>('[data-node-id="satellite:product:core_functional_job"]')!; await user.click(primary);
+    const child = document.querySelector<HTMLElement>('[data-node-id="satellite-child:product:job:do-a"]')!; await user.click(child);
+    expect(screen.getByRole('listbox', { name: 'Core Functional Job relation targets' })).toBeInTheDocument();
+    await user.dblClick(primary);
+    expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
+  });
+});
 
 describe('map-first authoring interactions', () => {
   it('consumes repeated empty north and south commands without changing selection, authored placement, rendered position, or connected edge geometry', () => {
