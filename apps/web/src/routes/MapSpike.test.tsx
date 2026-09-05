@@ -201,6 +201,32 @@ describe('map-first authoring interactions', () => {
     fireEvent.mouseEnter(target); expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
     fireEvent.focus(target); expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
   });
+  it('visually fitting title ignores rounding-only overflow', () => {
+    render(<MapNode data={{ title: 'Team1', kindLabel: 'Offer', layout: nodeLayout }} />);
+    const target = screen.getByLabelText('Team1');
+    Object.defineProperties(target, {
+      clientHeight: { configurable: true, value: 14 },
+      scrollHeight: { configurable: true, value: 15 },
+      clientWidth: { configurable: true, value: 65 },
+      scrollWidth: { configurable: true, value: 65 },
+    });
+    expect(isRenderedTitleTruncated(target)).toBe(false);
+    fireEvent.mouseEnter(target); fireEvent.focus(target);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+  it('genuinely hidden title remains truncated', () => {
+    render(<MapNode data={{ title: 'A title hidden beyond the third visible line', kindLabel: 'Offer', layout: nodeLayout }} />);
+    const target = screen.getByLabelText('A title hidden beyond the third visible line');
+    Object.defineProperties(target, {
+      clientHeight: { configurable: true, value: 42 },
+      scrollHeight: { configurable: true, value: 56 },
+      clientWidth: { configurable: true, value: 65 },
+      scrollWidth: { configurable: true, value: 65 },
+    });
+    expect(isRenderedTitleTruncated(target)).toBe(true);
+    fireEvent.mouseEnter(target);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('A title hidden beyond the third visible line');
+  });
   it('truncated authored title discloses', () => {
     const title = 'AnExactUnbrokenTitleThatIsFarLongerThanTheRoleSizedNodeCanContain';
     render(<section id="map-workspace-panel"><div className="map-disclosure-layer" data-map-disclosure-layer /><MapNode data={{ title, kindLabel: 'Product', layout: nodeLayout }} /></section>);

@@ -117,7 +117,12 @@ function resizeAutoGrowingField(field: HTMLTextAreaElement) {
   field.style.height = `${field.scrollHeight}px`;
 }
 export function isRenderedTitleTruncated(title: HTMLElement) {
-  return title.scrollHeight > title.clientHeight || title.scrollWidth > title.clientWidth;
+  // CSSOM exposes these dimensions as rounded CSS pixels. A one-pixel height
+  // difference can therefore describe the same visible line box; another
+  // clamped line exceeds this margin by approximately one full line height.
+  // `overflow-wrap: anywhere` makes extra lines, rather than horizontal
+  // overflow, the title box's content-hiding boundary.
+  return title.scrollHeight - title.clientHeight > 1;
 }
 function AutoGrowingTitleField({ value, onChange, autoFocus = false }: { value: string; onChange: (value: string) => void; autoFocus?: boolean }) {
   const fieldRef = useRef<HTMLTextAreaElement>(null);
