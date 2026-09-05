@@ -14,25 +14,27 @@ describe('circular map edge geometry', () => {
     expect(circleEdgePoints({ x: 4, y: 5 }, { x: 4 + 1e-8, y: 5 }, 10, 20)).toEqual({ source: { x: 14, y: 5 }, target: { x: -15.99999999, y: 5 } });
   });
   it('adds marker clearance outside the target circle', () => expect(circleEdgePoints({ x: 0, y: 0 }, { x: 100, y: 0 }, 10, 20, 3).target).toEqual({ x: 77, y: 0 }));
-  it('creates stable mirrored curves for opposite relationships regardless of array order', () => {
+  it('reverse relationships remain mirrored', () => {
     const forward = { id: 'a', source: 'left', target: 'right' }; const reverse = { id: 'b', source: 'right', target: 'left' }; const edges: EdgeIdentity[] = [reverse, forward];
     const first = circularEdgePath({ sourceCenter: { x: 0, y: 0 }, targetCenter: { x: 100, y: 0 }, sourceRadius: 10, targetRadius: 10, offset: stableEdgeOffset(forward, edges) });
     const second = circularEdgePath({ sourceCenter: { x: 100, y: 0 }, targetCenter: { x: 0, y: 0 }, sourceRadius: 10, targetRadius: 10, offset: stableEdgeOffset(reverse, [...edges].reverse()) });
     expect(first.control?.y).toBe(28); expect(second.control?.y).toBe(-28);
   });
-  it('gives multiple same-direction edges deterministic symmetric offsets', () => {
+  it('same source and target edges remain deterministically separated', () => {
     const edges = [{ id: 'b', source: 's', target: 't' }, { id: 'a', source: 's', target: 't' }];
-    expect(edges.map(edge => stableEdgeOffset(edge, edges))).toEqual([14, -14]);
-  });
-  it('fans edges sharing a Touchpoint endpoint with stable distinct offsets', () => {
-    const edges = [{ id: 'b', source: 'job-b', target: 'touchpoint' }, { id: 'a', source: 'job-a', target: 'touchpoint' }];
     expect(edges.map(edge => stableEdgeOffset(edge, edges))).toEqual([14, -14]);
     expect([...edges].reverse().map(edge => stableEdgeOffset(edge, [...edges].reverse()))).toEqual([-14, 14]);
   });
-  it('avoids a closed oval for neighboring parallel edges', () => {
-    const edges = [{ id: 'a', source: 's', target: 't-1' }, { id: 'b', source: 's', target: 't-2' }];
+  it('distinct sources sharing one target stay straight', () => {
+    const edges = [{ id: 'client-a-to-tp', source: 'client-a', target: 'touchpoint' }, { id: 'client-b-to-tp', source: 'client-b', target: 'touchpoint' }];
+    expect(edges.map(edge => stableEdgeOffset(edge, edges))).toEqual([0, 0]);
+  });
+  it('distinct targets sharing one source stay straight', () => {
+    const edges = [{ id: 'team-to-fp', source: 'team', target: 'fp' }, { id: 'team-to-sp', source: 'team', target: 'sp' }];
     const offsets = edges.map(edge => stableEdgeOffset(edge, edges));
-    expect(offsets[0]).toBeLessThan(0); expect(offsets[1]).toBeGreaterThan(0);
+    expect(offsets).toEqual([0, 0]);
+    expect(circularEdgePath({ sourceCenter: { x: 0, y: 0 }, targetCenter: { x: 100, y: 0 }, sourceRadius: 10, targetRadius: 10, offset: offsets[0] }).path).toBe('M 10 0 L 90 0');
+    expect(circularEdgePath({ sourceCenter: { x: 0, y: 0 }, targetCenter: { x: 0, y: 100 }, sourceRadius: 10, targetRadius: 10, offset: offsets[1] }).path).toBe('M 0 10 L 0 90');
   });
   it('preserves source and target boundary direction', () => {
     const result = circularEdgePath({ sourceCenter: { x: 100, y: 0 }, targetCenter: { x: 0, y: 0 }, sourceRadius: 20, targetRadius: 10, offset: 14 });
