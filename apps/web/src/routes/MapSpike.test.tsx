@@ -258,28 +258,20 @@ describe('map-first authoring interactions', () => {
     target = screen.getByLabelText(longTitle); setTitleOverflow(target, true); fireEvent.mouseEnter(target);
     expect(screen.getByRole('tooltip')).toHaveTextContent(longTitle);
   });
-  it('renders relation groups in the default unfocused map', () => {
+  it('does not render a redundant Desired Outcome satellite beside its owning Job', () => {
     render(<MapSpike initialDocument={touchpointInspectorDocument()} />);
-    const group = screen.getByRole('button', { name: 'Desired Outcome group (2)' });
-    expect(group).toHaveAttribute('data-node-id', 'satellite:job:desired_outcome');
-    expect(within(group).getByText('2')).toHaveAccessibleName('2 targets');
-    expect(screen.getAllByRole('button', { name: /Desired Outcome group/ })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: /Desired Outcome group/ })).not.toBeInTheDocument();
+    expect(document.querySelector('[data-node-id="satellite:job:desired_outcome"]')).not.toBeInTheDocument();
   });
 
-  it('traverses Relations mode by exact accessible names and follows or inspects the concrete target', async () => {
-    const user = userEvent.setup(); render(<MapSpike initialDocument={touchpointInspectorDocument()} />);
-    await user.click(screen.getByRole('button', { name: 'Make progress' }));
+  it('does not enter an invisible Relations-mode group for a redundant projection', async () => {
+    const user = userEvent.setup();
+    render(<MapSpike initialDocument={touchpointInspectorDocument()} />);
+    const job = screen.getByRole('button', { name: 'Make progress' });
+    await user.click(job);
     fireEvent.keyDown(window, { key: 'r' });
-    fireEvent.keyDown(window, { key: 'ArrowDown' });
-    const targets = screen.getByRole('listbox', { name: 'Desired Outcome relation targets' });
-    expect(within(targets).getByRole('option', { name: 'Finish faster', selected: true })).toBeInTheDocument();
-    fireEvent.keyDown(window, { key: 'Enter' });
-    expect(screen.getByRole('button', { name: 'Finish faster' })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Make progress' }));
-    fireEvent.keyDown(window, { key: 'r' }); fireEvent.keyDown(window, { key: 'ArrowDown' });
-    fireEvent.keyDown(window, { code: 'Space', key: ' ', ctrlKey: true, shiftKey: true });
-    expect(screen.getByRole('tab', { name: 'Entity Inspector' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).toHaveTextContent('Finish faster');
+    expect(screen.queryByRole('listbox', { name: 'Desired Outcome relation targets' })).not.toBeInTheDocument();
+    expect(job).toHaveAttribute('data-selected', 'true');
   });
   it('workspace shortcut opens single relation target inspector', async () => {
     const user = userEvent.setup();
