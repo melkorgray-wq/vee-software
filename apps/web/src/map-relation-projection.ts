@@ -20,6 +20,8 @@ const PRODUCT_JOB_SATELLITE_KINDS = new Set<SatelliteKind>([
   'social_job',
 ]);
 
+const REPULSOR_JOB_TARGET_KINDS = PRODUCT_JOB_SATELLITE_KINDS;
+
 export interface SatelliteTarget {
   entityId: string;
   /** Stable authored/derived contributor paths; these are visualization provenance, not relationships. */
@@ -91,6 +93,7 @@ const compare = (left: string, right: string) => left.localeCompare(right);
 export function projectMapRelationSatellites(document: MapDocument): SatelliteGroup[] {
   const entities = new Map(document.entities.map(entity => [entity.id, entity]));
   const groups = new Map<string, Map<string, Set<string>>>();
+  const resistanceRelationshipsByTarget = new Map<string, Array<{ id: string; repulsorId: string }>>();
 
   function entity(id: string, kind: 'product' | 'offer' | 'financial_desired_outcome') {
     const candidate = entities.get(id);
@@ -105,11 +108,24 @@ export function projectMapRelationSatellites(document: MapDocument): SatelliteGr
     groups.set(key, targets);
   }
 
+  for (const relationship of document.relationships) {
+    if (relationship.kind !== 'repulsor_resists' || entities.get(relationship.repulsorId)?.kind !== 'repulsor') continue;
+    const target = entities.get(relationship.targetEntityId);
+    if (!target || (!REPULSOR_JOB_TARGET_KINDS.has(target.kind as SatelliteKind) && target.kind !== 'financial_desired_outcome')) continue;
+    const relationships = resistanceRelationshipsByTarget.get(target.id) ?? [];
+    relationships.push({ id: relationship.id, repulsorId: relationship.repulsorId });
+    resistanceRelationshipsByTarget.set(target.id, relationships);
+  }
+
   for (const intent of document.productJobIntents) {
     const job = entities.get(intent.jobId);
     if (entity(intent.productId, 'product') && job && PRODUCT_JOB_SATELLITE_KINDS.has(job.kind as SatelliteKind)) {
       add(intent.productId, job.kind as SatelliteKind, job.id, [intent.id]);
       add(job.id, 'product', intent.productId, [intent.id]);
+      for (const resistance of resistanceRelationshipsByTarget.get(job.id) ?? []) {
+        add(intent.productId, 'repulsor', resistance.repulsorId, [intent.id, resistance.id]);
+        add(resistance.repulsorId, 'product', intent.productId, [intent.id, resistance.id]);
+      }
       for (const outcomeId of intent.addressedDesiredOutcomeIds) {
         if (
           entities.get(outcomeId)?.kind === 'desired_outcome'
@@ -133,6 +149,10 @@ export function projectMapRelationSatellites(document: MapDocument): SatelliteGr
     if (!job || !PRODUCT_JOB_SATELLITE_KINDS.has(job.kind as SatelliteKind)) continue;
     add(offer.id, job.kind as SatelliteKind, job.id, [selection.id, intent.id]);
     add(job.id, 'offer', offer.id, [selection.id, intent.id]);
+    for (const resistance of resistanceRelationshipsByTarget.get(job.id) ?? []) {
+      add(offer.id, 'repulsor', resistance.repulsorId, [selection.id, intent.id, resistance.id]);
+      add(resistance.repulsorId, 'offer', offer.id, [selection.id, intent.id, resistance.id]);
+    }
     for (const outcomeId of intent.addressedDesiredOutcomeIds) {
       if (
         entities.get(outcomeId)?.kind === 'desired_outcome'
@@ -145,6 +165,10 @@ export function projectMapRelationSatellites(document: MapDocument): SatelliteGr
     if (entity(intent.offerId, 'offer') && entity(intent.financialDesiredOutcomeId, 'financial_desired_outcome')) {
       add(intent.offerId, 'financial_desired_outcome', intent.financialDesiredOutcomeId, [intent.id]);
       add(intent.financialDesiredOutcomeId, 'offer', intent.offerId, [intent.id]);
+      for (const resistance of resistanceRelationshipsByTarget.get(intent.financialDesiredOutcomeId) ?? []) {
+        add(intent.offerId, 'repulsor', resistance.repulsorId, [intent.id, resistance.id]);
+        add(resistance.repulsorId, 'offer', intent.offerId, [intent.id, resistance.id]);
+      }
     }
   }
 
