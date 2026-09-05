@@ -1,8 +1,8 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useEffect, type MouseEvent, type ReactNode } from 'react';
-import { MapNode, MapSpike } from './MapSpike';
+import { useEffect, useState, type MouseEvent, type ReactNode } from 'react';
+import { isRenderedTitleTruncated, MapNode, MapSpike } from './MapSpike';
 import { applyTouchpointIntentDraft, type MapDocument } from '@vee/domain';
 
 type MockNode = { id: string; position: { x: number; y: number }; selected?: boolean; data: { title: string; kindLabel: string } };
@@ -21,6 +21,20 @@ async function openMap(user: ReturnType<typeof userEvent.setup>) { await user.cl
 async function quickOffer(user: ReturnType<typeof userEvent.setup>) { await user.click(screen.getByRole('button', { name: 'Orbit' })); fireEvent.keyDown(window, { key: 'Tab' }); await user.click(screen.getByRole('menuitem', { name: 'Offer' })); const editor = contextualEditor('Add Offer'); await user.type(editor.getByLabelText('Title'), 'Subscription'); await user.click(editor.getByRole('button', { name: 'Create' })); }
 function nodePoint(name: string) { const node = screen.getByRole('button', { name }); return { x: Number(node.getAttribute('data-x')), y: Number(node.getAttribute('data-y')) }; }
 function nodesOverlap(a: { x: number; y: number }, aDiameter: number, b: { x: number; y: number }, bDiameter: number) { return a.x < b.x + bDiameter && a.x + aDiameter > b.x && a.y < b.y + bDiameter && a.y + aDiameter > b.y; }
+function setTitleOverflow(title: HTMLElement, truncated: boolean) {
+  Object.defineProperties(title, {
+    clientHeight: { configurable: true, value: 30 },
+    scrollHeight: { configurable: true, value: truncated ? 48 : 30 },
+    clientWidth: { configurable: true, value: 65 },
+    scrollWidth: { configurable: true, value: 65 },
+  });
+}
+const nodeLayout = { diameter: 96, titleFontSize: 14, kindFontSize: 12, contentWidth: 65, compactTitle: true };
+function RenameableMapNode({ initialTitle }: { initialTitle: string }) {
+  const [title, setTitle] = useState(initialTitle);
+  const [editing, setEditing] = useState(false);
+  return <MapNode data={{ title, kindLabel: 'Product', layout: nodeLayout, ...(editing ? { inlineTitle: title, onInlineTitleCommit: (nextTitle: string) => { setTitle(nextTitle); setEditing(false); }, onInlineTitleCancel: () => setEditing(false) } : { onTitleDoubleClick: () => setEditing(true) }) }} />;
+}
 
 function touchpointInspectorDocument(twoOffers = false): MapDocument {
   const entities: MapDocument['entities'] = [
@@ -179,14 +193,44 @@ describe('map-first authoring interactions', () => {
     const client = screen.getByRole('button', { name: 'Client job' }); await user.dblClick(client.querySelector('.node-title')!); editor = screen.getByRole('textbox', { name: 'Edit title for Client job' }); await user.clear(editor); await user.type(editor, 'Cancelled'); fireEvent.keyDown(editor, { key: 'Escape' });
     expect(screen.getByRole('button', { name: 'Client job' })).toHaveFocus(); expect(screen.queryByRole('button', { name: 'Cancelled' })).not.toBeInTheDocument();
   });
-  it('long node title is clamped and exposes its exact title on hover and focus', () => {
+  it('short fitting authored title does not disclose', () => {
+    render(<MapNode data={{ title: 'FP', kindLabel: 'Touchpoint', layout: nodeLayout }} />);
+    const target = screen.getByLabelText('FP');
+    setTitleOverflow(target, false);
+    expect(isRenderedTitleTruncated(target)).toBe(false);
+    fireEvent.mouseEnter(target); expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    fireEvent.focus(target); expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+  it('truncated authored title discloses', () => {
     const title = 'AnExactUnbrokenTitleThatIsFarLongerThanTheRoleSizedNodeCanContain';
-    render(<MapNode data={{ title, kindLabel: 'Product', layout: { diameter: 96, titleFontSize: 14, kindFontSize: 12, contentWidth: 65, compactTitle: true } }} />);
+    render(<section id="map-workspace-panel"><div className="map-disclosure-layer" data-map-disclosure-layer /><MapNode data={{ title, kindLabel: 'Product', layout: nodeLayout }} /></section>);
     const target = screen.getByLabelText(title);
+    setTitleOverflow(target, true);
+    expect(isRenderedTitleTruncated(target)).toBe(true);
     expect(target).toHaveClass('node-title');
-    fireEvent.mouseEnter(target); expect(screen.getByRole('tooltip')).toHaveTextContent(title);
+    fireEvent.mouseEnter(target); expect(screen.getByRole('tooltip')).toHaveTextContent(title); expect(screen.getByRole('tooltip').parentElement).toHaveClass('map-disclosure-layer');
     fireEvent.mouseLeave(target); fireEvent.focus(target); expect(screen.getByRole('tooltip')).toHaveTextContent(title);
     fireEvent.blur(target); expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+  it('rename from truncated to fitting clears disclosure', async () => {
+    const user = userEvent.setup();
+    const longTitle = 'A title that occupies more than the visible title box';
+    render(<RenameableMapNode initialTitle={longTitle} />);
+    let target = screen.getByLabelText(longTitle); setTitleOverflow(target, true); fireEvent.mouseEnter(target);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(longTitle);
+    await user.dblClick(target); expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    const editor = screen.getByRole('textbox', { name: `Edit title for ${longTitle}` }); await user.clear(editor); await user.type(editor, 'FP{Enter}');
+    target = screen.getByLabelText('FP'); setTitleOverflow(target, false); fireEvent.mouseEnter(target); fireEvent.focus(target);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+  it('rename from fitting to truncated restores eligibility', async () => {
+    const user = userEvent.setup();
+    const longTitle = 'A renamed title that occupies more than the visible title box';
+    render(<RenameableMapNode initialTitle="FP" />);
+    let target = screen.getByLabelText('FP'); setTitleOverflow(target, false); await user.dblClick(target);
+    const editor = screen.getByRole('textbox', { name: 'Edit title for FP' }); await user.clear(editor); await user.type(editor, `${longTitle}{Enter}`);
+    target = screen.getByLabelText(longTitle); setTitleOverflow(target, true); fireEvent.mouseEnter(target);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(longTitle);
   });
   it('renders relation groups in the default unfocused map', () => {
     render(<MapSpike initialDocument={touchpointInspectorDocument()} />);
@@ -240,7 +284,9 @@ describe('map-first authoring interactions', () => {
   });
   it('satellite title disclosure is viewport-aware', () => {
     render(<section id="map-workspace-panel"><div className="map-disclosure-layer" data-map-disclosure-layer /><MapNode data={{ title: 'Desired Outcome group (2)', kindLabel: 'Desired Outcome', layout: { diameter: 54, titleFontSize: 12, kindFontSize: 10, contentWidth: 42, compactTitle: true }, satellite: { kind: 'desired_outcome', targetIds: ['a', 'b'], titles: ['A very long concrete target title', 'Another concrete target title'] } }} /></section>);
-    fireEvent.focus(screen.getByLabelText('Desired Outcome: A very long concrete target title, Another concrete target title'));
+    const title = screen.getByLabelText('Desired Outcome: A very long concrete target title, Another concrete target title');
+    setTitleOverflow(title, true);
+    fireEvent.focus(title);
     const disclosure = screen.getByRole('tooltip');
     expect(disclosure).toHaveTextContent('A very long concrete target title, Another concrete target title');
     expect(disclosure).toHaveClass('satellite-disclosure');
