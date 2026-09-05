@@ -70,6 +70,21 @@ export function projectMapRelationSatellites(document: MapDocument): SatelliteGr
     }
   }
 
+  for (const selection of document.offerJobSelections) {
+    const offer = entity(selection.offerId, 'offer');
+    if (!offer) continue;
+    const packagedRelationship = document.relationships.find(relationship =>
+      relationship.kind === 'product_packaged_as_offer' && relationship.offerId === offer.id
+    );
+    const packagedProductId = packagedRelationship?.kind === 'product_packaged_as_offer' ? packagedRelationship.productId : undefined;
+    if (!packagedProductId || !entity(packagedProductId, 'product')) continue;
+    const intent = document.productJobIntents.find(candidate => candidate.id === selection.productJobIntentId);
+    if (!intent || intent.productId !== packagedProductId) continue;
+    const job = entities.get(intent.jobId);
+    if (!job || !PRODUCT_JOB_SATELLITE_KINDS.has(job.kind as SatelliteKind)) continue;
+    add(offer.id, job.kind as SatelliteKind, job.id, [selection.id, intent.id]);
+  }
+
   for (const intent of document.offerFinancialIntents) {
     if (entity(intent.offerId, 'offer') && entity(intent.financialDesiredOutcomeId, 'financial_desired_outcome')) {
       add(intent.offerId, 'financial_desired_outcome', intent.financialDesiredOutcomeId, [intent.id]);

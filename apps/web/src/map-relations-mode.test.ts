@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { addEntity, addProductJobIntent, createEmptyMapDocument, setOfferFinancialIntents, setTouchpointIntentSelections } from '@vee/domain';
+import { addEntity, addProductJobIntent, createEmptyMapDocument, setOfferFinancialIntents, setOfferJobSelections, setTouchpointIntentSelections } from '@vee/domain';
 import { relationGroupsForEntity, relevantPhysicalEdgeIds, type SatelliteGroup } from './map-relation-projection';
 import { focusedRelationTarget, inactiveRelationsMode, reduceRelationsMode, relationEdgeClassName } from './map-relations-mode';
 
@@ -64,6 +64,30 @@ it('one-target Product Job group resolves the concrete Job while multi-target re
   mode = reduceRelationsMode(mode, { type: 'next-target' }).mode;
   expect(focusedRelationTarget(mode)).toBe('job-a');
   expect(relevantPhysicalEdgeIds(document, 'product', 'job-a')).toEqual([]);
+});
+
+it('one-target Offer Job group resolves the concrete Job while multi-target behavior remains unchanged', () => {
+  let document = createEmptyMapDocument({ mapId: 'map', title: 'Map', viewId: 'view', viewTitle: 'View' });
+  document = addEntity(document, { entityId: 'product', title: 'Product', kind: 'product', viewId: 'view', x: 0, y: 0 });
+  document = addEntity(document, { entityId: 'offer', title: 'Offer', kind: 'offer', linkedProductId: 'product', relationshipId: 'product-offer', viewId: 'view', x: 100, y: 0 });
+  document = addEntity(document, { entityId: 'job-b', title: 'B', kind: 'social_job', viewId: 'view', x: 0, y: 100 });
+  document = addProductJobIntent(document, { id: 'intent-b', productId: 'product', jobId: 'job-b', addressedDesiredOutcomeIds: [] });
+  document = setOfferJobSelections(document, { offerId: 'offer', productJobIntentIds: ['intent-b'], newSelectionIds: ['selection-b'] });
+  let offerGroups = relationGroupsForEntity(document, 'offer');
+  let mode = reduceRelationsMode(inactiveRelationsMode(), { type: 'enter', sourceId: 'offer', groups: offerGroups }).mode;
+  expect(focusedRelationTarget(mode)).toBe('job-b');
+  expect(reduceRelationsMode(mode, { type: 'follow-target' })).toEqual({ mode: { state: 'inactive' }, followedTargetId: 'job-b' });
+
+  document = addEntity(document, { entityId: 'job-a', title: 'A', kind: 'social_job', viewId: 'view', x: 0, y: 200 });
+  document = addProductJobIntent(document, { id: 'intent-a', productId: 'product', jobId: 'job-a', addressedDesiredOutcomeIds: [] });
+  document = setOfferJobSelections(document, { offerId: 'offer', productJobIntentIds: ['intent-b', 'intent-a'], newSelectionIds: ['selection-a'] });
+  offerGroups = relationGroupsForEntity(document, 'offer');
+  mode = reduceRelationsMode(inactiveRelationsMode(), { type: 'enter', sourceId: 'offer', groups: offerGroups }).mode;
+  expect(focusedRelationTarget(mode)).toBeUndefined();
+  expect(reduceRelationsMode(mode, { type: 'follow-target' })).toEqual({ mode });
+  mode = reduceRelationsMode(mode, { type: 'next-target' }).mode;
+  expect(focusedRelationTarget(mode)).toBe('job-a');
+  expect(relevantPhysicalEdgeIds(document, 'offer', 'job-a')).toEqual([]);
 });
 
 it('escape exits single-target relation focus', () => {
