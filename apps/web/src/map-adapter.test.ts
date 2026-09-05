@@ -229,3 +229,18 @@ it('derives one Repulsor to Touchpoint edge for selected Financial Desired Outco
     expect.objectContaining({ source: 'repulsor', target: 't', className: 'map-edge derived-repulsor-edge' }),
   ]);
 });
+
+it('derives individual focused outcome children with stable IDs only at render time', () => {
+  let d = chain();
+  d = addEntity(d, { entityId: 'job', title: 'Job', kind: 'core_functional_job', viewId: 'v', x: 0, y: 100 });
+  d = addEntity(d, { entityId: 'do-b', title: 'Outcome B', kind: 'desired_outcome', parentEntityId: 'job', relationshipId: 'owns-b', viewId: 'v', x: 100, y: 100 });
+  d = addEntity(d, { entityId: 'do-a', title: 'Outcome A', kind: 'desired_outcome', parentEntityId: 'job', relationshipId: 'owns-a', viewId: 'v', x: 100, y: 200 });
+  d = addProductJobIntent(d, { id: 'intent', productId: 'p', jobId: 'job', addressedDesiredOutcomeIds: ['do-b', 'do-a'] });
+  const snapshot = structuredClone(d);
+  expect(deriveMapNodes(d, 'v', null).some(node => node.id.startsWith('satellite-child:'))).toBe(false);
+  const children = deriveMapNodes(d, 'v', null, { sourceId: 'p', targetId: 'job' }).filter(node => node.id.startsWith('satellite-child:'));
+  expect(children.map(node => node.id)).toEqual(['satellite-child:p:job:do-a', 'satellite-child:p:job:do-b']);
+  expect(children.every(node => node.draggable === false && node.selectable === false && node.focusable === false && node.data.satellite?.child)).toBe(true);
+  expect(deriveMapEdges(d).some(edge => edge.source === 'p' && edge.target.startsWith('do-'))).toBe(false);
+  expect(d).toEqual(snapshot);
+});

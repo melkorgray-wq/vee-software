@@ -319,6 +319,12 @@ export function MapNode({ data }: { data: MapNodeData }) {
     '--node-kind-size': `${data.layout.kindFontSize}px`,
     '--node-content-width': `${data.layout.contentWidth}px`,
   } as CSSProperties;
+  if (data.satellite?.child) return (
+    <div className="node-content satellite-content satellite-child-content" style={style}>
+      <strong className="node-title satellite-title" aria-label={data.title}>{data.title}</strong>
+      <span>{data.kindLabel}</span>
+    </div>
+  );
   if (data.satellite) return (
     <div ref={nodeContentRef} className={`node-content satellite-content${data.satellite.focused ? ' relation-focused' : ''}`} style={style}>
       <strong ref={titleRef} className="node-title satellite-title" tabIndex={0} aria-label={`${data.kindLabel}: ${data.satellite.titles.join(', ')}`} onMouseEnter={(event) => { measureTitle(event.currentTarget); setTitleHovered(true); }} onMouseLeave={() => setTitleHovered(false)} onFocus={(event) => { measureTitle(event.currentTarget); setTitleFocused(true); }} onBlur={() => setTitleFocused(false)}>{data.kindLabel}</strong>
@@ -395,7 +401,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [message, setMessage] = useState('');
   const focusedGroup = relationsMode.state === 'inactive' ? undefined : relationsMode.groups[relationsMode.groupIndex];
   const relationTargetId = focusedRelationTarget(relationsMode);
-  const nodes = deriveMapNodes(document, VIEW_ID, selectedId).map((node) => ({
+  const nodes = deriveMapNodes(document, VIEW_ID, selectedId, relationsMode.state !== 'inactive' && relationTargetId ? { sourceId: relationsMode.sourceId, targetId: relationTargetId } : undefined).map((node) => ({
     ...node,
     className: `${node.className ?? ''}${moveMode.state === 'moving' && moveMode.entityId === node.id ? ' move-mode-node' : ''}`.trim(),
     type: 'mapNode',
@@ -405,7 +411,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       inlineTitle: inlineEdit.title,
       onInlineTitleCommit: (title: string) => finishInlineTitleEdit(title),
       onInlineTitleCancel: () => finishInlineTitleEdit(false),
-    } : { ...node.data, ...(node.data.satellite ? { satellite: { ...node.data.satellite, focused: node.id === `satellite:${relationsMode.state === 'inactive' ? '' : relationsMode.sourceId}:${focusedGroup?.satelliteKind}`, ...(relationTargetId ? { focusedTargetId: relationTargetId } : {}) } } : { onTitleDoubleClick: () => startInlineTitleEdit(node.id) }) },
+    } : { ...node.data, ...(node.data.satellite ? { satellite: { ...node.data.satellite, focused: !node.data.satellite.child && node.id === `satellite:${relationsMode.state === 'inactive' ? '' : relationsMode.sourceId}:${focusedGroup?.satelliteKind}`, ...(relationTargetId && !node.data.satellite.child ? { focusedTargetId: relationTargetId } : {}) } } : { onTitleDoubleClick: () => startInlineTitleEdit(node.id) }) },
   }));
   const relevantEdgeIds = relationsMode.state !== 'inactive' && relationTargetId ? new Set(relevantPhysicalEdgeIds(document, relationsMode.sourceId, relationTargetId)) : null;
   const edges = deriveMapEdges(document).map(edge => ({ ...edge, className: relationEdgeClassName(edge.className, edge.id, relevantEdgeIds) }));

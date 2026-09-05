@@ -1,7 +1,7 @@
 import { isDesiredOutcomeBearingJob, relevantRepulsorsForTouchpoint, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship } from '@vee/domain';
 import { MarkerType, type BuiltInEdge, type Edge, type Node } from '@xyflow/react';
-import { projectMapRelationSatellites, type SatelliteKind } from './map-relation-projection';
-import { placeSatelliteGroups } from './map-satellite-geometry';
+import { focusedDesiredOutcomeChildren, projectMapRelationSatellites, type SatelliteKind } from './map-relation-projection';
+import { placeSatelliteChildFan, placeSatelliteGroups } from './map-satellite-geometry';
 
 type MapEdge = Edge | BuiltInEdge;
 export const MAP_EDGE_TYPE = 'mapEdge';
@@ -17,7 +17,7 @@ export interface MapNodeData extends Record<string, unknown> {
   onInlineTitleCommit?: (title: string) => void;
   onInlineTitleCancel?: () => void;
   onTitleDoubleClick?: () => void;
-  satellite?: { kind: SatelliteKind; targetIds: string[]; titles: string[]; focused?: boolean; focusedTargetId?: string };
+  satellite?: { kind: SatelliteKind; targetIds: string[]; titles: string[]; focused?: boolean; focusedTargetId?: string; child?: boolean };
 }
 const ROLE_LAYOUTS: Record<ProvisionalEntityKind, Pick<NodeLayout, 'diameter' | 'titleFontSize' | 'kindFontSize'>> = {
   product: { diameter: 136, titleFontSize: 16, kindFontSize: 13 },
@@ -47,7 +47,7 @@ export function layoutForEntity(entity: Pick<Entity, 'kind' | 'title'>): NodeLay
   const role = ROLE_LAYOUTS[entity.kind];
   return { ...role, contentWidth: Math.round(role.diameter * .68), compactTitle: entity.title.trim().length > 20 };
 }
-export function deriveMapNodes(document: MapDocument, viewId: string, selectedEntityId: string | null): Node<MapNodeData>[] {
+export function deriveMapNodes(document: MapDocument, viewId: string, selectedEntityId: string | null, focusedRelation?: { sourceId: string; targetId: string }): Node<MapNodeData>[] {
   const placements = document.placements.filter(p => p.viewId === viewId);
   const authored = placements.flatMap(placement => {
     const entity = document.entities.find(e => e.id === placement.entityId); if (!entity) return [];
@@ -77,7 +77,25 @@ export function deriveMapNodes(document: MapDocument, viewId: string, selectedEn
       satellites.push({ id: group.id, position: { x: group.position.x - diameter / 2, y: group.position.y - diameter / 2 }, width: diameter, height: diameter, style: { width: diameter, height: diameter }, draggable: false, selectable: false, focusable: false, data: { title: `${label} group (${group.targetIds.length})`, kindLabel: label, layout: { diameter, titleFontSize: 12, kindFontSize: 10, contentWidth: 42, compactTitle: true }, satellite: { kind, targetIds: group.targetIds, titles } }, className: 'map-node map-satellite' });
     }
   }
-  return [...authored, ...satellites];
+  const children: Node<MapNodeData>[] = [];
+  if (focusedRelation) {
+    const source = entityById.get(focusedRelation.sourceId);
+    const sourcePlacement = placementById.get(focusedRelation.sourceId);
+    const job = entityById.get(focusedRelation.targetId);
+    const primary = job ? satellites.find(node => node.id === `satellite:${focusedRelation.sourceId}:${job.kind}` && node.data.satellite?.targetIds.includes(job.id)) : undefined;
+    if (source && sourcePlacement && primary) {
+      const ownerLayout = layoutForEntity(source); const primaryDiameter = primary.width ?? 54; const diameter = 64;
+      const ownerCenter = { x: sourcePlacement.x + ownerLayout.diameter / 2, y: sourcePlacement.y + ownerLayout.diameter / 2 };
+      const parentCenter = { x: primary.position.x + primaryDiameter / 2, y: primary.position.y + primaryDiameter / 2 };
+      const outcomes = focusedDesiredOutcomeChildren(document, focusedRelation.sourceId, focusedRelation.targetId);
+      const positions = placeSatelliteChildFan({ ownerCenter, parentCenter, radius: primaryDiameter / 2 + diameter / 2 + 14, childIds: outcomes.map(outcome => outcome.entityId) });
+      for (const positioned of positions) {
+        const outcome = outcomes.find(candidate => candidate.entityId === positioned.id)!;
+        children.push({ id: `satellite-child:${source.id}:${job!.id}:${outcome.entityId}`, position: { x: positioned.position.x - diameter / 2, y: positioned.position.y - diameter / 2 }, width: diameter, height: diameter, style: { width: diameter, height: diameter }, draggable: false, selectable: false, focusable: false, data: { title: outcome.title, kindLabel: KIND_LABELS.desired_outcome, layout: { diameter, titleFontSize: 11, kindFontSize: 9, contentWidth: 50, compactTitle: outcome.title.length > 20 }, satellite: { kind: 'desired_outcome', targetIds: [outcome.entityId], titles: [outcome.title], child: true } }, className: 'map-node map-satellite map-satellite-child' });
+      }
+    }
+  }
+  return [...authored, ...satellites, ...children];
 }
 export function deriveVisibleAuthoredRelationships(document: MapDocument): Relationship[] {
   const nestedTouchpointIds = new Set(document.relationships.flatMap(relationship => relationship.kind === 'touchpoint_contains_touchpoint' ? [relationship.childTouchpointId] : []));
