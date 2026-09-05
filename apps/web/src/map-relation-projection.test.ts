@@ -106,7 +106,7 @@ it('Touchpoint receives no new Client-intent satellites', () => {
 });
 
 it('stale ProductJobIntent references are ignored without mutating the document', () => {
-  let document = addEntity(base(), { entityId: 'job', title: 'Job', kind: 'social_job', viewId: 'view', x: 0, y: 100 });
+  const document = addEntity(base(), { entityId: 'job', title: 'Job', kind: 'social_job', viewId: 'view', x: 0, y: 100 });
   const stale: MapDocument = { ...document, productJobIntents: [
     { id: 'missing-product', productId: 'missing', jobId: 'job', addressedDesiredOutcomeIds: [] },
     { id: 'wrong-owner', productId: 'offer', jobId: 'job', addressedDesiredOutcomeIds: [] },
