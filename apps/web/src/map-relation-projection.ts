@@ -8,7 +8,9 @@ export type SatelliteKind =
   | 'social_job'
   | 'desired_outcome'
   | 'financial_desired_outcome'
-  | 'repulsor';
+  | 'repulsor'
+  | 'product'
+  | 'offer';
 
 const PRODUCT_JOB_SATELLITE_KINDS = new Set<SatelliteKind>([
   'core_functional_job',
@@ -58,7 +60,7 @@ export function projectMapRelationSatellites(document: MapDocument): SatelliteGr
     const key = `${ownerId}\u0000${kind}`;
     const targets = groups.get(key) ?? new Map<string, Set<string>>();
     const paths = targets.get(targetId) ?? new Set<string>();
-    paths.add([...path].sort(compare).join('\u0000'));
+    paths.add(path.join('\u0000'));
     targets.set(targetId, paths);
     groups.set(key, targets);
   }
@@ -67,6 +69,13 @@ export function projectMapRelationSatellites(document: MapDocument): SatelliteGr
     const job = entities.get(intent.jobId);
     if (entity(intent.productId, 'product') && job && PRODUCT_JOB_SATELLITE_KINDS.has(job.kind as SatelliteKind)) {
       add(intent.productId, job.kind as SatelliteKind, job.id, [intent.id]);
+      add(job.id, 'product', intent.productId, [intent.id]);
+      for (const outcomeId of intent.addressedDesiredOutcomeIds) {
+        if (
+          entities.get(outcomeId)?.kind === 'desired_outcome'
+          && document.relationships.some(relationship => relationship.kind === 'job_has_desired_outcome' && relationship.jobId === job.id && relationship.desiredOutcomeId === outcomeId)
+        ) add(outcomeId, 'product', intent.productId, [intent.id]);
+      }
     }
   }
 
@@ -83,11 +92,19 @@ export function projectMapRelationSatellites(document: MapDocument): SatelliteGr
     const job = entities.get(intent.jobId);
     if (!job || !PRODUCT_JOB_SATELLITE_KINDS.has(job.kind as SatelliteKind)) continue;
     add(offer.id, job.kind as SatelliteKind, job.id, [selection.id, intent.id]);
+    add(job.id, 'offer', offer.id, [selection.id, intent.id]);
+    for (const outcomeId of intent.addressedDesiredOutcomeIds) {
+      if (
+        entities.get(outcomeId)?.kind === 'desired_outcome'
+        && document.relationships.some(relationship => relationship.kind === 'job_has_desired_outcome' && relationship.jobId === job.id && relationship.desiredOutcomeId === outcomeId)
+      ) add(outcomeId, 'offer', offer.id, [selection.id, intent.id]);
+    }
   }
 
   for (const intent of document.offerFinancialIntents) {
     if (entity(intent.offerId, 'offer') && entity(intent.financialDesiredOutcomeId, 'financial_desired_outcome')) {
       add(intent.offerId, 'financial_desired_outcome', intent.financialDesiredOutcomeId, [intent.id]);
+      add(intent.financialDesiredOutcomeId, 'offer', intent.offerId, [intent.id]);
     }
   }
 

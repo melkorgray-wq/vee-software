@@ -51,7 +51,7 @@ it('Offer retains FDO satellite while FDO never projects to Product', () => {
   const document = financialRoute();
   expect(relationGroupsForEntity(document, 'offer')).toEqual([{ displayOwnerId: 'offer', satelliteKind: 'financial_desired_outcome', targets: [{ entityId: 'fdo', paths: [['financial-intent']] }] }]);
   expect(relationGroupsForEntity(document, 'product')).toEqual([]);
-  expect(projectMapRelationSatellites(document)).toHaveLength(1);
+  expect(projectMapRelationSatellites(document)).toHaveLength(2);
 });
 
 it('Product projects authored Core Functional Job intent', () => {
@@ -226,4 +226,99 @@ it('ignores stale Offer financial intent endpoints and preserves deterministic o
   const snapshot = structuredClone(stale);
   expect(relationGroupsForEntity(stale, 'offer')[0]?.targets.map(target => target.entityId)).toEqual(['fdo-a', 'fdo-z']);
   expect(stale).toEqual(snapshot);
+});
+
+it('Client Job reverse-projects Products that address it', () => {
+  let document = addEntity(base(), { entityId: 'product-b', title: 'Product B', kind: 'product', viewId: 'view', x: 0, y: 100 });
+  document = addEntity(document, { entityId: 'job', title: 'Job', kind: 'core_functional_job', viewId: 'view', x: 0, y: 200 });
+  document = addProductJobIntent(document, { id: 'intent-z', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: [] });
+  document = addProductJobIntent(document, { id: 'intent-a', productId: 'product-b', jobId: 'job', addressedDesiredOutcomeIds: [] });
+  expect(relationGroupsForEntity(document, 'job').find(group => group.satelliteKind === 'product')).toEqual({
+    displayOwnerId: 'job', satelliteKind: 'product', targets: [
+      { entityId: 'product', paths: [['intent-z']] },
+      { entityId: 'product-b', paths: [['intent-a']] },
+    ],
+  });
+});
+
+it('Client Job reverse-projects Offers that select it with deterministic targets and provenance', () => {
+  let document = addEntity(base(), { entityId: 'offer-b', title: 'Offer B', kind: 'offer', linkedProductId: 'product', relationshipId: 'product-offer-b', viewId: 'view', x: 0, y: 100 });
+  document = addEntity(document, { entityId: 'job', title: 'Job', kind: 'social_job', viewId: 'view', x: 0, y: 200 });
+  document = addProductJobIntent(document, { id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: [] });
+  document = setOfferJobSelections(document, { offerId: 'offer-b', productJobIntentIds: ['intent'], newSelectionIds: ['selection-b'] });
+  document = setOfferJobSelections(document, { offerId: 'offer', productJobIntentIds: ['intent'], newSelectionIds: ['selection-a'] });
+  expect(relationGroupsForEntity(document, 'job').find(group => group.satelliteKind === 'offer')?.targets).toEqual([
+    { entityId: 'offer', paths: [['selection-a', 'intent']] },
+    { entityId: 'offer-b', paths: [['selection-b', 'intent']] },
+  ]);
+});
+
+it('Client Job does not project unrelated Products or Offers', () => {
+  let document = addEntity(base(), { entityId: 'other-product', title: 'Other Product', kind: 'product', viewId: 'view', x: 0, y: 100 });
+  document = addEntity(document, { entityId: 'other-offer', title: 'Other Offer', kind: 'offer', linkedProductId: 'other-product', relationshipId: 'other-product-offer', viewId: 'view', x: 0, y: 200 });
+  document = addEntity(document, { entityId: 'job-a', title: 'Job A', kind: 'emotional_job', viewId: 'view', x: 0, y: 300 });
+  document = addEntity(document, { entityId: 'job-b', title: 'Job B', kind: 'emotional_job', viewId: 'view', x: 0, y: 400 });
+  document = addProductJobIntent(document, { id: 'intent-a', productId: 'product', jobId: 'job-a', addressedDesiredOutcomeIds: [] });
+  document = addProductJobIntent(document, { id: 'intent-b', productId: 'other-product', jobId: 'job-b', addressedDesiredOutcomeIds: [] });
+  document = setOfferJobSelections(document, { offerId: 'offer', productJobIntentIds: ['intent-a'], newSelectionIds: ['selection-a'] });
+  document = setOfferJobSelections(document, { offerId: 'other-offer', productJobIntentIds: ['intent-b'], newSelectionIds: ['selection-b'] });
+  const groups = relationGroupsForEntity(document, 'job-a');
+  expect(groups.find(group => group.satelliteKind === 'product')?.targets.map(target => target.entityId)).toEqual(['product']);
+  expect(groups.find(group => group.satelliteKind === 'offer')?.targets.map(target => target.entityId)).toEqual(['offer']);
+});
+
+it('Desired Outcome reverse-projects Product by exact addressed membership', () => {
+  let document = addEntity(base(), { entityId: 'job', title: 'Job', kind: 'core_functional_job', viewId: 'view', x: 0, y: 100 });
+  document = addEntity(document, { entityId: 'do-a', title: 'DO A', kind: 'desired_outcome', parentEntityId: 'job', relationshipId: 'job-do-a', viewId: 'view', x: 0, y: 200 });
+  document = addEntity(document, { entityId: 'do-b', title: 'DO B', kind: 'desired_outcome', parentEntityId: 'job', relationshipId: 'job-do-b', viewId: 'view', x: 0, y: 300 });
+  document = addProductJobIntent(document, { id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
+  expect(relationGroupsForEntity(document, 'do-a')).toEqual([{ displayOwnerId: 'do-a', satelliteKind: 'product', targets: [{ entityId: 'product', paths: [['intent']] }] }]);
+  expect(relationGroupsForEntity(document, 'do-b')).toEqual([]);
+});
+
+it('Desired Outcome reverse-projects Offer through selected Product intent without inventing an independent Offer subset', () => {
+  let document = addEntity(base(), { entityId: 'job', title: 'Job', kind: 'core_functional_job', viewId: 'view', x: 0, y: 100 });
+  document = addEntity(document, { entityId: 'do-a', title: 'DO A', kind: 'desired_outcome', parentEntityId: 'job', relationshipId: 'job-do-a', viewId: 'view', x: 0, y: 200 });
+  document = addEntity(document, { entityId: 'do-b', title: 'DO B', kind: 'desired_outcome', parentEntityId: 'job', relationshipId: 'job-do-b', viewId: 'view', x: 0, y: 300 });
+  document = addProductJobIntent(document, { id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a', 'do-b'] });
+  document = setOfferJobSelections(document, { offerId: 'offer', productJobIntentIds: ['intent'], newSelectionIds: ['selection'] });
+  for (const outcomeId of ['do-a', 'do-b']) {
+    expect(relationGroupsForEntity(document, outcomeId).find(group => group.satelliteKind === 'offer')).toEqual({
+      displayOwnerId: outcomeId, satelliteKind: 'offer', targets: [{ entityId: 'offer', paths: [['selection', 'intent']] }],
+    });
+  }
+});
+
+it('stale or non-owned Desired Outcome membership is ignored without mutation', () => {
+  let document = addEntity(base(), { entityId: 'job', title: 'Job', kind: 'core_functional_job', viewId: 'view', x: 0, y: 100 });
+  document = addEntity(document, { entityId: 'other-job', title: 'Other Job', kind: 'core_functional_job', viewId: 'view', x: 0, y: 200 });
+  document = addEntity(document, { entityId: 'owned-elsewhere', title: 'Elsewhere', kind: 'desired_outcome', parentEntityId: 'other-job', relationshipId: 'other-job-do', viewId: 'view', x: 0, y: 300 });
+  const stale: MapDocument = {
+    ...document,
+    productJobIntents: [{ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['missing', 'owned-elsewhere', 'offer'] }],
+    offerJobSelections: [{ id: 'selection', offerId: 'offer', productJobIntentId: 'intent' }],
+  };
+  const snapshot = structuredClone(stale);
+  expect(relationGroupsForEntity(stale, 'owned-elsewhere')).toEqual([]);
+  expect(stale).toEqual(snapshot);
+});
+
+it('Financial Desired Outcome reverse-projects Offer and never Product', () => {
+  const document = financialRoute();
+  expect(relationGroupsForEntity(document, 'fdo')).toEqual([
+    { displayOwnerId: 'fdo', satelliteKind: 'offer', targets: [{ entityId: 'offer', paths: [['financial-intent']] }] },
+  ]);
+  expect(relationGroupsForEntity(document, 'fdo').some(group => group.satelliteKind === 'product')).toBe(false);
+});
+
+it('reverse Client lookup never adds Touchpoint satellites or physical Client-Business edges', () => {
+  let document = addEntity(base(), { entityId: 'job', title: 'Job', kind: 'core_functional_job', viewId: 'view', x: 0, y: 100 });
+  document = addEntity(document, { entityId: 'outcome', title: 'Outcome', kind: 'desired_outcome', parentEntityId: 'job', relationshipId: 'job-outcome', viewId: 'view', x: 0, y: 200 });
+  document = addProductJobIntent(document, { id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['outcome'] });
+  document = setOfferJobSelections(document, { offerId: 'offer', productJobIntentIds: ['intent'], newSelectionIds: ['selection'] });
+  for (const clientId of ['job', 'outcome']) {
+    expect(relationGroupsForEntity(document, clientId).map(group => group.satelliteKind)).not.toContain('touchpoint');
+    for (const businessId of ['product', 'offer']) expect(relevantPhysicalEdgeIds(document, clientId, businessId)).toEqual([]);
+  }
+  expect(deriveMapEdges(document).some(edge => ['job', 'outcome'].includes(edge.source) && ['product', 'offer'].includes(edge.target))).toBe(false);
 });
