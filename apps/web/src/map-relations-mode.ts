@@ -7,6 +7,8 @@ export type RelationsMode =
 
 export type RelationsModeAction =
   | { type: 'enter'; sourceId: string; groups: SatelliteGroup[] }
+  | { type: 'enter-group'; sourceId: string; groups: SatelliteGroup[]; groupIndex: number }
+  | { type: 'choose-target'; targetIndex: number }
   | { type: 'previous-group' | 'next-group' | 'previous-target' | 'next-target' | 'follow-target' | 'escape' };
 
 export interface RelationsModeResult { mode: RelationsMode; followedTargetId?: string }
@@ -15,12 +17,22 @@ export const inactiveRelationsMode = (): RelationsMode => ({ state: 'inactive' }
 
 /** Owns nested relation focus; it never mutates or derives domain relationships. */
 export function reduceRelationsMode(mode: RelationsMode, action: RelationsModeAction): RelationsModeResult {
+  if (action.type === 'enter-group') {
+    if (!action.groups[action.groupIndex]) return { mode };
+    return { mode: { state: 'group', sourceId: action.sourceId, groups: action.groups, groupIndex: action.groupIndex } };
+  }
   if (action.type === 'enter') {
     return action.groups.length
       ? { mode: { state: 'group', sourceId: action.sourceId, groups: action.groups, groupIndex: 0 } }
       : { mode };
   }
   if (mode.state === 'inactive') return { mode };
+  if (action.type === 'choose-target') {
+    const targets = mode.groups[mode.groupIndex]!.targets;
+    return targets[action.targetIndex]
+      ? { mode: { ...mode, state: 'concrete-list', targetIndex: action.targetIndex } }
+      : { mode };
+  }
   if (action.type === 'escape') {
     if (mode.state === 'concrete-list') return { mode: { state: 'group', sourceId: mode.sourceId, groups: mode.groups, groupIndex: mode.groupIndex } };
     return { mode: inactiveRelationsMode() };

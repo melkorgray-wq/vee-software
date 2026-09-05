@@ -170,3 +170,12 @@ it('keeps unrelated edges only visually dimmed', () => {
   expect(relationEdgeClassName('map-edge', 'path', relevant)).toBe('map-edge');
   expect(relationEdgeClassName('map-edge', 'other', relevant)).toBe('map-edge relation-dimmed');
 });
+
+it('pointer entry focuses a specific existing group and exact target through Relations state', () => {
+  const mode = reduceRelationsMode(inactiveRelationsMode(), { type: 'enter-group', sourceId: 'source', groups, groupIndex: 1 }).mode;
+  expect(mode).toEqual({ state: 'group', sourceId: 'source', groups, groupIndex: 1 });
+  expect(focusedRelationTarget(mode)).toBe('c');
+  const multi = reduceRelationsMode(inactiveRelationsMode(), { type: 'enter-group', sourceId: 'source', groups, groupIndex: 0 }).mode;
+  expect(focusedRelationTarget(multi)).toBeUndefined();
+  expect(focusedRelationTarget(reduceRelationsMode(multi, { type: 'choose-target', targetIndex: 1 }).mode)).toBe('b');
+});
