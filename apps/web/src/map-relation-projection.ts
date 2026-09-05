@@ -1,6 +1,22 @@
 import type { MapDocument } from '@vee/domain';
 
-export type SatelliteKind = 'desired_outcome' | 'financial_desired_outcome' | 'repulsor';
+export type SatelliteKind =
+  | 'core_functional_job'
+  | 'related_job'
+  | 'consumption_chain_job'
+  | 'emotional_job'
+  | 'social_job'
+  | 'desired_outcome'
+  | 'financial_desired_outcome'
+  | 'repulsor';
+
+const PRODUCT_JOB_SATELLITE_KINDS = new Set<SatelliteKind>([
+  'core_functional_job',
+  'related_job',
+  'consumption_chain_job',
+  'emotional_job',
+  'social_job',
+]);
 
 export interface SatelliteTarget {
   entityId: string;
@@ -34,7 +50,7 @@ export function projectMapRelationSatellites(document: MapDocument): SatelliteGr
   const entities = new Map(document.entities.map(entity => [entity.id, entity]));
   const groups = new Map<string, Map<string, Set<string>>>();
 
-  function entity(id: string, kind: 'offer' | 'financial_desired_outcome') {
+  function entity(id: string, kind: 'product' | 'offer' | 'financial_desired_outcome') {
     const candidate = entities.get(id);
     return candidate?.kind === kind ? candidate : undefined;
   }
@@ -45,6 +61,13 @@ export function projectMapRelationSatellites(document: MapDocument): SatelliteGr
     paths.add([...path].sort(compare).join('\u0000'));
     targets.set(targetId, paths);
     groups.set(key, targets);
+  }
+
+  for (const intent of document.productJobIntents) {
+    const job = entities.get(intent.jobId);
+    if (entity(intent.productId, 'product') && job && PRODUCT_JOB_SATELLITE_KINDS.has(job.kind as SatelliteKind)) {
+      add(intent.productId, job.kind as SatelliteKind, job.id, [intent.id]);
+    }
   }
 
   for (const intent of document.offerFinancialIntents) {

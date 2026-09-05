@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { addEntity, addProductJobIntent, addTouchpointContainer, createEmptyMapDocument, setOfferFinancialIntents, setOfferJobSelections, setTouchpointIntentSelections, type MapDocument } from '@vee/domain';
 import { deriveMapEdges } from './map-adapter';
-import { projectMapRelationSatellites, relationGroupsForEntity } from './map-relation-projection';
+import { projectMapRelationSatellites, relationGroupsForEntity, relevantPhysicalEdgeIds } from './map-relation-projection';
 
 function base(): MapDocument {
   let document = createEmptyMapDocument({ mapId: 'map', title: 'Map', viewId: 'view', viewTitle: 'View' });
@@ -52,6 +52,70 @@ it('Offer retains FDO satellite while FDO never projects to Product', () => {
   expect(relationGroupsForEntity(document, 'offer')).toEqual([{ displayOwnerId: 'offer', satelliteKind: 'financial_desired_outcome', targets: [{ entityId: 'fdo', paths: [['financial-intent']] }] }]);
   expect(relationGroupsForEntity(document, 'product')).toEqual([]);
   expect(projectMapRelationSatellites(document)).toHaveLength(1);
+});
+
+it('Product projects authored Core Functional Job intent', () => {
+  let document = addEntity(base(), { entityId: 'job', title: 'Grow revenue', kind: 'core_functional_job', viewId: 'view', x: 0, y: 100 });
+  document = addProductJobIntent(document, { id: 'product-intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: [] });
+  expect(relationGroupsForEntity(document, 'product')).toEqual([
+    { displayOwnerId: 'product', satelliteKind: 'core_functional_job', targets: [{ entityId: 'job', paths: [['product-intent']] }] },
+  ]);
+  expect(relevantPhysicalEdgeIds(document, 'product', 'job')).toEqual([]);
+  expect(deriveMapEdges(document).some(edge => edge.source === 'product' && edge.target === 'job')).toBe(false);
+});
+
+it('Product groups multiple Jobs of the same kind', () => {
+  let document = addEntity(base(), { entityId: 'job-z', title: 'Z', kind: 'core_functional_job', viewId: 'view', x: 0, y: 100 });
+  document = addEntity(document, { entityId: 'job-a', title: 'A', kind: 'core_functional_job', viewId: 'view', x: 0, y: 200 });
+  document = addProductJobIntent(document, { id: 'intent-z', productId: 'product', jobId: 'job-z', addressedDesiredOutcomeIds: [] });
+  document = addProductJobIntent(document, { id: 'intent-a', productId: 'product', jobId: 'job-a', addressedDesiredOutcomeIds: [] });
+  const groups = relationGroupsForEntity({ ...document, productJobIntents: [...document.productJobIntents].reverse() }, 'product');
+  expect(groups).toHaveLength(1);
+  expect(groups[0]?.targets.map(target => target.entityId)).toEqual(['job-a', 'job-z']);
+});
+
+it('Product keeps different Job kinds in separate groups', () => {
+  let document = addEntity(base(), { entityId: 'core', title: 'Core', kind: 'core_functional_job', viewId: 'view', x: 0, y: 100 });
+  document = addEntity(document, { entityId: 'related', title: 'Related', kind: 'related_job', parentEntityId: 'core', relationshipId: 'core-related', viewId: 'view', x: 100, y: 100 });
+  document = addEntity(document, { entityId: 'emotional', title: 'Emotional', kind: 'emotional_job', viewId: 'view', x: 200, y: 100 });
+  document = addProductJobIntent(document, { id: 'intent-related', productId: 'product', jobId: 'related', addressedDesiredOutcomeIds: [] });
+  document = addProductJobIntent(document, { id: 'intent-emotional', productId: 'product', jobId: 'emotional', addressedDesiredOutcomeIds: [] });
+  document = addProductJobIntent(document, { id: 'intent-core', productId: 'product', jobId: 'core', addressedDesiredOutcomeIds: [] });
+  expect(relationGroupsForEntity(document, 'product').map(group => group.satelliteKind)).toEqual(['core_functional_job', 'emotional_job', 'related_job']);
+});
+
+it('Product intent does not flatten addressed Desired Outcomes', () => {
+  let document = addEntity(base(), { entityId: 'job', title: 'Job', kind: 'core_functional_job', viewId: 'view', x: 0, y: 100 });
+  document = addEntity(document, { entityId: 'outcome', title: 'Outcome', kind: 'desired_outcome', parentEntityId: 'job', relationshipId: 'job-outcome', viewId: 'view', x: 100, y: 100 });
+  document = addProductJobIntent(document, { id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['outcome'] });
+  const groups = relationGroupsForEntity(document, 'product');
+  expect(groups.map(group => group.satelliteKind)).toEqual(['core_functional_job']);
+  expect(groups[0]?.targets.map(target => target.entityId)).toEqual(['job']);
+});
+
+it('Product never receives Financial Desired Outcome satellite', () => {
+  const document = financialRoute();
+  expect(relationGroupsForEntity(document, 'offer').map(group => group.satelliteKind)).toEqual(['financial_desired_outcome']);
+  expect(relationGroupsForEntity(document, 'product').some(group => group.satelliteKind === 'financial_desired_outcome')).toBe(false);
+});
+
+it('Touchpoint receives no new Client-intent satellites', () => {
+  let document = addEntity(base(), { entityId: 'job', title: 'Job', kind: 'social_job', viewId: 'view', x: 0, y: 100 });
+  document = addProductJobIntent(document, { id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: [] });
+  expect(relationGroupsForEntity(document, 'touchpoint')).toEqual([]);
+});
+
+it('stale ProductJobIntent references are ignored without mutating the document', () => {
+  const document = addEntity(base(), { entityId: 'job', title: 'Job', kind: 'social_job', viewId: 'view', x: 0, y: 100 });
+  const stale: MapDocument = { ...document, productJobIntents: [
+    { id: 'missing-product', productId: 'missing', jobId: 'job', addressedDesiredOutcomeIds: [] },
+    { id: 'wrong-owner', productId: 'offer', jobId: 'job', addressedDesiredOutcomeIds: [] },
+    { id: 'missing-job', productId: 'product', jobId: 'missing', addressedDesiredOutcomeIds: [] },
+    { id: 'wrong-kind', productId: 'product', jobId: 'offer', addressedDesiredOutcomeIds: [] },
+  ] };
+  const snapshot = structuredClone(stale);
+  expect(relationGroupsForEntity(stale, 'product')).toEqual([]);
+  expect(stale).toEqual(snapshot);
 });
 
 it('ignores stale Offer financial intent endpoints and preserves deterministic ordering', () => {

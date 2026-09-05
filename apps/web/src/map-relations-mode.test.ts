@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { addEntity, createEmptyMapDocument, setOfferFinancialIntents, setTouchpointIntentSelections } from '@vee/domain';
+import { addEntity, addProductJobIntent, createEmptyMapDocument, setOfferFinancialIntents, setTouchpointIntentSelections } from '@vee/domain';
 import { relationGroupsForEntity, relevantPhysicalEdgeIds, type SatelliteGroup } from './map-relation-projection';
 import { focusedRelationTarget, inactiveRelationsMode, reduceRelationsMode, relationEdgeClassName } from './map-relations-mode';
 
@@ -44,6 +44,26 @@ it('multi-target group does not guess concrete target', () => {
   expect(reduceRelationsMode(mode, { type: 'follow-target' })).toEqual({ mode });
   mode = reduceRelationsMode(mode, { type: 'next-target' }).mode;
   expect(focusedRelationTarget(mode)).toBe('a');
+});
+
+it('one-target Product Job group resolves the concrete Job while multi-target requires selection', () => {
+  let document = createEmptyMapDocument({ mapId: 'map', title: 'Map', viewId: 'view', viewTitle: 'View' });
+  document = addEntity(document, { entityId: 'product', title: 'Product', kind: 'product', viewId: 'view', x: 0, y: 0 });
+  document = addEntity(document, { entityId: 'job-b', title: 'B', kind: 'social_job', viewId: 'view', x: 0, y: 100 });
+  document = addProductJobIntent(document, { id: 'intent-b', productId: 'product', jobId: 'job-b', addressedDesiredOutcomeIds: [] });
+  let productGroups = relationGroupsForEntity(document, 'product');
+  let mode = reduceRelationsMode(inactiveRelationsMode(), { type: 'enter', sourceId: 'product', groups: productGroups }).mode;
+  expect(reduceRelationsMode(mode, { type: 'follow-target' })).toEqual({ mode: { state: 'inactive' }, followedTargetId: 'job-b' });
+
+  document = addEntity(document, { entityId: 'job-a', title: 'A', kind: 'social_job', viewId: 'view', x: 0, y: 200 });
+  document = addProductJobIntent(document, { id: 'intent-a', productId: 'product', jobId: 'job-a', addressedDesiredOutcomeIds: [] });
+  productGroups = relationGroupsForEntity(document, 'product');
+  mode = reduceRelationsMode(inactiveRelationsMode(), { type: 'enter', sourceId: 'product', groups: productGroups }).mode;
+  expect(focusedRelationTarget(mode)).toBeUndefined();
+  expect(reduceRelationsMode(mode, { type: 'follow-target' })).toEqual({ mode });
+  mode = reduceRelationsMode(mode, { type: 'next-target' }).mode;
+  expect(focusedRelationTarget(mode)).toBe('job-a');
+  expect(relevantPhysicalEdgeIds(document, 'product', 'job-a')).toEqual([]);
 });
 
 it('escape exits single-target relation focus', () => {
