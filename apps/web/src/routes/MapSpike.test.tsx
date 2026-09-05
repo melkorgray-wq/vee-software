@@ -218,11 +218,25 @@ describe('map-first authoring interactions', () => {
     render(<MapSpike initialDocument={document} />);
     await user.click(screen.getByRole('button', { name: 'Subscription' }));
     fireEvent.keyDown(window, { key: 'r' });
-    expect(screen.getByRole('option', { name: 'Stay affordable', selected: true })).toBeInTheDocument();
+    const targets = screen.getByRole('listbox', { name: 'Financial Desired Outcome relation targets' });
+    expect(targets.parentElement).toHaveClass('map-disclosure-layer');
+    expect(screen.getByRole('button', { name: 'Financial Desired Outcome group (1)' })).not.toContainElement(targets);
+    expect(within(targets).getByRole('option', { name: 'Stay affordable', selected: true })).toBeInTheDocument();
     fireEvent.keyDown(window, { code: 'Space', key: ' ', ctrlKey: true, shiftKey: true });
     expect(screen.getByRole('tab', { name: 'Entity Inspector' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).toHaveTextContent('Stay affordable');
     expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).not.toHaveTextContent('Subscription');
+  });
+  it('portals every relation target with unchanged selected-state semantics', () => {
+    render(<section id="map-workspace-panel"><div className="map-disclosure-layer" data-map-disclosure-layer /><div data-node-id="satellite"><MapNode data={{ title: 'Desired Outcome group (2)', kindLabel: 'Desired Outcome', layout: { diameter: 54, titleFontSize: 12, kindFontSize: 10, contentWidth: 42, compactTitle: true }, satellite: { kind: 'desired_outcome', targetIds: ['a', 'b'], titles: ['Finish faster', 'Reduce errors'], focused: true, focusedTargetId: 'b' } }} /></div></section>);
+    const targets = screen.getByRole('listbox', { name: 'Desired Outcome relation targets' });
+    expect(targets.parentElement).toHaveClass('map-disclosure-layer');
+    expect(document.querySelector('[data-node-id="satellite"]')).not.toContainElement(targets);
+    expect(within(targets).getAllByRole('option')).toHaveLength(2);
+    expect(within(targets).getByRole('option', { name: 'Finish faster', selected: false })).toBeInTheDocument();
+    expect(within(targets).getByRole('option', { name: 'Reduce errors', selected: true })).toBeInTheDocument();
+    expect(Number.parseFloat(targets.style.left)).toBeGreaterThanOrEqual(8);
+    expect(Number.parseFloat(targets.style.top)).toBeGreaterThanOrEqual(8);
   });
   it('satellite title disclosure is viewport-aware', () => {
     render(<section id="map-workspace-panel"><div className="map-disclosure-layer" data-map-disclosure-layer /><MapNode data={{ title: 'Desired Outcome group (2)', kindLabel: 'Desired Outcome', layout: { diameter: 54, titleFontSize: 12, kindFontSize: 10, contentWidth: 42, compactTitle: true }, satellite: { kind: 'desired_outcome', targetIds: ['a', 'b'], titles: ['A very long concrete target title', 'Another concrete target title'] } }} /></section>);

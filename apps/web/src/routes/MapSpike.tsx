@@ -262,12 +262,15 @@ function InlineTitleEditor({ title, onCommit, onCancel }: { title: string; onCom
 }
 export function MapNode({ data }: { data: MapNodeData }) {
   const url = safeUrl(data.url);
+  const nodeContentRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLElement>(null);
   const disclosureRef = useRef<HTMLDivElement>(null);
+  const relationOverlayRef = useRef<HTMLDivElement>(null);
   const [titleHovered, setTitleHovered] = useState(false);
   const [titleFocused, setTitleFocused] = useState(false);
   const [disclosureHovered, setDisclosureHovered] = useState(false);
   const [disclosure, setDisclosure] = useState<{ owner: HTMLElement; x: number; y: number } | null>(null);
+  const [relationOverlay, setRelationOverlay] = useState<{ owner: HTMLElement; x: number; y: number } | null>(null);
   const disclosed = data.inlineTitle === undefined && (titleHovered || titleFocused || disclosureHovered);
   useLayoutEffect(() => {
     const title = titleRef.current;
@@ -278,16 +281,25 @@ export function MapNode({ data }: { data: MapNodeData }) {
     const point = disclosureOverlayPoint(title.getBoundingClientRect(), owner.getBoundingClientRect(), overlay.getBoundingClientRect());
     setDisclosure({ owner, ...point });
   }, [disclosed, data.title]);
+  useLayoutEffect(() => {
+    const satellite = nodeContentRef.current;
+    const panel = satellite?.closest<HTMLElement>('#map-workspace-panel');
+    const owner = panel?.querySelector<HTMLElement>('[data-map-disclosure-layer]') ?? panel ?? globalThis.document.body;
+    const overlay = relationOverlayRef.current;
+    if (!data.satellite?.focused || !satellite || !owner || !overlay) return;
+    const point = disclosureOverlayPoint(satellite.getBoundingClientRect(), owner.getBoundingClientRect(), overlay.getBoundingClientRect());
+    setRelationOverlay({ owner, ...point });
+  }, [data.satellite?.focused, data.satellite?.focusedTargetId, data.satellite?.titles]);
   const style = {
     '--node-title-size': `${data.layout.titleFontSize}px`,
     '--node-kind-size': `${data.layout.kindFontSize}px`,
     '--node-content-width': `${data.layout.contentWidth}px`,
   } as CSSProperties;
   if (data.satellite) return (
-    <div className={`node-content satellite-content${data.satellite.focused ? ' relation-focused' : ''}`} style={style}>
+    <div ref={nodeContentRef} className={`node-content satellite-content${data.satellite.focused ? ' relation-focused' : ''}`} style={style}>
       <strong ref={titleRef} className="node-title satellite-title" tabIndex={0} aria-label={`${data.kindLabel}: ${data.satellite.titles.join(', ')}`} onMouseEnter={() => setTitleHovered(true)} onMouseLeave={() => setTitleHovered(false)} onFocus={() => setTitleFocused(true)} onBlur={() => setTitleFocused(false)}>{data.kindLabel}</strong>
       <span aria-label={`${data.satellite.targetIds.length} targets`}>{data.satellite.targetIds.length}</span>
-      {data.satellite.focused && <div className="relation-target-overlay" role="listbox" aria-label={`${data.kindLabel} relation targets`}>{data.satellite.titles.map((title, index) => <div role="option" aria-selected={data.satellite?.targetIds[index] === data.satellite?.focusedTargetId} key={data.satellite?.targetIds[index]}>{title}</div>)}</div>}
+      {data.satellite.focused && createPortal(<div ref={relationOverlayRef} className="relation-target-overlay" role="listbox" aria-label={`${data.kindLabel} relation targets`} style={{ left: relationOverlay?.x ?? 8, top: relationOverlay?.y ?? 8, visibility: relationOverlay ? 'visible' : 'hidden' }}>{data.satellite.titles.map((title, index) => <div role="option" aria-selected={data.satellite?.targetIds[index] === data.satellite?.focusedTargetId} key={data.satellite?.targetIds[index]}>{title}</div>)}</div>, relationOverlay?.owner ?? nodeContentRef.current?.closest<HTMLElement>('#map-workspace-panel')?.querySelector<HTMLElement>('[data-map-disclosure-layer]') ?? globalThis.document.body)}
       {disclosed && createPortal(<div ref={disclosureRef} role="tooltip" className="title-disclosure satellite-disclosure" style={{ left: disclosure?.x ?? 8, top: disclosure?.y ?? 8, visibility: disclosure ? 'visible' : 'hidden' }} onMouseEnter={() => setDisclosureHovered(true)} onMouseLeave={() => setDisclosureHovered(false)}>{data.satellite.titles.join(', ')}</div>, disclosure?.owner ?? titleRef.current?.closest<HTMLElement>('#map-workspace-panel') ?? globalThis.document.body)}
     </div>
   );
