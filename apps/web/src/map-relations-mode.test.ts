@@ -90,6 +90,26 @@ it('one-target Offer Job group resolves the concrete Job while multi-target beha
   expect(relevantPhysicalEdgeIds(document, 'offer', 'job-a')).toEqual([]);
 });
 
+it('reverse Client groups follow one Product or Offer and require explicit selection for multiple targets', () => {
+  const oneProduct: SatelliteGroup[] = [{ displayOwnerId: 'job', satelliteKind: 'product', targets: [{ entityId: 'product', paths: [['intent']] }] }];
+  let mode = reduceRelationsMode(inactiveRelationsMode(), { type: 'enter', sourceId: 'job', groups: oneProduct }).mode;
+  expect(reduceRelationsMode(mode, { type: 'follow-target' })).toEqual({ mode: { state: 'inactive' }, followedTargetId: 'product' });
+
+  const oneOffer: SatelliteGroup[] = [{ displayOwnerId: 'job', satelliteKind: 'offer', targets: [{ entityId: 'offer', paths: [['selection', 'intent']] }] }];
+  mode = reduceRelationsMode(inactiveRelationsMode(), { type: 'enter', sourceId: 'job', groups: oneOffer }).mode;
+  expect(reduceRelationsMode(mode, { type: 'follow-target' })).toEqual({ mode: { state: 'inactive' }, followedTargetId: 'offer' });
+
+  const multipleOffers: SatelliteGroup[] = [{ displayOwnerId: 'job', satelliteKind: 'offer', targets: [
+    { entityId: 'offer-a', paths: [['selection-a', 'intent']] },
+    { entityId: 'offer-b', paths: [['selection-b', 'intent']] },
+  ] }];
+  mode = reduceRelationsMode(inactiveRelationsMode(), { type: 'enter', sourceId: 'job', groups: multipleOffers }).mode;
+  expect(focusedRelationTarget(mode)).toBeUndefined();
+  expect(reduceRelationsMode(mode, { type: 'follow-target' })).toEqual({ mode });
+  mode = reduceRelationsMode(mode, { type: 'next-target' }).mode;
+  expect(focusedRelationTarget(mode)).toBe('offer-a');
+});
+
 it('escape exits single-target relation focus', () => {
   const mode = reduceRelationsMode(inactiveRelationsMode(), { type: 'enter', sourceId: 'source', groups: singleTargetGroups }).mode;
   expect(reduceRelationsMode(mode, { type: 'escape' }).mode).toEqual({ state: 'inactive' });
