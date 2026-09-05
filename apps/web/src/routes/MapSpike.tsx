@@ -116,6 +116,9 @@ function resizeAutoGrowingField(field: HTMLTextAreaElement) {
   field.style.height = 'auto';
   field.style.height = `${field.scrollHeight}px`;
 }
+export function isRenderedTitleTruncated(title: HTMLElement) {
+  return title.scrollHeight > title.clientHeight || title.scrollWidth > title.clientWidth;
+}
 function AutoGrowingTitleField({ value, onChange, autoFocus = false }: { value: string; onChange: (value: string) => void; autoFocus?: boolean }) {
   const fieldRef = useRef<HTMLTextAreaElement>(null);
   const focusedForOpeningRef = useRef(false);
@@ -269,9 +272,25 @@ export function MapNode({ data }: { data: MapNodeData }) {
   const [titleHovered, setTitleHovered] = useState(false);
   const [titleFocused, setTitleFocused] = useState(false);
   const [disclosureHovered, setDisclosureHovered] = useState(false);
+  const [titleTruncated, setTitleTruncated] = useState(false);
   const [disclosure, setDisclosure] = useState<{ owner: HTMLElement; x: number; y: number } | null>(null);
   const [relationOverlay, setRelationOverlay] = useState<{ owner: HTMLElement; x: number; y: number } | null>(null);
-  const disclosed = data.inlineTitle === undefined && (titleHovered || titleFocused || disclosureHovered);
+  const disclosed = data.inlineTitle === undefined && titleTruncated && (titleHovered || titleFocused || disclosureHovered);
+  const measureTitle = (title: HTMLElement | null) => setTitleTruncated(Boolean(title && isRenderedTitleTruncated(title)));
+  useLayoutEffect(() => {
+    const title = titleRef.current;
+    measureTitle(title);
+    if (!title || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => measureTitle(title));
+    observer.observe(title);
+    return () => observer.disconnect();
+  }, [data.inlineTitle, data.kindLabel, data.layout.contentWidth, data.layout.titleFontSize, data.title]);
+  useLayoutEffect(() => {
+    setTitleHovered(false);
+    setTitleFocused(false);
+    setDisclosureHovered(false);
+    setDisclosure(null);
+  }, [data.inlineTitle, data.title]);
   useLayoutEffect(() => {
     const title = titleRef.current;
     const panel = title?.closest<HTMLElement>('#map-workspace-panel');
@@ -297,7 +316,7 @@ export function MapNode({ data }: { data: MapNodeData }) {
   } as CSSProperties;
   if (data.satellite) return (
     <div ref={nodeContentRef} className={`node-content satellite-content${data.satellite.focused ? ' relation-focused' : ''}`} style={style}>
-      <strong ref={titleRef} className="node-title satellite-title" tabIndex={0} aria-label={`${data.kindLabel}: ${data.satellite.titles.join(', ')}`} onMouseEnter={() => setTitleHovered(true)} onMouseLeave={() => setTitleHovered(false)} onFocus={() => setTitleFocused(true)} onBlur={() => setTitleFocused(false)}>{data.kindLabel}</strong>
+      <strong ref={titleRef} className="node-title satellite-title" tabIndex={0} aria-label={`${data.kindLabel}: ${data.satellite.titles.join(', ')}`} onMouseEnter={(event) => { measureTitle(event.currentTarget); setTitleHovered(true); }} onMouseLeave={() => setTitleHovered(false)} onFocus={(event) => { measureTitle(event.currentTarget); setTitleFocused(true); }} onBlur={() => setTitleFocused(false)}>{data.kindLabel}</strong>
       <span aria-label={`${data.satellite.targetIds.length} targets`}>{data.satellite.targetIds.length}</span>
       {data.satellite.focused && createPortal(<div ref={relationOverlayRef} className="relation-target-overlay" role="listbox" aria-label={`${data.kindLabel} relation targets`} style={{ left: relationOverlay?.x ?? 8, top: relationOverlay?.y ?? 8, visibility: relationOverlay ? 'visible' : 'hidden' }}>{data.satellite.titles.map((title, index) => <div role="option" aria-selected={data.satellite?.targetIds[index] === data.satellite?.focusedTargetId} key={data.satellite?.targetIds[index]}>{title}</div>)}</div>, relationOverlay?.owner ?? nodeContentRef.current?.closest<HTMLElement>('#map-workspace-panel')?.querySelector<HTMLElement>('[data-map-disclosure-layer]') ?? globalThis.document.body)}
       {disclosed && createPortal(<div ref={disclosureRef} role="tooltip" className="title-disclosure satellite-disclosure" style={{ left: disclosure?.x ?? 8, top: disclosure?.y ?? 8, visibility: disclosure ? 'visible' : 'hidden' }} onMouseEnter={() => setDisclosureHovered(true)} onMouseLeave={() => setDisclosureHovered(false)}>{data.satellite.titles.join(', ')}</div>, disclosure?.owner ?? titleRef.current?.closest<HTMLElement>('#map-workspace-panel') ?? globalThis.document.body)}
@@ -306,7 +325,7 @@ export function MapNode({ data }: { data: MapNodeData }) {
   return (
     <div className={`node-content${data.layout.compactTitle ? ' compact-title' : ''}`} style={style}>
       <Handle type="target" position={Position.Left} isConnectable={false} />
-      {data.inlineTitle === undefined ? <strong ref={titleRef} className="node-title" tabIndex={0} aria-label={data.title} onMouseEnter={() => setTitleHovered(true)} onMouseLeave={() => setTitleHovered(false)} onFocus={() => setTitleFocused(true)} onBlur={() => setTitleFocused(false)} onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); data.onTitleDoubleClick?.(); }}>{data.title}</strong> : (
+      {data.inlineTitle === undefined ? <strong ref={titleRef} className="node-title" tabIndex={0} aria-label={data.title} onMouseEnter={(event) => { measureTitle(event.currentTarget); setTitleHovered(true); }} onMouseLeave={() => setTitleHovered(false)} onFocus={(event) => { measureTitle(event.currentTarget); setTitleFocused(true); }} onBlur={() => setTitleFocused(false)} onDoubleClick={(event) => { event.preventDefault(); event.stopPropagation(); data.onTitleDoubleClick?.(); }}>{data.title}</strong> : (
         <InlineTitleEditor title={data.inlineTitle} onCommit={(title) => data.onInlineTitleCommit?.(title)} onCancel={() => data.onInlineTitleCancel?.()} />
       )}
       <span>{data.kindLabel}</span>
