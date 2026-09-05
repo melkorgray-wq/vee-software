@@ -30,11 +30,11 @@ describe('circular map edge geometry', () => {
     expect(edges.map(edge => stableEdgeOffset(edge, edges))).toEqual([0, 0]);
   });
   it('distinct targets sharing one source stay straight', () => {
-    const edges = [{ id: 'team-to-fp', source: 'team', target: 'fp' }, { id: 'team-to-sp', source: 'team', target: 'sp' }];
-    const offsets = edges.map(edge => stableEdgeOffset(edge, edges));
-    expect(offsets).toEqual([0, 0]);
-    expect(circularEdgePath({ sourceCenter: { x: 0, y: 0 }, targetCenter: { x: 100, y: 0 }, sourceRadius: 10, targetRadius: 10, offset: offsets[0] }).path).toBe('M 10 0 L 90 0');
-    expect(circularEdgePath({ sourceCenter: { x: 0, y: 0 }, targetCenter: { x: 0, y: 100 }, sourceRadius: 10, targetRadius: 10, offset: offsets[1] }).path).toBe('M 0 10 L 0 90');
+    const edges = [{ id: 'team-to-fp', source: 'team', target: 'fp' }, { id: 'team-to-sp', source: 'team', target: 'sp' }] as const;
+    const fpOffset = stableEdgeOffset(edges[0], edges); const spOffset = stableEdgeOffset(edges[1], edges);
+    expect([fpOffset, spOffset]).toEqual([0, 0]);
+    expect(circularEdgePath({ sourceCenter: { x: 0, y: 0 }, targetCenter: { x: 100, y: 0 }, sourceRadius: 10, targetRadius: 10, offset: fpOffset }).path).toBe('M 10 0 L 90 0');
+    expect(circularEdgePath({ sourceCenter: { x: 0, y: 0 }, targetCenter: { x: 0, y: 100 }, sourceRadius: 10, targetRadius: 10, offset: spOffset }).path).toBe('M 0 10 L 0 90');
   });
   it('preserves source and target boundary direction', () => {
     const result = circularEdgePath({ sourceCenter: { x: 100, y: 0 }, targetCenter: { x: 0, y: 0 }, sourceRadius: 20, targetRadius: 10, offset: 14 });
