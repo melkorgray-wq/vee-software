@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { addEntity, createEmptyMapDocument, setOfferFinancialIntents, setTouchpointIntentSelections } from '@vee/domain';
-import { relevantPhysicalEdgeIds, type SatelliteGroup } from './map-relation-projection';
+import { relationGroupsForEntity, relevantPhysicalEdgeIds, type SatelliteGroup } from './map-relation-projection';
 import { focusedRelationTarget, inactiveRelationsMode, reduceRelationsMode, relationEdgeClassName } from './map-relations-mode';
 
 const groups: SatelliteGroup[] = [
@@ -63,7 +63,7 @@ it('workspace shortcut opens the focused relation target in Inspector', () => {
   expect(focusedRelationTarget(mode)).toBe('a');
 });
 
-it('returns exact relevant edge IDs without extending an FDO path to Product', () => {
+it('exposes only the visible Offer FDO group and resolves its single target immediately', () => {
   let document = createEmptyMapDocument({ mapId: 'map', title: 'Map', viewId: 'view', viewTitle: 'View' });
   document = addEntity(document, { entityId: 'product', title: 'Product', kind: 'product', viewId: 'view', x: 0, y: 0 });
   document = addEntity(document, { entityId: 'offer', title: 'Offer', kind: 'offer', linkedProductId: 'product', relationshipId: 'product-offer', viewId: 'view', x: 100, y: 0 });
@@ -71,7 +71,15 @@ it('returns exact relevant edge IDs without extending an FDO path to Product', (
   document = addEntity(document, { entityId: 'fdo', title: 'Affordable', kind: 'financial_desired_outcome', viewId: 'view', x: 0, y: 100 });
   document = setOfferFinancialIntents(document, { offerId: 'offer', financialDesiredOutcomeIds: ['fdo'], newIntentIds: ['intent'] });
   document = setTouchpointIntentSelections(document, { touchpointId: 'touchpoint', selections: [{ id: 'selection', kind: 'financial', offerId: 'offer', offerFinancialIntentId: 'intent' }] });
-  expect(relevantPhysicalEdgeIds(document, 'touchpoint', 'fdo')).toEqual(['financial-intent-route:fdo->touchpoint']);
+  expect(relationGroupsForEntity(document, 'touchpoint')).toEqual([]);
+  expect(relationGroupsForEntity(document, 'product')).toEqual([]);
+  const offerGroups = relationGroupsForEntity(document, 'offer');
+  expect(offerGroups).toHaveLength(1);
+  const mode = reduceRelationsMode(inactiveRelationsMode(), { type: 'enter', sourceId: 'offer', groups: offerGroups }).mode;
+  expect(focusedRelationTarget(mode)).toBe('fdo');
+  expect(reduceRelationsMode(mode, { type: 'follow-target' })).toEqual({ mode: { state: 'inactive' }, followedTargetId: 'fdo' });
+  expect(relevantPhysicalEdgeIds(document, 'offer', 'fdo')).toEqual([]);
+  expect(relevantPhysicalEdgeIds(document, 'touchpoint', 'fdo')).toEqual([]);
   expect(relevantPhysicalEdgeIds(document, 'product', 'fdo')).toEqual([]);
 });
 
