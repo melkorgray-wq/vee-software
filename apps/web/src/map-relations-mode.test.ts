@@ -110,6 +110,24 @@ it('reverse Client groups follow one Product or Offer and require explicit selec
   expect(focusedRelationTarget(mode)).toBe('offer-a');
 });
 
+it('Product one-Repulsor target follows Repulsor', () => {
+  const exposure: SatelliteGroup[] = [{ displayOwnerId: 'product', satelliteKind: 'repulsor', targets: [{ entityId: 'repulsor', paths: [['intent', 'resistance']] }] }];
+  const mode = reduceRelationsMode(inactiveRelationsMode(), { type: 'enter', sourceId: 'product', groups: exposure }).mode;
+  expect(reduceRelationsMode(mode, { type: 'follow-target' }).followedTargetId).toBe('repulsor');
+});
+
+it('Repulsor one-Product target follows Product', () => {
+  const exposure: SatelliteGroup[] = [{ displayOwnerId: 'repulsor', satelliteKind: 'product', targets: [{ entityId: 'product', paths: [['intent', 'resistance']] }] }];
+  const mode = reduceRelationsMode(inactiveRelationsMode(), { type: 'enter', sourceId: 'repulsor', groups: exposure }).mode;
+  expect(reduceRelationsMode(mode, { type: 'follow-target' }).followedTargetId).toBe('product');
+});
+
+it('Repulsor one-Offer target follows Offer', () => {
+  const exposure: SatelliteGroup[] = [{ displayOwnerId: 'repulsor', satelliteKind: 'offer', targets: [{ entityId: 'offer', paths: [['selection', 'intent', 'resistance']] }] }];
+  const mode = reduceRelationsMode(inactiveRelationsMode(), { type: 'enter', sourceId: 'repulsor', groups: exposure }).mode;
+  expect(reduceRelationsMode(mode, { type: 'follow-target' }).followedTargetId).toBe('offer');
+});
+
 it('escape exits single-target relation focus', () => {
   const mode = reduceRelationsMode(inactiveRelationsMode(), { type: 'enter', sourceId: 'source', groups: singleTargetGroups }).mode;
   expect(reduceRelationsMode(mode, { type: 'escape' }).mode).toEqual({ state: 'inactive' });

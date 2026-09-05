@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { addEntity, addProductJobIntent, addTouchpointContainer, createEmptyMapDocument, setOfferFinancialIntents, setOfferJobSelections, setTouchpointIntentSelections, type MapDocument } from '@vee/domain';
+import { addEntity, addProductJobIntent, addTouchpointContainer, createEmptyMapDocument, setOfferFinancialIntents, setOfferJobSelections, setTouchpointIntentSelections, setTouchpointMitigations, type MapDocument } from '@vee/domain';
 import { deriveMapEdges } from './map-adapter';
 import { focusedDesiredOutcomeChildren, projectMapRelationSatellites, relationGroupsForEntity, relevantPhysicalEdgeIds } from './map-relation-projection';
 
@@ -372,4 +372,143 @@ it('reverse Client lookup never adds Touchpoint satellites or physical Client-Bu
     for (const businessId of ['product', 'offer']) expect(relevantPhysicalEdgeIds(document, clientId, businessId)).toEqual([]);
   }
   expect(deriveMapEdges(document).some(edge => ['job', 'outcome'].includes(edge.source) && ['product', 'offer'].includes(edge.target))).toBe(false);
+});
+
+function directProductExposure(): MapDocument {
+  let document = createEmptyMapDocument({ mapId: 'exposure-map', title: 'Exposure', viewId: 'view', viewTitle: 'View' });
+  document = addEntity(document, { entityId: 'product', title: 'Product', kind: 'product', viewId: 'view', x: 0, y: 0 });
+  document = addEntity(document, { entityId: 'job', title: 'Job', kind: 'social_job', viewId: 'view', x: 0, y: 100 });
+  document = addProductJobIntent(document, { id: 'product-intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: [] });
+  return addEntity(document, { entityId: 'repulsor', title: 'Resistance', kind: 'repulsor', resistedTargetIds: ['job'], relationshipIds: ['resistance'], viewId: 'view', x: 100, y: 100 });
+}
+
+function repulsorTarget(document: MapDocument, ownerId: string, kind: 'repulsor' | 'product' | 'offer') {
+  return relationGroupsForEntity(document, ownerId).find(group => group.satelliteKind === kind);
+}
+
+it('Product is exposed to Job Repulsor directly from Product intent', () => {
+  expect(repulsorTarget(directProductExposure(), 'product', 'repulsor')).toEqual({
+    displayOwnerId: 'product', satelliteKind: 'repulsor', targets: [{ entityId: 'repulsor', paths: [['product-intent', 'resistance']] }],
+  });
+});
+
+it('Repulsor reverse-projects Product from Product intent', () => {
+  expect(repulsorTarget(directProductExposure(), 'repulsor', 'product')?.targets).toEqual([
+    { entityId: 'product', paths: [['product-intent', 'resistance']] },
+  ]);
+});
+
+function selectedSubsetExposure(): MapDocument {
+  let document = addEntity(base(), { entityId: 'job-a', title: 'A', kind: 'social_job', viewId: 'view', x: 0, y: 100 });
+  document = addEntity(document, { entityId: 'job-b', title: 'B', kind: 'social_job', viewId: 'view', x: 0, y: 200 });
+  document = addProductJobIntent(document, { id: 'intent-a', productId: 'product', jobId: 'job-a', addressedDesiredOutcomeIds: [] });
+  document = addProductJobIntent(document, { id: 'intent-b', productId: 'product', jobId: 'job-b', addressedDesiredOutcomeIds: [] });
+  document = setOfferJobSelections(document, { offerId: 'offer', productJobIntentIds: ['intent-a'], newSelectionIds: ['selection-a'] });
+  document = addEntity(document, { entityId: 'repulsor-a', title: 'RA', kind: 'repulsor', resistedTargetIds: ['job-a'], relationshipIds: ['resistance-a'], viewId: 'view', x: 100, y: 100 });
+  return addEntity(document, { entityId: 'repulsor-b', title: 'RB', kind: 'repulsor', resistedTargetIds: ['job-b'], relationshipIds: ['resistance-b'], viewId: 'view', x: 100, y: 200 });
+}
+
+it('Offer is exposed only through selected Job intent subset', () => {
+  const document = selectedSubsetExposure();
+  expect(repulsorTarget(document, 'product', 'repulsor')?.targets.map(target => target.entityId)).toEqual(['repulsor-a', 'repulsor-b']);
+  expect(repulsorTarget(document, 'offer', 'repulsor')?.targets.map(target => target.entityId)).toEqual(['repulsor-a']);
+});
+
+it('Repulsor reverse-projects only Offers that selected resisted Job intent', () => {
+  const document = selectedSubsetExposure();
+  expect(repulsorTarget(document, 'repulsor-a', 'offer')?.targets.map(target => target.entityId)).toEqual(['offer']);
+  expect(repulsorTarget(document, 'repulsor-b', 'offer')).toBeUndefined();
+});
+
+it('Offer Job exposure does not require Touchpoint', () => {
+  const document = { ...selectedSubsetExposure(), entities: selectedSubsetExposure().entities.filter(entity => entity.kind !== 'touchpoint'), relationships: selectedSubsetExposure().relationships.filter(relationship => relationship.kind !== 'offer_presented_at_touchpoint') };
+  expect(repulsorTarget(document, 'offer', 'repulsor')?.targets.map(target => target.entityId)).toEqual(['repulsor-a']);
+});
+
+it('Offer is exposed to FDO Repulsor directly from Offer Financial Intent', () => {
+  let document = financialRoute();
+  document = addEntity(document, { entityId: 'fdo-repulsor', title: 'Price concern', kind: 'repulsor', resistedTargetIds: ['fdo'], relationshipIds: ['fdo-resistance'], viewId: 'view', x: 100, y: 100 });
+  document = { ...document, touchpointFinancialSelections: [] };
+  expect(repulsorTarget(document, 'offer', 'repulsor')?.targets).toEqual([{ entityId: 'fdo-repulsor', paths: [['financial-intent', 'fdo-resistance']] }]);
+});
+
+it('FDO-targeted Repulsor never exposes Product', () => {
+  let document = financialRoute();
+  document = addEntity(document, { entityId: 'fdo-repulsor', title: 'Price concern', kind: 'repulsor', resistedTargetIds: ['fdo'], relationshipIds: ['fdo-resistance'], viewId: 'view', x: 100, y: 100 });
+  expect(repulsorTarget(document, 'offer', 'repulsor')?.targets.map(target => target.entityId)).toEqual(['fdo-repulsor']);
+  expect(repulsorTarget(document, 'fdo-repulsor', 'offer')?.targets.map(target => target.entityId)).toEqual(['offer']);
+  expect(repulsorTarget(document, 'product', 'repulsor')).toBeUndefined();
+  expect(repulsorTarget(document, 'fdo-repulsor', 'product')).toBeUndefined();
+});
+
+it('mitigation does not erase Product or Offer exposure', () => {
+  let document = selectedSubsetExposure();
+  document = setTouchpointIntentSelections(document, { touchpointId: 'touchpoint', selections: [{ id: 'touch-selection', kind: 'job', offerId: 'offer', productJobIntentId: 'intent-a', addressedDesiredOutcomeIds: [] }] });
+  document = setTouchpointMitigations(document, { touchpointId: 'touchpoint', repulsorIds: ['repulsor-a'], newRelationshipIds: ['mitigation'] });
+  expect(repulsorTarget(document, 'product', 'repulsor')?.targets.map(target => target.entityId)).toEqual(['repulsor-a', 'repulsor-b']);
+  expect(repulsorTarget(document, 'offer', 'repulsor')?.targets.map(target => target.entityId)).toEqual(['repulsor-a']);
+  expect(repulsorTarget(document, 'repulsor-a', 'product')?.targets.map(target => target.entityId)).toEqual(['product']);
+  expect(repulsorTarget(document, 'repulsor-a', 'offer')?.targets.map(target => target.entityId)).toEqual(['offer']);
+});
+
+it('Repulsor exposure does not propagate through Client ontology', () => {
+  let document = addEntity(base(), { entityId: 'core', title: 'Core', kind: 'core_functional_job', viewId: 'view', x: 0, y: 100 });
+  document = addEntity(document, { entityId: 'related', title: 'Related', kind: 'related_job', parentEntityId: 'core', relationshipId: 'core-related', viewId: 'view', x: 0, y: 200 });
+  document = addProductJobIntent(document, { id: 'intent', productId: 'product', jobId: 'core', addressedDesiredOutcomeIds: [] });
+  document = addEntity(document, { entityId: 'repulsor', title: 'Resistance', kind: 'repulsor', resistedTargetIds: ['related'], relationshipIds: ['resistance'], viewId: 'view', x: 100, y: 200 });
+  expect(repulsorTarget(document, 'product', 'repulsor')).toBeUndefined();
+});
+
+it('multiple resisted Jobs deduplicate the same Repulsor for Product', () => {
+  let document = selectedSubsetExposure();
+  document = { ...document, relationships: document.relationships.map(relationship => relationship.id === 'resistance-a' ? relationship : relationship.id === 'resistance-b' ? { ...relationship, repulsorId: 'repulsor-a' } : relationship), entities: document.entities.filter(entity => entity.id !== 'repulsor-b') };
+  expect(repulsorTarget(document, 'product', 'repulsor')?.targets).toEqual([{ entityId: 'repulsor-a', paths: [['intent-a', 'resistance-a'], ['intent-b', 'resistance-b']] }]);
+});
+
+it('multiple contributing intents deduplicate the same Business reverse target', () => {
+  let document = selectedSubsetExposure();
+  document = setOfferJobSelections(document, { offerId: 'offer', productJobIntentIds: ['intent-a', 'intent-b'], newSelectionIds: ['selection-b'] });
+  document = { ...document, relationships: document.relationships.map(relationship => relationship.id === 'resistance-b' ? { ...relationship, repulsorId: 'repulsor-a' } : relationship), entities: document.entities.filter(entity => entity.id !== 'repulsor-b') };
+  expect(repulsorTarget(document, 'repulsor-a', 'product')?.targets).toHaveLength(1);
+  expect(repulsorTarget(document, 'repulsor-a', 'product')?.targets[0]?.paths).toHaveLength(2);
+  expect(repulsorTarget(document, 'repulsor-a', 'offer')?.targets).toHaveLength(1);
+  expect(repulsorTarget(document, 'repulsor-a', 'offer')?.targets[0]?.paths).toHaveLength(2);
+});
+
+it('projection provenance contains the real repulsor_resists relationship plus relevant semantic IDs', () => {
+  const document = selectedSubsetExposure();
+  expect(repulsorTarget(document, 'product', 'repulsor')?.targets[0]?.paths).toEqual([['intent-a', 'resistance-a']]);
+  expect(repulsorTarget(document, 'offer', 'repulsor')?.targets[0]?.paths).toEqual([['selection-a', 'intent-a', 'resistance-a']]);
+  expect(relevantPhysicalEdgeIds(document, 'offer', 'repulsor-a')).toEqual(['resistance-a']);
+});
+
+it('no physical Business-Repulsor edge is created', () => {
+  expect(deriveMapEdges(selectedSubsetExposure()).some(edge => ['product', 'offer'].includes(edge.source) && edge.target.startsWith('repulsor'))).toBe(false);
+});
+
+it('relevant physical edge lookup may resolve only real resisted-target edges', () => {
+  const document = selectedSubsetExposure();
+  expect(relevantPhysicalEdgeIds(document, 'product', 'repulsor-a')).toEqual(['resistance-a']);
+  expect(relevantPhysicalEdgeIds(document, 'offer', 'repulsor-a')).toEqual(['resistance-a']);
+});
+
+it('Touchpoint receives no Repulsor satellite', () => {
+  let document = selectedSubsetExposure();
+  document = setTouchpointIntentSelections(document, { touchpointId: 'touchpoint', selections: [{ id: 'touch-selection', kind: 'job', offerId: 'offer', productJobIntentId: 'intent-a', addressedDesiredOutcomeIds: [] }] });
+  expect(repulsorTarget(document, 'touchpoint', 'repulsor')).toBeUndefined();
+  expect(deriveMapEdges(document)).toContainEqual(expect.objectContaining({ id: 'repulsor-route:repulsor-a->touchpoint', source: 'repulsor-a', target: 'touchpoint' }));
+});
+
+it('stale exposure records are ignored without document mutation', () => {
+  const original = directProductExposure();
+  const stale = { ...original, relationships: [
+    ...original.relationships,
+    { id: 'missing-repulsor', kind: 'repulsor_resists' as const, repulsorId: 'missing', targetEntityId: 'job' },
+    { id: 'wrong-repulsor', kind: 'repulsor_resists' as const, repulsorId: 'product', targetEntityId: 'job' },
+    { id: 'missing-target', kind: 'repulsor_resists' as const, repulsorId: 'repulsor', targetEntityId: 'missing' },
+    { id: 'wrong-target', kind: 'repulsor_resists' as const, repulsorId: 'repulsor', targetEntityId: 'product' },
+  ], productJobIntents: [...original.productJobIntents, { id: 'stale-intent', productId: 'missing', jobId: 'job', addressedDesiredOutcomeIds: [] }], offerFinancialIntents: [{ id: 'stale-financial', offerId: 'missing', financialDesiredOutcomeId: 'missing' }] };
+  const snapshot = structuredClone(stale);
+  expect(repulsorTarget(stale, 'product', 'repulsor')?.targets).toEqual([{ entityId: 'repulsor', paths: [['product-intent', 'resistance']] }]);
+  expect(stale).toEqual(snapshot);
 });
