@@ -289,6 +289,23 @@ describe('map-first authoring interactions', () => {
     expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).toHaveTextContent('Stay affordable');
     expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).not.toHaveTextContent('Subscription');
   });
+  it('reveals focused Product Job outcome children, removes them on Escape, and keeps follow on the Job', async () => {
+    const user = userEvent.setup();
+    const document = touchpointInspectorDocument();
+    document.productJobIntents = [{ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a', 'do-b'] }];
+    render(<MapSpike initialDocument={document} />);
+    expect(globalThis.document.querySelector('[data-node-id^="satellite-child:"]')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Orbit' }));
+    fireEvent.keyDown(window, { key: 'r' });
+    expect(globalThis.document.querySelector('[data-node-id="satellite-child:product:job:do-a"]')).toBeInTheDocument();
+    expect(globalThis.document.querySelector('[data-node-id="satellite-child:product:job:do-b"]')).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(globalThis.document.querySelector('[data-node-id^="satellite-child:"]')).not.toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'r' });
+    fireEvent.keyDown(window, { code: 'Space', key: ' ', ctrlKey: true, shiftKey: true });
+    expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).toHaveTextContent('Make progress');
+    expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).not.toHaveTextContent('Finish faster');
+  });
   it('portals every relation target with unchanged selected-state semantics', () => {
     render(<section id="map-workspace-panel"><div className="map-disclosure-layer" data-map-disclosure-layer /><div data-node-id="satellite"><MapNode data={{ title: 'Desired Outcome group (2)', kindLabel: 'Desired Outcome', layout: { diameter: 54, titleFontSize: 12, kindFontSize: 10, contentWidth: 42, compactTitle: true }, satellite: { kind: 'desired_outcome', targetIds: ['a', 'b'], titles: ['Finish faster', 'Reduce errors'], focused: true, focusedTargetId: 'b' } }} /></div></section>);
     const targets = screen.getByRole('listbox', { name: 'Desired Outcome relation targets' });

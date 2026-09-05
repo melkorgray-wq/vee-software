@@ -3,6 +3,7 @@ import type { Point } from './map-edge-geometry';
 export interface OccupiedMapNode extends Point { id: string }
 export interface SatelliteOrbitGroup { id: string; kind: string; targetIds: string[] }
 export interface PositionedSatelliteGroup extends SatelliteOrbitGroup { position: Point; angle: number }
+export interface PositionedSatelliteChild { id: string; position: Point; angle: number }
 
 const SECTORS = 12;
 const START_ANGLE = -Math.PI / 2;
@@ -33,5 +34,17 @@ export function placeSatelliteGroups(input: { ownerCenter: Point; orbitRadius: n
     reserved.push(sector);
     const angle = START_ANGLE + sector * (Math.PI * 2 / SECTORS);
     return { ...group, position: sectorPoint(input.ownerCenter, input.orbitRadius, sector), angle };
+  });
+}
+
+/** Places a stable compact fan beyond a primary satellite, away from its authored Business owner. */
+export function placeSatelliteChildFan(input: { ownerCenter: Point; parentCenter: Point; radius: number; childIds: readonly string[]; fanAngle?: number }): PositionedSatelliteChild[] {
+  const outwardAngle = Math.atan2(input.parentCenter.y - input.ownerCenter.y, input.parentCenter.x - input.ownerCenter.x);
+  const sorted = [...new Set(input.childIds)].sort((left, right) => left.localeCompare(right));
+  const spread = input.fanAngle ?? Math.PI / 3;
+  return sorted.map((id, index) => {
+    const offset = sorted.length === 1 ? 0 : -spread / 2 + spread * index / (sorted.length - 1);
+    const angle = outwardAngle + offset;
+    return { id, angle, position: { x: input.parentCenter.x + Math.cos(angle) * input.radius, y: input.parentCenter.y + Math.sin(angle) * input.radius } };
   });
 }

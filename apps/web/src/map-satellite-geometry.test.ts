@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chooseDeterministicFreeSector, placeSatelliteGroups } from './map-satellite-geometry';
+import { chooseDeterministicFreeSector, placeSatelliteChildFan, placeSatelliteGroups } from './map-satellite-geometry';
 
 describe('map satellite geometry', () => {
   it('chooses a deterministic free sector', () => {
@@ -24,5 +24,16 @@ describe('map satellite geometry', () => {
   it('handles a fully occupied neighborhood deterministically', () => {
     const occupied = Array.from({ length: 12 }, (_, index) => ({ id: String(index), x: Math.cos(-Math.PI / 2 + index * Math.PI / 6) * 50, y: Math.sin(-Math.PI / 2 + index * Math.PI / 6) * 50 }));
     expect(chooseDeterministicFreeSector({ x: 0, y: 0 }, 50, occupied)).toBe(0);
+  });
+
+  it('places one child directly outward and a stable multi-child fan symmetrically', () => {
+    const one = placeSatelliteChildFan({ ownerCenter: { x: 0, y: 0 }, parentCenter: { x: 100, y: 0 }, radius: 50, childIds: ['b'] });
+    expect(one).toEqual([{ id: 'b', angle: 0, position: { x: 150, y: 0 } }]);
+    const many = placeSatelliteChildFan({ ownerCenter: { x: 0, y: 0 }, parentCenter: { x: 100, y: 0 }, radius: 50, childIds: ['c', 'a', 'b'] });
+    expect(many.map(child => child.id)).toEqual(['a', 'b', 'c']);
+    expect(many[0]!.angle).toBeCloseTo(-many[2]!.angle);
+    expect(many[1]!.position).toEqual({ x: 150, y: 0 });
+    expect(placeSatelliteChildFan({ ownerCenter: { x: 0, y: 0 }, parentCenter: { x: 100, y: 0 }, radius: 50, childIds: ['c', 'a', 'b'] })).toEqual(many);
+    expect(many.every(child => child.position.x > 100)).toBe(true);
   });
 });

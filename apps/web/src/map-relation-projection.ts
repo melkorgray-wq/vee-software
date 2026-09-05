@@ -32,6 +32,46 @@ export interface SatelliteGroup {
   targets: SatelliteTarget[];
 }
 
+export interface FocusedDesiredOutcomeChild {
+  entityId: string;
+  title: string;
+}
+
+const DESIRED_OUTCOME_BEARING_JOB_KINDS = new Set<SatelliteKind>([
+  'core_functional_job',
+  'related_job',
+  'consumption_chain_job',
+]);
+
+/** Resolves the exact Product-intent outcome subset behind a focused Business-side Job satellite. */
+export function focusedDesiredOutcomeChildren(document: MapDocument, sourceId: string, focusedJobId: string): FocusedDesiredOutcomeChild[] {
+  const entities = new Map(document.entities.map(entity => [entity.id, entity]));
+  const source = entities.get(sourceId);
+  const job = entities.get(focusedJobId);
+  if (!source || !job || !DESIRED_OUTCOME_BEARING_JOB_KINDS.has(job.kind as SatelliteKind)) return [];
+
+  let intent = source.kind === 'product'
+    ? document.productJobIntents.find(candidate => candidate.productId === source.id && candidate.jobId === job.id)
+    : undefined;
+  if (source.kind === 'offer') {
+    const packaged = document.relationships.find(relationship => relationship.kind === 'product_packaged_as_offer' && relationship.offerId === source.id);
+    const productId = packaged?.kind === 'product_packaged_as_offer' && entities.get(packaged.productId)?.kind === 'product' ? packaged.productId : undefined;
+    const selectedIntentIds = new Set(document.offerJobSelections.filter(selection => selection.offerId === source.id).map(selection => selection.productJobIntentId));
+    intent = productId
+      ? document.productJobIntents.find(candidate => selectedIntentIds.has(candidate.id) && candidate.productId === productId && candidate.jobId === job.id)
+      : undefined;
+  }
+  if ((source.kind !== 'product' && source.kind !== 'offer') || !intent) return [];
+
+  const ownedOutcomeIds = new Set(document.relationships.flatMap(relationship =>
+    relationship.kind === 'job_has_desired_outcome' && relationship.jobId === job.id ? [relationship.desiredOutcomeId] : [],
+  ));
+  return [...new Set(intent.addressedDesiredOutcomeIds)].flatMap(entityId => {
+    const outcome = entities.get(entityId);
+    return outcome?.kind === 'desired_outcome' && ownedOutcomeIds.has(entityId) ? [{ entityId, title: outcome.title }] : [];
+  }).sort((left, right) => compare(left.entityId, right.entityId));
+}
+
 export function relationGroupsForEntity(document: MapDocument, entityId: string): SatelliteGroup[] {
   return projectMapRelationSatellites(document).filter(group => group.displayOwnerId === entityId);
 }

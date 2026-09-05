@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { addEntity, addProductJobIntent, addTouchpointContainer, createEmptyMapDocument, setOfferFinancialIntents, setOfferJobSelections, setTouchpointIntentSelections, type MapDocument } from '@vee/domain';
 import { deriveMapEdges } from './map-adapter';
-import { projectMapRelationSatellites, relationGroupsForEntity, relevantPhysicalEdgeIds } from './map-relation-projection';
+import { focusedDesiredOutcomeChildren, projectMapRelationSatellites, relationGroupsForEntity, relevantPhysicalEdgeIds } from './map-relation-projection';
 
 function base(): MapDocument {
   let document = createEmptyMapDocument({ mapId: 'map', title: 'Map', viewId: 'view', viewTitle: 'View' });
@@ -216,6 +216,57 @@ it('stale or cross-Product Offer selections are ignored without mutation', () =>
 
   const withoutProduct = { ...stale, relationships: stale.relationships.filter(relation => relation.kind !== 'product_packaged_as_offer') };
   expect(relationGroupsForEntity(withoutProduct, 'offer')).toEqual([]);
+});
+
+function outcomeIntent(kind: 'core_functional_job' | 'related_job' | 'consumption_chain_job' | 'emotional_job' | 'social_job' = 'core_functional_job') {
+  let document = base();
+  if (kind === 'related_job') {
+    document = addEntity(document, { entityId: 'parent', title: 'Parent', kind: 'core_functional_job', viewId: 'view', x: 0, y: 100 });
+    document = addEntity(document, { entityId: 'job', title: 'Job', kind, parentEntityId: 'parent', relationshipId: 'parent-job', viewId: 'view', x: 0, y: 200 });
+  } else document = addEntity(document, { entityId: 'job', title: 'Job', kind, viewId: 'view', x: 0, y: 100 });
+  if (kind !== 'emotional_job' && kind !== 'social_job') {
+    for (const id of ['do-a', 'do-b', 'do-c']) document = addEntity(document, { entityId: id, title: id.toUpperCase(), kind: 'desired_outcome', parentEntityId: 'job', relationshipId: `owns-${id}`, viewId: 'view', x: 100, y: 100 });
+  }
+  return document;
+}
+
+it('focused Product CFJ reveals only its exact addressed Desired Outcome children', () => {
+  let document = outcomeIntent();
+  document = addProductJobIntent(document, { id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-b', 'do-a'] });
+  expect(focusedDesiredOutcomeChildren(document, 'product', 'job')).toEqual([{ entityId: 'do-a', title: 'DO-A' }, { entityId: 'do-b', title: 'DO-B' }]);
+  expect(relationGroupsForEntity(document, 'product').map(group => group.satelliteKind)).toEqual(['core_functional_job']);
+});
+
+it.each(['related_job', 'consumption_chain_job'] as const)('focused Product %s supports addressed outcome disclosure', kind => {
+  let document = outcomeIntent(kind);
+  document = addProductJobIntent(document, { id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-b'] });
+  expect(focusedDesiredOutcomeChildren(document, 'product', 'job').map(child => child.entityId)).toEqual(['do-b']);
+});
+
+it.each(['emotional_job', 'social_job'] as const)('%s never reveals ordinary Desired Outcome children', kind => {
+  const document = outcomeIntent(kind);
+  const stale = { ...document, productJobIntents: [{ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] }] };
+  expect(focusedDesiredOutcomeChildren(stale, 'product', 'job')).toEqual([]);
+});
+
+it('focused Offer Job uses the selected Product intent as a whole', () => {
+  let document = outcomeIntent();
+  document = addProductJobIntent(document, { id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a', 'do-b'] });
+  document = setOfferJobSelections(document, { offerId: 'offer', productJobIntentIds: ['intent'], newSelectionIds: ['selection'] });
+  expect(focusedDesiredOutcomeChildren(document, 'offer', 'job').map(child => child.entityId)).toEqual(['do-a', 'do-b']);
+});
+
+it('ignores stale, wrong-kind, and non-owned addressed IDs without mutation', () => {
+  let document = outcomeIntent();
+  document = addEntity(document, { entityId: 'wrong-kind', title: 'Wrong', kind: 'financial_desired_outcome', viewId: 'view', x: 0, y: 300 });
+  document = addEntity(document, { entityId: 'other-job', title: 'Other', kind: 'core_functional_job', viewId: 'view', x: 0, y: 400 });
+  document = addEntity(document, { entityId: 'other-do', title: 'Other DO', kind: 'desired_outcome', parentEntityId: 'other-job', relationshipId: 'other-owns', viewId: 'view', x: 0, y: 500 });
+  const stale = { ...document, productJobIntents: [{ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['missing', 'wrong-kind', 'other-do', 'do-b'] }] };
+  const snapshot = structuredClone(stale);
+  expect(focusedDesiredOutcomeChildren(stale, 'product', 'job').map(child => child.entityId)).toEqual(['do-b']);
+  expect(focusedDesiredOutcomeChildren(stale, 'job', 'product')).toEqual([]);
+  expect(focusedDesiredOutcomeChildren(stale, 'product', 'wrong-kind')).toEqual([]);
+  expect(stale).toEqual(snapshot);
 });
 
 it('ignores stale Offer financial intent endpoints and preserves deterministic ordering', () => {
