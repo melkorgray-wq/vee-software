@@ -171,9 +171,29 @@ describe('Touchpoint Business structure Inspector', () => {
   it('Touchpoint Inspector renders Business structure before legacy editor', () => {
     const inspector = renderTouchpointInspector(structureDocument());
     const structure = inspector.getByRole('region', { name: 'Business structure' });
+    expect(inspector.getByRole('heading', { name: 'Entity Inspector' })).toBeInTheDocument();
+    expect(inspector.getByRole('heading', { name: 'Checkout' })).toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Inspector Back' })).toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Inspector Forward' })).toBeInTheDocument();
     expect(structure.compareDocumentPosition(inspector.getByLabelText('Title')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(structure).getByText('Website')).toBeInTheDocument();
     expect(within(inspector.getByRole('group', { name: 'Linked Offers' })).getByRole('checkbox', { name: 'Subscription' })).toBeChecked();
+  });
+
+  it('uses compact markers for empty direct and derived Business structure values', () => {
+    const document = structureDocument();
+    const touch = document.entities.find(entity => entity.id === 'touch')!;
+    Object.assign(touch, { locatedInId: undefined, url: undefined });
+    document.relationships = document.relationships.filter(relation =>
+      relation.kind !== 'touchpoint_contains_touchpoint' &&
+      !(relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId !== 'touch'),
+    );
+    const structure = within(renderTouchpointInspector(document).getByRole('region', { name: 'Business structure' }));
+    expect(structure.getAllByText('—').length).toBeGreaterThanOrEqual(5);
+    expect(structure.queryByText('Not specified')).not.toBeInTheDocument();
+    expect(structure.queryByText('None')).not.toBeInTheDocument();
+    expect(structure.getByText('Derived')).toBeInTheDocument();
+    expect(structure.queryByText(/^More in /)).not.toBeInTheDocument();
   });
 
   it('Product Offer parent child and derived Touchpoint controls navigate through existing Inspector navigation', async () => {
