@@ -193,8 +193,14 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(within(ancestry).getByLabelText('Orbit to Subscription to Checkout')).toHaveTextContent('Orbit→Subscription→Checkout');
     expect(within(ancestry).getByLabelText('Orbit to Consulting to Checkout')).toHaveTextContent('Orbit→Consulting→Checkout');
     for (const label of ['Offers', 'Located in', 'Parent', 'Children', 'URL']) {
-      expect(within(directStructure).getByRole('heading', { name: label })).toBeInTheDocument();
+      const property = within(directStructure).getByRole('group', { name: label === 'URL' ? 'Web address property' : `${label} property` });
+      expect(within(property).getByRole('heading', { name: label })).toBeInTheDocument();
     }
+    expect(within(within(directStructure).getByRole('group', { name: 'Offers property' })).getAllByRole('button').map(button => button.textContent)).toEqual(['Consulting', 'Subscription']);
+    expect(within(within(directStructure).getByRole('group', { name: 'Located in property' })).getByRole('button', { name: 'Edit Located in, Website' })).toBeInTheDocument();
+    expect(within(within(directStructure).getByRole('group', { name: 'Parent property' })).getByRole('button', { name: 'Front Page' })).toBeInTheDocument();
+    expect(within(within(directStructure).getByRole('group', { name: 'Children property' })).getByRole('button', { name: 'FAQ' })).toBeInTheDocument();
+    expect(within(within(directStructure).getByRole('group', { name: 'Web address property' })).getByRole('button', { name: 'Edit web address, https://example.com/checkout' })).toBeInTheDocument();
   });
 
   it('keeps ancestry branches from different Products distinct', () => {
