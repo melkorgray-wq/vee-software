@@ -183,6 +183,31 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(within(inspector.getByRole('group', { name: 'Linked Offers' })).getByRole('checkbox', { name: 'Subscription' })).toBeChecked();
   });
 
+  it('renders complete ancestry branches before the aligned Structure and Neighborhood sections', () => {
+    const region = renderTouchpointInspector(structureDocument()).getByRole('region', { name: 'Business structure' });
+    const ancestry = within(region).getByRole('heading', { name: 'Business ancestry' }).closest<HTMLElement>('.business-ancestry')!;
+    const directStructure = within(region).getByLabelText('Structure');
+    const neighborhood = within(region).getByText('Neighborhood').closest<HTMLElement>('.business-structure-derived')!;
+    expect(ancestry.compareDocumentPosition(directStructure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(directStructure.compareDocumentPosition(neighborhood) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(ancestry).getByLabelText('Orbit to Subscription to Checkout')).toHaveTextContent('Orbit→Subscription→Checkout');
+    expect(within(ancestry).getByLabelText('Orbit to Consulting to Checkout')).toHaveTextContent('Orbit→Consulting→Checkout');
+    for (const label of ['Offers', 'Located in', 'Parent', 'Children', 'URL']) {
+      expect(within(directStructure).getByRole('heading', { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it('keeps ancestry branches from different Products distinct', () => {
+    const document = structureDocument();
+    document.entities.push({ id: 'product-b', kind: 'product', title: 'Website' });
+    document.placements.push({ viewId: 'spike-view', entityId: 'product-b', x: 1620, y: 0 });
+    const consultingRelation = document.relationships.find(relation => relation.id === 'packages-b');
+    if (consultingRelation?.kind === 'product_packaged_as_offer') consultingRelation.productId = 'product-b';
+    const ancestry = within(renderTouchpointInspector(document).getByRole('region', { name: 'Business structure' })).getByRole('heading', { name: 'Business ancestry' }).closest<HTMLElement>('.business-ancestry')!;
+    expect(within(ancestry).getByLabelText('Orbit to Subscription to Checkout')).toBeInTheDocument();
+    expect(within(ancestry).getByLabelText('Website to Consulting to Checkout')).toBeInTheDocument();
+  });
+
   it('uses compact markers for empty direct and derived Business structure values', () => {
     const document = structureDocument();
     const touch = document.entities.find(entity => entity.id === 'touch')!;
