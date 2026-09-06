@@ -16,6 +16,7 @@ import { enterMoveMode, inactiveMoveMode, moveInMode, moveVectorForKey, type Mov
 import { Link } from '../router';
 import { CONNECTION_PICKER_KINDS, applyTouchpointEditDraft, connectionPickerCatalogue, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, filterConnectionCandidates, financialLeafKey, jobLeafKey, selectCurrentOfferIntent, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft } from './touchpoint-edit';
 import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
+import { deriveTouchpointBusinessStructure } from '../touchpoint-business-structure';
 
 const VIEW_ID = 'spike-view';
 const INITIAL_DOCUMENT = createEmptyMapDocument({
@@ -420,6 +421,9 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const relevantEdgeIds = relationLens ? new Set(relationLens.edgeIds) : null;
   const edges = deriveMapEdges(document).map(edge => ({ ...edge, className: relationEdgeClassName(edge.className, edge.id, relevantEdgeIds) }));
   const selected = document.entities.find((e) => e.id === selectedId);
+  const touchpointBusinessStructure = selected?.kind === 'touchpoint'
+    ? deriveTouchpointBusinessStructure(document, selected.id)
+    : undefined;
   const inspectorDirty = Boolean(selected && editDraft && (() => { const baseline = draftFor(selected); return JSON.stringify({ ...editDraft, touchpointIntent: undefined }) !== JSON.stringify({ ...baseline, touchpointIntent: undefined }) || Boolean(editDraft.touchpointIntent && baseline.touchpointIntent && !equalTouchpointIntentDraft(editDraft.touchpointIntent, baseline.touchpointIntent)); })());
 
   useEffect(() => {
@@ -1570,6 +1574,46 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     event.preventDefault();
     items[target]?.focus();
   }
+  function touchpointBusinessStructureSection() {
+    const structure = touchpointBusinessStructure;
+    if (!structure) return null;
+    const products = structure.ancestryBranches.reduce<Array<{ product: (typeof structure.ancestryBranches)[number]['product']; branches: typeof structure.ancestryBranches }>>((groups, branch) => {
+      const existing = groups.find(group => group.product.id === branch.product.id);
+      if (existing) existing.branches.push(branch);
+      else groups.push({ product: branch.product, branches: [branch] });
+      return groups;
+    }, []);
+    const navigationList = (entities: { id: string; title: string }[], empty = 'None') => entities.length
+      ? <ul className="business-structure-links">{entities.map(entity => <li key={entity.id}><button type="button" onClick={() => navigateInspector(entity.id)}>{entity.title}</button></li>)}</ul>
+      : <p className="business-structure-empty">{empty}</p>;
+    return <section className="touchpoint-business-structure" aria-labelledby="business-structure-heading">
+      <h4 id="business-structure-heading">Business structure</h4>
+      <div className="business-structure-property business-ancestry">
+        <h5>Business ancestry</h5>
+        {products.length ? <ul>{products.map(group => <li key={group.product.id}>
+          <button type="button" onClick={() => navigateInspector(group.product.id)}>{group.product.title}</button>
+          <ul>{group.branches.map(branch => <li key={`${branch.product.id}:${branch.offer.id}`}>
+            <button type="button" onClick={() => navigateInspector(branch.offer.id)}>{branch.offer.title}</button>
+            <ul><li><span>{branch.touchpoint.title}</span></li></ul>
+          </li>)}</ul>
+        </li>)}</ul> : <p className="business-structure-empty">Not specified</p>}
+      </div>
+      <div className="business-structure-grid">
+        <div className="business-structure-property"><h5>Offers</h5>{navigationList(structure.offers)}</div>
+        <div className="business-structure-property"><h5>Located in</h5><p>{structure.container?.title ?? 'Not specified'}</p></div>
+        <div className="business-structure-property"><h5>Parent Touchpoint</h5>{structure.parent ? navigationList([structure.parent]) : <p className="business-structure-empty">None</p>}</div>
+        <div className="business-structure-property"><h5>Child Touchpoints</h5>{navigationList(structure.children)}</div>
+        <div className="business-structure-property business-structure-url"><h5>URL</h5>{safeUrl(structure.touchpoint.url) ? <a href={safeUrl(structure.touchpoint.url)} target="_blank" rel="noreferrer">{structure.touchpoint.url}</a> : <p className="business-structure-empty">Not specified</p>}</div>
+      </div>
+      <div className="business-structure-derived">
+        <div className="derived-heading"><h5>Neighborhood</h5><span>Derived</span></div>
+        {structure.otherTouchpointsByOffer.map(group => <div className="business-structure-property" key={group.offer.id}>
+          <h5>Other Touchpoints for {group.offer.title}</h5>{navigationList(group.touchpoints)}
+        </div>)}
+        {structure.container && <div className="business-structure-property"><h5>More in {structure.container.title}</h5>{navigationList(structure.otherTouchpointsInContainer)}</div>}
+      </div>
+    </section>;
+  }
   function quickForm(q: Quick) {
     return (
       <form
@@ -1989,6 +2033,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               <p>
                 {editDraft.side === 'business' ? 'Business side' : 'Client side'} · {KIND_LABELS[selected.kind]} <span className="immutable-note">(type and side cannot be changed)</span>
               </p>
+              {touchpointBusinessStructureSection()}
               <label>
                 Title
                 <input required value={editDraft.title} onChange={(e) => setEditDraft({ ...editDraft, title: e.target.value })} />
