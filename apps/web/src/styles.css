@@ -38,6 +38,23 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .inspector-empty-state > .actions { justify-content: center; }
 .inspector h2 { padding-bottom: .8rem; border-bottom: 1px solid var(--border-subtle); }
 .inspector-history { display: flex; gap: .5rem; max-width: 56rem; margin: 0 auto 1rem; }
+.touchpoint-business-structure { display: grid; gap: 1rem; margin: .5rem 0 1rem; padding: 1rem; border-radius: .5rem; background: var(--surface-1); }
+.touchpoint-business-structure h4, .touchpoint-business-structure h5, .touchpoint-business-structure p { margin: 0; }
+.touchpoint-business-structure h4 { padding-bottom: .7rem; border-bottom: 1px solid var(--border-subtle); font-size: 1.15rem; font-weight: 500; }
+.touchpoint-business-structure h5 { color: rgba(255,255,255,.62); font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; }
+.business-structure-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: .8rem; }
+.business-structure-property { display: grid; align-content: start; gap: .45rem; min-width: 0; }
+.business-structure-property > p { overflow-wrap: anywhere; color: rgba(255,255,255,.9); }
+.business-structure-links, .business-ancestry ul { display: grid; gap: .3rem; margin: 0; padding: 0; list-style: none; }
+.business-ancestry li > ul { margin: .3rem 0 0 .65rem; padding-left: 1rem; border-left: 1px solid var(--border-subtle); }
+.business-structure-links button, .business-ancestry button { padding: .15rem 0; border: 0; background: transparent; color: var(--color-accent); text-align: left; text-decoration: underline; text-underline-offset: .18em; }
+.business-ancestry span { color: rgba(255,255,255,.88); }
+.business-structure-empty { color: rgba(255,255,255,.5) !important; font-style: italic; }
+.business-structure-url { grid-column: 1 / -1; }
+.business-structure-url a { overflow-wrap: anywhere; }
+.business-structure-derived { display: grid; gap: .8rem; padding: .8rem; border: 1px dashed var(--border-subtle); border-radius: .4rem; background: rgba(255,255,255,.018); }
+.derived-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.derived-heading span { padding: .18rem .4rem; border: 1px solid var(--border-subtle); border-radius: 999px; color: rgba(255,255,255,.58); font-size: .68rem; letter-spacing: .05em; text-transform: uppercase; }
 .connected-field { display: grid; gap: .5rem; }
 .connected-choice { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
 .connected-choice > label.checkbox { flex: 1; }

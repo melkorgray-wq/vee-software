@@ -143,6 +143,79 @@ describe('clickable satellite Relation Lens', () => {
   });
 });
 
+describe('Touchpoint Business structure Inspector', () => {
+  afterEach(cleanup);
+  function structureDocument() {
+    const document = touchpointInspectorDocument(true);
+    document.touchpointContainers = [{ id: 'web', title: 'Website' }];
+    const touch = document.entities.find(entity => entity.id === 'touch')!;
+    Object.assign(touch, { locatedInId: 'web', url: 'https://example.com/checkout' });
+    document.entities.push(
+      { id: 'parent', kind: 'touchpoint', title: 'Front Page', locatedInId: 'web' },
+      { id: 'child', kind: 'touchpoint', title: 'FAQ' },
+      { id: 'other', kind: 'touchpoint', title: 'About', locatedInId: 'web' },
+    );
+    document.placements.push(
+      { viewId: 'spike-view', entityId: 'parent', x: 1200, y: 0 },
+      { viewId: 'spike-view', entityId: 'child', x: 1340, y: 0 },
+      { viewId: 'spike-view', entityId: 'other', x: 1480, y: 0 },
+    );
+    document.relationships.push(
+      { id: 'parent-touch', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'parent', childTouchpointId: 'touch' },
+      { id: 'touch-child', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'touch', childTouchpointId: 'child' },
+      { id: 'other-offer', kind: 'offer_presented_at_touchpoint', offerId: 'offer-a', touchpointId: 'other' },
+    );
+    return document;
+  }
+
+  it('Touchpoint Inspector renders Business structure before legacy editor', () => {
+    const inspector = renderTouchpointInspector(structureDocument());
+    const structure = inspector.getByRole('region', { name: 'Business structure' });
+    expect(structure.compareDocumentPosition(inspector.getByLabelText('Title')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(structure).getByText('Website')).toBeInTheDocument();
+    expect(within(inspector.getByRole('group', { name: 'Linked Offers' })).getByRole('checkbox', { name: 'Subscription' })).toBeChecked();
+  });
+
+  it('Product Offer parent child and derived Touchpoint controls navigate through existing Inspector navigation', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
+    for (const [name, heading] of [['Orbit', 'Orbit'], ['Subscription', 'Subscription'], ['Front Page', 'Front Page'], ['FAQ', 'FAQ'], ['About', 'About']] as const) {
+      await user.click(within(inspector.getByRole('region', { name: 'Business structure' })).getAllByRole('button', { name })[0]!);
+      expect(inspector.getByRole('heading', { name: heading })).toBeInTheDocument();
+      await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    }
+  });
+
+  it('Located in is displayed as container information, not fake Entity navigation', () => {
+    const structure = within(renderTouchpointInspector(structureDocument()).getByRole('region', { name: 'Business structure' }));
+    expect(structure.getByText('Website')).toBeInTheDocument(); expect(structure.queryByRole('button', { name: 'Website' })).not.toBeInTheDocument();
+  });
+
+  it('safe Touchpoint URL is rendered as external link', () => {
+    expect(within(renderTouchpointInspector(structureDocument()).getByRole('region', { name: 'Business structure' })).getByRole('link', { name: 'https://example.com/checkout' })).toHaveAttribute('rel', 'noreferrer');
+  });
+
+  it('derived neighborhood is visibly distinguished from direct structure', () => {
+    const structure = renderTouchpointInspector(structureDocument()).getByRole('region', { name: 'Business structure' });
+    expect(within(structure).getByText('Derived').closest('.business-structure-derived')).toBeInTheDocument();
+    expect(within(structure).getByText('Other Touchpoints for Subscription')).toBeInTheDocument();
+    expect(within(structure).getByText('More in Website')).toBeInTheDocument();
+  });
+
+  it('Business structure reads durable document rather than dirty editDraft', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
+    await user.clear(inspector.getByLabelText(/^URL/)); await user.type(inspector.getByLabelText(/^URL/), 'https://draft.example');
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+    expect(structure.getByRole('link', { name: 'https://example.com/checkout' })).toBeInTheDocument();
+    expect(structure.queryByText('https://draft.example')).not.toBeInTheDocument();
+  });
+
+  it('non-Touchpoint Inspector does not render Touchpoint Business structure', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
+    await user.click(within(inspector.getByRole('region', { name: 'Business structure' })).getAllByRole('button', { name: 'Subscription' })[0]!);
+    expect(inspector.queryByRole('region', { name: 'Business structure' })).not.toBeInTheDocument();
+  });
+});
+
 describe('map-first authoring interactions', () => {
   it('consumes repeated empty north and south commands without changing selection, authored placement, rendered position, or connected edge geometry', () => {
     render(<MapSpike initialDocument={emptyCardinalSectorDocument()} />);
