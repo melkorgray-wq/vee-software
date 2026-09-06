@@ -106,6 +106,43 @@ export type TouchpointEditDraft = {
   touchpointIntent: TouchpointIntentDraft;
 };
 
+type TouchpointBusinessPropertyInput =
+  | { property: 'url'; url: string }
+  | { property: 'located-in'; location: { kind: 'none' } | { kind: 'existing'; containerId: string } | { kind: 'new'; id: string; title: string } };
+
+/** Commits one documentary Business property from current durable topology. */
+export function commitTouchpointBusinessProperty(document: MapDocument, input: { touchpointId: string } & TouchpointBusinessPropertyInput): MapDocument {
+  const touchpoint = document.entities.find((entity) => entity.id === input.touchpointId);
+  if (touchpoint?.kind !== 'touchpoint') throw new Error('Touchpoint does not exist.');
+
+  let next = document;
+  let locatedInId = touchpoint.locatedInId;
+  if (input.property === 'located-in') {
+    if (input.location.kind === 'new') {
+      const title = input.location.title.trim();
+      if (!title) throw new Error('Located in requires a name.');
+      const existing = document.touchpointContainers.find((container) => container.title.trim().toLocaleLowerCase() === title.toLocaleLowerCase());
+      locatedInId = existing?.id ?? input.location.id;
+      if (!existing) next = addTouchpointContainer(next, { id: input.location.id, title });
+    } else locatedInId = input.location.kind === 'existing' ? input.location.containerId : undefined;
+  }
+
+  const linkedOffers = document.relationships.filter((relation): relation is Extract<MapDocument['relationships'][number], { kind: 'offer_presented_at_touchpoint' }> => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === touchpoint.id);
+  const parent = document.relationships.find((relation): relation is Extract<MapDocument['relationships'][number], { kind: 'touchpoint_contains_touchpoint' }> => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === touchpoint.id);
+  const url = input.property === 'url' ? input.url : touchpoint.url;
+  const normalizedUrl = url?.trim() ?? '';
+  if (locatedInId === touchpoint.locatedInId && normalizedUrl === (touchpoint.url ?? '')) return document;
+  return updateEntity(next, {
+    entityId: touchpoint.id,
+    title: touchpoint.title,
+    ...(locatedInId ? { locatedInId } : {}),
+    ...(normalizedUrl ? { url: normalizedUrl } : {}),
+    linkedOfferIds: linkedOffers.map((relation) => relation.offerId),
+    relationshipIds: linkedOffers.map((relation) => relation.id),
+    ...(parent ? { parentTouchpointId: parent.parentTouchpointId, parentRelationshipId: parent.id } : {}),
+  });
+}
+
 /** Builds the complete Touchpoint edit transaction without mutating the durable input document. */
 export function applyTouchpointEditDraft(document: MapDocument, input: { touchpointId: string; draft: TouchpointEditDraft; newId: () => string }): MapDocument {
   const validationError = validateTouchpointIntentDraft(input.draft.touchpointIntent, input.draft.linkedOfferIds);
