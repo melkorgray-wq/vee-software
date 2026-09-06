@@ -1583,27 +1583,30 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       else groups.push({ product: branch.product, branches: [branch] });
       return groups;
     }, []);
-    const navigationList = (entities: { id: string; title: string }[], empty = 'None') => entities.length
+    const navigationList = (entities: { id: string; title: string }[]) => entities.length
       ? <ul className="business-structure-links">{entities.map(entity => <li key={entity.id}><button type="button" onClick={() => navigateInspector(entity.id)}>{entity.title}</button></li>)}</ul>
-      : <p className="business-structure-empty">{empty}</p>;
+      : <p className="business-structure-empty" aria-label="None">—</p>;
     return <section className="touchpoint-business-structure" aria-labelledby="business-structure-heading">
       <h4 id="business-structure-heading">Business structure</h4>
-      <div className="business-structure-property business-ancestry">
-        <h5>Business ancestry</h5>
-        {products.length ? <ul>{products.map(group => <li key={group.product.id}>
-          <button type="button" onClick={() => navigateInspector(group.product.id)}>{group.product.title}</button>
-          <ul>{group.branches.map(branch => <li key={`${branch.product.id}:${branch.offer.id}`}>
-            <button type="button" onClick={() => navigateInspector(branch.offer.id)}>{branch.offer.title}</button>
-            <ul><li><span>{branch.touchpoint.title}</span></li></ul>
-          </li>)}</ul>
-        </li>)}</ul> : <p className="business-structure-empty">Not specified</p>}
-      </div>
-      <div className="business-structure-grid">
-        <div className="business-structure-property"><h5>Offers</h5>{navigationList(structure.offers)}</div>
-        <div className="business-structure-property"><h5>Located in</h5><p>{structure.container?.title ?? 'Not specified'}</p></div>
-        <div className="business-structure-property"><h5>Parent Touchpoint</h5>{structure.parent ? navigationList([structure.parent]) : <p className="business-structure-empty">None</p>}</div>
-        <div className="business-structure-property"><h5>Child Touchpoints</h5>{navigationList(structure.children)}</div>
-        <div className="business-structure-property business-structure-url"><h5>URL</h5>{safeUrl(structure.touchpoint.url) ? <a href={safeUrl(structure.touchpoint.url)} target="_blank" rel="noreferrer">{structure.touchpoint.url}</a> : <p className="business-structure-empty">Not specified</p>}</div>
+      <div className="business-structure-primary">
+        <div className="business-structure-property business-ancestry">
+          <h5>Business ancestry</h5>
+          {products.length ? <ul>{products.map(group => <li key={group.product.id}>
+            <button type="button" onClick={() => navigateInspector(group.product.id)}>{group.product.title}</button>
+            <ul>{group.branches.map(branch => <li key={`${branch.product.id}:${branch.offer.id}`}>
+              <button type="button" onClick={() => navigateInspector(branch.offer.id)}>{branch.offer.title}</button>
+              <ul><li><span>{branch.touchpoint.title}</span></li></ul>
+            </li>)}</ul>
+          </li>)}</ul> : <p className="business-structure-empty" aria-label="None">—</p>}
+        </div>
+        <div className="business-structure-grid" aria-label="Structure">
+          <h5>Structure</h5>
+          <div className="business-structure-property"><h5>Offers</h5>{navigationList(structure.offers)}</div>
+          <div className="business-structure-property"><h5>Located in</h5><p className={structure.container ? undefined : 'business-structure-empty'}>{structure.container?.title ?? '—'}</p></div>
+          <div className="business-structure-property"><h5>Parent Touchpoint</h5>{structure.parent ? navigationList([structure.parent]) : <p className="business-structure-empty" aria-label="None">—</p>}</div>
+          <div className="business-structure-property"><h5>Child Touchpoints</h5>{navigationList(structure.children)}</div>
+          <div className="business-structure-property business-structure-url"><h5>URL</h5>{safeUrl(structure.touchpoint.url) ? <a href={safeUrl(structure.touchpoint.url)} target="_blank" rel="noreferrer">{structure.touchpoint.url}</a> : <p className="business-structure-empty" aria-label="Not specified">—</p>}</div>
+        </div>
       </div>
       <div className="business-structure-derived">
         <div className="derived-heading"><h5>Neighborhood</h5><span>Derived</span></div>
@@ -1849,11 +1852,17 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
           {quick && quickForm(quick)}
         </section>
         <section id="inspector-workspace-panel" role="tabpanel" aria-labelledby="inspector-workspace-tab" className="inspector" hidden={activeWorkspaceView !== 'inspector'}>
-          <h2 id="inspector-title">Entity Inspector</h2>
-          <nav className="inspector-history" aria-label="Inspector history">
-            <button type="button" aria-label="Inspector Back" disabled={!traverseInspectorHistory(inspectorHistory, 'back', id => document.entities.some(entity => entity.id === id))} onClick={() => traverseInspector('back')}>Back</button>
-            <button type="button" aria-label="Inspector Forward" disabled={!traverseInspectorHistory(inspectorHistory, 'forward', id => document.entities.some(entity => entity.id === id))} onClick={() => traverseInspector('forward')}>Forward</button>
-          </nav>
+          <header className="inspector-header">
+            <h2 id="inspector-title" className="visually-hidden">Entity Inspector</h2>
+            <nav className="inspector-history" aria-label="Inspector history">
+              <button type="button" aria-label="Inspector Back" disabled={!traverseInspectorHistory(inspectorHistory, 'back', id => document.entities.some(entity => entity.id === id))} onClick={() => traverseInspector('back')}>Back</button>
+              <button type="button" aria-label="Inspector Forward" disabled={!traverseInspectorHistory(inspectorHistory, 'forward', id => document.entities.some(entity => entity.id === id))} onClick={() => traverseInspector('forward')}>Forward</button>
+            </nav>
+            {mode !== 'create' && selected && editDraft && <div className="inspector-identity">
+              <h3>{selected.title}</h3>
+              <p>{KIND_LABELS[selected.kind]} · {editDraft.side === 'business' ? 'Business side' : 'Client side'} <span className="immutable-note">(type and side cannot be changed)</span></p>
+            </div>}
+          </header>
           {message && !quick && (
             <p className="status-message" role="status">
               {message}
@@ -2029,10 +2038,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 }
               }}
             >
-              <h3>{selected.title}</h3>
-              <p>
-                {editDraft.side === 'business' ? 'Business side' : 'Client side'} · {KIND_LABELS[selected.kind]} <span className="immutable-note">(type and side cannot be changed)</span>
-              </p>
               {touchpointBusinessStructureSection()}
               <label>
                 Title
