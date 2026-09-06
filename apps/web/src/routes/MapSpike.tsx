@@ -14,7 +14,7 @@ import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, recons
 import { nearestSpatialCandidate, spatialDirectionForKey } from '../map-spatial-navigation';
 import { enterMoveMode, inactiveMoveMode, moveInMode, moveVectorForKey, type MoveMode } from '../map-move-mode';
 import { Link } from '../router';
-import { CONNECTION_PICKER_KINDS, applyTouchpointEditDraft, connectionPickerCatalogue, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, filterConnectionCandidates, financialLeafKey, jobLeafKey, selectCurrentOfferIntent, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft } from './touchpoint-edit';
+import { CONNECTION_PICKER_KINDS, applyTouchpointEditDraft, commitTouchpointBusinessProperty, connectionPickerCatalogue, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, filterConnectionCandidates, financialLeafKey, jobLeafKey, selectCurrentOfferIntent, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft } from './touchpoint-edit';
 import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
 import { deriveTouchpointBusinessStructure } from '../touchpoint-business-structure';
 
@@ -379,6 +379,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [mode, setMode] = useState<'idle' | 'create'>('idle');
   const [createDraft, setCreateDraft] = useState<EditDraft>(draft());
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
+  const [businessInlineEdit, setBusinessInlineEdit] = useState<{ property: 'url'; value: string; error?: string } | { property: 'located-in'; query: string; error?: string } | null>(null);
   const [productExpanded, setProductExpanded] = useState<Record<string, boolean>>({});
   const [offerExpanded, setOfferExpanded] = useState<Record<string, boolean>>({});
   const [connectionPicker, setConnectionPicker] = useState<{ query: string; kind: ConnectionPickerKind | undefined; semanticLeafId: string | undefined; contributorOfferIds: string[] } | null>(null);
@@ -502,6 +503,43 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     if (entity.kind === 'repulsor') result.resistedTargetIds = source.relationships.filter((r): r is Extract<Relationship, { kind: 'repulsor_resists' }> => r.kind === 'repulsor_resists' && r.repulsorId === entity.id).map((r) => r.targetEntityId);
     return result;
   }
+  function commitInlineUrl(value: string) {
+    if (selected?.kind !== 'touchpoint') return;
+    const touchpointId = selected.id;
+    const result = commitSemanticOperation(documentRef.current, semanticCommitState({ semanticallyComplete: true, valid: true }), durable =>
+      commitTouchpointBusinessProperty(durable, { touchpointId, property: 'url', url: value }));
+    if (result.state.status === 'failed') {
+      setBusinessInlineEdit({ property: 'url', value, error: result.state.message });
+      return;
+    }
+    setDocument(result.document);
+    const committedUrl = result.document.entities.find((entity): entity is Extract<Entity, { kind: 'touchpoint' }> => entity.id === touchpointId && entity.kind === 'touchpoint')?.url ?? '';
+    setEditDraft(current => current ? { ...current, url: committedUrl } : current);
+    setBusinessInlineEdit(null);
+  }
+  function commitInlineLocation(location: { kind: 'none' } | { kind: 'existing'; containerId: string } | { kind: 'new'; title: string }) {
+    if (selected?.kind !== 'touchpoint') return;
+    const touchpointId = selected.id;
+    const operation = location.kind === 'new'
+      ? { ...location, id: crypto.randomUUID() }
+      : location;
+    const result = commitSemanticOperation(documentRef.current, semanticCommitState({ semanticallyComplete: true, valid: true }), durable =>
+      commitTouchpointBusinessProperty(durable, { touchpointId, property: 'located-in', location: operation }));
+    if (result.state.status === 'failed') {
+      setBusinessInlineEdit({ property: 'located-in', query: businessInlineEdit?.property === 'located-in' ? businessInlineEdit.query : '', error: result.state.message });
+      return;
+    }
+    setDocument(result.document);
+    const touchpoint = result.document.entities.find((entity): entity is Extract<Entity, { kind: 'touchpoint' }> => entity.id === touchpointId && entity.kind === 'touchpoint');
+    const container = result.document.touchpointContainers.find(candidate => candidate.id === touchpoint?.locatedInId);
+    setEditDraft(current => current ? {
+      ...current,
+      locatedInId: container?.id ?? '',
+      locatedInQuery: container?.title ?? '',
+      locationDraft: container ? { kind: 'existing', containerId: container.id } : { kind: 'none' },
+    } : current);
+    setBusinessInlineEdit(null);
+  }
   function applyTouchpointChanges(pending = pendingAfterApplyRef.current, returnFocus?: HTMLElement | null, confirmed = false): boolean {
     const durable = documentRef.current;
     const entity = durable.entities.find(candidate => candidate.id === selectedRef.current);
@@ -574,6 +612,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setQuick(null);
     setMenu(null);
     setMessage('');
+    setBusinessInlineEdit(null);
     const entity = documentRef.current.entities.find((e) => e.id === id);
     setEditDraft(entity ? draftFor(entity, documentRef.current) : null);
     resetProductSession(entity, documentRef.current);
@@ -1602,10 +1641,23 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         <div className="business-structure-grid" aria-label="Structure">
           <h5>Structure</h5>
           <div className="business-structure-property"><h5>Offers</h5>{navigationList(structure.offers)}</div>
-          <div className="business-structure-property"><h5>Located in</h5><p className={structure.container ? undefined : 'business-structure-empty'}>{structure.container?.title ?? '—'}</p></div>
+          <div className="business-structure-property"><h5>Located in</h5>{businessInlineEdit?.property === 'located-in' ? (() => {
+            const normalized = businessInlineEdit.query.trim().toLocaleLowerCase();
+            const matches = document.touchpointContainers.filter(container => container.title.toLocaleLowerCase().includes(normalized));
+            const exact = document.touchpointContainers.find(container => container.title.trim().toLocaleLowerCase() === normalized);
+            return <div className="combobox business-structure-editor" onPointerDown={event => event.stopPropagation()}>
+              <input autoFocus role="combobox" aria-label="Edit Located in" aria-expanded="true" aria-controls="business-location-options" value={businessInlineEdit.query} onChange={event => setBusinessInlineEdit({ property: 'located-in', query: event.target.value })} onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setBusinessInlineEdit(null); } }} />
+              <div id="business-location-options" role="listbox">
+                <button type="button" role="option" aria-selected={!structure.container} onClick={() => commitInlineLocation({ kind: 'none' })}>{structure.container ? 'Clear location' : 'No location'}</button>
+                {matches.map(container => <button type="button" role="option" aria-selected={structure.container?.id === container.id} key={container.id} onClick={() => commitInlineLocation({ kind: 'existing', containerId: container.id })}>{container.title}</button>)}
+                {normalized && !exact && <button type="button" role="option" aria-selected="false" onClick={() => commitInlineLocation({ kind: 'new', title: businessInlineEdit.query })}>Create &quot;{businessInlineEdit.query.trim()}&quot;</button>}
+              </div>
+              {businessInlineEdit.error && <p className="error-message" role="alert">{businessInlineEdit.error}</p>}
+            </div>;
+          })() : <button type="button" className={`business-structure-edit-value${structure.container ? '' : ' business-structure-empty'}`} onClick={() => setBusinessInlineEdit({ property: 'located-in', query: structure.container?.title ?? '' })} aria-label={`Edit Located in${structure.container ? `, ${structure.container.title}` : ''}`}>{structure.container?.title ?? '—'}</button>}</div>
           <div className="business-structure-property"><h5>Parent Touchpoint</h5>{structure.parent ? navigationList([structure.parent]) : <p className="business-structure-empty" aria-label="None">—</p>}</div>
           <div className="business-structure-property"><h5>Child Touchpoints</h5>{navigationList(structure.children)}</div>
-          <div className="business-structure-property business-structure-url"><h5>URL</h5>{safeUrl(structure.touchpoint.url) ? <a href={safeUrl(structure.touchpoint.url)} target="_blank" rel="noreferrer">{structure.touchpoint.url}</a> : <p className="business-structure-empty" aria-label="Not specified">—</p>}</div>
+          <div className="business-structure-property business-structure-url"><h5>URL</h5>{businessInlineEdit?.property === 'url' ? <div className="business-structure-editor"><input autoFocus aria-label="Edit web address" value={businessInlineEdit.value} onChange={event => setBusinessInlineEdit({ property: 'url', value: event.target.value })} onBlur={event => commitInlineUrl(event.currentTarget.value)} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); commitInlineUrl(event.currentTarget.value); } else if (event.key === 'Escape') { event.preventDefault(); setBusinessInlineEdit(null); } }} />{businessInlineEdit.error && <p className="error-message" role="alert">{businessInlineEdit.error}</p>}</div> : <div className="business-structure-editable-value">{safeUrl(structure.touchpoint.url) && <a className="business-structure-external-link" href={safeUrl(structure.touchpoint.url)} target="_blank" rel="noreferrer" aria-label={structure.touchpoint.url}>↗</a>}<button type="button" className={`business-structure-edit-value${structure.touchpoint.url ? '' : ' business-structure-empty'}`} onClick={() => setBusinessInlineEdit({ property: 'url', value: structure.touchpoint.url ?? '' })} aria-label={`Edit web address${structure.touchpoint.url ? `, ${structure.touchpoint.url}` : ''}`}>{structure.touchpoint.url ?? '—'}</button></div>}</div>
         </div>
       </div>
       <div className="business-structure-derived">

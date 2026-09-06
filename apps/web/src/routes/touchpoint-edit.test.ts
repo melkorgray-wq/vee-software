@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyMapDocument, type MapDocument } from '@vee/domain';
-import { applyTouchpointEditDraft, connectionPickerCatalogue, createTouchpointIntentDraft, equalTouchpointIntentDraft, filterConnectionCandidates, selectCurrentOfferIntent, touchpointIntentCatalogue, validateTouchpointIntentDraft } from './touchpoint-edit';
+import { applyTouchpointEditDraft, commitTouchpointBusinessProperty, connectionPickerCatalogue, createTouchpointIntentDraft, equalTouchpointIntentDraft, filterConnectionCandidates, selectCurrentOfferIntent, touchpointIntentCatalogue, validateTouchpointIntentDraft } from './touchpoint-edit';
 
 function fixture(): MapDocument {
   return {
@@ -26,6 +26,36 @@ function fixture(): MapDocument {
 }
 
 describe('Touchpoint edit intent draft', () => {
+  it('commits only a normalized URL and returns the durable document for an unchanged value', () => {
+    const document = fixture();
+    const touchpoint = document.entities.find(entity => entity.id === 'touch')!;
+    Object.assign(touchpoint, { url: 'https://old.example' });
+    const next = commitTouchpointBusinessProperty(document, { touchpointId: 'touch', property: 'url', url: '  https://new.example  ' });
+    expect(next.entities.find(entity => entity.id === 'touch')).toMatchObject({ title: 'Touchpoint', url: 'https://new.example' });
+    expect(next.relationships).toEqual(document.relationships);
+    expect(next.touchpointJobSelections).toEqual(document.touchpointJobSelections);
+    expect(commitTouchpointBusinessProperty(next, { touchpointId: 'touch', property: 'url', url: 'https://new.example' })).toBe(next);
+  });
+
+  it('atomically creates or reuses a container and assigns it while preserving other facts', () => {
+    const document = fixture();
+    Object.assign(document.entities.find(entity => entity.id === 'touch')!, { url: 'https://keep.example' });
+    const created = commitTouchpointBusinessProperty(document, { touchpointId: 'touch', property: 'located-in', location: { kind: 'new', id: 'web', title: 'Website' } });
+    expect(created.touchpointContainers).toEqual([{ id: 'web', title: 'Website' }]);
+    expect(created.entities.find(entity => entity.id === 'touch')).toMatchObject({ locatedInId: 'web', url: 'https://keep.example' });
+    expect(created.touchpointJobSelections).toEqual(document.touchpointJobSelections);
+    const reused = commitTouchpointBusinessProperty(created, { touchpointId: 'touch', property: 'located-in', location: { kind: 'new', id: 'unused', title: ' website ' } });
+    expect(reused.touchpointContainers).toEqual([{ id: 'web', title: 'Website' }]);
+    expect(reused).toBe(created);
+  });
+
+  it('leaves the input and no orphan container when assignment fails', () => {
+    const document = fixture();
+    document.relationships = document.relationships.filter(relation => !(relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === 'touch'));
+    const snapshot = structuredClone(document);
+    expect(() => commitTouchpointBusinessProperty(document, { touchpointId: 'touch', property: 'located-in', location: { kind: 'new', id: 'orphan', title: 'Broken' } })).toThrow(/Offer/);
+    expect(document).toEqual(snapshot);
+  });
   it('connection picker filters by exact entity kind and partial title', () => {
     const candidates = connectionPickerCatalogue(fixture(), 'touchpoint');
     expect(filterConnectionCandidates(candidates, { kind: 'core_functional_job', query: '' }).map(candidate => candidate.semanticLeafId)).toEqual(['do-a', 'do-b']);
