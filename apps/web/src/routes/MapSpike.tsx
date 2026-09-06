@@ -1616,12 +1616,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   function touchpointBusinessStructureSection() {
     const structure = touchpointBusinessStructure;
     if (!structure) return null;
-    const products = structure.ancestryBranches.reduce<Array<{ product: (typeof structure.ancestryBranches)[number]['product']; branches: typeof structure.ancestryBranches }>>((groups, branch) => {
-      const existing = groups.find(group => group.product.id === branch.product.id);
-      if (existing) existing.branches.push(branch);
-      else groups.push({ product: branch.product, branches: [branch] });
-      return groups;
-    }, []);
     const navigationList = (entities: { id: string; title: string }[]) => entities.length
       ? <ul className="business-structure-links">{entities.map(entity => <li key={entity.id}><button type="button" onClick={() => navigateInspector(entity.id)}>{entity.title}</button></li>)}</ul>
       : <p className="business-structure-empty" aria-label="None">—</p>;
@@ -1630,12 +1624,12 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       <div className="business-structure-primary">
         <div className="business-structure-property business-ancestry">
           <h5>Business ancestry</h5>
-          {products.length ? <ul>{products.map(group => <li key={group.product.id}>
-            <button type="button" onClick={() => navigateInspector(group.product.id)}>{group.product.title}</button>
-            <ul>{group.branches.map(branch => <li key={`${branch.product.id}:${branch.offer.id}`}>
-              <button type="button" onClick={() => navigateInspector(branch.offer.id)}>{branch.offer.title}</button>
-              <ul><li><span>{branch.touchpoint.title}</span></li></ul>
-            </li>)}</ul>
+          {structure.ancestryBranches.length ? <ul>{structure.ancestryBranches.map(branch => <li className="business-ancestry-branch" aria-label={`${branch.product.title} to ${branch.offer.title} to ${branch.touchpoint.title}`} key={`${branch.product.id}:${branch.offer.id}`}>
+            <button type="button" onClick={() => navigateInspector(branch.product.id)}>{branch.product.title}</button>
+            <span className="business-ancestry-separator" aria-hidden="true">→</span>
+            <button type="button" onClick={() => navigateInspector(branch.offer.id)}>{branch.offer.title}</button>
+            <span className="business-ancestry-separator" aria-hidden="true">→</span>
+            <span>{branch.touchpoint.title}</span>
           </li>)}</ul> : <p className="business-structure-empty" aria-label="None">—</p>}
         </div>
         <div className="business-structure-grid" aria-label="Structure">
@@ -1655,8 +1649,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               {businessInlineEdit.error && <p className="error-message" role="alert">{businessInlineEdit.error}</p>}
             </div>;
           })() : <button type="button" className={`business-structure-edit-value${structure.container ? '' : ' business-structure-edit-empty'}`} onClick={() => setBusinessInlineEdit({ property: 'located-in', query: structure.container?.title ?? '' })} aria-label={`Edit Located in${structure.container ? `, ${structure.container.title}` : ''}`}><span>{structure.container?.title ?? 'Add location'}</span><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button>}</div>
-          <div className="business-structure-property"><h5>Parent Touchpoint</h5>{structure.parent ? navigationList([structure.parent]) : <p className="business-structure-empty" aria-label="None">—</p>}</div>
-          <div className="business-structure-property"><h5>Child Touchpoints</h5>{navigationList(structure.children)}</div>
+          <div className="business-structure-property"><h5>Parent</h5>{structure.parent ? navigationList([structure.parent]) : <p className="business-structure-empty" aria-label="None">—</p>}</div>
+          <div className="business-structure-property"><h5>Children</h5>{navigationList(structure.children)}</div>
           <div className="business-structure-property business-structure-url"><h5>URL</h5>{businessInlineEdit?.property === 'url' ? <div className="business-structure-editor"><input autoFocus aria-label="Edit web address" value={businessInlineEdit.value} onChange={event => setBusinessInlineEdit({ property: 'url', value: event.target.value })} onBlur={event => commitInlineUrl(event.currentTarget.value)} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); commitInlineUrl(event.currentTarget.value); } else if (event.key === 'Escape') { event.preventDefault(); setBusinessInlineEdit(null); } }} />{businessInlineEdit.error && <p className="error-message" role="alert">{businessInlineEdit.error}</p>}</div> : <div className="business-structure-editable-value"><button type="button" className={`business-structure-edit-value${structure.touchpoint.url ? '' : ' business-structure-edit-empty'}`} onClick={() => setBusinessInlineEdit({ property: 'url', value: structure.touchpoint.url ?? '' })} aria-label={`Edit web address${structure.touchpoint.url ? `, ${structure.touchpoint.url}` : ''}`}><span>{structure.touchpoint.url ?? 'Add URL'}</span><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button>{safeUrl(structure.touchpoint.url) && <a className="business-structure-external-link" href={safeUrl(structure.touchpoint.url)} target="_blank" rel="noreferrer" aria-label={structure.touchpoint.url}>↗</a>}</div>}</div>
         </div>
       </div>
