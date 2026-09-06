@@ -171,8 +171,11 @@ describe('Touchpoint Business structure Inspector', () => {
   it('Touchpoint Inspector renders Business structure before legacy editor', () => {
     const inspector = renderTouchpointInspector(structureDocument());
     const structure = inspector.getByRole('region', { name: 'Business structure' });
+    const identity = inspector.getByRole('heading', { name: 'Checkout' }).closest('.inspector-identity')!;
+    const history = inspector.getByRole('navigation', { name: 'Inspector history' });
     expect(inspector.getByRole('heading', { name: 'Entity Inspector' })).toBeInTheDocument();
-    expect(inspector.getByRole('heading', { name: 'Checkout' })).toBeInTheDocument();
+    expect(identity).toHaveTextContent('Touchpoint · Business side');
+    expect(identity.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(inspector.getByRole('button', { name: 'Inspector Back' })).toBeInTheDocument();
     expect(inspector.getByRole('button', { name: 'Inspector Forward' })).toBeInTheDocument();
     expect(structure.compareDocumentPosition(inspector.getByLabelText('Title')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -193,6 +196,8 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(structure.queryByText('Not specified')).not.toBeInTheDocument();
     expect(structure.queryByText('None')).not.toBeInTheDocument();
     expect(structure.getByText('Derived')).toBeInTheDocument();
+    expect(within(structure.getByRole('group', { name: 'Other Touchpoints for Subscription' })).getByLabelText('None')).toHaveTextContent('—');
+    expect(within(structure.getByRole('group', { name: 'Other Touchpoints for Consulting' })).getByLabelText('None')).toHaveTextContent('—');
     expect(structure.queryByText(/^More in /)).not.toBeInTheDocument();
   });
 
@@ -217,8 +222,23 @@ describe('Touchpoint Business structure Inspector', () => {
   it('derived neighborhood is visibly distinguished from direct structure', () => {
     const structure = renderTouchpointInspector(structureDocument()).getByRole('region', { name: 'Business structure' });
     expect(within(structure).getByText('Derived').closest('.business-structure-derived')).toBeInTheDocument();
-    expect(within(structure).getByText('Other Touchpoints for Subscription')).toBeInTheDocument();
-    expect(within(structure).getByText('More in Website')).toBeInTheDocument();
+    const subscription = within(structure).getByRole('group', { name: 'Other Touchpoints for Subscription' });
+    const consulting = within(structure).getByRole('group', { name: 'Other Touchpoints for Consulting' });
+    const container = within(structure).getByRole('group', { name: 'More in Website' });
+    expect(within(subscription).getByRole('button', { name: 'About' })).toBeInTheDocument();
+    expect(within(consulting).getByLabelText('None')).toHaveTextContent('—');
+    expect(within(container).getByRole('button', { name: 'About' })).toBeInTheDocument();
+    expect(subscription).not.toBe(container);
+  });
+
+  it('every derived neighborhood axis navigates through existing Inspector history', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
+    for (const groupName of ['Other Touchpoints for Subscription', 'More in Website']) {
+      const structure = inspector.getByRole('region', { name: 'Business structure' });
+      await user.click(within(within(structure).getByRole('group', { name: groupName })).getByRole('button', { name: 'About' }));
+      expect(inspector.getByRole('heading', { name: 'About' })).toBeInTheDocument();
+      await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    }
   });
 
   it('Business structure reads durable document rather than dirty editDraft', async () => {

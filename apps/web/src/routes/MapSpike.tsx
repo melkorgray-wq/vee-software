@@ -1610,10 +1610,12 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       </div>
       <div className="business-structure-derived">
         <div className="derived-heading"><h5>Neighborhood</h5><span>Derived</span></div>
-        {structure.otherTouchpointsByOffer.map(group => <div className="business-structure-property" key={group.offer.id}>
-          <h5>Other Touchpoints for {group.offer.title}</h5>{navigationList(group.touchpoints)}
-        </div>)}
-        {structure.container && <div className="business-structure-property"><h5>More in {structure.container.title}</h5>{navigationList(structure.otherTouchpointsInContainer)}</div>}
+        <div className="derived-neighborhood-slices">
+          {structure.otherTouchpointsByOffer.map(group => <div className="business-structure-property derived-neighborhood-slice" role="group" aria-label={`Other Touchpoints for ${group.offer.title}`} key={group.offer.id}>
+            <h5>Other Touchpoints for {group.offer.title}</h5>{navigationList(group.touchpoints)}
+          </div>)}
+          {structure.container && <div className="business-structure-property derived-neighborhood-slice" role="group" aria-label={`More in ${structure.container.title}`}><h5>More in {structure.container.title}</h5>{navigationList(structure.otherTouchpointsInContainer)}</div>}
+        </div>
       </div>
     </section>;
   }
@@ -1854,14 +1856,14 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         <section id="inspector-workspace-panel" role="tabpanel" aria-labelledby="inspector-workspace-tab" className="inspector" hidden={activeWorkspaceView !== 'inspector'}>
           <header className="inspector-header">
             <h2 id="inspector-title" className="visually-hidden">Entity Inspector</h2>
-            <nav className="inspector-history" aria-label="Inspector history">
-              <button type="button" aria-label="Inspector Back" disabled={!traverseInspectorHistory(inspectorHistory, 'back', id => document.entities.some(entity => entity.id === id))} onClick={() => traverseInspector('back')}>Back</button>
-              <button type="button" aria-label="Inspector Forward" disabled={!traverseInspectorHistory(inspectorHistory, 'forward', id => document.entities.some(entity => entity.id === id))} onClick={() => traverseInspector('forward')}>Forward</button>
-            </nav>
             {mode !== 'create' && selected && editDraft && <div className="inspector-identity">
               <h3>{selected.title}</h3>
               <p>{KIND_LABELS[selected.kind]} · {editDraft.side === 'business' ? 'Business side' : 'Client side'} <span className="immutable-note">(type and side cannot be changed)</span></p>
             </div>}
+            <nav className="inspector-history" aria-label="Inspector history">
+              <button type="button" aria-label="Inspector Back" disabled={!traverseInspectorHistory(inspectorHistory, 'back', id => document.entities.some(entity => entity.id === id))} onClick={() => traverseInspector('back')}>Back</button>
+              <button type="button" aria-label="Inspector Forward" disabled={!traverseInspectorHistory(inspectorHistory, 'forward', id => document.entities.some(entity => entity.id === id))} onClick={() => traverseInspector('forward')}>Forward</button>
+            </nav>
           </header>
           {message && !quick && (
             <p className="status-message" role="status">
