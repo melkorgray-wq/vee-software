@@ -192,7 +192,9 @@ describe('Touchpoint Business structure Inspector', () => {
       !(relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId !== 'touch'),
     );
     const structure = within(renderTouchpointInspector(document).getByRole('region', { name: 'Business structure' }));
-    expect(structure.getAllByText('—').length).toBeGreaterThanOrEqual(5);
+    expect(structure.getAllByText('—').length).toBeGreaterThanOrEqual(3);
+    expect(structure.getByRole('button', { name: 'Edit Located in' })).toHaveTextContent('Add location');
+    expect(structure.getByRole('button', { name: 'Edit web address' })).toHaveTextContent('Add URL');
     expect(structure.queryByText('Not specified')).not.toBeInTheDocument();
     expect(structure.queryByText('None')).not.toBeInTheDocument();
     expect(structure.getByText('Derived')).toBeInTheDocument();
@@ -212,11 +214,28 @@ describe('Touchpoint Business structure Inspector', () => {
 
   it('Located in is displayed as container information, not fake Entity navigation', () => {
     const structure = within(renderTouchpointInspector(structureDocument()).getByRole('region', { name: 'Business structure' }));
-    expect(structure.getByText('Website')).toBeInTheDocument(); expect(structure.queryByRole('button', { name: 'Website' })).not.toBeInTheDocument();
+    const edit = structure.getByRole('button', { name: 'Edit Located in, Website' });
+    expect(edit).toHaveTextContent('Website');
+    expect(edit.querySelector('.business-structure-edit-affordance')).toHaveTextContent('✎');
+    expect(edit.querySelector('.business-structure-edit-affordance')).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('safe Touchpoint URL is rendered as external link', () => {
-    expect(within(renderTouchpointInspector(structureDocument()).getByRole('region', { name: 'Business structure' })).getByRole('link', { name: 'https://example.com/checkout' })).toHaveAttribute('rel', 'noreferrer');
+    const structure = within(renderTouchpointInspector(structureDocument()).getByRole('region', { name: 'Business structure' }));
+    const edit = structure.getByRole('button', { name: 'Edit web address, https://example.com/checkout' });
+    const externalLink = structure.getByRole('link', { name: 'https://example.com/checkout' });
+    expect(edit.querySelector('.business-structure-edit-affordance')).toHaveTextContent('✎');
+    expect(externalLink).toHaveAttribute('rel', 'noreferrer');
+    expect(edit).not.toContainElement(externalLink);
+  });
+
+  it('only Located in and URL expose inline edit affordances', () => {
+    const structure = within(renderTouchpointInspector(structureDocument()).getByRole('region', { name: 'Business structure' }));
+    expect(structure.getAllByRole('button', { name: /^Edit / })).toHaveLength(2);
+    expect(structure.getAllByText('✎')).toHaveLength(2);
+    for (const name of ['Subscription', 'Consulting', 'Front Page', 'FAQ']) {
+      expect(structure.getAllByRole('button', { name }).every(button => !button.querySelector('.business-structure-edit-affordance'))).toBe(true);
+    }
   });
 
   it('URL Enter commits immediately, synchronizes only URL, and legacy Apply preserves it', async () => {
@@ -241,7 +260,7 @@ describe('Touchpoint Business structure Inspector', () => {
     await user.click(region().getByRole('button', { name: /Edit web address/ })); await user.clear(inspector.getByLabelText('Edit web address')); await user.keyboard('{Escape}');
     expect(region().getByRole('link', { name: 'https://blur.example' })).toBeInTheDocument();
     await user.click(region().getByRole('button', { name: /Edit web address/ })); await user.clear(inspector.getByLabelText('Edit web address')); await user.keyboard('{Enter}');
-    expect(region().queryByRole('link')).not.toBeInTheDocument(); expect(region().getByRole('button', { name: 'Edit web address' })).toHaveTextContent('—');
+    expect(region().queryByRole('link')).not.toBeInTheDocument(); expect(region().getByRole('button', { name: 'Edit web address' })).toHaveTextContent('Add URL');
   });
 
   it('Located in chooses, creates, reuses, clears, and cancels without global Apply', async () => {
@@ -254,7 +273,7 @@ describe('Touchpoint Business structure Inspector', () => {
     await user.click(region().getByRole('button', { name: /Edit Located in/ })); await user.clear(inspector.getByRole('combobox', { name: 'Edit Located in' })); await user.type(inspector.getByRole('combobox', { name: 'Edit Located in' }), 'Landing pages'); await user.click(inspector.getByRole('option', { name: 'Create "Landing pages"' }));
     expect(region().getByRole('button', { name: /Landing pages/ })).toBeInTheDocument();
     await user.click(region().getByRole('button', { name: /Edit Located in/ })); await user.keyboard('{Escape}'); expect(region().getByRole('button', { name: /Landing pages/ })).toBeInTheDocument();
-    await user.click(region().getByRole('button', { name: /Edit Located in/ })); await user.click(inspector.getByRole('option', { name: 'Clear location' })); expect(region().getByRole('button', { name: 'Edit Located in' })).toHaveTextContent('—');
+    await user.click(region().getByRole('button', { name: /Edit Located in/ })); await user.click(inspector.getByRole('option', { name: 'Clear location' })); expect(region().getByRole('button', { name: 'Edit Located in' })).toHaveTextContent('Add location');
   });
 
   it('derived neighborhood is visibly distinguished from direct structure', () => {
