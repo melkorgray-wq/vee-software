@@ -183,24 +183,28 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(within(inspector.getByRole('group', { name: 'Linked Offers' })).getByRole('checkbox', { name: 'Subscription' })).toBeChecked();
   });
 
-  it('renders complete ancestry branches before the aligned Structure and Neighborhood sections', () => {
-    const region = renderTouchpointInspector(structureDocument()).getByRole('region', { name: 'Business structure' });
-    const ancestry = within(region).getByRole('heading', { name: 'Business ancestry' }).closest<HTMLElement>('.business-ancestry')!;
-    const directStructure = within(region).getByLabelText('Structure');
+  it('renders upstream ancestry in the Touchpoint header before Placement, Containment, and Neighborhood', () => {
+    const inspector = renderTouchpointInspector(structureDocument());
+    const identity = inspector.getByRole('heading', { name: 'Checkout' }).closest<HTMLElement>('.inspector-identity')!;
+    const lineage = within(identity).getByLabelText('Business lineage');
+    const region = inspector.getByRole('region', { name: 'Business structure' });
+    const placement = within(region).getByRole('region', { name: 'Placement' });
+    const containment = within(region).getByRole('region', { name: 'Containment' });
     const neighborhood = within(region).getByText('Neighborhood').closest<HTMLElement>('.business-structure-derived')!;
-    expect(ancestry.compareDocumentPosition(directStructure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(directStructure.compareDocumentPosition(neighborhood) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(within(ancestry).getByLabelText('Orbit to Subscription to Checkout')).toHaveTextContent('Orbit→Subscription→Checkout');
-    expect(within(ancestry).getByLabelText('Orbit to Consulting to Checkout')).toHaveTextContent('Orbit→Consulting→Checkout');
-    for (const label of ['Offers', 'Located in', 'Parent', 'Children', 'URL']) {
-      const property = within(directStructure).getByRole('group', { name: label === 'URL' ? 'Web address property' : `${label} property` });
-      expect(within(property).getByRole('heading', { name: label })).toBeInTheDocument();
-    }
-    expect(within(within(directStructure).getByRole('group', { name: 'Offers property' })).getAllByRole('button').map(button => button.textContent)).toEqual(['Consulting', 'Subscription']);
-    expect(within(within(directStructure).getByRole('group', { name: 'Located in property' })).getByRole('button', { name: 'Edit Located in, Website' })).toBeInTheDocument();
-    expect(within(within(directStructure).getByRole('group', { name: 'Parent property' })).getByRole('button', { name: 'Front Page' })).toBeInTheDocument();
-    expect(within(within(directStructure).getByRole('group', { name: 'Children property' })).getByRole('button', { name: 'FAQ' })).toBeInTheDocument();
-    expect(within(within(directStructure).getByRole('group', { name: 'Web address property' })).getByRole('button', { name: 'Edit web address, https://example.com/checkout' })).toBeInTheDocument();
+    expect(within(lineage).getByLabelText('Orbit to Subscription')).toHaveTextContent('Orbit→Subscription');
+    expect(within(lineage).getByLabelText('Orbit to Consulting')).toHaveTextContent('Orbit→Consulting');
+    expect(lineage).not.toHaveTextContent('Checkout');
+    expect(within(region).queryByText('Business ancestry')).not.toBeInTheDocument();
+    expect(within(region).queryByText(/^Structure$/)).not.toBeInTheDocument();
+    expect(placement.compareDocumentPosition(neighborhood) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(containment.compareDocumentPosition(neighborhood) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    for (const label of ['Offers', 'Located in', 'URL']) expect(within(placement).getByRole('heading', { name: label })).toBeInTheDocument();
+    for (const label of ['Parent', 'Children']) expect(within(containment).getByRole('heading', { name: label })).toBeInTheDocument();
+    expect(within(within(placement).getByRole('group', { name: 'Offers property' })).getAllByRole('button').map(button => button.textContent)).toEqual(['Consulting', 'Subscription']);
+    expect(within(placement).getByRole('button', { name: 'Edit Located in, Website' })).toBeInTheDocument();
+    expect(within(containment).getByRole('button', { name: 'Front Page' })).toBeInTheDocument();
+    expect(within(containment).getByRole('button', { name: 'FAQ' })).toBeInTheDocument();
+    expect(within(placement).getByRole('button', { name: 'Edit web address, https://example.com/checkout' })).toBeInTheDocument();
   });
 
   it('keeps ancestry branches from different Products distinct', () => {
@@ -209,9 +213,15 @@ describe('Touchpoint Business structure Inspector', () => {
     document.placements.push({ viewId: 'spike-view', entityId: 'product-b', x: 1620, y: 0 });
     const consultingRelation = document.relationships.find(relation => relation.id === 'packages-b');
     if (consultingRelation?.kind === 'product_packaged_as_offer') consultingRelation.productId = 'product-b';
-    const ancestry = within(renderTouchpointInspector(document).getByRole('region', { name: 'Business structure' })).getByRole('heading', { name: 'Business ancestry' }).closest<HTMLElement>('.business-ancestry')!;
-    expect(within(ancestry).getByLabelText('Orbit to Subscription to Checkout')).toBeInTheDocument();
-    expect(within(ancestry).getByLabelText('Website to Consulting to Checkout')).toBeInTheDocument();
+    const lineage = renderTouchpointInspector(document).getByLabelText('Business lineage');
+    expect(within(lineage).getByLabelText('Orbit to Subscription')).toBeInTheDocument();
+    expect(within(lineage).getByLabelText('Website to Consulting')).toBeInTheDocument();
+  });
+
+  it('omits contextual lineage when no complete Product and Offer ancestry exists', () => {
+    const document = structureDocument();
+    document.relationships = document.relationships.filter(relation => relation.kind !== 'product_packaged_as_offer');
+    expect(renderTouchpointInspector(document).queryByLabelText('Business lineage')).not.toBeInTheDocument();
   });
 
   it('uses compact markers for empty direct and derived Business structure values', () => {
@@ -237,7 +247,7 @@ describe('Touchpoint Business structure Inspector', () => {
   it('Product Offer parent child and derived Touchpoint controls navigate through existing Inspector navigation', async () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
     for (const [name, heading] of [['Orbit', 'Orbit'], ['Subscription', 'Subscription'], ['Front Page', 'Front Page'], ['FAQ', 'FAQ'], ['About', 'About']] as const) {
-      await user.click(within(inspector.getByRole('region', { name: 'Business structure' })).getAllByRole('button', { name })[0]!);
+      await user.click(inspector.getAllByRole('button', { name })[0]!);
       expect(inspector.getByRole('heading', { name: heading })).toBeInTheDocument();
       await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
     }
@@ -267,6 +277,25 @@ describe('Touchpoint Business structure Inspector', () => {
     for (const name of ['Subscription', 'Consulting', 'Front Page', 'FAQ']) {
       expect(structure.getAllByRole('button', { name }).every(button => !button.querySelector('.business-structure-edit-affordance'))).toBe(true);
     }
+  });
+
+  it('keeps every child readable and navigation-capable without edit affordances', async () => {
+    const user = userEvent.setup();
+    const document = structureDocument();
+    const additionalChildren = [['hero', 'Hero'], ['pricing', 'Pricing'], ['form', 'Form'], ['reviews', 'Reviews'], ['footer', 'Footer CTA']] as const;
+    for (const [index, [id, title]] of additionalChildren.entries()) {
+      document.entities.push({ id, kind: 'touchpoint', title });
+      document.relationships.push({ id: `touch-${id}`, kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'touch', childTouchpointId: id });
+      document.placements.push({ viewId: 'spike-view', entityId: id, x: 1620 + index * 140, y: 0 });
+    }
+    const inspector = renderTouchpointInspector(document);
+    const children = within(inspector.getByRole('region', { name: 'Containment' })).getByRole('group', { name: 'Children property' });
+    for (const title of ['FAQ', 'Footer CTA', 'Form', 'Hero', 'Pricing', 'Reviews']) {
+      const control = within(children).getByRole('button', { name: title });
+      expect(control.querySelector('.business-structure-edit-affordance')).not.toBeInTheDocument();
+    }
+    await user.click(within(children).getByRole('button', { name: 'Footer CTA' }));
+    expect(inspector.getByRole('heading', { name: 'Footer CTA' })).toBeInTheDocument();
   });
 
   it('URL Enter commits immediately, synchronizes only URL, and legacy Apply preserves it', async () => {
