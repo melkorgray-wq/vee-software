@@ -49,8 +49,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .inspector-business-lineage span { color: rgba(255,255,255,.38); }
 .inspector > .status-message { margin-top: .45rem; margin-bottom: .35rem; line-height: 1.35; }
 .touchpoint-business-structure { display: grid; gap: .8rem; margin: 0 0 1rem; padding: 0; border: 0; background: transparent; }
-.touchpoint-business-structure h4, .touchpoint-business-structure h5, .touchpoint-business-structure p { margin: 0; }
-.touchpoint-business-structure h4 { padding-bottom: .5rem; border-bottom: 1px solid var(--border-subtle); font-size: 1.15rem; font-weight: 500; }
+.touchpoint-business-structure h5, .touchpoint-business-structure p { margin: 0; }
 .touchpoint-business-structure h5 { color: rgba(255,255,255,.62); font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; }
 .business-structure-primary { display: grid; gap: .75rem; }
 .business-structure-regions { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(12rem, 1fr); align-items: start; gap: 1rem 1.5rem; width: 100%; }

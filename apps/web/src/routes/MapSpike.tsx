@@ -28,6 +28,7 @@ const INITIAL_DOCUMENT = createEmptyMapDocument({
 type Side = 'business' | 'client';
 type WorkspaceView = 'map' | 'inspector';
 type PostCreateContinuation = WorkspaceView;
+type OperationFeedback = { text: string; kind: 'success' | 'error' };
 type LocationDraft = { kind: 'none' } | { kind: 'existing'; containerId: string } | { kind: 'new'; title: string };
 type EditDraft = {
   title: string;
@@ -401,7 +402,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const copiedRef = useRef(copiedId);
   copiedRef.current = copiedId;
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState<OperationFeedback | null>(null);
+  const publishSuccess = (text: string) => setMessage({ text, kind: 'success' });
+  const publishError = (text: string) => setMessage({ text, kind: 'error' });
+  const clearMessage = () => setMessage(null);
   const focusedGroup = relationsMode.state === 'inactive' ? undefined : relationsMode.groups[relationsMode.groupIndex];
   const relationTargetId = focusedRelationTarget(relationsMode);
   const relationLens = relationsMode.state !== 'inactive' && relationTargetId ? deriveRelationLensTrace(document, relationsMode.sourceId, relationTargetId) : undefined;
@@ -426,6 +430,15 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     ? deriveTouchpointBusinessStructure(document, selected.id)
     : undefined;
   const inspectorDirty = Boolean(selected && editDraft && (() => { const baseline = draftFor(selected); return JSON.stringify({ ...editDraft, touchpointIntent: undefined }) !== JSON.stringify({ ...baseline, touchpointIntent: undefined }) || Boolean(editDraft.touchpointIntent && baseline.touchpointIntent && !equalTouchpointIntentDraft(editDraft.touchpointIntent, baseline.touchpointIntent)); })());
+
+  useEffect(() => {
+    if (message?.kind !== 'success') return;
+    const currentMessage = message;
+    const timeout = window.setTimeout(() => {
+      setMessage(existing => existing === currentMessage ? null : existing);
+    }, 2500);
+    return () => window.clearTimeout(timeout);
+  }, [message]);
 
   useEffect(() => {
     if (selectedId && !selected) {
@@ -564,13 +577,13 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       const next = reconsiderPlacementAfterRelationCommit(durable, committed, VIEW_ID, entity.id);
       setDocument(next);
       setEditDraft(draftFor(next.entities.find(candidate => candidate.id === entity.id)!, next));
-      setMessage('Changes applied.');
+      publishSuccess('Changes applied.');
       pendingAfterApplyRef.current = null;
       pending?.();
       restoreTouchpointApplyFocus(returnFocus);
       return true;
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Changes could not be applied.');
+      publishError(error instanceof Error ? error.message : 'Changes could not be applied.');
       return false;
     }
   }
@@ -611,7 +624,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setMode('idle');
     setQuick(null);
     setMenu(null);
-    setMessage('');
+    clearMessage();
     setBusinessInlineEdit(null);
     const entity = documentRef.current.entities.find((e) => e.id === id);
     setEditDraft(entity ? draftFor(entity, documentRef.current) : null);
@@ -686,9 +699,9 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         });
         setDocument(next);
         setEditDraft(draftFor(next.entities.find((candidate) => candidate.id === entity.id)!, next));
-        setMessage('Title updated.');
+        publishSuccess('Title updated.');
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : 'Title could not be updated.');
+        publishError(error instanceof Error ? error.message : 'Title could not be updated.');
         return;
       }
     }
@@ -792,7 +805,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     if (!d || !anchor) return;
     setQuick({ draft: d, flow, anchor, overlay, positioned: false });
     setMenu(null);
-    setMessage('');
+    clearMessage();
   }
   function startRepulsor(targetId: string) {
     const target = documentRef.current.entities.find((entity) => entity.id === targetId);
@@ -808,7 +821,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       positioned: false,
     });
     setMenu(null);
-    setMessage('');
+    clearMessage();
   }
   function startSibling(id: string) {
     const source = documentRef.current;
@@ -823,7 +836,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       positioned: false,
     });
     setMenu(null);
-    setMessage('');
+    clearMessage();
   }
   function entityContextCommandGroups(entity: Entity): EntityContextCommandGroup[] {
     const children: EntityContextCommand[] = entity.kind === 'core_functional_job'
@@ -855,7 +868,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     if (!client) return;
     menuOwnerRef.current = globalThis.document.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(entityId)}"]`);
     setMenu({ type: 'node', invocation: 'keyboard', entityId, client, overlay: { x: 0, y: 0 }, positioned: false });
-    setMessage('');
+    clearMessage();
   }
   function applyProductIntentDraft(current: MapDocument, productId: string, values: Record<string, string[]>) {
     let next = current;
@@ -933,9 +946,9 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       setActiveWorkspaceView(continuation);
       if (continuation === 'map') requestAnimationFrame(() => revealEntities(next, [id, ...immediateNeighbors(next, id)]));
       else pendingInspectorRevealRef.current = [id, ...immediateNeighbors(next, id)];
-      setMessage('Element created.');
+      publishSuccess('Element created.');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Element could not be created.');
+      publishError(error instanceof Error ? error.message : 'Element could not be created.');
     }
   }
   function commitInspectorRoot(d: EditDraft) {
@@ -997,9 +1010,9 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       if (d.kind === 'touchpoint' && !revealIds.includes(offerId)) revealIds.unshift(offerId);
       if (d.kind === 'touchpoint' && productId && !revealIds.includes(productId) && d.offerPrerequisite === 'new') revealIds.unshift(productId);
       pendingInspectorRevealRef.current = revealIds;
-      setMessage('Element created.');
+      publishSuccess('Element created.');
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Element could not be created.');
+      publishError(error instanceof Error ? error.message : 'Element could not be created.');
     }
   }
   function postCreateContinuation(event: FormEvent<HTMLFormElement>): PostCreateContinuation {
@@ -1025,10 +1038,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       setSelectedId(entityId);
       setEditDraft(draftFor(created, next));
       setMenu(null);
-      setMessage('Element duplicated.');
+      publishSuccess('Element duplicated.');
       requestAnimationFrame(() => revealEntities(next, [entityId, id]));
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Element could not be duplicated.');
+      publishError(error instanceof Error ? error.message : 'Element could not be duplicated.');
     }
   }
 
@@ -1395,7 +1408,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         newId: () => crypto.randomUUID(),
       }));
       if (result.state.status === 'failed') {
-        setMessage(result.state.message);
+        publishError(result.state.message);
         return;
       }
       if (result.state.status !== 'complete') return;
@@ -1403,7 +1416,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       setDocument(next);
       setEditDraft({ ...editDraft, touchpointIntent: createTouchpointIntentDraft(next, selected!.id) });
       setConnectionPicker(null);
-      setMessage('Connection added.');
+      publishSuccess('Connection added.');
     };
     return <>
       <section className="client-intent connected-scope" aria-labelledby="connected-heading"><h4 id="connected-heading">Connected</h4>
@@ -1619,8 +1632,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const navigationList = (entities: { id: string; title: string }[]) => entities.length
       ? <ul className="business-structure-links">{entities.map(entity => <li key={entity.id}><button type="button" onClick={() => navigateInspector(entity.id)}>{entity.title}</button></li>)}</ul>
       : <p className="business-structure-empty" aria-label="None">—</p>;
-    return <section className="touchpoint-business-structure" aria-labelledby="business-structure-heading">
-      <h4 id="business-structure-heading">Business structure</h4>
+    return <section className="touchpoint-business-structure" aria-label="Business structure">
       <div className="business-structure-primary">
         <div className="business-structure-regions">
           <section className="business-structure-region business-structure-placement" aria-labelledby="business-placement-heading">
@@ -1695,8 +1707,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
           </button>
         </div>
         {message && (
-          <p className="error-message" role="alert">
-            {message}
+          <p className={message.kind === 'error' ? 'error-message' : 'status-message'} role={message.kind === 'error' ? 'alert' : 'status'}>
+            {message.text}
           </p>
         )}
       </form>
@@ -1914,8 +1926,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             </nav>
           </header>
           {message && !quick && (
-            <p className="status-message" role="status">
-              {message}
+            <p className={message.kind === 'error' ? 'status-message error-message' : 'status-message'} role="status" aria-live={message.kind === 'error' ? 'assertive' : 'polite'}>
+              {message.text}
             </p>
           )}
           {mode === 'create' ? (
@@ -2079,12 +2091,12 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                   const appliedEntity = next.entities.find(entity => entity.id === selected.id)!;
                   setEditDraft(draftFor(appliedEntity, next));
                   resetProductSession(appliedEntity, next);
-                  setMessage('Changes applied.');
+                  publishSuccess('Changes applied.');
                   const pending = pendingAfterApplyRef.current;
                   pendingAfterApplyRef.current = null;
                   pending?.();
                 } catch (error) {
-                  setMessage(error instanceof Error ? error.message : 'Changes could not be applied.');
+                  publishError(error instanceof Error ? error.message : 'Changes could not be applied.');
                 }
               }}
             >
