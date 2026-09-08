@@ -42,6 +42,10 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .inspector-history button { padding: .45rem .7rem; }
 .inspector-identity { min-width: 0; text-align: left; }
 .inspector-identity h3 { margin: 0; overflow-wrap: anywhere; font-size: clamp(1.25rem, 2.2vw, 1.7rem); }
+.inspector-title-button { display: block; width: 100%; min-width: 0; margin: 0; padding: .08rem .15rem; border: 1px solid transparent; background: transparent; color: inherit; font: inherit; line-height: inherit; text-align: left; overflow-wrap: anywhere; }
+.inspector-title-button:hover { border-color: var(--border-soft); background: var(--surface-2); }
+.inspector-title-button:focus-visible { border-color: var(--color-primary); }
+.inline-inspector-title { box-sizing: border-box; display: block; width: 100%; min-height: 2.4em; padding: .15rem; border: 1px solid var(--color-primary); border-radius: .25rem; color: inherit; background: var(--surface-solid-1); font: inherit; line-height: inherit; text-align: left; overflow-wrap: anywhere; resize: vertical; }
 .inspector-identity p { margin: .15rem 0 0; line-height: 1.35; }
 .inspector-business-lineage { display: flex; flex-wrap: wrap; gap: .2rem 1rem; margin: .35rem 0 0; padding: 0; list-style: none; }
 .inspector-business-lineage li { display: flex; align-items: baseline; gap: .4rem; min-width: 0; }
