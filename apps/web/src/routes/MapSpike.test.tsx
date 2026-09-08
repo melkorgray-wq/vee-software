@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEffect, useState, type MouseEvent, type ReactNode } from 'react';
@@ -191,11 +191,13 @@ describe('Touchpoint Business structure Inspector', () => {
     const placement = within(region).getByRole('region', { name: 'Placement' });
     const containment = within(region).getByRole('region', { name: 'Containment' });
     const neighborhood = within(region).getByText('Neighborhood').closest<HTMLElement>('.business-structure-derived')!;
+    expect(within(region).queryByRole('heading', { name: 'Business structure' })).not.toBeInTheDocument();
     expect(within(lineage).getByLabelText('Orbit to Subscription')).toHaveTextContent('Orbit→Subscription');
     expect(within(lineage).getByLabelText('Orbit to Consulting')).toHaveTextContent('Orbit→Consulting');
     expect(lineage).not.toHaveTextContent('Checkout');
     expect(within(region).queryByText('Business ancestry')).not.toBeInTheDocument();
     expect(within(region).queryByText(/^Structure$/)).not.toBeInTheDocument();
+    expect(placement.compareDocumentPosition(containment) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(placement.compareDocumentPosition(neighborhood) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(containment.compareDocumentPosition(neighborhood) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     for (const label of ['Offers', 'Located in', 'URL']) expect(within(placement).getByRole('heading', { name: label })).toBeInTheDocument();
@@ -370,6 +372,41 @@ describe('Touchpoint Business structure Inspector', () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
     await user.click(within(inspector.getByRole('region', { name: 'Business structure' })).getAllByRole('button', { name: 'Subscription' })[0]!);
     expect(inspector.queryByRole('region', { name: 'Business structure' })).not.toBeInTheDocument();
+  });
+
+  it('keeps successful operation feedback available until its timeout expires', () => {
+    vi.useFakeTimers();
+    try {
+      const inspector = renderTouchpointInspector(structureDocument());
+      fireEvent.change(inspector.getByRole('textbox', { name: 'Title' }), { target: { value: 'Updated checkout' } });
+      fireEvent.click(inspector.getByRole('button', { name: 'Apply changes' }));
+      expect(screen.getByRole('status')).toHaveTextContent('Changes applied.');
+      act(() => vi.advanceTimersByTime(2499));
+      expect(screen.getByRole('status')).toHaveTextContent('Changes applied.');
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.queryByText('Changes applied.')).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps operation errors visible beyond the success feedback timeout', () => {
+    vi.useFakeTimers();
+    try {
+      render(<MapSpike initialDocument={touchpointInspectorDocument()} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Add element' }));
+      fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), { target: { value: 'Duplicate identifier' } });
+      vi.stubGlobal('crypto', { randomUUID: () => 'product' });
+      fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+      const error = screen.getByRole('status');
+      expect(error).toHaveTextContent(/already exists/i);
+      expect(error).toHaveAttribute('aria-live', 'assertive');
+      act(() => vi.advanceTimersByTime(5000));
+      expect(error).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
   });
 });
 
