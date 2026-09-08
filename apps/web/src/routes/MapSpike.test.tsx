@@ -168,7 +168,7 @@ describe('Touchpoint Business structure Inspector', () => {
     return document;
   }
 
-  it('Touchpoint Inspector renders Business structure before legacy editor', () => {
+  it('Touchpoint Inspector renders Business structure before the remaining legacy fields', () => {
     const inspector = renderTouchpointInspector(structureDocument());
     const structure = inspector.getByRole('region', { name: 'Business structure' });
     const identity = inspector.getByRole('heading', { name: 'Checkout' }).closest('.inspector-identity')!;
@@ -178,9 +178,55 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(identity.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(inspector.getByRole('button', { name: 'Inspector Back' })).toBeInTheDocument();
     expect(inspector.getByRole('button', { name: 'Inspector Forward' })).toBeInTheDocument();
-    expect(structure.compareDocumentPosition(inspector.getByLabelText('Title')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(structure.compareDocumentPosition(inspector.getByLabelText(/^URL/)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(inspector.queryByLabelText('Title')).not.toBeInTheDocument();
+    expect(inspector.queryByRole('combobox', { name: 'Located in' })).not.toBeInTheDocument();
     expect(within(structure).getByText('Website')).toBeInTheDocument();
     expect(within(inspector.getByRole('group', { name: 'Linked Offers' })).getByRole('checkbox', { name: 'Subscription' })).toBeChecked();
+  });
+
+  it('edits the durable Inspector title by pointer and keyboard without a legacy form field', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
+    expect(inspector.queryByLabelText('Title')).not.toBeInTheDocument();
+    const button = inspector.getByRole('button', { name: 'Edit title, Checkout' });
+    await user.click(button);
+    let editor = inspector.getByRole('textbox', { name: 'Edit title, Checkout' });
+    expect(editor).toHaveFocus(); expect(editor).toHaveValue('Checkout');
+    await user.clear(editor); await user.type(editor, 'Checkout renamed{Enter}');
+    expect(inspector.getByRole('heading', { name: 'Checkout renamed' })).toBeInTheDocument();
+    await vi.waitFor(() => expect(inspector.getByRole('button', { name: 'Edit title, Checkout renamed' })).toHaveFocus());
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
+    await openMap(user); expect(screen.getByRole('button', { name: 'Checkout renamed' })).toBeInTheDocument(); await openInspector(user);
+
+    const keyboardButton = inspector.getByRole('button', { name: 'Edit title, Checkout renamed' });
+    keyboardButton.focus(); await user.keyboard(' ');
+    editor = inspector.getByRole('textbox', { name: 'Edit title, Checkout renamed' });
+    await user.clear(editor); await user.type(editor, 'Cancelled'); fireEvent.keyDown(editor, { key: 'Escape' });
+    expect(inspector.getByRole('heading', { name: 'Checkout renamed' })).toBeInTheDocument();
+    await vi.waitFor(() => expect(inspector.getByRole('button', { name: 'Edit title, Checkout renamed' })).toHaveFocus());
+
+    await user.click(inspector.getByRole('button', { name: 'Edit title, Checkout renamed' }));
+    editor = inspector.getByRole('textbox', { name: 'Edit title, Checkout renamed' }); await user.clear(editor); fireEvent.blur(editor);
+    expect(editor).toBeInTheDocument(); await vi.waitFor(() => expect(editor).toHaveFocus());
+    await user.type(editor, 'Blur committed'); fireEvent.blur(editor);
+    expect(inspector.getByRole('heading', { name: 'Blur committed' })).toBeInTheDocument();
+  });
+
+  it('preserves dirty Apply-owned fields across immediate title and Located in commits', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
+    const url = inspector.getByLabelText(/^URL/); await user.clear(url); await user.type(url, 'https://draft.example');
+    expect(inspector.getByText('Unsaved changes')).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Edit title, Checkout' }));
+    const title = inspector.getByRole('textbox', { name: 'Edit title, Checkout' }); await user.clear(title); await user.type(title, 'Durable checkout{Enter}');
+    expect(inspector.getByText('Unsaved changes')).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Edit Located in, Website' }));
+    await user.click(inspector.getByRole('option', { name: 'Clear location' }));
+    expect(inspector.getByRole('button', { name: 'Edit Located in' })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
+    expect(inspector.getByRole('heading', { name: 'Durable checkout' })).toBeInTheDocument();
+    expect(inspector.getByLabelText(/^URL/)).toHaveValue('https://draft.example');
+    expect(inspector.getByRole('button', { name: 'Edit Located in' })).toBeInTheDocument();
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
   });
 
   it('renders upstream ancestry in the Touchpoint header before Placement, Containment, and Neighborhood', () => {
@@ -378,7 +424,7 @@ describe('Touchpoint Business structure Inspector', () => {
     vi.useFakeTimers();
     try {
       const inspector = renderTouchpointInspector(structureDocument());
-      fireEvent.change(inspector.getByRole('textbox', { name: 'Title' }), { target: { value: 'Updated checkout' } });
+      fireEvent.change(inspector.getByRole('textbox', { name: /URL/ }), { target: { value: 'https://updated.example' } });
       fireEvent.click(inspector.getByRole('button', { name: 'Apply changes' }));
       expect(screen.getByRole('status')).toHaveTextContent('Changes applied.');
       act(() => vi.advanceTimersByTime(2499));
@@ -489,7 +535,8 @@ describe('map-first authoring interactions', () => {
     render(<MapSpike initialDocument={touchpointInspectorDocument()} />);
     fireEvent.click(screen.getByRole('button', { name: 'Checkout' }));
     fireEvent.click(screen.getByRole('tab', { name: 'Entity Inspector' }));
-    const title = screen.getByRole('textbox', { name: 'Title' });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit title, Checkout' }));
+    const title = screen.getByRole('textbox', { name: 'Edit title, Checkout' });
     title.focus();
     const event = new KeyboardEvent('keydown', { key: 'ArrowLeft', code: 'ArrowLeft', bubbles: true, cancelable: true });
     title.dispatchEvent(event);
@@ -505,7 +552,7 @@ describe('map-first authoring interactions', () => {
     (editor as HTMLTextAreaElement).setSelectionRange(4, 9); await user.type(editor, 'Path', { skipClick: true }); expect(editor).toHaveValue('New Path'); expect(screen.getByRole('button', { name: 'Orbit' })).toBeInTheDocument();
     await user.clear(editor); await user.type(editor, 'Orbit renamed\nline'); expect(editor).toHaveValue('Orbit renamed line');
     fireEvent.keyDown(editor, { key: 'Tab' }); expect(screen.queryByRole('heading', { name: 'Add Offer' })).not.toBeInTheDocument(); fireEvent.keyDown(editor, { key: 'Enter' });
-    expect(screen.getByRole('button', { name: 'Orbit renamed line' })).toHaveFocus(); expect((await openInspector(user)).getByLabelText('Title')).toHaveValue('Orbit renamed line'); await openMap(user);
+    expect(screen.getByRole('button', { name: 'Orbit renamed line' })).toHaveFocus(); expect((await openInspector(user)).getByRole('heading', { name: 'Orbit renamed line' })).toBeInTheDocument(); await openMap(user);
     await user.click(screen.getByRole('button', { name: 'Add element' })); await user.click(screen.getByRole('button', { name: 'Client side' })); await user.type(screen.getByLabelText('Title'), 'Client job'); await user.click(screen.getByRole('button', { name: 'Create' })); await openMap(user);
     const client = screen.getByRole('button', { name: 'Client job' }); await user.dblClick(client.querySelector('.node-title')!); editor = screen.getByRole('textbox', { name: 'Edit title for Client job' }); await user.clear(editor); await user.type(editor, 'Cancelled'); fireEvent.keyDown(editor, { key: 'Escape' });
     expect(screen.getByRole('button', { name: 'Client job' })).toHaveFocus(); expect(screen.queryByRole('button', { name: 'Cancelled' })).not.toBeInTheDocument();
@@ -669,7 +716,7 @@ describe('map-first authoring interactions', () => {
     node = screen.getByRole('button', { name: 'Blur title' }); await user.dblClick(node.querySelector('.node-title')!);
     editor = screen.getByRole('textbox', { name: 'Edit title for Blur title' }); await user.clear(editor); await user.type(editor, 'Tab title'); await user.tab();
     expect(screen.getByRole('button', { name: 'Tab title' })).toBeInTheDocument();
-    expect((await openInspector(user)).getByLabelText('Title')).toHaveValue('Tab title');
+    expect((await openInspector(user)).getByRole('heading', { name: 'Tab title' })).toBeInTheDocument();
   });
   beforeEach(() => { let id = 0; vi.stubGlobal('crypto', { randomUUID: () => `id-${++id}` }); }); afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
   it('focuses the shared Title once for pointer and keyboard contextual creation and releases it on exit', async () => {
@@ -750,7 +797,7 @@ describe('map-first authoring interactions', () => {
     for (const text of ['Where does this Touchpoint exist?', 'No location selected', 'Choose an existing location', 'Create new location']) expect(screen.queryByText(text)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/URL/)).not.toBeRequired();
     await user.type(screen.getByLabelText('Title'), 'Unplaced consultation'); await user.selectOptions(screen.getByLabelText('Existing Offer'), screen.getByRole('option', { name: 'Subscription' })); await user.click(screen.getByRole('button', { name: 'Create' }));
-    expect(screen.getByRole('heading', { name: 'Unplaced consultation' })).toBeInTheDocument(); expect(screen.getByLabelText('Located in')).toHaveValue(''); expect(screen.getByLabelText(/URL/)).toHaveValue('');
+    expect(screen.getByRole('heading', { name: 'Unplaced consultation' })).toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Edit Located in' })).toBeInTheDocument(); expect(screen.getByLabelText(/URL/)).toHaveValue('');
   });
   it('keeps a new root location as a draft until Touchpoint creation commits it atomically', async () => {
     const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await quickOffer(user); await openInspector(user);
@@ -759,11 +806,11 @@ describe('map-first authoring interactions', () => {
     expect(location).toHaveValue('Website');
     fireEvent.focus(location); expect(screen.getAllByRole('option', { name: 'Create "Website"' })).toHaveLength(1);
     await user.type(screen.getByLabelText(/URL/), 'https://example.test/service'); await user.click(screen.getByRole('button', { name: 'Create' }));
-    expect(screen.getByRole('heading', { name: 'Service page' })).toBeInTheDocument(); expect(screen.getByLabelText('Located in')).toHaveValue('Website'); expect(screen.getByLabelText(/URL/)).toHaveValue('https://example.test/service');
+    expect(screen.getByRole('heading', { name: 'Service page' })).toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Edit Located in, Website' })).toBeInTheDocument(); expect(screen.getByLabelText(/URL/)).toHaveValue('https://example.test/service');
 
     await user.click(screen.getByRole('button', { name: 'Add element' })); await user.selectOptions(screen.getByLabelText('Business element type'), 'touchpoint'); await user.type(screen.getByLabelText('Title'), 'Existing location page'); await user.selectOptions(screen.getByLabelText('Existing Offer'), screen.getByRole('option', { name: 'Subscription' }));
     const existingLocation = screen.getByRole('combobox', { name: 'Located in' }); await user.type(existingLocation, 'Web'); await user.click(screen.getByRole('option', { name: 'Website' })); await user.click(screen.getByRole('button', { name: 'Create' }));
-    expect(screen.getByRole('heading', { name: 'Existing location page' })).toBeInTheDocument(); expect(screen.getByLabelText('Located in')).toHaveValue('Website');
+    expect(screen.getByRole('heading', { name: 'Existing location page' })).toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Edit Located in, Website' })).toBeInTheDocument();
   });
   it('abandons new root location drafts on switching, clearing, cancellation, and validation failure', async () => {
     const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await quickOffer(user); await openInspector(user);
@@ -773,10 +820,10 @@ describe('map-first authoring interactions', () => {
     await begin('Cancelled point'); await user.selectOptions(screen.getByLabelText('Existing Offer'), screen.getByRole('option', { name: 'Subscription' })); let location = screen.getByRole('combobox', { name: 'Located in' }); await user.type(location, 'Abandoned location'); await user.click(screen.getByRole('option', { name: 'Create "Abandoned location"' })); await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
     await begin('Cleared point'); await user.selectOptions(screen.getByLabelText('Existing Offer'), screen.getByRole('option', { name: 'Subscription' })); location = screen.getByRole('combobox', { name: 'Located in' }); await user.type(location, 'Stale location'); await user.click(screen.getByRole('option', { name: 'Create "Stale location"' })); await user.clear(location); await user.click(screen.getByRole('button', { name: 'Create' }));
-    expect(screen.getByRole('heading', { name: 'Cleared point' })).toBeInTheDocument(); expect(screen.getByLabelText('Located in')).toHaveValue('');
+    expect(screen.getByRole('heading', { name: 'Cleared point' })).toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Edit Located in' })).toBeInTheDocument();
 
     await begin('Switched point'); await user.selectOptions(screen.getByLabelText('Existing Offer'), screen.getByRole('option', { name: 'Subscription' })); location = screen.getByRole('combobox', { name: 'Located in' }); await user.type(location, 'Discard me'); await user.click(screen.getByRole('option', { name: 'Create "Discard me"' })); await user.clear(location); await user.type(location, 'Web'); await user.click(screen.getByRole('option', { name: 'Website' })); await user.click(screen.getByRole('button', { name: 'Create' }));
-    expect(screen.getByRole('heading', { name: 'Switched point' })).toBeInTheDocument(); expect(screen.getByLabelText('Located in')).toHaveValue('Website');
+    expect(screen.getByRole('heading', { name: 'Switched point' })).toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Edit Located in, Website' })).toBeInTheDocument();
 
     await begin('Invalid chain'); await user.click(screen.getByLabelText('Create new Offer')); await user.type(screen.getByLabelText('New Offer title'), 'Uncommitted offer'); await user.click(screen.getByLabelText('Create new Product')); await user.type(screen.getByLabelText('New Product title'), 'Uncommitted product'); location = screen.getByRole('combobox', { name: 'Located in' }); await user.type(location, 'Uncommitted location'); await user.click(screen.getByRole('option', { name: 'Create "Uncommitted location"' })); await user.clear(screen.getByLabelText('New Offer title')); await user.click(screen.getByRole('button', { name: 'Create' }));
     expect(screen.getByRole('heading', { name: 'Add an element' })).toBeInTheDocument(); fireEvent.focus(location); expect(screen.getByRole('option', { name: 'Create "Uncommitted location"' })).toBeInTheDocument(); await user.click(screen.getByRole('button', { name: 'Cancel' })); await openMap(user);
@@ -860,7 +907,7 @@ describe('map-first authoring interactions', () => {
     await user.click(screen.getByRole('button', { name: 'Create' }));
     expect(inspector).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).toHaveTextContent('First entity');
-    expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' }).querySelector('form')).toContainElement(screen.getByLabelText('Title'));
+    expect(within(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).queryByLabelText('Title')).not.toBeInTheDocument();
   });
   it('shows the selection prompt for a non-empty map and Go to Map preserves the document', async () => {
     const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user);
@@ -879,9 +926,9 @@ describe('map-first authoring interactions', () => {
     const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user);
     const mapCanvas = screen.getByLabelText('Map canvas'); await user.click(screen.getByRole('button', { name: 'Orbit' }));
     const inspector = await openInspector(user); expect(inspector.getByRole('heading', { name: 'Orbit' })).toBeInTheDocument();
-    const title = inspector.getByLabelText('Title'); await user.clear(title); await user.type(title, 'Orbit edited'); await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
+    await user.click(inspector.getByRole('button', { name: 'Edit title, Orbit' })); const title = inspector.getByRole('textbox', { name: 'Edit title, Orbit' }); await user.clear(title); await user.type(title, 'Orbit edited{Enter}');
     await openMap(user); expect(screen.getByRole('button', { name: 'Orbit edited' })).toBeInTheDocument(); expect(screen.getByLabelText('Map canvas')).toBe(mapCanvas);
-    await openInspector(user); expect(inspector.getByLabelText('Title')).toHaveValue('Orbit edited');
+    await openInspector(user); expect(inspector.getByRole('heading', { name: 'Orbit edited' })).toBeInTheDocument();
   });
   it('creates a root through the shared Inspector continuation and preserves its selection on Map', async () => {
     const user = userEvent.setup(); render(<MapSpike />);
@@ -1127,8 +1174,8 @@ describe('map-first authoring interactions', () => {
     await user.click(within(offerJobs).getByRole('button', { name: 'Expand Make progress' })); expect(jobSelection).not.toBeChecked(); expect(within(offerJobs).getByText('• Finish faster')).toBeInTheDocument(); expect(within(offerJobs).queryByRole('checkbox', { name: 'Finish faster' })).not.toBeInTheDocument();
     const financial = offerInspector.getByRole('group', { name: 'Financial intent' }); expect(within(financial).getByRole('checkbox', { name: /^Stay affordable\s*Financial Desired Outcome$/ })).not.toBeChecked(); expect(offerInspector.getByRole('button', { name: 'Apply changes' })).toBeInTheDocument();
   });
-  it('uses Product + Tab for contextual Offer creation while Tab in inputs stays native', async () => { const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await quickOffer(user); expect(screen.queryByText('packaged as')).not.toBeInTheDocument(); const title = (await openInspector(user)).getByLabelText('Title'); title.focus(); const event = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true }); title.dispatchEvent(event); expect(event.defaultPrevented).toBe(false); const reverse = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, cancelable: true }); title.dispatchEvent(reverse); expect(reverse.defaultPrevented).toBe(false); });
-  it('uses Enter for an empty sibling editor but preserves Enter in forms', async () => { const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await user.click(screen.getByRole('button', { name: 'Orbit' })); fireEvent.keyDown(window, { key: 'Enter' }); const editor = contextualEditor('Add Product'); const title = editor.getByLabelText('Title'); expect(title).toHaveFocus(); expect(title).toHaveValue(''); await user.type(title, 'Nova{Enter}'); expect(screen.getByRole('button', { name: 'Nova' })).toBeInTheDocument(); expect(screen.queryByRole('heading', { name: 'Add Product' })).not.toBeInTheDocument(); const inspectorTitle = (await openInspector(user)).getByLabelText('Title'); inspectorTitle.focus(); const event = new KeyboardEvent('keydown', { key: 'Enter', cancelable: true, bubbles: true }); inspectorTitle.dispatchEvent(event); expect(event.defaultPrevented).toBe(false); expect(screen.queryByRole('heading', { name: 'Add Product' })).not.toBeInTheDocument(); });
+  it('uses Product + Tab for contextual Offer creation while Tab in inputs stays native', async () => { const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await quickOffer(user); expect(screen.queryByText('packaged as')).not.toBeInTheDocument(); const inspector = await openInspector(user); await user.click(inspector.getByRole('button', { name: 'Edit title, Subscription' })); const title = inspector.getByRole('textbox', { name: 'Edit title, Subscription' }); title.focus(); const event = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true }); title.dispatchEvent(event); expect(event.defaultPrevented).toBe(false); const reverse = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, cancelable: true }); title.dispatchEvent(reverse); expect(reverse.defaultPrevented).toBe(false); });
+  it('uses Enter for an empty sibling editor and activates the Inspector title button', async () => { const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await user.click(screen.getByRole('button', { name: 'Orbit' })); fireEvent.keyDown(window, { key: 'Enter' }); const editor = contextualEditor('Add Product'); const title = editor.getByLabelText('Title'); expect(title).toHaveFocus(); expect(title).toHaveValue(''); await user.type(title, 'Nova{Enter}'); expect(screen.getByRole('button', { name: 'Nova' })).toBeInTheDocument(); expect(screen.queryByRole('heading', { name: 'Add Product' })).not.toBeInTheDocument(); const inspector = await openInspector(user); const inspectorTitle = inspector.getByRole('button', { name: 'Edit title, Nova' }); inspectorTitle.focus(); await user.keyboard('{Enter}'); expect(inspector.getByRole('textbox', { name: 'Edit title, Nova' })).toHaveFocus(); expect(screen.queryByRole('heading', { name: 'Add Product' })).not.toBeInTheDocument(); });
   it('offers the same sibling flow from the node context menu without overlapping the selected root', async () => { const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); const original = screen.getByRole('button', { name: 'Orbit' }); const before = { x: original.getAttribute('data-x'), y: original.getAttribute('data-y') }; fireEvent.contextMenu(original); await user.click(screen.getByRole('menuitem', { name: 'Add sibling' })); const editor = contextualEditor('Add Product'); expect(editor.getByLabelText('Title')).toHaveValue(''); await user.type(editor.getByLabelText('Title'), 'Nova'); await user.click(editor.getByRole('button', { name: 'Create' })); const sibling = screen.getByRole('button', { name: 'Nova' }); const dx = Number(sibling.getAttribute('data-x')) - Number(before.x); const dy = Number(sibling.getAttribute('data-y')) - Number(before.y); expect(Math.abs(dx) >= 136 || Math.abs(dy) >= 136).toBe(true); expect(original).toHaveAttribute('data-x', before.x); expect(original).toHaveAttribute('data-y', before.y); });
   it('keeps clipboard duplication distinct from empty sibling creation', async () => { const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await user.click(screen.getByRole('button', { name: 'Orbit' })); fireEvent.keyDown(window, { key: 'c', ctrlKey: true }); fireEvent.keyDown(window, { key: 'v', ctrlKey: true }); expect(screen.getAllByRole('button', { name: 'Orbit' })).toHaveLength(2); });
   it('creates Touchpoint and Child Touchpoint through the compact structural form', async () => {
@@ -1147,7 +1194,7 @@ describe('map-first authoring interactions', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Touchpoint' })); editor = contextualEditor('Add Touchpoint'); expect(editor.queryByLabelText('Located in')).not.toBeInTheDocument();
     await user.type(editor.getByLabelText('Title'), 'Payment'); await user.click(editor.getByRole('button', { name: 'Create' }));
     const inspector = await openInspector(user); expect((inspector.getByLabelText('Parent Touchpoint') as HTMLSelectElement).value).toMatch(/^id-/);
-    expect(inspector.getByLabelText('Located in')).toBeInTheDocument(); expect(inspector.getByLabelText(/URL/)).toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Edit Located in' })).toBeInTheDocument(); expect(inspector.queryByRole('combobox', { name: 'Located in' })).not.toBeInTheDocument(); expect(inspector.getByLabelText(/URL/)).toBeInTheDocument();
   });
   it.skip('legacy: shows an incomplete DO-bearing Job as a disclosure-only unfinished branch', async () => {
     const user = userEvent.setup(); render(<MapSpike />);
@@ -1174,7 +1221,7 @@ describe('map-first authoring interactions', () => {
     await user.click(screen.getByRole('button', { name: 'Subscription' })); fireEvent.keyDown(window, { key: 'Tab' }); await user.click(screen.getByRole('menuitem', { name: 'Touchpoint' })); let editor = contextualEditor('Add Touchpoint');
     await user.type(editor.getByLabelText('Title'), 'Front Page'); await user.click(editor.getByRole('button', { name: 'Create' }));
     fireEvent.contextMenu(screen.getByRole('button', { name: 'Front Page' })); await user.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
-    const inspector = await openInspector(user); const title = inspector.getByLabelText('Title'); await user.clear(title); await user.type(title, 'Services'); await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
+    const inspector = await openInspector(user); await user.click(inspector.getByRole('button', { name: /Edit title, Front Page/ })); const title = inspector.getByRole('textbox', { name: /Edit title, Front Page/ }); await user.clear(title); await user.type(title, 'Services{Enter}');
     await openMap(user); fireEvent.keyDown(window, { key: 'Tab' }); await user.click(screen.getByRole('menuitem', { name: 'Touchpoint' })); editor = contextualEditor('Add Touchpoint'); await user.type(editor.getByLabelText('Title'), 'Notion Example'); await user.click(editor.getByRole('button', { name: 'Create' }));
     await openInspector(user); expect((inspector.getByLabelText('Parent Touchpoint') as HTMLSelectElement).value).toMatch(/^id-/); expect(within(inspector.getByLabelText('Parent Touchpoint')).getByRole('option', { name: 'Services' })).toBeInTheDocument();
   });
@@ -1195,14 +1242,12 @@ describe('map-first authoring interactions', () => {
     await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
     expect(within(intent).getByRole('heading', { name: 'Product intent' }).compareDocumentPosition(within(intent).getByText('Make progress')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
-  it('guards abandonment of a dirty Product draft while workspace switching preserves it', async () => {
+  it('does not treat an immediate Inspector title commit as an Apply-owned dirty change', async () => {
     const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); const inspector = await openInspector(user);
-    const title = inspector.getByLabelText('Title'); await user.clear(title); await user.type(title, 'Orbit draft');
-    await openMap(user); expect(screen.queryByRole('dialog', { name: 'Unsaved Product changes' })).not.toBeInTheDocument(); await openInspector(user); expect(inspector.getByLabelText('Title')).toHaveValue('Orbit draft');
-    await user.click(screen.getByRole('button', { name: 'Add element' })); const guard = screen.getByRole('dialog', { name: 'Unsaved Product changes' }); expect(guard).toBeInTheDocument();
-    await user.click(within(guard).getByRole('button', { name: 'Keep editing' })); expect(inspector.getByLabelText('Title')).toHaveValue('Orbit draft');
-    await user.click(screen.getByRole('button', { name: 'Add element' })); await user.click(within(screen.getByRole('dialog', { name: 'Unsaved Product changes' })).getByRole('button', { name: 'Discard' }));
-    expect(screen.getByRole('heading', { name: 'Add an element' })).toBeInTheDocument(); await openMap(user); expect(screen.getByRole('button', { name: 'Orbit' })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Edit title, Orbit' })); const editor = inspector.getByRole('textbox', { name: 'Edit title, Orbit' }); await user.clear(editor); await user.type(editor, 'Orbit durable{Enter}');
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Add element' })); expect(screen.queryByRole('dialog', { name: 'Unsaved Product changes' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Add an element' })).toBeInTheDocument(); await user.click(screen.getByRole('button', { name: 'Cancel' })); await openMap(user); expect(screen.getByRole('button', { name: 'Orbit durable' })).toBeInTheDocument();
   });
   it('dirty navigation offers Apply, Discard, and Keep editing', async () => {
     const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await quickOffer(user);
@@ -1211,25 +1256,25 @@ describe('map-first authoring interactions', () => {
     await user.type(creator.getByLabelText('Title'), 'Checkout'); await user.click(creator.getByRole('button', { name: 'Create & open Inspector' }));
 
     const inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
-    const title = inspector.getByLabelText('Title'); await user.clear(title); await user.type(title, 'Checkout draft');
+    const url = inspector.getByLabelText(/^URL/); await user.clear(url); await user.type(url, 'https://draft.example');
     await openMap(user); expect(screen.queryByRole('dialog', { name: 'Unsaved Touchpoint changes' })).not.toBeInTheDocument();
-    await openInspector(user); expect(inspector.getByLabelText('Title')).toHaveValue('Checkout draft');
+    await openInspector(user); expect(inspector.getByLabelText(/^URL/)).toHaveValue('https://draft.example');
 
     await user.click(screen.getByRole('button', { name: 'Add element' })); let guard = screen.getByRole('dialog', { name: 'Unsaved Touchpoint changes' });
     await user.click(within(guard).getByRole('button', { name: 'Keep editing' }));
-    expect(inspector.getByLabelText('Title')).toHaveValue('Checkout draft'); expect(screen.queryByRole('heading', { name: 'Add an element' })).not.toBeInTheDocument();
+    expect(inspector.getByLabelText(/^URL/)).toHaveValue('https://draft.example'); expect(screen.queryByRole('heading', { name: 'Add an element' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Add element' })); guard = screen.getByRole('dialog', { name: 'Unsaved Touchpoint changes' });
     await user.click(within(guard).getByRole('button', { name: 'Apply' }));
     expect(screen.getByRole('heading', { name: 'Add an element' })).toBeInTheDocument(); await user.click(screen.getByRole('button', { name: 'Cancel' })); await openMap(user);
-    expect(screen.getByRole('button', { name: 'Checkout draft' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Checkout' })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Checkout draft' })); await openInspector(user);
-    await user.clear(inspector.getByLabelText('Title')); await user.type(inspector.getByLabelText('Title'), 'Discarded title');
+    await user.click(screen.getByRole('button', { name: 'Checkout' })); await openInspector(user);
+    await user.clear(inspector.getByLabelText(/^URL/)); await user.type(inspector.getByLabelText(/^URL/), 'https://discarded.example');
     await user.click(screen.getByRole('button', { name: 'Add element' })); guard = screen.getByRole('dialog', { name: 'Unsaved Touchpoint changes' });
     await user.click(within(guard).getByRole('button', { name: 'Discard' }));
     expect(screen.getByRole('heading', { name: 'Add an element' })).toBeInTheDocument(); await user.click(screen.getByRole('button', { name: 'Cancel' })); await openMap(user);
-    expect(screen.getByRole('button', { name: 'Checkout draft' })).toBeInTheDocument(); expect(screen.queryByRole('button', { name: 'Discarded title' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Checkout' })).toBeInTheDocument(); expect(screen.queryByText('https://discarded.example')).not.toBeInTheDocument();
   });
 });
 
@@ -1436,7 +1481,7 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
     await user.click(inspector.getByRole('button', { name: 'Apply changes' })); review = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
     await user.click(within(review).getByRole('button', { name: 'Apply changes' }));
     expect(linkedOffers.getByRole('checkbox', { name: 'Subscription' })).not.toBeChecked(); expect(linkedOffers.getByRole('checkbox', { name: 'Consulting' })).toBeChecked();
-    await vi.waitFor(() => expect(inspector.getByRole('textbox', { name: 'Title' })).toHaveFocus());
+    await vi.waitFor(() => expect(inspector.getByRole('textbox', { name: /URL/ })).toHaveFocus());
     await user.click(screen.getByRole('tab', { name: 'Map' }));
     const map = screen.getByLabelText('Map canvas');
     expect(map.querySelector('[data-source="offer-a"][data-target="touch"]')).not.toBeInTheDocument();
@@ -1476,9 +1521,9 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
 
   it('Map to Inspector round trip preserves Touchpoint draft without a prompt', async () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector();
-    await user.click(screen.getByRole('tab', { name: 'Entity Inspector' })); const title = inspector.getByRole('textbox', { name: 'Title' }); await user.clear(title); await user.type(title, 'Checkout draft');
+    await user.click(screen.getByRole('tab', { name: 'Entity Inspector' })); const url = inspector.getByRole('textbox', { name: /URL/ }); await user.clear(url); await user.type(url, 'https://draft.example');
     await user.click(screen.getByRole('tab', { name: 'Map' })); expect(screen.queryByRole('dialog', { name: 'Unsaved Touchpoint changes' })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('tab', { name: 'Entity Inspector' })); expect(inspector.getByRole('textbox', { name: 'Title' })).toHaveValue('Checkout draft');
+    await user.click(screen.getByRole('tab', { name: 'Entity Inspector' })); expect(inspector.getByRole('textbox', { name: /URL/ })).toHaveValue('https://draft.example');
   });
 
   it('existing Product and Offer Inspector interaction tests continue to pass', () => {
@@ -1508,11 +1553,11 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
 
   it('dirty Inspector navigation uses the existing abandonment guard', async () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector();
-    await user.clear(inspector.getByRole('textbox', { name: 'Title' })); await user.type(inspector.getByRole('textbox', { name: 'Title' }), 'Checkout draft');
+    await user.clear(inspector.getByRole('textbox', { name: /URL/ })); await user.type(inspector.getByRole('textbox', { name: /URL/ }), 'https://draft.example');
     await user.click(within(inspector.getByRole('group', { name: 'Linked Offers' })).getByRole('button', { name: 'Subscription' }));
     const guard = screen.getByRole('dialog', { name: 'Unsaved Touchpoint changes' });
     await user.click(within(guard).getByRole('button', { name: 'Keep editing' }));
-    expect(inspector.getByRole('textbox', { name: 'Title' })).toHaveValue('Checkout draft');
+    expect(inspector.getByRole('textbox', { name: /URL/ })).toHaveValue('https://draft.example');
     await user.click(within(inspector.getByRole('group', { name: 'Linked Offers' })).getByRole('button', { name: 'Subscription' }));
     await user.click(within(screen.getByRole('dialog', { name: 'Unsaved Touchpoint changes' })).getByRole('button', { name: 'Discard' }));
     expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();

@@ -234,7 +234,7 @@ function ContainerCombobox({ value, query, document, onChange }: { value: string
     </div>
   );
 }
-function InlineTitleEditor({ title, onCommit, onCancel }: { title: string; onCommit: (title: string) => void; onCancel: () => void }) {
+function InlineTitleEditor({ title, onCommit, onCancel, className = 'inline-node-title nodrag nopan', accessibleLabel = `Edit title for ${title}`, stopPointerEvents = true }: { title: string; onCommit: (title: string) => boolean | void; onCancel: () => void; className?: string; accessibleLabel?: string; stopPointerEvents?: boolean }) {
   const [draftTitle, setDraftTitle] = useState(() => title);
   const completedRef = useRef(false);
   const commit = (field: HTMLTextAreaElement) => {
@@ -243,19 +243,23 @@ function InlineTitleEditor({ title, onCommit, onCancel }: { title: string; onCom
       requestAnimationFrame(() => field.focus());
       return;
     }
+    const committed = onCommit(draftTitle);
+    if (committed === false) {
+      requestAnimationFrame(() => field.focus());
+      return;
+    }
     completedRef.current = true;
-    onCommit(draftTitle);
   };
   return (
     <textarea
-      className="inline-node-title nodrag nopan"
-      aria-label={`Edit title for ${title}`}
+      className={className}
+      aria-label={accessibleLabel}
       rows={2}
       value={draftTitle}
       autoFocus
       onChange={(event) => setDraftTitle(normalizeTitleLineBreaks(event.target.value))}
-      onPointerDown={(event) => event.stopPropagation()}
-      onDoubleClick={(event) => event.stopPropagation()}
+      onPointerDown={stopPointerEvents ? (event) => event.stopPropagation() : undefined}
+      onDoubleClick={stopPointerEvents ? (event) => event.stopPropagation() : undefined}
       onBlur={(event) => commit(event.currentTarget)}
       onKeyDown={(event) => {
         event.stopPropagation();
@@ -398,6 +402,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [productInlineTitle, setProductInlineTitle] = useState('');
   const [menu, setMenu] = useState<Menu | null>(null);
   const [inlineEdit, setInlineEdit] = useState<{ entityId: string; title: string } | null>(null);
+  const [inspectorTitleEdit, setInspectorTitleEdit] = useState<{ entityId: string; title: string } | null>(null);
+  const inspectorTitleButtonRef = useRef<HTMLButtonElement>(null);
   const [quick, setQuick] = useState<Quick | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const copiedRef = useRef(copiedId);
@@ -445,6 +451,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       setMoveMode(inactiveMoveMode());
       setSelectedId(null);
       setEditDraft(null);
+      setInspectorTitleEdit(null);
     }
   }, [selected, selectedId]);
 
@@ -487,7 +494,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   function restoreTouchpointApplyFocus(target?: HTMLElement | null) {
     requestAnimationFrame(() => {
       if (target?.isConnected && !target.matches(':disabled')) target.focus();
-      else globalThis.document.querySelector<HTMLElement>('#inspector-workspace-panel form input[name="title"], #inspector-workspace-panel form input[required]')?.focus();
+      else (globalThis.document.querySelector<HTMLElement>('#inspector-workspace-panel form input[required], #inspector-workspace-panel form select[required], #inspector-workspace-panel form input:not([type="hidden"]):not(:disabled), #inspector-workspace-panel form select:not(:disabled), #inspector-workspace-panel form textarea:not(:disabled)') ?? inspectorTitleButtonRef.current)?.focus();
     });
   }
 
@@ -515,6 +522,24 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     if (entity.kind === 'desired_outcome') result.parentEntityId = source.relationships.find((r): r is Extract<Relationship, { kind: 'job_has_desired_outcome' }> => r.kind === 'job_has_desired_outcome' && r.desiredOutcomeId === entity.id)?.jobId ?? '';
     if (entity.kind === 'repulsor') result.resistedTargetIds = source.relationships.filter((r): r is Extract<Relationship, { kind: 'repulsor_resists' }> => r.kind === 'repulsor_resists' && r.repulsorId === entity.id).map((r) => r.targetEntityId);
     return result;
+  }
+  function updateDurableEntityTitle(source: MapDocument, entityId: string, title: string): MapDocument {
+    const entity = source.entities.find(candidate => candidate.id === entityId);
+    if (!entity) throw new Error('Entity does not exist.');
+    const current = draftFor(entity, source);
+    const parentRelationship = source.relationships.find(relation => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === entity.id);
+    return updateEntity(source, {
+      entityId: entity.id,
+      title,
+      ...(current.locatedInId ? { locatedInId: current.locatedInId } : {}),
+      ...(current.url ? { url: current.url } : {}),
+      ...(current.linkedProductId ? { linkedProductId: current.linkedProductId } : {}),
+      linkedOfferIds: current.linkedOfferIds,
+      relationshipIds: source.relationships.flatMap(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === entity.id ? [relation.id] : []),
+      ...(current.parentTouchpointId ? { parentTouchpointId: current.parentTouchpointId } : {}),
+      ...(current.parentEntityId ? { parentEntityId: current.parentEntityId } : {}),
+      ...(parentRelationship ? { parentRelationshipId: parentRelationship.id } : {}),
+    });
   }
   function commitInlineUrl(value: string) {
     if (selected?.kind !== 'touchpoint') return;
@@ -626,6 +651,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setMenu(null);
     clearMessage();
     setBusinessInlineEdit(null);
+    setInspectorTitleEdit(null);
     const entity = documentRef.current.entities.find((e) => e.id === id);
     setEditDraft(entity ? draftFor(entity, documentRef.current) : null);
     resetProductSession(entity, documentRef.current);
@@ -677,36 +703,50 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     select(id);
     setInlineEdit({ entityId: id, title: entity.title });
   }
-  function finishInlineTitleEdit(commitTitle: string | false) {
+  function finishInlineTitleEdit(commitTitle: string | false): boolean {
     const edit = inlineEdit;
-    if (!edit) return;
+    if (!edit) return false;
     if (commitTitle !== false) {
       const entity = documentRef.current.entities.find((candidate) => candidate.id === edit.entityId);
-      if (!entity) return;
-      const current = draftFor(entity, documentRef.current);
+      if (!entity) return false;
       try {
-        const next = updateEntity(documentRef.current, {
-          entityId: entity.id,
-          title: commitTitle,
-          ...(current.locatedInId ? { locatedInId: current.locatedInId } : {}),
-          ...(current.url ? { url: current.url } : {}),
-          ...(current.linkedProductId ? { linkedProductId: current.linkedProductId } : {}),
-          linkedOfferIds: current.linkedOfferIds,
-          relationshipIds: documentRef.current.relationships.flatMap((relation) => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === entity.id ? [relation.id] : []),
-          ...(current.parentTouchpointId ? { parentTouchpointId: current.parentTouchpointId } : {}),
-          ...(current.parentEntityId ? { parentEntityId: current.parentEntityId } : {}),
-          ...(documentRef.current.relationships.find((relation) => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === entity.id)?.id ? { parentRelationshipId: documentRef.current.relationships.find((relation) => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === entity.id)!.id } : {}),
-        });
+        const next = updateDurableEntityTitle(documentRef.current, entity.id, commitTitle);
         setDocument(next);
         setEditDraft(draftFor(next.entities.find((candidate) => candidate.id === entity.id)!, next));
         publishSuccess('Title updated.');
       } catch (error) {
         publishError(error instanceof Error ? error.message : 'Title could not be updated.');
-        return;
+        return false;
       }
     }
     setInlineEdit(null);
     focusEntity(edit.entityId);
+    return true;
+  }
+  function startInspectorTitleEdit() {
+    if (!selectedRef.current) return;
+    const entity = documentRef.current.entities.find(candidate => candidate.id === selectedRef.current);
+    if (entity) setInspectorTitleEdit({ entityId: entity.id, title: entity.title });
+  }
+  function finishInspectorTitleEdit(commitTitle: string | false): boolean {
+    const edit = inspectorTitleEdit;
+    if (!edit) return false;
+    if (commitTitle !== false) {
+      const entity = documentRef.current.entities.find(candidate => candidate.id === edit.entityId);
+      if (!entity) return false;
+      try {
+        const next = updateDurableEntityTitle(documentRef.current, entity.id, commitTitle);
+        setDocument(next);
+        setEditDraft(currentDraft => currentDraft ? { ...currentDraft, title: next.entities.find(candidate => candidate.id === entity.id)!.title } : currentDraft);
+        publishSuccess('Title updated.');
+      } catch (error) {
+        publishError(error instanceof Error ? error.message : 'Title could not be updated.');
+        return false;
+      }
+    }
+    setInspectorTitleEdit(null);
+    requestAnimationFrame(() => inspectorTitleButtonRef.current?.focus());
+    return true;
   }
   function childDraft(entity: Entity, contextualKind?: ContextualClientEntityKind): EditDraft | null {
     if (contextualKind) {
@@ -1184,6 +1224,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     }
   }
   function performRootCreation() {
+    setInspectorTitleEdit(null);
     setMode('create');
     setCreateDraft(draft());
     resetProductSession(undefined);
@@ -1209,12 +1250,12 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       ? { ...d, locatedInId: existing.id, locatedInQuery: existing.title, locationDraft: { kind: 'existing', containerId: existing.id } }
       : { ...d, locatedInId: selection.kind === 'existing' ? selection.containerId : '', locatedInQuery: query, locationDraft: selection });
   }
-  function touchFields(d: EditDraft, setter: (d: EditDraft) => void, inspector = false) {
+  function touchFields(d: EditDraft, setter: (d: EditDraft) => void, inspector = false, showLocation = true) {
     if (d.kind !== 'touchpoint') return null;
     const touchpoints = parentTouchpointOptions(document, inspector ? (selectedId ?? undefined) : undefined);
     return (
       <>
-        <ContainerCombobox value={d.locationDraft.kind === 'existing' ? d.locationDraft.containerId : d.locatedInId} query={d.locatedInQuery} document={document} onChange={(selection, q) => containerChange(setter, d, selection, q)} />
+        {showLocation && <ContainerCombobox value={d.locationDraft.kind === 'existing' ? d.locationDraft.containerId : d.locatedInId} query={d.locatedInQuery} document={document} onChange={(selection, q) => containerChange(setter, d, selection, q)} />}
         <label>
           URL <span>(optional)</span>
           <input value={d.url} onChange={(e) => setter({ ...d, url: e.target.value })} />
@@ -1910,7 +1951,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
           <header className="inspector-header">
             <h2 id="inspector-title" className="visually-hidden">Entity Inspector</h2>
             {mode !== 'create' && selected && editDraft && <div className="inspector-identity">
-              <h3>{selected.title}</h3>
+              <h3 aria-label={selected.title}>{inspectorTitleEdit?.entityId === selected.id
+                ? <InlineTitleEditor title={inspectorTitleEdit.title} onCommit={title => finishInspectorTitleEdit(title)} onCancel={() => finishInspectorTitleEdit(false)} className="inline-inspector-title" accessibleLabel={`Edit title, ${inspectorTitleEdit.title}`} stopPointerEvents={false} />
+                : <button ref={inspectorTitleButtonRef} type="button" className="inspector-title-button" aria-label={`Edit title, ${selected.title}`} onClick={startInspectorTitleEdit}>{selected.title}</button>}
+              </h3>
               <p>{KIND_LABELS[selected.kind]} · {editDraft.side === 'business' ? 'Business side' : 'Client side'} <span className="immutable-note">(type and side cannot be changed)</span></p>
               {selected.kind === 'touchpoint' && touchpointBusinessStructure?.ancestryBranches.length ? <ul className="inspector-business-lineage" aria-label="Business lineage">
                 {touchpointBusinessStructure.ancestryBranches.map(branch => <li aria-label={`${branch.product.title} to ${branch.offer.title}`} key={`${branch.product.id}:${branch.offer.id}`}>
@@ -2101,10 +2145,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               }}
             >
               {touchpointBusinessStructureSection()}
-              <label>
-                Title
-                <input required value={editDraft.title} onChange={(e) => setEditDraft({ ...editDraft, title: e.target.value })} />
-              </label>
               {selected.kind === 'offer' && (
                 <div className="connected-field">
                 <label>
@@ -2141,7 +2181,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               {semanticParentField(editDraft, setEditDraft)}
               {contextualJobFields(editDraft, setEditDraft)}
               {repulsorTargetsField(editDraft, setEditDraft)}
-              {touchFields(editDraft, setEditDraft, true)}
+              {touchFields(editDraft, setEditDraft, true, false)}
               {selected.kind === 'touchpoint' && touchpointIntentFields()}
               {selected.kind === 'touchpoint' && safeUrl(editDraft.url) && (
                 <a href={safeUrl(editDraft.url)} target="_blank" rel="noreferrer">
