@@ -14,7 +14,7 @@ import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, recons
 import { nearestSpatialCandidate, spatialDirectionForKey } from '../map-spatial-navigation';
 import { enterMoveMode, inactiveMoveMode, moveInMode, moveVectorForKey, type MoveMode } from '../map-move-mode';
 import { Link } from '../router';
-import { CONNECTION_PICKER_KINDS, applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointParent, connectionPickerCatalogue, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, filterConnectionCandidates, financialLeafKey, jobLeafKey, selectCurrentOfferIntent, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft } from './touchpoint-edit';
+import { CONNECTION_PICKER_KINDS, applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointParent, connectionPickerCatalogue, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, filterConnectionCandidates, selectCurrentOfferIntent, touchpointClientScope, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft } from './touchpoint-edit';
 import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
 import { deriveTouchpointBusinessStructure } from '../touchpoint-business-structure';
 
@@ -1413,11 +1413,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const intentDraft = editDraft.touchpointIntent;
     const offers = editDraft.linkedOfferIds;
     const setIntent = (next: TouchpointIntentDraft) => setEditDraft({ ...editDraft, touchpointIntent: next });
-    const snapshotSelected = (key: string) => intentDraft.durableBranchSnapshot.touchpointIntentLeafIds.includes(key);
-    const jobs = document.entities.filter(entity => ['core_functional_job', 'related_job', 'emotional_job', 'social_job', 'consumption_chain_job'].includes(entity.kind));
-    const jobGroups = jobs.map(job => ({ job, leaves: intentDraft.jobLeaves.filter(leaf => leaf.jobId === job.id) }));
-    const groupWasSelected = ({ leaves }: (typeof jobGroups)[number]) => leaves.some(leaf => snapshotSelected(jobLeafKey(leaf)));
-    const selectedJobs = jobGroups.filter(groupWasSelected);
     const pickerCandidates = connectionPicker ? filterConnectionCandidates(connectionPickerCatalogue(document, 'touchpoint'), connectionPicker) : [];
     const chosen = connectionPicker && pickerCandidates.find(candidate => candidate.semanticLeafId === connectionPicker.semanticLeafId);
     const commitCandidate = () => {
@@ -1449,12 +1444,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       publishSuccess('Connection added.');
     };
     return <>
-      <section className="client-intent connected-scope" aria-labelledby="connected-heading"><h4 id="connected-heading">Connected</h4>
-        {selectedJobs.length || intentDraft.financialLeaves.some(leaf => snapshotSelected(financialLeafKey(leaf))) ? <>
-          {selectedJobs.map(({ job, leaves }) => <div className="connected-branch" key={job.id}><button type="button" className="connected-title" onClick={() => navigateInspector(job.id)}>{job.title}</button><small>{KIND_LABELS[job.kind]}</small>{leaves.filter(leaf => snapshotSelected(jobLeafKey(leaf))).map(leaf => leaf.desiredOutcomeId && <button type="button" className="connected-title connected-leaf" key={leaf.semanticLeafId} onClick={() => navigateInspector(leaf.semanticLeafId)}>{entityTitle(document, leaf.semanticLeafId)}</button>)}</div>)}
-          {intentDraft.financialLeaves.filter(leaf => snapshotSelected(financialLeafKey(leaf))).map(leaf => <button type="button" className="connected-title" key={leaf.financialDesiredOutcomeId} onClick={() => navigateInspector(leaf.financialDesiredOutcomeId)}>{entityTitle(document, leaf.financialDesiredOutcomeId)}</button>)}
-        </> : <p className="immutable-note">No connections yet.</p>}
-      </section>
       {!connectionPicker ? <button type="button" className="text-action" disabled={!offers.length} onClick={() => setConnectionPicker({ query: '', kind: undefined, semanticLeafId: undefined, contributorOfferIds: offers.length === 1 ? [offers[0]!] : [] })}>Add connection</button> : <section className="connection-picker" aria-labelledby="connection-picker-heading">
         <h4 id="connection-picker-heading">Add connection</h4>
         <label>Search by title<input autoFocus type="search" value={connectionPicker.query} onChange={event => setConnectionPicker({ ...connectionPicker, query: event.target.value, semanticLeafId: undefined })} /></label>
@@ -1466,6 +1455,21 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       <button type="button" className="text-action" disabled={!offers.length} onClick={() => setIntent(selectCurrentOfferIntent(document, intentDraft, offers))}>Select all current Offer intent</button>
       {validateTouchpointIntentDraft(intentDraft) && <p role="alert">{validateTouchpointIntentDraft(intentDraft)}</p>}
     </>;
+  }
+  function touchpointClientScopeSection() {
+    if (selected?.kind !== 'touchpoint') return null;
+    const scope = touchpointClientScope(document, selected.id);
+    return <section className="touchpoint-client-scope" aria-labelledby="touchpoint-client-scope-heading">
+      <h4 id="touchpoint-client-scope-heading">Client scope</h4>
+      {scope.jobGroups.length || scope.financialLeaves.length ? <div className="touchpoint-client-scope-content">
+        {scope.jobGroups.map(group => <div className={`touchpoint-client-job ${group.desiredOutcomes.length ? 'has-outcomes' : 'direct-job'}`} key={group.job.id}>
+          <small>{KIND_LABELS[group.job.kind]}</small>
+          <button type="button" onClick={() => navigateInspector(group.job.id)}>{group.job.title}</button>
+          {group.desiredOutcomes.length > 0 && <ul>{group.desiredOutcomes.map(outcome => <li key={outcome.semanticLeafId}><button type="button" onClick={() => navigateInspector(outcome.entity.id)}>{outcome.entity.title}</button></li>)}</ul>}
+        </div>)}
+        {scope.financialLeaves.map(leaf => <div className="touchpoint-client-financial" key={leaf.semanticLeafId}><small>{KIND_LABELS[leaf.entity.kind]}</small><button type="button" onClick={() => navigateInspector(leaf.entity.id)}>{leaf.entity.title}</button></div>)}
+      </div> : <p className="touchpoint-client-scope-empty">No Client-side connections yet.</p>}
+    </section>;
   }
   function semanticParentField(d: EditDraft, setter: (d: EditDraft) => void) {
     if (!isContextualClientEntityKind(d.kind)) return null;
@@ -2177,6 +2181,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               }}
             >
               {touchpointBusinessStructureSection()}
+              {touchpointClientScopeSection()}
               {selected.kind === 'offer' && (
                 <div className="connected-field">
                 <label>

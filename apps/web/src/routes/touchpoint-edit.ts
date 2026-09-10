@@ -4,6 +4,16 @@ export type TouchpointJobLeaf = TouchpointIntentJobLeaf;
 export type TouchpointFinancialLeaf = TouchpointIntentFinancialLeaf;
 export type TouchpointIntentDraft = DomainTouchpointIntentDraft & { durableBranchSnapshot: { touchpointIntentLeafIds: string[]; otherClientIntentLeafIds: string[] } };
 
+export type TouchpointClientScope = {
+  jobGroups: {
+    job: Entity;
+    semanticLeafId?: string;
+    contributorOfferIds?: string[];
+    desiredOutcomes: { entity: Entity; semanticLeafId: string; contributorOfferIds: string[] }[];
+  }[];
+  financialLeaves: { entity: Entity; semanticLeafId: string; contributorOfferIds: string[] }[];
+};
+
 const doBearing = new Set(['core_functional_job', 'related_job', 'consumption_chain_job']);
 const direct = new Set(['emotional_job', 'social_job']);
 export const jobLeafKey = (leaf: Pick<TouchpointJobLeaf, 'semanticLeafId'>) => `job:${leaf.semanticLeafId}`;
@@ -80,6 +90,33 @@ export function createTouchpointIntentDraft(document: MapDocument, touchpointId:
     pendingJobLeafIds: [], pendingFinancialLeafIds: [],
     durableBranchSnapshot: { touchpointIntentLeafIds: selected, otherClientIntentLeafIds: all.filter((key) => !selected.includes(key)) },
   };
+}
+
+/** Projects only committed Touchpoint intent into an owner-aware Client-side read model. */
+export function touchpointClientScope(document: MapDocument, touchpointId: string): TouchpointClientScope {
+  const durable = createTouchpointIntentDraft(document, touchpointId);
+  const selectedKeys = new Set(durable.durableBranchSnapshot.touchpointIntentLeafIds);
+  const selectedJobLeaves = durable.jobLeaves.filter((leaf) => selectedKeys.has(jobLeafKey(leaf)));
+  const jobGroups = document.entities.flatMap((job): TouchpointClientScope['jobGroups'] => {
+    if (!doBearing.has(job.kind) && !direct.has(job.kind)) return [];
+    const leaves = selectedJobLeaves.filter((leaf) => leaf.jobId === job.id);
+    if (!leaves.length) return [];
+    if (direct.has(job.kind)) {
+      const leaf = leaves.find((candidate) => candidate.semanticLeafId === job.id);
+      return leaf ? [{ job, semanticLeafId: leaf.semanticLeafId, contributorOfferIds: [...leaf.contributorOfferIds], desiredOutcomes: [] }] : [];
+    }
+    const desiredOutcomes = leaves.flatMap((leaf) => {
+      const entity = document.entities.find((candidate) => candidate.id === leaf.desiredOutcomeId && candidate.kind === 'desired_outcome');
+      return entity ? [{ entity, semanticLeafId: leaf.semanticLeafId, contributorOfferIds: [...leaf.contributorOfferIds] }] : [];
+    });
+    return desiredOutcomes.length ? [{ job, desiredOutcomes }] : [];
+  });
+  const financialLeaves = durable.financialLeaves.flatMap((leaf) => {
+    if (!selectedKeys.has(financialLeafKey(leaf))) return [];
+    const entity = document.entities.find((candidate) => candidate.id === leaf.financialDesiredOutcomeId && candidate.kind === 'financial_desired_outcome');
+    return entity ? [{ entity, semanticLeafId: leaf.financialDesiredOutcomeId, contributorOfferIds: [...leaf.contributorOfferIds] }] : [];
+  });
+  return { jobGroups, financialLeaves };
 }
 
 const normalized = (draft: TouchpointIntentDraft) => ({

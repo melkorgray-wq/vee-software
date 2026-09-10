@@ -1315,6 +1315,21 @@ it('renders an accessible peripheral link only for a safe Touchpoint URL', () =>
 
 describe('searchable Touchpoint connection picker', () => {
   afterEach(() => cleanup());
+  it('places durable Client scope after Neighborhood and before authoring controls with an owner-nested DO', () => {
+    let document = touchpointInspectorDocument();
+    let id = 0;
+    document = applyTouchpointIntentDraft(document, { touchpointId: 'touch', draft: { jobLeaves: [{ jobId: 'job', semanticLeafId: 'do-a', desiredOutcomeId: 'do-a', contributorOfferIds: ['offer-a'] }], financialLeaves: [], pendingJobLeafIds: [], pendingFinancialLeafIds: [] }, newId: () => `seed-client-scope-${++id}` });
+    const inspector = renderTouchpointInspector(document);
+    const neighborhood = inspector.getByText('Neighborhood').closest<HTMLElement>('.business-structure-derived')!;
+    const scope = inspector.getByRole('region', { name: 'Client scope' });
+    const addConnection = inspector.getByRole('button', { name: 'Add connection' });
+    expect(neighborhood.compareDocumentPosition(scope) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(scope.compareDocumentPosition(addConnection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const jobGroup = within(scope).getByRole('button', { name: 'Make progress' }).closest<HTMLElement>('.touchpoint-client-job')!;
+    expect(within(jobGroup).getByRole('button', { name: 'Finish faster' })).toBeInTheDocument();
+    expect(inspector.queryByRole('region', { name: 'Connected' })).not.toBeInTheDocument();
+  });
+
   it('Add connection searches by title and browses all Core Functional Jobs', async () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector();
     expect(inspector.queryByText('Reduce errors')).not.toBeInTheDocument();
@@ -1327,13 +1342,14 @@ describe('searchable Touchpoint connection picker', () => {
     expect(inspector.getByRole('button', { name: /Reduce errors/ })).toBeInTheDocument();
   });
 
-  it('selecting a DO commits its owner-aware relation under Connected', async () => {
+  it('selecting a DO commits its owner-aware relation under Client scope', async () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector();
     await user.click(inspector.getByRole('button', { name: 'Add connection' }));
     await user.click(inspector.getByRole('button', { name: /Finish faster/ }));
     await user.click(inspector.getByRole('button', { name: 'Add selected connection' }));
-    expect(within(inspector.getByRole('region', { name: 'Connected' })).getByRole('button', { name: 'Make progress' })).toBeInTheDocument();
-    expect(within(inspector.getByRole('region', { name: 'Connected' })).getByRole('button', { name: 'Finish faster' })).toBeInTheDocument();
+    expect(within(inspector.getByRole('region', { name: 'Client scope' })).getByRole('button', { name: 'Make progress' })).toBeInTheDocument();
+    expect(within(inspector.getByRole('region', { name: 'Client scope' })).getByRole('button', { name: 'Finish faster' })).toBeInTheDocument();
+    expect(inspector.queryByRole('region', { name: 'Connected' })).not.toBeInTheDocument();
     expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
   });
 
@@ -1359,7 +1375,7 @@ describe('searchable Touchpoint connection picker', () => {
     await user.click(inspector.getByRole('button', { name: 'Add connection' }));
     await user.click(inspector.getByRole('button', { name: /Finish faster/ }));
     await user.click(inspector.getByRole('button', { name: 'Cancel' }));
-    expect(document).toEqual(snapshot); expect(inspector.getByRole('region', { name: 'Connected' })).toHaveTextContent('No connections yet.');
+    expect(document).toEqual(snapshot); expect(inspector.getByRole('region', { name: 'Client scope' })).toHaveTextContent('No Client-side connections yet.');
   });
 
   it('with multiple Offers contributor is not guessed and commit is blocked', async () => {
