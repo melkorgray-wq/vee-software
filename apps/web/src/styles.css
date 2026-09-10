@@ -102,9 +102,21 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .touchpoint-client-job > ul li { position: relative; min-width: 0; }
 .touchpoint-client-job > ul li::before { position: absolute; top: .85rem; left: -1rem; width: .65rem; border-top: 1px solid var(--border-soft); content: ''; }
 .touchpoint-client-scope-empty { color: rgba(255,255,255,.58); font-style: italic; }
-.connection-results { display: grid; gap: .4rem; max-height: 17.5rem; overflow: auto; margin: .65rem 0; }
-.connection-result { display: grid; gap: .15rem; padding: .55rem; text-align: left; }
-.connection-result.selected { outline: 2px solid var(--color-primary); }
+.intent-source-block { display: grid; gap: .55rem; padding: .65rem 0; border-top: 1px dashed var(--border-subtle); }
+.intent-source-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .4rem; }
+.intent-source-heading > button:first-child, .intent-job-branch > button { padding: .15rem 0; border: 0; background: transparent; color: var(--color-accent); text-align: left; }
+.intent-job-branch { display: grid; gap: .3rem; min-width: 0; padding-left: .65rem; border-left: 1px solid var(--border-soft); }
+.intent-job-branch small, .intent-discovery-leaf small { display: block; color: rgba(255,255,255,.58); }
+.intent-leaves { display: grid; gap: .2rem; padding-left: .65rem; }
+.inspector label.intent-checkbox { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: .2rem .45rem; padding: .2rem 0; font-weight: 400; }
+.inspector label.intent-checkbox > input { width: auto; margin-top: .15rem; }
+.intent-checkbox > small { grid-column: 2; color: rgba(255,255,255,.58); }
+.intent-checkbox.unavailable { opacity: .58; }
+.global-intent-discovery { margin-top: .5rem; padding-top: .55rem; border-top: 1px solid var(--border-subtle); }
+.global-intent-discovery > summary { cursor: pointer; font-weight: 650; }
+.global-intent-results { display: grid; gap: .45rem; max-height: 17.5rem; margin: .65rem 0; overflow: auto; }
+.intent-discovery-leaf { display: block; width: 100%; padding: .35rem .5rem; text-align: left; }
+.intent-source-block button:focus-visible, .intent-checkbox input:focus-visible, .intent-discovery-leaf:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .inspector form { display: grid; gap: 1rem; }
 .inspector label { display: grid; gap: .4rem; font-weight: 650; }
 .inspector label span { font-weight: 400; color: rgba(255,255,255,.65); }
