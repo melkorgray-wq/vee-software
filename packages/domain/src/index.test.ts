@@ -648,6 +648,16 @@ describe('bottom-up structural ancestry propagation', () => {
     expect(d.touchpointJobSelections.filter(selection => selection.touchpointId === 'parent')).toHaveLength(1);
   });
 
+  it('skips an ancestor whose semantic leaf is already durably satisfied', () => {
+    const before = ancestryDocument(['offer', 'offer-b']);
+    before.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['outcome'] });
+    before.offerJobSelections.push({ id: 'offer-selection', offerId: 'offer', productJobIntentId: 'intent' });
+    before.touchpointJobSelections.push({ id: 'parent-existing', touchpointId: 'parent', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['outcome'] });
+    const d = completed(authorTouchpointIntentBottomUp(before, { ...jobInput(), productJobIntentIds: [], offerJobSelectionIds: [], touchpointSelectionIds: ['child-selection', 'grandparent-selection'] }));
+    expect(d.touchpointJobSelections.filter(selection => selection.touchpointId === 'parent')).toEqual([before.touchpointJobSelections[0]]);
+    expect(d.touchpointJobSelections.some(selection => selection.touchpointId === 'parent' && selection.offerId === 'offer-b')).toBe(false);
+  });
+
   it('returns invalid when an ancestor has no local contributor path and never creates a structural Offer relation', () => {
     const before = ancestryDocument();
     const relationships = before.relationships.filter(relation => !(relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === 'parent'));

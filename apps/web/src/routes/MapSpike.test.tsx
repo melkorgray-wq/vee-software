@@ -1315,6 +1315,26 @@ it('renders an accessible peripheral link only for a safe Touchpoint URL', () =>
 
 describe('searchable Touchpoint connection picker', () => {
   afterEach(() => cleanup());
+  it('keeps Parent-source editing open and uses the projected owning Job and Child contributor', async () => {
+    const document = touchpointInspectorDocument();
+    document.entities.push({ id: 'parent-offer', kind: 'offer', title: 'Parent provenance' }, { id: 'parent', kind: 'touchpoint', title: 'Parent' });
+    document.relationships.push(
+      { id: 'package-parent', kind: 'product_packaged_as_offer', productId: 'product', offerId: 'parent-offer' },
+      { id: 'present-parent', kind: 'offer_presented_at_touchpoint', offerId: 'parent-offer', touchpointId: 'parent' },
+      { id: 'contains-child', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'parent', childTouchpointId: 'touch' },
+    );
+    document.productJobIntents.push({ id: 'parent-intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
+    document.offerJobSelections.push({ id: 'parent-offer-intent', offerId: 'parent-offer', productJobIntentId: 'parent-intent' });
+    document.touchpointJobSelections.push({ id: 'parent-path', touchpointId: 'parent', offerId: 'parent-offer', productJobIntentId: 'parent-intent', addressedDesiredOutcomeIds: ['do-a'] });
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Add Client-side connection' }));
+    const parentSource = inspector.getByRole('region', { name: 'Parent Parent' });
+    await user.click(within(parentSource).getByRole('checkbox', { name: 'Finish faster' }));
+    expect(inspector.getByRole('heading', { name: 'Upstream Client intent' })).toBeInTheDocument();
+    expect(within(inspector.getByRole('region', { name: 'Parent Parent' })).getByRole('checkbox', { name: 'Finish faster' })).toBeChecked();
+    expect(within(inspector.getByRole('region', { name: 'Parent Parent' })).getByRole('checkbox', { name: 'via Subscription' })).toBeChecked();
+    expect(document.relationships.some(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.offerId === 'parent-offer' && relation.touchpointId === 'touch')).toBe(false);
+  });
   it('keeps the Client scope pencil immediately after its heading', () => {
     const inspector = renderTouchpointInspector();
     const scope = inspector.getByRole('region', { name: 'Client scope' });

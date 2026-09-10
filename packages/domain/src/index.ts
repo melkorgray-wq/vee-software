@@ -337,8 +337,18 @@ export function authorTouchpointIntentBottomUp(document: MapDocument, input: Bot
     return products.length === 1 && document.entities.some(entity => entity.id === products[0]!.productId && entity.kind === 'product');
   };
   for (const offerId of input.contributingOfferIds) if (!validOffer(offerId)) throw new DomainError('invalid_contributor_path', 'A contributing Offer has no valid semantic upstream path.');
+  const ancestorAlreadyContainsSemanticLeaf = (touchpointId: string) => isFinancial
+    ? document.touchpointFinancialSelections.some(selection => selection.touchpointId === touchpointId && selection.financialDesiredOutcomeId === input.financialDesiredOutcomeId)
+    : document.touchpointJobSelections.some(selection => {
+      if (selection.touchpointId !== touchpointId) return false;
+      const intent = document.productJobIntents.find(item => item.id === selection.productJobIntentId);
+      if (intent?.jobId !== input.jobId) return false;
+      const outcomes = input.addressedDesiredOutcomeIds ?? [];
+      return outcomes.length ? outcomes.every(id => selection.addressedDesiredOutcomeIds.includes(id)) : selection.addressedDesiredOutcomeIds.length === 0;
+    });
   const paths: { touchpointId: string; offerId: string }[] = input.contributingOfferIds.map(offerId => ({ touchpointId: input.touchpointId, offerId }));
   for (const touchpointId of ancestry) {
+    if (ancestorAlreadyContainsSemanticLeaf(touchpointId)) continue;
     const candidates = [...linkedOfferIds(document, touchpointId)].filter(validOffer).sort();
     if (!candidates.length) return { status: 'invalid', reason: 'no_ancestor_contributor_path', touchpointId };
     const chosen = input.ancestorContributingOfferIds?.[touchpointId];
