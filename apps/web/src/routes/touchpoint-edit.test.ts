@@ -101,7 +101,7 @@ describe('Touchpoint edit intent draft', () => {
 
     const parent = touchpointUpstreamSources(document, 'touch').find(source => source.sourceKind === 'parent')!;
     const leaf = parent.jobGroups[0]!.leaves[0]!;
-    expect(leaf).toMatchObject({ semanticId: 'do-a', contributorOfferId: '', available: true, checked: false, provenanceOfferIds: ['offer-a'], childContributorOfferIds: ['offer-b'] });
+    expect(leaf).toMatchObject({ semanticId: 'do-a', owningJobId: 'job', contributorOfferId: '', available: true, checked: false, provenanceOfferIds: ['offer-a'], childContributorOfferIds: ['offer-b'] });
     expect(parent.financialLeaves[0]).toMatchObject({ semanticId: 'fdo', contributorOfferId: '', available: true, provenanceOfferIds: ['offer-a'], childContributorOfferIds: ['offer-b'] });
   });
 

@@ -21,6 +21,7 @@ export type UpstreamLeaf = {
   contributorOfferId: string; checkboxId: string; checked: boolean; available: boolean;
   productJobIntentId?: string; offerFinancialIntentId?: string;
   provenanceOfferIds?: string[]; childContributorOfferIds?: string[]; checkedContributorOfferIds?: string[];
+  owningJobId?: string;
 };
 export type UpstreamJobGroup = { job: Entity; leaves: UpstreamLeaf[] };
 export type TouchpointUpstreamBlock = { sourceKind: 'offer' | 'parent'; source: Entity; contributorOfferId?: string; jobGroups: UpstreamJobGroup[]; financialLeaves: UpstreamLeaf[] };
@@ -46,7 +47,7 @@ export function touchpointUpstreamSources(document: MapDocument, touchpointId: s
         for (const semanticId of semanticIds) {
           const entity = semanticId === job.id ? job : document.entities.find(item => item.id === semanticId && item.kind === 'desired_outcome');
           if (!entity || group.leaves.some(leaf => leaf.semanticId === semanticId && leaf.contributorOfferId === path.offerId)) continue;
-          group.leaves.push({ kind: semanticId === job.id ? 'job' : 'desired-outcome', entity, semanticId, sourceId: source.id, contributorOfferId: path.offerId, checkboxId: pathId(touchpointId, sourceKind, source.id, path.offerId, semanticId), checked: checkedJob(path.offerId, intent.id, semanticId), available, productJobIntentId: intent.id });
+          group.leaves.push({ kind: semanticId === job.id ? 'job' : 'desired-outcome', entity, semanticId, sourceId: source.id, contributorOfferId: path.offerId, checkboxId: pathId(touchpointId, sourceKind, source.id, path.offerId, semanticId), checked: checkedJob(path.offerId, intent.id, semanticId), available, productJobIntentId: intent.id, owningJobId: job.id });
         }
         if (group.leaves.length) groups.set(job.id, group);
       } else if (path.offerFinancialIntentId) {
@@ -75,7 +76,7 @@ export function touchpointUpstreamSources(document: MapDocument, touchpointId: s
         const checked = candidates.filter(offerId => document.touchpointJobSelections.some(child => child.touchpointId === touchpointId && child.offerId === offerId && document.productJobIntents.find(item => item.id === child.productJobIntentId)?.jobId === job.id && (child.addressedDesiredOutcomeIds.length ? child.addressedDesiredOutcomeIds.includes(semanticId) : semanticId === job.id)));
         const prior = group.leaves.find(leaf => leaf.semanticId === semanticId);
         if (prior) { prior.provenanceOfferIds = [...new Set([...(prior.provenanceOfferIds ?? []), selection.offerId])]; continue; }
-        group.leaves.push({ kind: semanticId === job.id ? 'job' : 'desired-outcome', entity, semanticId, sourceId: parent.id, contributorOfferId: '', checkboxId: pathId(touchpointId, 'parent', parent.id, 'child-contributor', semanticId), checked: checked.length > 0, available: candidates.length > 0, provenanceOfferIds: [selection.offerId], childContributorOfferIds: candidates, checkedContributorOfferIds: checked });
+        group.leaves.push({ kind: semanticId === job.id ? 'job' : 'desired-outcome', entity, semanticId, sourceId: parent.id, contributorOfferId: '', checkboxId: pathId(touchpointId, 'parent', parent.id, 'child-contributor', semanticId), checked: checked.length > 0, available: candidates.length > 0, provenanceOfferIds: [selection.offerId], childContributorOfferIds: candidates, checkedContributorOfferIds: checked, owningJobId: job.id });
       }
       if (group.leaves.length) groups.set(job.id, group);
     }
@@ -99,7 +100,7 @@ export function globalIntentDiscovery(document: MapDocument, input: { query: str
     if (doBearing.has(entity.kind)) {
       const leaves = document.relationships.flatMap(relation => relation.kind === 'job_has_desired_outcome' && relation.jobId === entity.id ? document.entities.filter(candidate => candidate.id === relation.desiredOutcomeId && candidate.kind === 'desired_outcome') : []).filter(outcome => !query || entity.title.toLocaleLowerCase().includes(query) || outcome.title.toLocaleLowerCase().includes(query));
       const visible = input.kind === 'desired_outcome' ? leaves.filter(outcome => !query || outcome.title.toLocaleLowerCase().includes(query)) : (!input.kind || input.kind === entity.kind) ? leaves : [];
-      if (visible.length && (!query || entity.title.toLocaleLowerCase().includes(query) || visible.length)) jobGroups.push({ job: entity, leaves: visible.map(outcome => ({ kind: 'desired-outcome', entity: outcome, semanticId: outcome.id, sourceId: 'global', contributorOfferId: '', checkboxId: `global:${entity.id}:${outcome.id}`, checked: false, available: true })) });
+      if (visible.length && (!query || entity.title.toLocaleLowerCase().includes(query) || visible.length)) jobGroups.push({ job: entity, leaves: visible.map(outcome => ({ kind: 'desired-outcome', entity: outcome, semanticId: outcome.id, sourceId: 'global', contributorOfferId: '', checkboxId: `global:${entity.id}:${outcome.id}`, checked: false, available: true, owningJobId: entity.id })) });
     } else if ((direct.has(entity.kind) || entity.kind === 'financial_desired_outcome') && (!input.kind || input.kind === entity.kind) && (!query || entity.title.toLocaleLowerCase().includes(query))) directLeaves.push({ kind: entity.kind === 'financial_desired_outcome' ? 'financial' : 'job', entity, semanticId: entity.id, sourceId: 'global', contributorOfferId: '', checkboxId: `global:${entity.id}`, checked: false, available: true });
   }
   return { jobGroups, directLeaves };
