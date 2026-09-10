@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyMapDocument, relevantRepulsorsForTouchpoint, type MapDocument } from '@vee/domain';
-import { applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointParent, connectionPickerCatalogue, createTouchpointIntentDraft, equalTouchpointIntentDraft, filterConnectionCandidates, selectCurrentOfferIntent, touchpointClientScope, touchpointIntentCatalogue, validateTouchpointIntentDraft } from './touchpoint-edit';
+import { applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointParent, connectionPickerCatalogue, createTouchpointIntentDraft, equalTouchpointIntentDraft, filterConnectionCandidates, selectCurrentOfferIntent, touchpointClientScope, touchpointIntentCatalogue, touchpointUpstreamSources, validateTouchpointIntentDraft } from './touchpoint-edit';
 
 function fixture(): MapDocument {
   return {
@@ -89,6 +89,31 @@ describe('Touchpoint parent commit', () => {
 });
 
 describe('Touchpoint edit intent draft', () => {
+  it('projects Parent semantics independently from the Parent contributor', () => {
+    const document = fixture();
+    document.entities.push({ id: 'parent', kind: 'touchpoint', title: 'Parent' });
+    document.relationships = [...document.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint' || relation.touchpointId !== 'touch' || relation.offerId !== 'offer-a'),
+      { id: 'parent-link', kind: 'offer_presented_at_touchpoint', offerId: 'offer-a', touchpointId: 'parent' },
+      { id: 'contains', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'parent', childTouchpointId: 'touch' }];
+    document.touchpointJobSelections = [{ id: 'parent-path', touchpointId: 'parent', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] }];
+    document.offerFinancialIntents.push({ id: 'parent-fdo', offerId: 'offer-a', financialDesiredOutcomeId: 'fdo' });
+    document.touchpointFinancialSelections.push({ id: 'parent-fdo-path', touchpointId: 'parent', offerId: 'offer-a', offerFinancialIntentId: 'parent-fdo', financialDesiredOutcomeId: 'fdo' });
+
+    const parent = touchpointUpstreamSources(document, 'touch').find(source => source.sourceKind === 'parent')!;
+    const leaf = parent.jobGroups[0]!.leaves[0]!;
+    expect(leaf).toMatchObject({ semanticId: 'do-a', contributorOfferId: '', available: true, checked: false, provenanceOfferIds: ['offer-a'], childContributorOfferIds: ['offer-b'] });
+    expect(parent.financialLeaves[0]).toMatchObject({ semanticId: 'fdo', contributorOfferId: '', available: true, provenanceOfferIds: ['offer-a'], childContributorOfferIds: ['offer-b'] });
+  });
+
+  it('reads Parent-source checked state from the Child contributor rather than Parent provenance', () => {
+    const document = fixture();
+    document.entities.push({ id: 'parent', kind: 'touchpoint', title: 'Parent' });
+    document.relationships.push({ id: 'contains', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'parent', childTouchpointId: 'touch' });
+    document.touchpointJobSelections.push({ id: 'parent-path', touchpointId: 'parent', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] });
+    const leaf = touchpointUpstreamSources(document, 'touch').find(source => source.sourceKind === 'parent')!.jobGroups[0]!.leaves[0]!;
+    expect(leaf.checkedContributorOfferIds).toEqual(['offer-a', 'offer-b']);
+    expect(leaf.provenanceOfferIds).toEqual(['offer-a']);
+  });
   it('commits only a normalized URL and returns the durable document for an unchanged value', () => {
     const document = fixture();
     const touchpoint = document.entities.find(entity => entity.id === 'touch')!;

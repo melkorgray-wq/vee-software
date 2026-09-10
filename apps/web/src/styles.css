@@ -112,6 +112,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .inspector label.intent-checkbox > input { width: auto; margin-top: .15rem; }
 .intent-checkbox > small { grid-column: 2; color: rgba(255,255,255,.58); }
 .intent-checkbox.unavailable { opacity: .58; }
+.parent-contributor-paths { display: grid; gap: .1rem; margin-left: 1.4rem; padding-left: .55rem; border-left: 1px dashed var(--border-soft); }
 .global-intent-discovery { margin-top: .5rem; padding-top: .55rem; border-top: 1px solid var(--border-subtle); }
 .global-intent-discovery > summary { cursor: pointer; font-weight: 650; }
 .global-intent-results { display: grid; gap: .45rem; max-height: 17.5rem; margin: .65rem 0; overflow: auto; }
