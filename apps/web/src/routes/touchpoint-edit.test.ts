@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createEmptyMapDocument, type MapDocument } from '@vee/domain';
+import { createEmptyMapDocument, relevantRepulsorsForTouchpoint, type MapDocument } from '@vee/domain';
 import { applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, connectionPickerCatalogue, createTouchpointIntentDraft, equalTouchpointIntentDraft, filterConnectionCandidates, selectCurrentOfferIntent, touchpointIntentCatalogue, validateTouchpointIntentDraft } from './touchpoint-edit';
 
 function fixture(): MapDocument {
@@ -154,6 +154,24 @@ describe('Touchpoint edit intent draft', () => {
     expect(next.entities.find(entity => entity.id === 'touch')).toMatchObject({ title: 'Edited touchpoint', locatedInId: 'new-1', url: 'https://example.test' });
     expect(next.touchpointJobSelections).toHaveLength(1);
     expect(next.relationships).toContainEqual(expect.objectContaining({ kind: 'touchpoint_mitigates_repulsor', touchpointId: 'touch', repulsorId: 'repulsor' }));
+  });
+
+  it('preserves an existing mitigation when applying an unrelated Touchpoint field', () => {
+    const document = fixture();
+    document.entities.push({ id: 'repulsor', kind: 'repulsor', title: 'Doubt' });
+    document.relationships.push(
+      { id: 'resists', kind: 'repulsor_resists', repulsorId: 'repulsor', targetEntityId: 'job' },
+      { id: 'mitigates', kind: 'touchpoint_mitigates_repulsor', touchpointId: 'touch', repulsorId: 'repulsor' },
+    );
+    const draft = createTouchpointIntentDraft(document, 'touch');
+
+    const next = applyTouchpointEditDraft(document, { touchpointId: 'touch', newId: (() => { let id = 0; return () => `preserve-${++id}`; })(), draft: {
+      title: 'Renamed Touchpoint', linkedOfferIds: ['offer-a', 'offer-b'], parentTouchpointId: '', locatedInId: '', locatedInQuery: '',
+      locationDraft: { kind: 'none' }, url: '', mitigatedRepulsorIds: ['repulsor'], touchpointIntent: draft,
+    } });
+
+    expect(next.relationships).toContainEqual({ id: 'mitigates', kind: 'touchpoint_mitigates_repulsor', touchpointId: 'touch', repulsorId: 'repulsor' });
+    expect(relevantRepulsorsForTouchpoint(next, 'touch').map(repulsor => repulsor.id)).toContain('repulsor');
   });
 
   it('rejects unresolved or unlinked contributors without changing the durable document', () => {

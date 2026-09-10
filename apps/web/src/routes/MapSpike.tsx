@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useReducer, useRef, useState, type CSSPrope
 import { createPortal } from 'react-dom';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, createEmptyMapDocument, duplicateEntity, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateProductJobIntent, updateRepulsorTargets, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship } from '@vee/domain';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, createEmptyMapDocument, duplicateEntity, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateProductJobIntent, updateRepulsorTargets, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, disclosureOverlayPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction, type Point, type WorkspaceShortcutState } from '../map-interaction';
@@ -1285,10 +1285,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     return (
       <>
         {showLocation && <ContainerCombobox value={d.locationDraft.kind === 'existing' ? d.locationDraft.containerId : d.locatedInId} query={d.locatedInQuery} document={document} onChange={(selection, q) => containerChange(setter, d, selection, q)} />}
-        <label>
+        {!inspector && <label>
           URL <span>(optional)</span>
           <input value={d.url} onChange={(e) => setter({ ...d, url: e.target.value })} />
-        </label>
+        </label>}
         {!inspector && d.linkedOfferIds.length > 0 && (
           <section aria-label="Initial Client-intent scope" className="nested-options">
             <strong>Initial Client-intent scope</strong>
@@ -1297,25 +1297,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         )}
         {inspector && (
           <>
-            <fieldset>
-              <legend>Relevant Repulsors (derived)</legend>
-              {selectedId &&
-                relevantRepulsorsForTouchpoint(document, selectedId).map((repulsor) => (
-                  <label className="checkbox" key={repulsor.id}>
-                    <input
-                      type="checkbox"
-                      checked={d.mitigatedRepulsorIds.includes(repulsor.id)}
-                      onChange={(event) =>
-                        setter({
-                          ...d,
-                          mitigatedRepulsorIds: event.target.checked ? [...d.mitigatedRepulsorIds, repulsor.id] : d.mitigatedRepulsorIds.filter((id) => id !== repulsor.id),
-                        })
-                      }
-                    />
-                    {repulsor.title} · Touchpoint intends to mitigate Repulsor
-                  </label>
-                ))}
-            </fieldset>
             <label>
               Parent Touchpoint
               <select value={d.parentTouchpointId} onChange={(e) => setter({ ...d, parentTouchpointId: e.target.value })}>
@@ -1694,7 +1675,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                   </div>
                   <button type="button" onClick={() => { setOffersPicker(null); requestAnimationFrame(() => offersPickerButtonRef.current?.focus()); }}>Cancel</button>
                 </div>;
-              })() : <>{navigationList(structure.offers)}<button ref={offersPickerButtonRef} type="button" className="business-structure-edit-relations" aria-label="Edit linked Offers" onClick={() => setOffersPicker({ query: '' })}>Edit linked Offers</button></>}
+              })() : <div className="business-structure-offers-value">{navigationList(structure.offers)}<button ref={offersPickerButtonRef} type="button" className="business-structure-edit-relations" aria-label="Edit linked Offers" onClick={() => setOffersPicker({ query: '' })}><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button></div>}
             </div>
             <div className="business-structure-property" role="group" aria-label="Located in property"><h5>Located in</h5>{businessInlineEdit?.property === 'located-in' ? (() => {
               const trimmedQuery = businessInlineEdit.query.trim();

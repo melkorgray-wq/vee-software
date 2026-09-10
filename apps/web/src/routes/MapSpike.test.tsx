@@ -62,6 +62,14 @@ function touchpointInspectorDocument(twoOffers = false): MapDocument {
   };
 }
 
+function touchpointWithParentDocument(): MapDocument {
+  const document = touchpointInspectorDocument(true);
+  document.entities.push({ id: 'parent-touch', kind: 'touchpoint', title: 'Parent page' });
+  document.relationships.push({ id: 'parent-presents', kind: 'offer_presented_at_touchpoint', offerId: 'offer-a', touchpointId: 'parent-touch' });
+  document.placements.push({ viewId: 'spike-view', entityId: 'parent-touch', x: 1260, y: 0 });
+  return document;
+}
+
 function emptyCardinalSectorDocument(): MapDocument {
   const entities: MapDocument['entities'] = [
     { id: 'fp', kind: 'touchpoint', title: 'FP' },
@@ -178,8 +186,10 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(identity.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(inspector.getByRole('button', { name: 'Inspector Back' })).toBeInTheDocument();
     expect(inspector.getByRole('button', { name: 'Inspector Forward' })).toBeInTheDocument();
-    expect(structure.compareDocumentPosition(inspector.getByLabelText(/^URL/)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(structure.compareDocumentPosition(inspector.getByLabelText('Parent Touchpoint')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(inspector.queryByLabelText('Title')).not.toBeInTheDocument();
+    expect(inspector.queryByRole('textbox', { name: 'URL' })).not.toBeInTheDocument();
+    expect(inspector.queryByRole('group', { name: 'Relevant Repulsors (derived)' })).not.toBeInTheDocument();
     expect(inspector.queryByRole('combobox', { name: 'Located in' })).not.toBeInTheDocument();
     expect(within(structure).getByText('Website')).toBeInTheDocument();
     expect(within(inspector.getByRole('group', { name: 'Offers property' })).getByRole('button', { name: 'Subscription' })).toBeInTheDocument();
@@ -212,9 +222,9 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(inspector.getByRole('heading', { name: 'Blur committed' })).toBeInTheDocument();
   });
 
-  it('preserves dirty Apply-owned fields across immediate title and Located in commits', async () => {
+  it('preserves a dirty Apply-owned Parent across immediate title and Located in commits', async () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
-    const url = inspector.getByLabelText(/^URL/); await user.clear(url); await user.type(url, 'https://draft.example');
+    await user.selectOptions(inspector.getByLabelText('Parent Touchpoint'), 'other');
     expect(inspector.getByText('Unsaved changes')).toBeInTheDocument();
     await user.click(inspector.getByRole('button', { name: 'Edit title, Checkout' }));
     const title = inspector.getByRole('textbox', { name: 'Edit title, Checkout' }); await user.clear(title); await user.type(title, 'Durable checkout{Enter}');
@@ -224,7 +234,7 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(inspector.getByRole('button', { name: 'Edit Located in' })).toBeInTheDocument();
     await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
     expect(inspector.getByRole('heading', { name: 'Durable checkout' })).toBeInTheDocument();
-    expect(inspector.getByLabelText(/^URL/)).toHaveValue('https://draft.example');
+    expect(inspector.getByLabelText('Parent Touchpoint')).toHaveValue('other');
     expect(inspector.getByRole('button', { name: 'Edit Located in' })).toBeInTheDocument();
     expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
   });
@@ -248,7 +258,9 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(containment.compareDocumentPosition(neighborhood) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     for (const label of ['Offers', 'Located in', 'URL']) expect(within(placement).getByRole('heading', { name: label })).toBeInTheDocument();
     for (const label of ['Parent', 'Children']) expect(within(containment).getByRole('heading', { name: label })).toBeInTheDocument();
-    expect(within(within(placement).getByRole('group', { name: 'Offers property' })).getAllByRole('button').map(button => button.textContent)).toEqual(['Consulting', 'Subscription', 'Edit linked Offers']);
+    const offers = within(within(placement).getByRole('group', { name: 'Offers property' }));
+    expect(offers.getAllByRole('button').map(button => button.textContent)).toEqual(['Consulting', 'Subscription', '✎']);
+    expect(offers.getAllByRole('button', { name: 'Edit linked Offers' })).toHaveLength(1);
     expect(within(placement).getByRole('button', { name: 'Edit Located in, Website' })).toBeInTheDocument();
     expect(within(containment).getByRole('button', { name: 'Front Page' })).toBeInTheDocument();
     expect(within(containment).getByRole('button', { name: 'FAQ' })).toBeInTheDocument();
@@ -318,13 +330,40 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(edit).not.toContainElement(externalLink);
   });
 
-  it('only Located in and URL expose inline edit affordances', () => {
+  it('Offers, Located in, and URL expose one edit affordance each', () => {
     const structure = within(renderTouchpointInspector(structureDocument()).getByRole('region', { name: 'Business structure' }));
     expect(structure.getAllByRole('button', { name: /^Edit / })).toHaveLength(3);
-    expect(structure.getAllByText('✎')).toHaveLength(2);
+    expect(structure.getAllByText('✎')).toHaveLength(3);
     for (const name of ['Subscription', 'Consulting', 'Front Page', 'FAQ']) {
       expect(structure.getAllByRole('button', { name }).every(button => !button.querySelector('.business-structure-edit-affordance'))).toBe(true);
     }
+  });
+
+  it('opens the linked Offers picker from one pencil and restores focus after Escape and Cancel', async () => {
+    const user = userEvent.setup();
+    const inspector = renderTouchpointInspector(structureDocument());
+    const offers = within(inspector.getByRole('group', { name: 'Offers property' }));
+    const edit = offers.getByRole('button', { name: 'Edit linked Offers' });
+    expect(edit).toHaveTextContent('✎');
+    expect(edit).not.toHaveTextContent('Edit linked Offers');
+    expect(edit.querySelector('.business-structure-edit-affordance')).toHaveAttribute('aria-hidden', 'true');
+
+    await user.click(edit);
+    expect(offers.getByRole('searchbox', { name: 'Search Offers' })).toHaveFocus();
+    await user.keyboard('{Escape}');
+    await vi.waitFor(() => expect(offers.getByRole('button', { name: 'Edit linked Offers' })).toHaveFocus());
+    await user.click(offers.getByRole('button', { name: 'Edit linked Offers' }));
+    await user.click(offers.getByRole('button', { name: 'Cancel' }));
+    await vi.waitFor(() => expect(offers.getByRole('button', { name: 'Edit linked Offers' })).toHaveFocus());
+  });
+
+  it('keeps the empty Offers marker beside one pencil affordance', () => {
+    const document = structureDocument();
+    document.relationships = document.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint' || relation.touchpointId !== 'touch');
+    const offers = within(renderTouchpointInspector(document).getByRole('group', { name: 'Offers property' }));
+    expect(offers.getByLabelText('None')).toHaveTextContent('—');
+    expect(offers.getAllByRole('button', { name: 'Edit linked Offers' })).toHaveLength(1);
+    expect(offers.getAllByText('✎')).toHaveLength(1);
   });
 
   it('keeps every child readable and navigation-capable without edit affordances', async () => {
@@ -382,7 +421,7 @@ describe('Touchpoint Business structure Inspector', () => {
     await user.click(region().getByRole('button', { name: /Edit Located in/ })); await user.clear(inspector.getByRole('combobox', { name: 'Edit Located in' })); await user.type(inspector.getByRole('combobox', { name: 'Edit Located in' }), '  website  ');
     expect(inspector.queryByRole('option', { name: /Create.*website/i })).not.toBeInTheDocument(); await user.keyboard('{Enter}');
     expect(region().getByRole('button', { name: 'Edit Located in, Website' })).toBeInTheDocument();
-    await user.type(inspector.getByRole('textbox', { name: /URL/ }), '?draft'); expect(inspector.getByText('Unsaved changes')).toBeInTheDocument();
+    await user.selectOptions(inspector.getByLabelText('Parent Touchpoint'), 'other'); expect(inspector.getByText('Unsaved changes')).toBeInTheDocument();
     await user.click(region().getByRole('button', { name: /Edit Located in/ })); await user.clear(inspector.getByRole('combobox', { name: 'Edit Located in' })); await user.keyboard('{Enter}');
     expect(inspector.getByRole('combobox', { name: 'Edit Located in' })).toHaveValue(''); expect(inspector.getByText('Unsaved changes')).toBeInTheDocument();
     await user.type(inspector.getByRole('combobox', { name: 'Edit Located in' }), 'Landing pages'); await user.click(inspector.getByRole('option', { name: 'Create "Landing pages"' }));
@@ -413,12 +452,12 @@ describe('Touchpoint Business structure Inspector', () => {
     }
   });
 
-  it('Business structure reads durable document rather than dirty editDraft', async () => {
-    const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
-    await user.clear(inspector.getByLabelText(/^URL/)); await user.type(inspector.getByLabelText(/^URL/), 'https://draft.example');
+  it('exposes URL only through the canonical Placement editor', async () => {
+    const inspector = renderTouchpointInspector(structureDocument());
     const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
     expect(structure.getByRole('link', { name: 'https://example.com/checkout' })).toBeInTheDocument();
-    expect(structure.queryByText('https://draft.example')).not.toBeInTheDocument();
+    expect(structure.getByRole('button', { name: 'Edit web address, https://example.com/checkout' })).toBeInTheDocument();
+    expect(inspector.queryByRole('textbox', { name: 'URL' })).not.toBeInTheDocument();
   });
 
   it('non-Touchpoint Inspector does not render Touchpoint Business structure', async () => {
@@ -431,7 +470,7 @@ describe('Touchpoint Business structure Inspector', () => {
     vi.useFakeTimers();
     try {
       const inspector = renderTouchpointInspector(structureDocument());
-      fireEvent.change(inspector.getByRole('textbox', { name: /URL/ }), { target: { value: 'https://updated.example' } });
+      fireEvent.change(inspector.getByLabelText('Parent Touchpoint'), { target: { value: 'other' } });
       fireEvent.click(inspector.getByRole('button', { name: 'Apply changes' }));
       expect(screen.getByRole('status')).toHaveTextContent('Changes applied.');
       act(() => vi.advanceTimersByTime(2499));
@@ -804,7 +843,7 @@ describe('map-first authoring interactions', () => {
     for (const text of ['Where does this Touchpoint exist?', 'No location selected', 'Choose an existing location', 'Create new location']) expect(screen.queryByText(text)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/URL/)).not.toBeRequired();
     await user.type(screen.getByLabelText('Title'), 'Unplaced consultation'); await user.selectOptions(screen.getByLabelText('Existing Offer'), screen.getByRole('option', { name: 'Subscription' })); await user.click(screen.getByRole('button', { name: 'Create' }));
-    expect(screen.getByRole('heading', { name: 'Unplaced consultation' })).toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Edit Located in' })).toBeInTheDocument(); expect(screen.getByLabelText(/URL/)).toHaveValue('');
+    expect(screen.getByRole('heading', { name: 'Unplaced consultation' })).toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Edit Located in' })).toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Edit web address' })).toHaveTextContent('Add URL');
   });
   it('keeps a new root location as a draft until Touchpoint creation commits it atomically', async () => {
     const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await quickOffer(user); await openInspector(user);
@@ -813,7 +852,7 @@ describe('map-first authoring interactions', () => {
     expect(location).toHaveValue('Website');
     fireEvent.focus(location); expect(screen.getAllByRole('option', { name: 'Create "Website"' })).toHaveLength(1);
     await user.type(screen.getByLabelText(/URL/), 'https://example.test/service'); await user.click(screen.getByRole('button', { name: 'Create' }));
-    expect(screen.getByRole('heading', { name: 'Service page' })).toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Edit Located in, Website' })).toBeInTheDocument(); expect(screen.getByLabelText(/URL/)).toHaveValue('https://example.test/service');
+    expect(screen.getByRole('heading', { name: 'Service page' })).toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Edit Located in, Website' })).toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Edit web address, https://example.test/service' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Add element' })); await user.selectOptions(screen.getByLabelText('Business element type'), 'touchpoint'); await user.type(screen.getByLabelText('Title'), 'Existing location page'); await user.selectOptions(screen.getByLabelText('Existing Offer'), screen.getByRole('option', { name: 'Subscription' }));
     const existingLocation = screen.getByRole('combobox', { name: 'Located in' }); await user.type(existingLocation, 'Web'); await user.click(screen.getByRole('option', { name: 'Website' })); await user.click(screen.getByRole('button', { name: 'Create' }));
@@ -1201,7 +1240,7 @@ describe('map-first authoring interactions', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Touchpoint' })); editor = contextualEditor('Add Touchpoint'); expect(editor.queryByLabelText('Located in')).not.toBeInTheDocument();
     await user.type(editor.getByLabelText('Title'), 'Payment'); await user.click(editor.getByRole('button', { name: 'Create' }));
     const inspector = await openInspector(user); expect((inspector.getByLabelText('Parent Touchpoint') as HTMLSelectElement).value).toMatch(/^id-/);
-    expect(inspector.getByRole('button', { name: 'Edit Located in' })).toBeInTheDocument(); expect(inspector.queryByRole('combobox', { name: 'Located in' })).not.toBeInTheDocument(); expect(inspector.getByLabelText(/URL/)).toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Edit Located in' })).toBeInTheDocument(); expect(inspector.queryByRole('combobox', { name: 'Located in' })).not.toBeInTheDocument(); expect(inspector.getByRole('button', { name: 'Edit web address' })).toBeInTheDocument(); expect(inspector.queryByRole('textbox', { name: 'URL' })).not.toBeInTheDocument();
   });
   it.skip('legacy: shows an incomplete DO-bearing Job as a disclosure-only unfinished branch', async () => {
     const user = userEvent.setup(); render(<MapSpike />);
@@ -1257,19 +1296,15 @@ describe('map-first authoring interactions', () => {
     expect(screen.getByRole('heading', { name: 'Add an element' })).toBeInTheDocument(); await user.click(screen.getByRole('button', { name: 'Cancel' })); await openMap(user); expect(screen.getByRole('button', { name: 'Orbit durable' })).toBeInTheDocument();
   });
   it('dirty navigation offers Apply, Discard, and Keep editing', async () => {
-    const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await quickOffer(user);
-    await user.click(screen.getByRole('button', { name: 'Subscription' })); fireEvent.keyDown(window, { key: 'Tab' });
-    await user.click(screen.getByRole('menuitem', { name: 'Touchpoint' })); const creator = contextualEditor('Add Touchpoint');
-    await user.type(creator.getByLabelText('Title'), 'Checkout'); await user.click(creator.getByRole('button', { name: 'Create & open Inspector' }));
-
-    const inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
-    const url = inspector.getByLabelText(/^URL/); await user.clear(url); await user.type(url, 'https://draft.example');
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(touchpointWithParentDocument());
+    const parent = inspector.getByLabelText('Parent Touchpoint');
+    await user.selectOptions(parent, 'parent-touch');
     await openMap(user); expect(screen.queryByRole('dialog', { name: 'Unsaved Touchpoint changes' })).not.toBeInTheDocument();
-    await openInspector(user); expect(inspector.getByLabelText(/^URL/)).toHaveValue('https://draft.example');
+    await openInspector(user); expect(parent).not.toHaveValue('');
 
     await user.click(screen.getByRole('button', { name: 'Add element' })); let guard = screen.getByRole('dialog', { name: 'Unsaved Touchpoint changes' });
     await user.click(within(guard).getByRole('button', { name: 'Keep editing' }));
-    expect(inspector.getByLabelText(/^URL/)).toHaveValue('https://draft.example'); expect(screen.queryByRole('heading', { name: 'Add an element' })).not.toBeInTheDocument();
+    expect(parent).not.toHaveValue(''); expect(screen.queryByRole('heading', { name: 'Add an element' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Add element' })); guard = screen.getByRole('dialog', { name: 'Unsaved Touchpoint changes' });
     await user.click(within(guard).getByRole('button', { name: 'Apply' }));
@@ -1277,11 +1312,11 @@ describe('map-first authoring interactions', () => {
     expect(screen.getByRole('button', { name: 'Checkout' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Checkout' })); await openInspector(user);
-    await user.clear(inspector.getByLabelText(/^URL/)); await user.type(inspector.getByLabelText(/^URL/), 'https://discarded.example');
+    await user.selectOptions(inspector.getByLabelText('Parent Touchpoint'), '');
     await user.click(screen.getByRole('button', { name: 'Add element' })); guard = screen.getByRole('dialog', { name: 'Unsaved Touchpoint changes' });
     await user.click(within(guard).getByRole('button', { name: 'Discard' }));
     expect(screen.getByRole('heading', { name: 'Add an element' })).toBeInTheDocument(); await user.click(screen.getByRole('button', { name: 'Cancel' })); await openMap(user);
-    expect(screen.getByRole('button', { name: 'Checkout' })).toBeInTheDocument(); expect(screen.queryByText('https://discarded.example')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Checkout' })).toBeInTheDocument();
   });
 });
 
@@ -1524,10 +1559,10 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
   });
 
   it('Map to Inspector round trip preserves Touchpoint draft without a prompt', async () => {
-    const user = userEvent.setup(); const inspector = renderTouchpointInspector();
-    await user.click(screen.getByRole('tab', { name: 'Entity Inspector' })); const url = inspector.getByRole('textbox', { name: /URL/ }); await user.clear(url); await user.type(url, 'https://draft.example');
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(touchpointWithParentDocument());
+    await user.click(screen.getByRole('tab', { name: 'Entity Inspector' })); await user.selectOptions(inspector.getByLabelText('Parent Touchpoint'), 'parent-touch');
     await user.click(screen.getByRole('tab', { name: 'Map' })); expect(screen.queryByRole('dialog', { name: 'Unsaved Touchpoint changes' })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('tab', { name: 'Entity Inspector' })); expect(inspector.getByRole('textbox', { name: /URL/ })).toHaveValue('https://draft.example');
+    await user.click(screen.getByRole('tab', { name: 'Entity Inspector' })); expect(inspector.getByLabelText('Parent Touchpoint')).toHaveValue('parent-touch');
   });
 
   it('existing Product and Offer Inspector interaction tests continue to pass', () => {
@@ -1556,12 +1591,12 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
   });
 
   it('dirty Inspector navigation uses the existing abandonment guard', async () => {
-    const user = userEvent.setup(); const inspector = renderTouchpointInspector();
-    await user.clear(inspector.getByRole('textbox', { name: /URL/ })); await user.type(inspector.getByRole('textbox', { name: /URL/ }), 'https://draft.example');
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(touchpointWithParentDocument());
+    await user.selectOptions(inspector.getByLabelText('Parent Touchpoint'), 'parent-touch');
     await user.click(within(inspector.getByRole('group', { name: 'Offers property' })).getByRole('button', { name: 'Subscription' }));
     const guard = screen.getByRole('dialog', { name: 'Unsaved Touchpoint changes' });
     await user.click(within(guard).getByRole('button', { name: 'Keep editing' }));
-    expect(inspector.getByRole('textbox', { name: /URL/ })).toHaveValue('https://draft.example');
+    expect(inspector.getByLabelText('Parent Touchpoint')).toHaveValue('parent-touch');
     await user.click(within(inspector.getByRole('group', { name: 'Offers property' })).getByRole('button', { name: 'Subscription' }));
     await user.click(within(screen.getByRole('dialog', { name: 'Unsaved Touchpoint changes' })).getByRole('button', { name: 'Discard' }));
     expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
