@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyMapDocument, relevantRepulsorsForTouchpoint, type MapDocument } from '@vee/domain';
-import { applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, connectionPickerCatalogue, createTouchpointIntentDraft, equalTouchpointIntentDraft, filterConnectionCandidates, selectCurrentOfferIntent, touchpointIntentCatalogue, validateTouchpointIntentDraft } from './touchpoint-edit';
+import { applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointParent, connectionPickerCatalogue, createTouchpointIntentDraft, equalTouchpointIntentDraft, filterConnectionCandidates, selectCurrentOfferIntent, touchpointIntentCatalogue, validateTouchpointIntentDraft } from './touchpoint-edit';
 
 function fixture(): MapDocument {
   return {
@@ -37,6 +37,54 @@ describe('Touchpoint linked Offer commit', () => {
     expect(added.relationships).not.toContainEqual(expect.objectContaining({ id: 'presents-a' }));
     expect(added.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint')).toEqual(document.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint'));
     expect(document).toEqual(snapshot);
+  });
+});
+
+describe('Touchpoint parent commit', () => {
+  it('adds, changes with the same relation ID, clears, and does not mutate the input', () => {
+    const document = fixture();
+    document.entities.push(
+      { id: 'parent-a', kind: 'touchpoint', title: 'Parent A' },
+      { id: 'parent-b', kind: 'touchpoint', title: 'Parent B' },
+      { id: 'repulsor', kind: 'repulsor', title: 'Doubt' },
+    );
+    document.touchpointContainers.push({ id: 'site', title: 'Site' });
+    Object.assign(document.entities.find(entity => entity.id === 'touch')!, { locatedInId: 'site', url: 'https://keep.example' });
+    document.relationships.push(
+      { id: 'resists', kind: 'repulsor_resists', repulsorId: 'repulsor', targetEntityId: 'job' },
+      { id: 'mitigates', kind: 'touchpoint_mitigates_repulsor', touchpointId: 'touch', repulsorId: 'repulsor' },
+    );
+    const snapshot = structuredClone(document);
+    const ids = ['contains', 'intent-a', 'intent-b'];
+    const added = commitTouchpointParent(document, { touchpointId: 'touch', parentTouchpointId: 'parent-a', newId: () => ids.shift()! });
+    expect(added.relationships.filter(relation => relation.kind === 'touchpoint_contains_touchpoint')).toEqual([
+      { id: 'contains', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'parent-a', childTouchpointId: 'touch' },
+    ]);
+    expect(document).toEqual(snapshot);
+
+    const changed = commitTouchpointParent(added, { touchpointId: 'touch', parentTouchpointId: 'parent-b', newId: (() => { let id = 0; return () => `changed-${++id}`; })() });
+    expect(changed.relationships.filter(relation => relation.kind === 'touchpoint_contains_touchpoint')).toEqual([
+      { id: 'contains', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'parent-b', childTouchpointId: 'touch' },
+    ]);
+    expect(changed.entities.find(entity => entity.id === 'touch')).toMatchObject({ locatedInId: 'site', url: 'https://keep.example' });
+    expect(changed.relationships).toContainEqual(expect.objectContaining({ id: 'mitigates' }));
+    expect(changed.touchpointJobSelections).toEqual(document.touchpointJobSelections);
+
+    expect(commitTouchpointParent(changed, { touchpointId: 'touch', parentTouchpointId: 'parent-b', newId: () => { throw new Error('must not allocate'); } })).toBe(changed);
+    const cleared = commitTouchpointParent(changed, { touchpointId: 'touch', parentTouchpointId: '', newId: (() => { let id = 0; return () => `clear-${++id}`; })() });
+    expect(cleared.relationships.some(relation => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === 'touch')).toBe(false);
+  });
+
+  it('rejects unknown entities, self-parenting, and cycles through domain validation', () => {
+    const document = fixture();
+    document.entities.push({ id: 'parent', kind: 'touchpoint', title: 'Parent' });
+    document.relationships.push({ id: 'parent-offer', kind: 'offer_presented_at_touchpoint', offerId: 'offer-a', touchpointId: 'parent' });
+    expect(() => commitTouchpointParent(document, { touchpointId: 'missing', parentTouchpointId: '', newId: () => 'unused' })).toThrow(/does not exist/);
+    expect(() => commitTouchpointParent(document, { touchpointId: 'touch', parentTouchpointId: 'missing', newId: () => 'unused' })).toThrow(/existing Touchpoint/);
+    expect(() => commitTouchpointParent(document, { touchpointId: 'touch', parentTouchpointId: 'touch', newId: () => 'self' })).toThrow(/cannot contain itself/);
+    const cycleIds = ['contains-parent', 'cycle-intent-a', 'cycle-intent-b'];
+    const childOfTouch = commitTouchpointParent(document, { touchpointId: 'parent', parentTouchpointId: 'touch', newId: () => cycleIds.shift()! });
+    expect(() => commitTouchpointParent(childOfTouch, { touchpointId: 'touch', parentTouchpointId: 'parent', newId: () => 'cycle' })).toThrow(/cycle/);
   });
 });
 

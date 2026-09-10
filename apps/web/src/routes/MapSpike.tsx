@@ -14,7 +14,7 @@ import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, recons
 import { nearestSpatialCandidate, spatialDirectionForKey } from '../map-spatial-navigation';
 import { enterMoveMode, inactiveMoveMode, moveInMode, moveVectorForKey, type MoveMode } from '../map-move-mode';
 import { Link } from '../router';
-import { CONNECTION_PICKER_KINDS, applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, connectionPickerCatalogue, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, filterConnectionCandidates, financialLeafKey, jobLeafKey, selectCurrentOfferIntent, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft } from './touchpoint-edit';
+import { CONNECTION_PICKER_KINDS, applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointParent, connectionPickerCatalogue, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, filterConnectionCandidates, financialLeafKey, jobLeafKey, selectCurrentOfferIntent, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft } from './touchpoint-edit';
 import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
 import { deriveTouchpointBusinessStructure } from '../touchpoint-business-structure';
 
@@ -385,6 +385,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [createDraft, setCreateDraft] = useState<EditDraft>(draft());
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const [offersPicker, setOffersPicker] = useState<{ query: string } | null>(null);
+  const [parentPicker, setParentPicker] = useState<{ query: string } | null>(null);
+  const parentPickerButtonRef = useRef<HTMLButtonElement>(null);
   const offersPickerButtonRef = useRef<HTMLButtonElement>(null);
   const [businessInlineEdit, setBusinessInlineEdit] = useState<{ property: 'url'; value: string; error?: string } | { property: 'located-in'; query: string; error?: string } | null>(null);
   const [productExpanded, setProductExpanded] = useState<Record<string, boolean>>({});
@@ -455,6 +457,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       setEditDraft(null);
       setInspectorTitleEdit(null);
       setOffersPicker(null);
+      setParentPicker(null);
     }
   }, [selected, selectedId]);
 
@@ -605,6 +608,22 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     }
     commitLinkedOffersImmediately(touchpointId, targetOfferIds);
   }
+  function commitParentImmediately(touchpointId: string, parentTouchpointId: string) {
+    const before = documentRef.current;
+    const result = commitSemanticOperation(before, semanticCommitState({ semanticallyComplete: true, valid: true }), durable =>
+      commitTouchpointParent(durable, { touchpointId, parentTouchpointId, newId: () => crypto.randomUUID() }));
+    if (result.state.status === 'failed') {
+      publishError(result.state.message);
+      return;
+    }
+    const committed = reconsiderPlacementAfterRelationCommit(before, result.document, VIEW_ID, touchpointId);
+    setDocument(committed);
+    const durableParentId = committed.relationships.find((relation): relation is Extract<MapDocument['relationships'][number], { kind: 'touchpoint_contains_touchpoint' }> => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === touchpointId)?.parentTouchpointId ?? '';
+    setEditDraft(current => current ? { ...current, parentTouchpointId: durableParentId } : current);
+    setParentPicker(null);
+    publishSuccess('Parent Touchpoint updated.');
+    requestAnimationFrame(() => parentPickerButtonRef.current?.focus());
+  }
   function applyTouchpointChanges(pending = pendingAfterApplyRef.current, returnFocus?: HTMLElement | null, confirmed = false): boolean {
     const durable = documentRef.current;
     const entity = durable.entities.find(candidate => candidate.id === selectedRef.current);
@@ -679,6 +698,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     clearMessage();
     setBusinessInlineEdit(null);
     setOffersPicker(null);
+    setParentPicker(null);
     setInspectorTitleEdit(null);
     const entity = documentRef.current.entities.find((e) => e.id === id);
     setEditDraft(entity ? draftFor(entity, documentRef.current) : null);
@@ -1255,6 +1275,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setInspectorTitleEdit(null);
     setMode('create');
     setOffersPicker(null);
+    setParentPicker(null);
     setCreateDraft(draft());
     resetProductSession(undefined);
     setActiveWorkspaceView('inspector');
@@ -1281,7 +1302,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   }
   function touchFields(d: EditDraft, setter: (d: EditDraft) => void, inspector = false, showLocation = true) {
     if (d.kind !== 'touchpoint') return null;
-    const touchpoints = parentTouchpointOptions(document, inspector ? (selectedId ?? undefined) : undefined);
     return (
       <>
         {showLocation && <ContainerCombobox value={d.locationDraft.kind === 'existing' ? d.locationDraft.containerId : d.locatedInId} query={d.locatedInQuery} document={document} onChange={(selection, q) => containerChange(setter, d, selection, q)} />}
@@ -1294,21 +1314,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             <strong>Initial Client-intent scope</strong>
             <p>This Touchpoint will start with an empty effective scope. After Create, explicitly choose which valid Offer intent it expresses. Incomplete Client Jobs are unavailable until they have a Desired Outcome.</p>
           </section>
-        )}
-        {inspector && (
-          <>
-            <label>
-              Parent Touchpoint
-              <select value={d.parentTouchpointId} onChange={(e) => setter({ ...d, parentTouchpointId: e.target.value })}>
-                <option value="">No parent</option>
-                {touchpoints.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.title}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </>
         )}
       </>
     );
@@ -1700,7 +1705,31 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
           </section>
           <section className="business-structure-region business-structure-containment" aria-labelledby="business-containment-heading">
             <h5 id="business-containment-heading">Containment</h5>
-            <div className="business-structure-property" role="group" aria-label="Parent property"><h5>Parent</h5>{structure.parent ? navigationList([structure.parent]) : <p className="business-structure-empty" aria-label="None">—</p>}</div>
+            <div className="business-structure-property" role="group" aria-label="Parent property"><h5>Parent</h5>
+              {parentPicker ? (() => {
+                const query = parentPicker.query.trim().toLocaleLowerCase();
+                const options = parentTouchpointOptions(documentRef.current, structure.touchpoint.id).filter(option => !query || option.title.toLocaleLowerCase().includes(query));
+                return <div className="business-structure-parent-picker" onKeyDown={event => {
+                  if (event.key === 'Escape') {
+                    event.preventDefault(); event.stopPropagation(); setParentPicker(null);
+                    requestAnimationFrame(() => parentPickerButtonRef.current?.focus());
+                  }
+                }}>
+                  <label htmlFor="parent-touchpoint-search">Search Touchpoints</label>
+                  <input autoFocus id="parent-touchpoint-search" type="search" value={parentPicker.query} onChange={event => setParentPicker({ query: event.target.value })} />
+                  <div className="business-structure-parent-results" role="listbox" aria-label="Parent Touchpoint options" aria-live="polite">
+                    {options.length ? options.map(option => <button type="button" role="option" aria-selected={structure.parent?.id === option.id} key={option.id} onClick={() => commitParentImmediately(structure.touchpoint.id, option.id)}>{option.title}</button>) : <p role="status">No matching Touchpoints.</p>}
+                  </div>
+                  <div className="business-structure-parent-actions">
+                    {structure.parent && <button type="button" onClick={() => commitParentImmediately(structure.touchpoint.id, '')}>Clear parent</button>}
+                    <button type="button" onClick={() => { setParentPicker(null); requestAnimationFrame(() => parentPickerButtonRef.current?.focus()); }}>Cancel</button>
+                  </div>
+                </div>;
+              })() : <div className="business-structure-parent-value">
+                {structure.parent ? navigationList([structure.parent]) : <span className="business-structure-edit-empty">Add parent</span>}
+                <button ref={parentPickerButtonRef} type="button" className="business-structure-edit-relations" aria-label="Edit parent Touchpoint" onClick={() => setParentPicker({ query: '' })}><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button>
+              </div>}
+            </div>
             <div className="business-structure-property" role="group" aria-label="Children property"><h5>Children</h5>{navigationList(structure.children)}</div>
           </section>
         </div>
