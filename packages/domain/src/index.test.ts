@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, removeProductJobIntent, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, createEmptyMapDocument, duplicateEntity, movePlacement, updateEntity, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct } from './index';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, removeProductJobIntent, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, createEmptyMapDocument, duplicateEntity, movePlacement, updateEntity, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct, planTouchpointIntentPathChange, commitTouchpointIntentPathPlan } from './index';
 
 function completed(result: ReturnType<typeof authorTouchpointIntentBottomUp>) { if (result.status !== 'complete') throw new Error(`Expected complete, got ${result.status}`); return result.document; }
 
@@ -692,5 +692,33 @@ describe('bottom-up structural ancestry propagation', () => {
     const d = completed(authorTouchpointIntentBottomUp(before, { touchpointId: 'child', contributingOfferIds: ['offer'], financialDesiredOutcomeId: 'fdo', offerFinancialIntentIds: ['offer-fdo', 'offer-b-fdo'], touchpointSelectionIds: ['child-fdo', 'parent-fdo', 'grandparent-fdo'] }));
     expect(d.touchpointFinancialSelections.map(selection => [selection.touchpointId, selection.offerId])).toEqual([['child', 'offer'], ['parent', 'offer-b'], ['grandparent', 'offer']]);
     expect(d.productJobIntents).toEqual([]); expect(d.offerJobSelections).toEqual([]);
+  });
+});
+
+describe('Touchpoint local Job path subset planning', () => {
+  function localSubsetDocument(outcomes: string[]) {
+    let d = touchpoint();
+    d = addEntity(d, { ...place, entityId: 'job', title: 'Job', kind: 'core_functional_job' });
+    d = addEntity(d, { ...place, entityId: 'do-a', title: 'A', kind: 'desired_outcome', parentEntityId: 'job', relationshipId: 'owns-a' });
+    d = addEntity(d, { ...place, entityId: 'do-b', title: 'B', kind: 'desired_outcome', parentEntityId: 'job', relationshipId: 'owns-b' });
+    d = addProductJobIntent(d, { id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a', 'do-b'] });
+    d = setOfferJobSelections(d, { offerId: 'offer', productJobIntentIds: ['intent'], newSelectionIds: ['offer-selection'] });
+    return setTouchpointIntentSelections(d, { touchpointId: 'touch', selections: [{ id: 'touch-selection', kind: 'job', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: outcomes }] });
+  }
+
+  it('expands the mutable DO subset while retaining the stable local path ID', () => {
+    const before = localSubsetDocument(['do-a']); const upstream = structuredClone({ product: before.productJobIntents, offer: before.offerJobSelections });
+    const plan = planTouchpointIntentPathChange(before, { target: { kind: 'job', touchpointId: 'touch', offerId: 'offer', productJobIntentId: 'intent', semanticLeafId: 'do-b' }, checked: true, newSelectionId: 'must-not-be-used' });
+    const next = commitTouchpointIntentPathPlan(before, plan);
+    expect(next.touchpointJobSelections).toEqual([{ id: 'touch-selection', touchpointId: 'touch', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a', 'do-b'] }]);
+    expect({ product: next.productJobIntents, offer: next.offerJobSelections }).toEqual(upstream);
+  });
+
+  it('narrows the mutable DO subset while retaining siblings and stable local path ID', () => {
+    const before = localSubsetDocument(['do-a', 'do-b']); const snapshot = structuredClone(before);
+    const plan = planTouchpointIntentPathChange(before, { target: { kind: 'job', touchpointId: 'touch', offerId: 'offer', productJobIntentId: 'intent', semanticLeafId: 'do-a' }, checked: false });
+    const next = commitTouchpointIntentPathPlan(before, plan);
+    expect(next.touchpointJobSelections).toEqual([{ id: 'touch-selection', touchpointId: 'touch', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-b'] }]);
+    expect(next.productJobIntents).toEqual(snapshot.productJobIntents); expect(next.offerJobSelections).toEqual(snapshot.offerJobSelections);
   });
 });

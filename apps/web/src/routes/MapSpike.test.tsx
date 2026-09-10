@@ -1315,6 +1315,27 @@ it('renders an accessible peripheral link only for a safe Touchpoint URL', () =>
 
 describe('searchable Touchpoint connection picker', () => {
   afterEach(() => cleanup());
+  it('expands and narrows one durable Offer path through sibling DO checkboxes', async () => {
+    const document = touchpointInspectorDocument();
+    document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a', 'do-b'] });
+    document.offerJobSelections.push({ id: 'offer-selection', offerId: 'offer-a', productJobIntentId: 'intent' });
+    document.touchpointJobSelections.push({ id: 'touch-selection', touchpointId: 'touch', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] });
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Add Client-side connection' }));
+    let offerSource = inspector.getByRole('region', { name: 'Offer Subscription' });
+    expect(within(offerSource).getByRole('checkbox', { name: 'Finish faster' })).toBeChecked();
+    await user.click(within(offerSource).getByRole('checkbox', { name: 'Reduce errors' }));
+    offerSource = inspector.getByRole('region', { name: 'Offer Subscription' });
+    expect(within(offerSource).getByRole('checkbox', { name: 'Finish faster' })).toBeChecked();
+    expect(within(offerSource).getByRole('checkbox', { name: 'Reduce errors' })).toBeChecked();
+    expect(within(offerSource).getAllByRole('checkbox')).toHaveLength(2);
+    await user.click(within(offerSource).getByRole('checkbox', { name: 'Finish faster' }));
+    offerSource = inspector.getByRole('region', { name: 'Offer Subscription' });
+    expect(within(offerSource).getByRole('checkbox', { name: 'Finish faster' })).not.toBeChecked();
+    expect(within(offerSource).getByRole('checkbox', { name: 'Reduce errors' })).toBeChecked();
+    expect(document.productJobIntents[0]?.addressedDesiredOutcomeIds).toEqual(['do-a', 'do-b']);
+    expect(document.offerJobSelections).toEqual([{ id: 'offer-selection', offerId: 'offer-a', productJobIntentId: 'intent' }]);
+  });
   it('keeps Parent-source editing open and uses the projected owning Job and Child contributor', async () => {
     const document = touchpointInspectorDocument();
     document.entities.push({ id: 'parent-offer', kind: 'offer', title: 'Parent provenance' }, { id: 'parent', kind: 'touchpoint', title: 'Parent' });

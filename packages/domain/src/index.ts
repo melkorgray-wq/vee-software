@@ -186,7 +186,9 @@ export function setTouchpointIntentSelections(document: MapDocument, input: { to
   ]);
   for (const selection of input.selections) if (currentIds.has(selection.id)) {
     const retained = selection.kind === 'job'
-      ? document.touchpointJobSelections.find(candidate => candidate.id === selection.id && candidate.touchpointId === input.touchpointId && candidate.offerId === selection.offerId && candidate.productJobIntentId === selection.productJobIntentId && candidate.addressedDesiredOutcomeIds.length === selection.addressedDesiredOutcomeIds.length && candidate.addressedDesiredOutcomeIds.every(id => selection.addressedDesiredOutcomeIds.includes(id)))
+      // A Touchpoint Job Selection identifies the Touchpoint/Offer/Product-intent
+      // path. Its authored Desired Outcome subset is mutable content of that path.
+      ? document.touchpointJobSelections.find(candidate => candidate.id === selection.id && candidate.touchpointId === input.touchpointId && candidate.offerId === selection.offerId && candidate.productJobIntentId === selection.productJobIntentId)
       : document.touchpointFinancialSelections.find(candidate => candidate.id === selection.id && candidate.touchpointId === input.touchpointId && candidate.offerId === selection.offerId && candidate.offerFinancialIntentId === selection.offerFinancialIntentId);
     if (!retained) throw new DomainError('invalid_retained_touchpoint_selection_id', 'A retained Touchpoint selection ID must belong to the same authored path.');
   }
