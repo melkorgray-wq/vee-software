@@ -88,8 +88,8 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .connected-title { width: max-content; text-decoration: underline; text-underline-offset: .18em; }
 .connection-picker { border: 1px solid var(--border-subtle); border-radius: .5rem; margin: .75rem 0; padding: .75rem; }
 .touchpoint-client-scope { display: grid; gap: .65rem; min-width: 0; margin: .25rem 0 0; padding: 1rem 0 0; border: 0; border-top: 1px solid var(--border-subtle); background: transparent; }
-.touchpoint-client-scope-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding-bottom: .35rem; border-bottom: 1px solid var(--border-subtle); }
-.touchpoint-client-scope-heading > h4 { color: rgba(255,255,255,.72); font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; }
+.touchpoint-client-scope-heading { display: flex; align-items: center; justify-content: flex-start; gap: .3rem; padding-bottom: .35rem; border-bottom: 1px solid var(--border-subtle); }
+.touchpoint-client-scope-heading > h4 { margin: 0; color: rgba(255,255,255,.72); font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; }
 .touchpoint-client-scope-heading > button { flex: 0 0 auto; padding: .1rem .25rem; }
 .touchpoint-client-scope > .connection-picker { margin: .25rem 0 0; padding: .75rem; border: 1px solid var(--border-subtle); border-radius: .5rem; background: transparent; }
 .touchpoint-client-scope-content { display: grid; gap: .75rem; min-width: 0; }

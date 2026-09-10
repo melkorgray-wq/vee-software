@@ -1315,6 +1315,18 @@ it('renders an accessible peripheral link only for a safe Touchpoint URL', () =>
 
 describe('searchable Touchpoint connection picker', () => {
   afterEach(() => cleanup());
+  it('keeps the Client scope pencil immediately after its heading', () => {
+    const inspector = renderTouchpointInspector();
+    const scope = inspector.getByRole('region', { name: 'Client scope' });
+    const heading = within(scope).getByRole('heading', { name: 'Client scope' });
+    const pencil = within(scope).getByRole('button', { name: 'Add Client-side connection' });
+    const headingRow = heading.closest('.touchpoint-client-scope-heading');
+
+    expect(headingRow).toContainElement(heading);
+    expect(headingRow).toContainElement(pencil);
+    expect(heading.nextElementSibling).toBe(pencil);
+  });
+
   it('uses the same accessible pencil affordance for empty, populated, and unavailable Client scope', () => {
     const emptyInspector = renderTouchpointInspector();
     let scope = emptyInspector.getByRole('region', { name: 'Client scope' });
