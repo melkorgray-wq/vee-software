@@ -264,11 +264,11 @@ export function applyTouchpointIntentDraft(document: MapDocument, input: { touch
     const missingProduct = !next.productJobIntents.some(intent => intent.productId === productId && intent.jobId === grouped.jobId);
     const intent = next.productJobIntents.find(candidate => candidate.productId === productId && candidate.jobId === grouped.jobId);
     const missingOffer = !intent || !next.offerJobSelections.some(selection => selection.offerId === grouped.offerId && selection.productJobIntentId === intent.id);
-    next = authorTouchpointIntentBottomUp(next, { touchpointId: input.touchpointId, contributingOfferIds: [grouped.offerId], jobId: grouped.jobId, addressedDesiredOutcomeIds: [...new Set(grouped.outcomeIds)], productJobIntentIds: missingProduct ? [input.newId()] : [], offerJobSelectionIds: missingOffer ? [input.newId()] : [], touchpointSelectionIds: [input.newId()] });
+    { const result = authorTouchpointIntentBottomUp(next, { touchpointId: input.touchpointId, contributingOfferIds: [grouped.offerId], jobId: grouped.jobId, addressedDesiredOutcomeIds: [...new Set(grouped.outcomeIds)], productJobIntentIds: missingProduct ? [input.newId()] : [], offerJobSelectionIds: missingOffer ? [input.newId()] : [], touchpointSelectionIds: next.touchpointJobSelections.some(selection => selection.touchpointId === input.touchpointId && selection.offerId === grouped.offerId && next.productJobIntents.find(intent => intent.id === selection.productJobIntentId)?.jobId === grouped.jobId) ? [] : [input.newId()] }); if (result.status !== 'complete') throw new DomainError(result.reason, 'Ancestor contributor resolution is required before applying this draft.'); next = result.document; }
   }
   for (const leaf of input.draft.financialLeaves) for (const offerId of leaf.contributorOfferIds) {
     const missing = !next.offerFinancialIntents.some(intent => intent.offerId === offerId && intent.financialDesiredOutcomeId === leaf.financialDesiredOutcomeId);
-    next = authorTouchpointIntentBottomUp(next, { touchpointId: input.touchpointId, contributingOfferIds: [offerId], financialDesiredOutcomeId: leaf.financialDesiredOutcomeId, offerFinancialIntentIds: missing ? [input.newId()] : [], touchpointSelectionIds: [input.newId()] });
+    { const result = authorTouchpointIntentBottomUp(next, { touchpointId: input.touchpointId, contributingOfferIds: [offerId], financialDesiredOutcomeId: leaf.financialDesiredOutcomeId, offerFinancialIntentIds: missing ? [input.newId()] : [], touchpointSelectionIds: next.touchpointFinancialSelections.some(selection => selection.touchpointId === input.touchpointId && selection.offerId === offerId && selection.financialDesiredOutcomeId === leaf.financialDesiredOutcomeId) ? [] : [input.newId()] }); if (result.status !== 'complete') throw new DomainError(result.reason, 'Ancestor contributor resolution is required before applying this draft.'); next = result.document; }
   }
 
   const selections: TouchpointTopDownSelection[] = [];
@@ -302,36 +302,82 @@ export function selectAllLinkedOfferIntentsForTouchpoint(document: MapDocument, 
   ] });
 }
 
-export type BottomUpTouchpointInput = { touchpointId: string; contributingOfferIds: string[]; jobId: string; addressedDesiredOutcomeIds?: string[]; financialDesiredOutcomeId?: never; productJobIntentIds: string[]; offerJobSelectionIds: string[]; touchpointSelectionIds: string[] } | { touchpointId: string; contributingOfferIds: string[]; financialDesiredOutcomeId: string; jobId?: never; addressedDesiredOutcomeIds?: never; offerFinancialIntentIds: string[]; touchpointSelectionIds: string[] };
-export function authorTouchpointIntentBottomUp(document: MapDocument, input: BottomUpTouchpointInput): MapDocument {
-  const linked = linkedOfferIds(document, input.touchpointId); unique(input.contributingOfferIds, 'duplicate_contributing_offer');
-  if (!input.contributingOfferIds.length) throw new DomainError('missing_contributing_offer', 'Choose at least one contributing Offer.');
-  for (const offerId of input.contributingOfferIds) if (!linked.has(offerId)) throw new DomainError('contributing_offer_not_linked', 'A contributing Offer must be linked to the Touchpoint.');
-  let next = document;
-  if (typeof input.financialDesiredOutcomeId === 'string') {
-    const financialDesiredOutcomeId = input.financialDesiredOutcomeId;
-    entityOfKind(document, financialDesiredOutcomeId, 'financial_desired_outcome', 'Financial Desired Outcome');
-    const missing = input.contributingOfferIds.filter(offerId => !document.offerFinancialIntents.some(intent => intent.offerId === offerId && intent.financialDesiredOutcomeId === input.financialDesiredOutcomeId));
-    if (missing.length !== input.offerFinancialIntentIds.length || input.contributingOfferIds.length !== input.touchpointSelectionIds.length) throw new DomainError('invalid_selection_ids', 'Every potentially created record requires a generated stable ID.');
-    assertFreshRecordIds(document, [...input.offerFinancialIntentIds, ...input.touchpointSelectionIds]);
-    missing.forEach((offerId, index) => { next = { ...next, offerFinancialIntents: [...next.offerFinancialIntents, { id: input.offerFinancialIntentIds[index]!, offerId, financialDesiredOutcomeId }] }; });
-    const additions = input.contributingOfferIds.map((offerId, index): TouchpointFinancialSelection => { const intent = next.offerFinancialIntents.find(candidate => candidate.offerId === offerId && candidate.financialDesiredOutcomeId === financialDesiredOutcomeId)!; return { id: input.touchpointSelectionIds[index]!, touchpointId: input.touchpointId, offerId, offerFinancialIntentId: intent.id, financialDesiredOutcomeId }; });
-    return { ...next, touchpointFinancialSelections: [...next.touchpointFinancialSelections.filter(selection => !(selection.touchpointId === input.touchpointId && additions.some(item => item.offerId === selection.offerId && item.financialDesiredOutcomeId === selection.financialDesiredOutcomeId))), ...additions] };
+export type BottomUpTouchpointInput = ({ touchpointId: string; contributingOfferIds: string[]; ancestorContributingOfferIds?: Record<string, string>; jobId: string; addressedDesiredOutcomeIds?: string[]; financialDesiredOutcomeId?: never; productJobIntentIds: string[]; offerJobSelectionIds: string[]; touchpointSelectionIds: string[] } | { touchpointId: string; contributingOfferIds: string[]; ancestorContributingOfferIds?: Record<string, string>; financialDesiredOutcomeId: string; jobId?: never; addressedDesiredOutcomeIds?: never; offerFinancialIntentIds: string[]; touchpointSelectionIds: string[] });
+export type BottomUpTouchpointResult =
+  | { status: 'complete'; document: MapDocument }
+  | { status: 'unresolved'; reason: 'ancestor_contributor_required'; touchpointId: string; candidateOfferIds: string[] }
+  | { status: 'invalid'; reason: 'no_ancestor_contributor_path'; touchpointId: string };
+
+/** Purely resolves containment from immediate parent to root and rejects malformed structure. */
+export function resolveTouchpointStructuralAncestry(document: MapDocument, touchpointId: string): string[] {
+  entityOfKind(document, touchpointId, 'touchpoint', 'Touchpoint');
+  const ancestry: string[] = []; const seen = new Set([touchpointId]); let childId = touchpointId;
+  while (true) {
+    const parents = document.relationships.filter((relation): relation is Extract<Relationship, { kind: 'touchpoint_contains_touchpoint' }> => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === childId);
+    if (parents.length > 1) throw new DomainError('multiple_touchpoint_parents', 'A Touchpoint may have only one structural parent.');
+    const parentId = parents[0]?.parentTouchpointId; if (!parentId) return ancestry;
+    entityOfKind(document, parentId, 'touchpoint', 'Parent Touchpoint');
+    if (seen.has(parentId)) throw new DomainError('structural_cycle', 'Touchpoint containment cannot form a cycle.');
+    seen.add(parentId); ancestry.push(parentId); childId = parentId;
   }
-  const outcomes = input.addressedDesiredOutcomeIds ?? []; const products = [...new Set(input.contributingOfferIds.map(offerId => productForOffer(document, offerId)))];
-  const job = document.entities.find(entity => entity.id === input.jobId);
+}
+
+/** Plans and then atomically commits bottom-up scope. Missing IDs map in child-to-root path order. */
+export function authorTouchpointIntentBottomUp(document: MapDocument, input: BottomUpTouchpointInput): BottomUpTouchpointResult {
+  const ancestry = resolveTouchpointStructuralAncestry(document, input.touchpointId);
+  unique(input.contributingOfferIds, 'duplicate_contributing_offer');
+  if (!input.contributingOfferIds.length) throw new DomainError('missing_contributing_offer', 'Choose at least one contributing Offer.');
+  const sourceLinked = linkedOfferIds(document, input.touchpointId);
+  for (const offerId of input.contributingOfferIds) if (!sourceLinked.has(offerId)) throw new DomainError('contributing_offer_not_linked', 'A contributing Offer must be linked to the authored Touchpoint.');
+  const isFinancial = typeof input.financialDesiredOutcomeId === 'string';
+  const validOffer = (offerId: string) => {
+    if (document.entities.find(entity => entity.id === offerId)?.kind !== 'offer') return false;
+    if (isFinancial) return true;
+    const products = document.relationships.filter((relation): relation is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => relation.kind === 'product_packaged_as_offer' && relation.offerId === offerId);
+    return products.length === 1 && document.entities.some(entity => entity.id === products[0]!.productId && entity.kind === 'product');
+  };
+  for (const offerId of input.contributingOfferIds) if (!validOffer(offerId)) throw new DomainError('invalid_contributor_path', 'A contributing Offer has no valid semantic upstream path.');
+  const paths: { touchpointId: string; offerId: string }[] = input.contributingOfferIds.map(offerId => ({ touchpointId: input.touchpointId, offerId }));
+  for (const touchpointId of ancestry) {
+    const candidates = [...linkedOfferIds(document, touchpointId)].filter(validOffer).sort();
+    if (!candidates.length) return { status: 'invalid', reason: 'no_ancestor_contributor_path', touchpointId };
+    const chosen = input.ancestorContributingOfferIds?.[touchpointId];
+    if (!chosen && candidates.length > 1) return { status: 'unresolved', reason: 'ancestor_contributor_required', touchpointId, candidateOfferIds: candidates };
+    const offerId = chosen ?? candidates[0]!;
+    if (!candidates.includes(offerId)) throw new DomainError('invalid_ancestor_contributor', 'The selected ancestor contributor must be an eligible linked Offer candidate.');
+    paths.push({ touchpointId, offerId });
+  }
+  for (const touchpointId of Object.keys(input.ancestorContributingOfferIds ?? {})) if (!ancestry.includes(touchpointId)) throw new DomainError('unknown_ancestor_contributor', 'Ancestor contributor selection does not identify an ancestor Touchpoint.');
+
+  let next = document;
+  if (isFinancial) {
+    const outcomeId = input.financialDesiredOutcomeId; entityOfKind(document, outcomeId, 'financial_desired_outcome', 'Financial Desired Outcome');
+    const offers = [...new Set(paths.map(path => path.offerId))];
+    const missingOffers = offers.filter(offerId => !document.offerFinancialIntents.some(intent => intent.offerId === offerId && intent.financialDesiredOutcomeId === outcomeId));
+    const missingPaths = paths.filter(path => !document.touchpointFinancialSelections.some(selection => selection.touchpointId === path.touchpointId && selection.offerId === path.offerId && selection.financialDesiredOutcomeId === outcomeId));
+    if (missingOffers.length !== input.offerFinancialIntentIds.length || missingPaths.length !== input.touchpointSelectionIds.length) throw new DomainError('invalid_selection_ids', 'Every missing record requires exactly one generated stable ID.');
+    assertFreshRecordIds(document, [...input.offerFinancialIntentIds, ...input.touchpointSelectionIds]);
+    missingOffers.forEach((offerId, index) => { next = { ...next, offerFinancialIntents: [...next.offerFinancialIntents, { id: input.offerFinancialIntentIds[index]!, offerId, financialDesiredOutcomeId: outcomeId }] }; });
+    const additions = missingPaths.map((path, index): TouchpointFinancialSelection => { const intent = next.offerFinancialIntents.find(item => item.offerId === path.offerId && item.financialDesiredOutcomeId === outcomeId)!; return { id: input.touchpointSelectionIds[index]!, ...path, offerFinancialIntentId: intent.id, financialDesiredOutcomeId: outcomeId }; });
+    return { status: 'complete', document: pruneIrrelevantTouchpointMitigations({ ...next, touchpointFinancialSelections: [...next.touchpointFinancialSelections, ...additions] }) };
+  }
+
+  const outcomes = input.addressedDesiredOutcomeIds ?? []; const job = document.entities.find(entity => entity.id === input.jobId);
   if (!job || !(PRODUCT_JOB_KINDS as readonly string[]).includes(job.kind)) throw new DomainError('invalid_product_job_reference', 'Job does not reference an eligible existing entity.');
   if (isDesiredOutcomeBearingJob(job.kind) && !outcomes.length) throw new DomainError('missing_touchpoint_desired_outcome', 'Bottom-up authoring for a DO-bearing Job requires at least one Desired Outcome.');
-  validateProductJobIntent(document, { productId: products[0]!, jobId: input.jobId, addressedDesiredOutcomeIds: outcomes }, document.productJobIntents.find(intent => intent.productId === products[0] && intent.jobId === input.jobId)?.id);
+  const offers = [...new Set(paths.map(path => path.offerId))]; const products = [...new Set(offers.map(offerId => productForOffer(document, offerId)))];
+  for (const productId of products) validateProductJobIntent(document, { productId, jobId: input.jobId, addressedDesiredOutcomeIds: outcomes }, document.productJobIntents.find(intent => intent.productId === productId && intent.jobId === input.jobId)?.id);
   const missingProducts = products.filter(productId => !document.productJobIntents.some(intent => intent.productId === productId && intent.jobId === input.jobId));
-  const missingOffers = input.contributingOfferIds.filter(offerId => { const productId = productForOffer(document, offerId); const intent = document.productJobIntents.find(candidate => candidate.productId === productId && candidate.jobId === input.jobId); return !intent || !document.offerJobSelections.some(selection => selection.offerId === offerId && selection.productJobIntentId === intent.id); });
-  if (missingProducts.length !== input.productJobIntentIds.length || missingOffers.length !== input.offerJobSelectionIds.length || input.contributingOfferIds.length !== input.touchpointSelectionIds.length) throw new DomainError('invalid_selection_ids', 'Every potentially created record requires a generated stable ID.');
+  const missingOffers = offers.filter(offerId => { const intent = document.productJobIntents.find(item => item.productId === productForOffer(document, offerId) && item.jobId === input.jobId); return !intent || !document.offerJobSelections.some(selection => selection.offerId === offerId && selection.productJobIntentId === intent.id); });
+  const missingPaths = paths.filter(path => { const intent = document.productJobIntents.find(item => item.productId === productForOffer(document, path.offerId) && item.jobId === input.jobId); return !intent || !document.touchpointJobSelections.some(selection => selection.touchpointId === path.touchpointId && selection.offerId === path.offerId && selection.productJobIntentId === intent.id); });
+  if (missingProducts.length !== input.productJobIntentIds.length || missingOffers.length !== input.offerJobSelectionIds.length || missingPaths.length !== input.touchpointSelectionIds.length) throw new DomainError('invalid_selection_ids', 'Every missing record requires exactly one generated stable ID.');
   assertFreshRecordIds(document, [...input.productJobIntentIds, ...input.offerJobSelectionIds, ...input.touchpointSelectionIds]);
   missingProducts.forEach((productId, index) => { next = addProductJobIntent(next, { id: input.productJobIntentIds[index]!, productId, jobId: input.jobId, addressedDesiredOutcomeIds: outcomes }); });
-  for (const productId of products) { const intent = next.productJobIntents.find(candidate => candidate.productId === productId && candidate.jobId === input.jobId)!; next = updateProductJobIntent(next, { ...intent, addressedDesiredOutcomeIds: [...new Set([...intent.addressedDesiredOutcomeIds, ...outcomes])] }); }
-  missingOffers.forEach((offerId, index) => { const productId = productForOffer(next, offerId); const intent = next.productJobIntents.find(candidate => candidate.productId === productId && candidate.jobId === input.jobId)!; next = { ...next, offerJobSelections: [...next.offerJobSelections, { id: input.offerJobSelectionIds[index]!, offerId, productJobIntentId: intent.id }] }; });
-  const additions = input.contributingOfferIds.map((offerId, index): TouchpointJobSelection => { const productId = productForOffer(next, offerId); const intent = next.productJobIntents.find(candidate => candidate.productId === productId && candidate.jobId === input.jobId)!; return { id: input.touchpointSelectionIds[index]!, touchpointId: input.touchpointId, offerId, productJobIntentId: intent.id, addressedDesiredOutcomeIds: [...outcomes] }; });
-  return pruneIrrelevantTouchpointMitigations({ ...next, touchpointJobSelections: [...next.touchpointJobSelections.filter(selection => !(selection.touchpointId === input.touchpointId && additions.some(item => item.offerId === selection.offerId && item.productJobIntentId === selection.productJobIntentId))), ...additions] });
+  for (const productId of products) { const intent = next.productJobIntents.find(item => item.productId === productId && item.jobId === input.jobId)!; next = updateProductJobIntent(next, { ...intent, addressedDesiredOutcomeIds: [...new Set([...intent.addressedDesiredOutcomeIds, ...outcomes])] }); }
+  missingOffers.forEach((offerId, index) => { const intent = next.productJobIntents.find(item => item.productId === productForOffer(next, offerId) && item.jobId === input.jobId)!; next = { ...next, offerJobSelections: [...next.offerJobSelections, { id: input.offerJobSelectionIds[index]!, offerId, productJobIntentId: intent.id }] }; });
+  const additions = missingPaths.map((path, index): TouchpointJobSelection => { const intent = next.productJobIntents.find(item => item.productId === productForOffer(next, path.offerId) && item.jobId === input.jobId)!; return { id: input.touchpointSelectionIds[index]!, ...path, productJobIntentId: intent.id, addressedDesiredOutcomeIds: [...outcomes] }; });
+  const expanded = next.touchpointJobSelections.map(selection => paths.some(path => path.touchpointId === selection.touchpointId && path.offerId === selection.offerId) && next.productJobIntents.find(intent => intent.id === selection.productJobIntentId)?.jobId === input.jobId ? { ...selection, addressedDesiredOutcomeIds: [...new Set([...selection.addressedDesiredOutcomeIds, ...outcomes])] } : selection);
+  return { status: 'complete', document: pruneIrrelevantTouchpointMitigations({ ...next, touchpointJobSelections: [...expanded, ...additions] }) };
 }
 
 export const narrowTouchpointIntentScope = setTouchpointIntentSelections;

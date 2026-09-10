@@ -228,6 +228,9 @@ export function commitTouchpointBusinessProperty(document: MapDocument, input: {
 export function applyTouchpointEditDraft(document: MapDocument, input: { touchpointId: string; draft: TouchpointEditDraft; newId: () => string }): MapDocument {
   const validationError = validateTouchpointIntentDraft(input.draft.touchpointIntent, input.draft.linkedOfferIds);
   if (validationError) throw new Error(validationError);
+  // Structural/property commits carry a durable intent snapshot. Only an actual
+  // semantic edit owns bottom-up propagation through the resulting ancestry.
+  const intentChanged = !equalTouchpointIntentDraft(input.draft.touchpointIntent, createTouchpointIntentDraft(document, input.touchpointId));
 
   let next = document;
   let locatedInId = input.draft.locatedInId;
@@ -250,7 +253,7 @@ export function applyTouchpointEditDraft(document: MapDocument, input: { touchpo
     relationshipIds: input.draft.linkedOfferIds.map(offerId => oldOffers.find(relation => relation.offerId === offerId)?.id ?? input.newId()),
     ...(input.draft.parentTouchpointId ? { parentTouchpointId: input.draft.parentTouchpointId, parentRelationshipId: parent?.id ?? input.newId() } : {}),
   });
-  next = applyTouchpointIntentDraft(next, { touchpointId: input.touchpointId, draft: input.draft.touchpointIntent, newId: input.newId });
+  if (intentChanged) next = applyTouchpointIntentDraft(next, { touchpointId: input.touchpointId, draft: input.draft.touchpointIntent, newId: input.newId });
 
   const retained = next.relationships.flatMap(relation => relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === input.touchpointId ? [relation.repulsorId] : []);
   const relevant = new Set(relevantRepulsorsForTouchpoint(next, input.touchpointId).map(repulsor => repulsor.id));
