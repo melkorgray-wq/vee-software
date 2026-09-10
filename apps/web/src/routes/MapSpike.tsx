@@ -14,7 +14,7 @@ import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, recons
 import { nearestSpatialCandidate, spatialDirectionForKey } from '../map-spatial-navigation';
 import { enterMoveMode, inactiveMoveMode, moveInMode, moveVectorForKey, type MoveMode } from '../map-move-mode';
 import { Link } from '../router';
-import { CONNECTION_PICKER_KINDS, applyTouchpointEditDraft, commitTouchpointBusinessProperty, connectionPickerCatalogue, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, filterConnectionCandidates, financialLeafKey, jobLeafKey, selectCurrentOfferIntent, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft } from './touchpoint-edit';
+import { CONNECTION_PICKER_KINDS, applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, connectionPickerCatalogue, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, filterConnectionCandidates, financialLeafKey, jobLeafKey, selectCurrentOfferIntent, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft } from './touchpoint-edit';
 import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
 import { deriveTouchpointBusinessStructure } from '../touchpoint-business-structure';
 
@@ -85,7 +85,7 @@ type ProductConfirmation =
   | { mode: 'dirty'; pending: () => void; returnFocus: HTMLElement | null }
   | { mode: 'impact'; owner: 'product'; pending?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getProductIntentChangeImpact> }
   | { mode: 'impact'; owner: 'offer'; pending?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getOfferIntentChangeImpact> }
-  | { mode: 'impact'; owner: 'touchpoint'; pending?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getTouchpointLinkedOfferChangeImpact> };
+  | { mode: 'impact'; owner: 'touchpoint'; pending?: () => void; immediateCommit?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getTouchpointLinkedOfferChangeImpact> };
 const draft = (kind: ProvisionalEntityKind = 'product'): EditDraft => ({
   title: '',
   side: isClientRootEntityKind(kind) || isContextualClientEntityKind(kind) || kind === 'repulsor' ? 'client' : 'business',
@@ -384,6 +384,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [mode, setMode] = useState<'idle' | 'create'>('idle');
   const [createDraft, setCreateDraft] = useState<EditDraft>(draft());
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
+  const [offersPicker, setOffersPicker] = useState<{ query: string } | null>(null);
+  const offersPickerButtonRef = useRef<HTMLButtonElement>(null);
   const [businessInlineEdit, setBusinessInlineEdit] = useState<{ property: 'url'; value: string; error?: string } | { property: 'located-in'; query: string; error?: string } | null>(null);
   const [productExpanded, setProductExpanded] = useState<Record<string, boolean>>({});
   const [offerExpanded, setOfferExpanded] = useState<Record<string, boolean>>({});
@@ -452,6 +454,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       setSelectedId(null);
       setEditDraft(null);
       setInspectorTitleEdit(null);
+      setOffersPicker(null);
     }
   }, [selected, selectedId]);
 
@@ -578,6 +581,30 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     } : current);
     setBusinessInlineEdit(null);
   }
+  function commitLinkedOffersImmediately(touchpointId: string, targetOfferIds: string[], confirmedRemoval = false) {
+    const durable = documentRef.current;
+    try {
+      const committed = commitTouchpointLinkedOffers(durable, { touchpointId, linkedOfferIds: targetOfferIds, confirmedRemoval, newId: () => crypto.randomUUID() });
+      const next = reconsiderPlacementAfterRelationCommit(durable, committed, VIEW_ID, touchpointId);
+      setDocument(next);
+      const saved = next.entities.find(entity => entity.id === touchpointId);
+      const synchronized = saved ? draftFor(saved, next) : null;
+      setEditDraft(current => current && synchronized?.touchpointIntent ? { ...current, linkedOfferIds: synchronized.linkedOfferIds, touchpointIntent: synchronized.touchpointIntent } : current);
+      publishSuccess('Linked Offers updated.');
+    } catch (error) {
+      publishError(error instanceof Error ? error.message : 'Linked Offers could not be updated.');
+    }
+  }
+  function requestLinkedOffersCommit(targetOfferIds: string[], returnFocus: HTMLElement | null) {
+    if (selected?.kind !== 'touchpoint') return;
+    const touchpointId = selected.id;
+    const impact = getTouchpointLinkedOfferChangeImpact(documentRef.current, { touchpointId, linkedOfferIds: targetOfferIds });
+    if (impact.length) {
+      setProductConfirmation({ mode: 'impact', owner: 'touchpoint', impact, returnFocus, immediateCommit: () => commitLinkedOffersImmediately(touchpointId, targetOfferIds, true) });
+      return;
+    }
+    commitLinkedOffersImmediately(touchpointId, targetOfferIds);
+  }
   function applyTouchpointChanges(pending = pendingAfterApplyRef.current, returnFocus?: HTMLElement | null, confirmed = false): boolean {
     const durable = documentRef.current;
     const entity = durable.entities.find(candidate => candidate.id === selectedRef.current);
@@ -651,6 +678,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setMenu(null);
     clearMessage();
     setBusinessInlineEdit(null);
+    setOffersPicker(null);
     setInspectorTitleEdit(null);
     const entity = documentRef.current.entities.find((e) => e.id === id);
     setEditDraft(entity ? draftFor(entity, documentRef.current) : null);
@@ -1226,6 +1254,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   function performRootCreation() {
     setInspectorTitleEdit(null);
     setMode('create');
+    setOffersPicker(null);
     setCreateDraft(draft());
     resetProductSession(undefined);
     setActiveWorkspaceView('inspector');
@@ -1268,32 +1297,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         )}
         {inspector && (
           <>
-            <fieldset>
-              <legend>Linked Offers</legend>
-              {document.entities
-                .filter((e) => e.kind === 'offer')
-                .map((o) => (
-                  <div className="connected-choice" key={o.id}><label className="checkbox">
-                    <input
-                      type="checkbox"
-                      checked={d.linkedOfferIds.includes(o.id)}
-                      onChange={(e) => {
-                        const linkedOfferIds = e.target.checked ? [...d.linkedOfferIds, o.id] : d.linkedOfferIds.filter((id) => id !== o.id);
-                        setter({
-                          ...d,
-                          linkedOfferIds,
-                          ...(d.touchpointIntent ? { touchpointIntent: !e.target.checked ? {
-                              ...d.touchpointIntent,
-                              jobLeaves: d.touchpointIntent.jobLeaves.map(leaf => ({ ...leaf, contributorOfferIds: leaf.contributorOfferIds.filter(id => id !== o.id) })),
-                              financialLeaves: d.touchpointIntent.financialLeaves.map(leaf => ({ ...leaf, contributorOfferIds: leaf.contributorOfferIds.filter(id => id !== o.id) })),
-                          } : d.touchpointIntent } : {}),
-                        });
-                      }}
-                    />
-                    {o.title}
-                  </label><button type="button" className="connected-title" onClick={() => navigateInspector(o.id)}>{o.title}</button></div>
-                ))}
-            </fieldset>
             <fieldset>
               <legend>Relevant Repulsors (derived)</legend>
               {selectedId &&
@@ -1678,7 +1681,21 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         <div className="business-structure-regions">
           <section className="business-structure-region business-structure-placement" aria-labelledby="business-placement-heading">
             <h5 id="business-placement-heading">Placement</h5>
-            <div className="business-structure-property" role="group" aria-label="Offers property"><h5>Offers</h5>{navigationList(structure.offers)}</div>
+            <div className="business-structure-property" role="group" aria-label="Offers property"><h5>Offers</h5>
+              {offersPicker ? (() => {
+                const query = offersPicker.query.trim().toLocaleLowerCase();
+                const offers = document.entities.filter(entity => entity.kind === 'offer' && (!query || entity.title.toLocaleLowerCase().includes(query)));
+                const linked = new Set(structure.offers.map(offer => offer.id));
+                return <div className="business-structure-offers-picker" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); setOffersPicker(null); requestAnimationFrame(() => offersPickerButtonRef.current?.focus()); } }}>
+                  <label htmlFor="linked-offers-search">Search Offers</label>
+                  <input autoFocus id="linked-offers-search" type="search" value={offersPicker.query} onChange={event => setOffersPicker({ query: event.target.value })} />
+                  <div className="business-structure-offers-results" aria-live="polite">
+                    {offers.length ? offers.map(offer => <label className="business-structure-offer-choice" key={offer.id}><input type="checkbox" checked={linked.has(offer.id)} onChange={event => requestLinkedOffersCommit(event.target.checked ? [...linked, offer.id] : [...linked].filter(id => id !== offer.id), event.currentTarget)} /><span>{offer.title}</span></label>) : <p>No matching Offers.</p>}
+                  </div>
+                  <button type="button" onClick={() => { setOffersPicker(null); requestAnimationFrame(() => offersPickerButtonRef.current?.focus()); }}>Cancel</button>
+                </div>;
+              })() : <>{navigationList(structure.offers)}<button ref={offersPickerButtonRef} type="button" className="business-structure-edit-relations" aria-label="Edit linked Offers" onClick={() => setOffersPicker({ query: '' })}>Edit linked Offers</button></>}
+            </div>
             <div className="business-structure-property" role="group" aria-label="Located in property"><h5>Located in</h5>{businessInlineEdit?.property === 'located-in' ? (() => {
               const trimmedQuery = businessInlineEdit.query.trim();
               const normalized = trimmedQuery.toLocaleLowerCase();
@@ -2244,7 +2261,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 <button type="button" onClick={closeProductConfirmation}>Keep editing</button>
               </> : <>
                 <button type="button" onClick={closeProductConfirmation}>Cancel</button>
-                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; setProductConfirmation(null); if (confirmation.owner === 'touchpoint') applyTouchpointChanges(confirmation.pending, confirmation.returnFocus, true); else { productApplyBypassRef.current = true; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>Apply changes</button>
+                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; setProductConfirmation(null); if (confirmation.owner === 'touchpoint' && confirmation.immediateCommit) confirmation.immediateCommit(); else if (confirmation.owner === 'touchpoint') applyTouchpointChanges(confirmation.pending, confirmation.returnFocus, true); else { productApplyBypassRef.current = true; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>Apply changes</button>
               </>}
             </div>
           </div>
