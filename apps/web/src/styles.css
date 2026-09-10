@@ -86,9 +86,19 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .connected-choice { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
 .connected-choice > label.checkbox { flex: 1; }
 .connected-title { width: max-content; text-decoration: underline; text-underline-offset: .18em; }
-.connected-scope, .connection-picker { border: 1px solid var(--border-subtle); border-radius: .5rem; margin: .75rem 0; padding: .75rem; }
-.connected-branch { display: grid; gap: .2rem; margin: .5rem 0; justify-items: start; }
-.connected-leaf { margin-left: 1.25rem; }
+.connection-picker { border: 1px solid var(--border-subtle); border-radius: .5rem; margin: .75rem 0; padding: .75rem; }
+.touchpoint-client-scope { display: grid; gap: .65rem; min-width: 0; margin: .25rem 0 0; padding: 1rem 0 0; border: 0; border-top: 1px solid var(--border-subtle); background: transparent; }
+.touchpoint-client-scope > h4 { padding-bottom: .35rem; border-bottom: 1px solid var(--border-subtle); color: rgba(255,255,255,.72); font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; }
+.touchpoint-client-scope-content { display: grid; gap: .75rem; min-width: 0; }
+.touchpoint-client-job, .touchpoint-client-financial { display: grid; justify-items: start; gap: .2rem; min-width: 0; }
+.touchpoint-client-job > small, .touchpoint-client-financial > small { color: rgba(255,255,255,.58); }
+.touchpoint-client-job button, .touchpoint-client-financial button { max-width: 100%; padding: .15rem 0; border: 0; background: transparent; color: var(--color-accent); text-align: left; text-decoration: underline; text-underline-offset: .18em; overflow-wrap: anywhere; }
+.touchpoint-client-job button:focus-visible, .touchpoint-client-financial button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.touchpoint-client-job > ul { position: relative; display: grid; gap: .25rem; width: 100%; margin: .15rem 0 0 .4rem; padding: .15rem 0 .15rem 1.2rem; list-style: none; }
+.touchpoint-client-job > ul::before { position: absolute; inset: 0 auto 0 .25rem; border-left: 1px solid var(--border-soft); content: ''; }
+.touchpoint-client-job > ul li { position: relative; min-width: 0; }
+.touchpoint-client-job > ul li::before { position: absolute; top: .85rem; left: -1rem; width: .65rem; border-top: 1px solid var(--border-soft); content: ''; }
+.touchpoint-client-scope-empty { color: rgba(255,255,255,.58); font-style: italic; }
 .connection-results { display: grid; gap: .4rem; max-height: 17.5rem; overflow: auto; margin: .65rem 0; }
 .connection-result { display: grid; gap: .15rem; padding: .55rem; text-align: left; }
 .connection-result.selected { outline: 2px solid var(--color-primary); }

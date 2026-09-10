@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyMapDocument, relevantRepulsorsForTouchpoint, type MapDocument } from '@vee/domain';
-import { applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointParent, connectionPickerCatalogue, createTouchpointIntentDraft, equalTouchpointIntentDraft, filterConnectionCandidates, selectCurrentOfferIntent, touchpointIntentCatalogue, validateTouchpointIntentDraft } from './touchpoint-edit';
+import { applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointParent, connectionPickerCatalogue, createTouchpointIntentDraft, equalTouchpointIntentDraft, filterConnectionCandidates, selectCurrentOfferIntent, touchpointClientScope, touchpointIntentCatalogue, validateTouchpointIntentDraft } from './touchpoint-edit';
 
 function fixture(): MapDocument {
   return {
@@ -148,6 +148,54 @@ describe('Touchpoint edit intent draft', () => {
     expect(draft.jobLeaves.find(leaf => leaf.semanticLeafId === 'do-b')?.contributorOfferIds).toEqual(['offer-b']);
     expect(draft.durableBranchSnapshot.touchpointIntentLeafIds).toEqual(['job:do-a', 'job:do-b']);
     expect(draft.durableBranchSnapshot.otherClientIntentLeafIds).toEqual(['job:emotional', 'financial:fdo']);
+  });
+
+  it('projects durable Client scope with owner-aware Jobs, direct Jobs, standalone FDOs, and contributor attribution', () => {
+    const document = fixture();
+    document.entities.push(
+      { id: 'related', kind: 'related_job', title: 'Related' }, { id: 'related-do', kind: 'desired_outcome', title: 'Related DO' },
+      { id: 'chain', kind: 'consumption_chain_job', title: 'Chain' }, { id: 'chain-do', kind: 'desired_outcome', title: 'Chain DO' },
+      { id: 'social', kind: 'social_job', title: 'Belong' }, { id: 'repulsor', kind: 'repulsor', title: 'Doubt' },
+    );
+    document.relationships.push(
+      { id: 'related-owns', kind: 'job_has_desired_outcome', jobId: 'related', desiredOutcomeId: 'related-do' },
+      { id: 'chain-owns', kind: 'job_has_desired_outcome', jobId: 'chain', desiredOutcomeId: 'chain-do' },
+      { id: 'resists', kind: 'repulsor_resists', repulsorId: 'repulsor', targetEntityId: 'job' },
+      { id: 'mitigates', kind: 'touchpoint_mitigates_repulsor', touchpointId: 'touch', repulsorId: 'repulsor' },
+    );
+    document.productJobIntents.push(
+      { id: 'related-intent', productId: 'product', jobId: 'related', addressedDesiredOutcomeIds: ['related-do'] },
+      { id: 'chain-intent', productId: 'product', jobId: 'chain', addressedDesiredOutcomeIds: ['chain-do'] },
+      { id: 'emotional-intent', productId: 'product', jobId: 'emotional', addressedDesiredOutcomeIds: [] },
+      { id: 'social-intent', productId: 'product', jobId: 'social', addressedDesiredOutcomeIds: [] },
+    );
+    document.touchpointJobSelections.push(
+      { id: 'related-path', touchpointId: 'touch', offerId: 'offer-a', productJobIntentId: 'related-intent', addressedDesiredOutcomeIds: ['related-do'] },
+      { id: 'chain-path', touchpointId: 'touch', offerId: 'offer-b', productJobIntentId: 'chain-intent', addressedDesiredOutcomeIds: ['chain-do'] },
+      { id: 'emotional-path', touchpointId: 'touch', offerId: 'offer-a', productJobIntentId: 'emotional-intent', addressedDesiredOutcomeIds: [] },
+      { id: 'social-path', touchpointId: 'touch', offerId: 'offer-b', productJobIntentId: 'social-intent', addressedDesiredOutcomeIds: [] },
+    );
+    document.offerFinancialIntents.push({ id: 'offer-financial', offerId: 'offer-a', financialDesiredOutcomeId: 'fdo' });
+    document.touchpointFinancialSelections.push({ id: 'financial-path', touchpointId: 'touch', offerId: 'offer-a', offerFinancialIntentId: 'offer-financial', financialDesiredOutcomeId: 'fdo' });
+
+    const scope = touchpointClientScope(document, 'touch');
+
+    expect(scope.jobGroups.map(group => [group.job.kind, group.desiredOutcomes.map(leaf => leaf.semanticLeafId)])).toEqual([
+      ['core_functional_job', ['do-a', 'do-b']], ['emotional_job', []], ['related_job', ['related-do']], ['consumption_chain_job', ['chain-do']], ['social_job', []],
+    ]);
+    expect(scope.jobGroups[0]?.desiredOutcomes[0]).toMatchObject({ semanticLeafId: 'do-a', contributorOfferIds: ['offer-a', 'offer-b'] });
+    expect(scope.jobGroups.filter(group => group.job.id === 'job')).toHaveLength(1);
+    expect(scope.financialLeaves).toEqual([{ entity: expect.objectContaining({ id: 'fdo', kind: 'financial_desired_outcome' }), semanticLeafId: 'fdo', contributorOfferIds: ['offer-a'] }]);
+    expect(JSON.stringify(scope)).not.toContain('repulsor');
+  });
+
+  it('ignores pending draft selections because Client scope is projected from the durable document', () => {
+    const document = fixture();
+    const pending = createTouchpointIntentDraft(document, 'touch');
+    pending.financialLeaves[0]!.contributorOfferIds = ['offer-a'];
+    pending.pendingFinancialLeafIds = ['fdo'];
+
+    expect(touchpointClientScope(document, 'touch').financialLeaves).toEqual([]);
   });
 
   it('compares contributor attribution and rejects pending leaves without one', () => {
