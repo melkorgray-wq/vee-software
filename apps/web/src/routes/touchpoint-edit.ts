@@ -106,6 +106,31 @@ export type TouchpointEditDraft = {
   touchpointIntent: TouchpointIntentDraft;
 };
 
+/** Immediately commits the complete target Offer set from a fresh durable Touchpoint snapshot. */
+export function commitTouchpointLinkedOffers(document: MapDocument, input: { touchpointId: string; linkedOfferIds: string[]; confirmedRemoval?: boolean; newId: () => string }): MapDocument {
+  const touchpoint = document.entities.find(entity => entity.id === input.touchpointId);
+  if (touchpoint?.kind !== 'touchpoint') throw new Error('Touchpoint does not exist.');
+  if (new Set(input.linkedOfferIds).size !== input.linkedOfferIds.length) throw new Error('An Offer cannot be linked more than once.');
+  if (input.linkedOfferIds.some(id => !document.entities.some(entity => entity.id === id && entity.kind === 'offer'))) throw new Error('Linked Offers must be existing Offer entities.');
+  const linkedOfferIds = [...input.linkedOfferIds];
+  let touchpointIntent = createTouchpointIntentDraft(document, touchpoint.id);
+  if (input.confirmedRemoval) touchpointIntent = {
+    ...touchpointIntent,
+    jobLeaves: touchpointIntent.jobLeaves.map(leaf => ({ ...leaf, contributorOfferIds: leaf.contributorOfferIds.filter(id => linkedOfferIds.includes(id)) })),
+    financialLeaves: touchpointIntent.financialLeaves.map(leaf => ({ ...leaf, contributorOfferIds: leaf.contributorOfferIds.filter(id => linkedOfferIds.includes(id)) })),
+  };
+  const parentTouchpointId = document.relationships.find((relation): relation is Extract<MapDocument['relationships'][number], { kind: 'touchpoint_contains_touchpoint' }> => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === touchpoint.id)?.parentTouchpointId ?? '';
+  return applyTouchpointEditDraft(document, { touchpointId: touchpoint.id, newId: input.newId, draft: {
+    title: touchpoint.title, linkedOfferIds, parentTouchpointId,
+    locatedInId: touchpoint.locatedInId ?? '',
+    locatedInQuery: document.touchpointContainers.find(container => container.id === touchpoint.locatedInId)?.title ?? '',
+    locationDraft: touchpoint.locatedInId ? { kind: 'existing', containerId: touchpoint.locatedInId } : { kind: 'none' },
+    url: touchpoint.url ?? '',
+    mitigatedRepulsorIds: document.relationships.flatMap(relation => relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === touchpoint.id ? [relation.repulsorId] : []),
+    touchpointIntent,
+  } });
+}
+
 type TouchpointBusinessPropertyInput =
   | { property: 'url'; url: string }
   | { property: 'located-in'; location: { kind: 'none' } | { kind: 'existing'; containerId: string } | { kind: 'new'; id: string; title: string } };
@@ -158,7 +183,7 @@ export function applyTouchpointEditDraft(document: MapDocument, input: { touchpo
     if (!existing) next = addTouchpointContainer(next, { id: locatedInId, title });
   } else if (input.draft.locationDraft.kind === 'existing') locatedInId = input.draft.locationDraft.containerId;
 
-  const oldOffers = document.relationships.filter(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === input.touchpointId);
+  const oldOffers = document.relationships.filter((relation): relation is Extract<MapDocument['relationships'][number], { kind: 'offer_presented_at_touchpoint' }> => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === input.touchpointId);
   const parent = document.relationships.find(relation => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === input.touchpointId);
   next = updateEntity(next, {
     entityId: input.touchpointId,
@@ -166,7 +191,7 @@ export function applyTouchpointEditDraft(document: MapDocument, input: { touchpo
     locatedInId,
     url: input.draft.url,
     linkedOfferIds: input.draft.linkedOfferIds,
-    relationshipIds: input.draft.linkedOfferIds.map((_, index) => oldOffers[index]?.id ?? input.newId()),
+    relationshipIds: input.draft.linkedOfferIds.map(offerId => oldOffers.find(relation => relation.offerId === offerId)?.id ?? input.newId()),
     ...(input.draft.parentTouchpointId ? { parentTouchpointId: input.draft.parentTouchpointId, parentRelationshipId: parent?.id ?? input.newId() } : {}),
   });
   next = applyTouchpointIntentDraft(next, { touchpointId: input.touchpointId, draft: input.draft.touchpointIntent, newId: input.newId });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyMapDocument, type MapDocument } from '@vee/domain';
-import { applyTouchpointEditDraft, commitTouchpointBusinessProperty, connectionPickerCatalogue, createTouchpointIntentDraft, equalTouchpointIntentDraft, filterConnectionCandidates, selectCurrentOfferIntent, touchpointIntentCatalogue, validateTouchpointIntentDraft } from './touchpoint-edit';
+import { applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, connectionPickerCatalogue, createTouchpointIntentDraft, equalTouchpointIntentDraft, filterConnectionCandidates, selectCurrentOfferIntent, touchpointIntentCatalogue, validateTouchpointIntentDraft } from './touchpoint-edit';
 
 function fixture(): MapDocument {
   return {
@@ -24,6 +24,21 @@ function fixture(): MapDocument {
     ],
   };
 }
+
+describe('Touchpoint linked Offer commit', () => {
+  it('retains relationship IDs, allocates only additions, removes safely, and does not mutate input', () => {
+    const document = fixture();
+    document.entities.push({ id: 'offer-c', kind: 'offer', title: 'Offer C' });
+    const snapshot = structuredClone(document);
+    const ids = ['presents-c'];
+    const added = commitTouchpointLinkedOffers(document, { touchpointId: 'touch', linkedOfferIds: ['offer-b', 'offer-c'], confirmedRemoval: true, newId: () => ids.shift()! });
+    expect(added.relationships).toContainEqual(expect.objectContaining({ id: 'presents-b', offerId: 'offer-b', touchpointId: 'touch' }));
+    expect(added.relationships).toContainEqual(expect.objectContaining({ id: 'presents-c', offerId: 'offer-c', touchpointId: 'touch' }));
+    expect(added.relationships).not.toContainEqual(expect.objectContaining({ id: 'presents-a' }));
+    expect(added.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint')).toEqual(document.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint'));
+    expect(document).toEqual(snapshot);
+  });
+});
 
 describe('Touchpoint edit intent draft', () => {
   it('commits only a normalized URL and returns the durable document for an unchanged value', () => {
