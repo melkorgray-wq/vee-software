@@ -1680,15 +1680,20 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             <h5 id="business-placement-heading">Placement</h5>
             <div className="business-structure-property" role="group" aria-label="Offers property"><h5>Offers</h5>{navigationList(structure.offers)}</div>
             <div className="business-structure-property" role="group" aria-label="Located in property"><h5>Located in</h5>{businessInlineEdit?.property === 'located-in' ? (() => {
-              const normalized = businessInlineEdit.query.trim().toLocaleLowerCase();
+              const trimmedQuery = businessInlineEdit.query.trim();
+              const normalized = trimmedQuery.toLocaleLowerCase();
               const matches = document.touchpointContainers.filter(container => container.title.toLocaleLowerCase().includes(normalized));
               const exact = document.touchpointContainers.find(container => container.title.trim().toLocaleLowerCase() === normalized);
+              const commitQuery = () => {
+                if (exact) commitInlineLocation({ kind: 'existing', containerId: exact.id });
+                else if (trimmedQuery) commitInlineLocation({ kind: 'new', title: trimmedQuery });
+              };
               return <div className="combobox business-structure-editor" onPointerDown={event => event.stopPropagation()}>
-                <input autoFocus role="combobox" aria-label="Edit Located in" aria-expanded="true" aria-controls="business-location-options" value={businessInlineEdit.query} onChange={event => setBusinessInlineEdit({ property: 'located-in', query: event.target.value })} onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setBusinessInlineEdit(null); } }} />
+                <input autoFocus role="combobox" aria-label="Edit Located in" aria-expanded="true" aria-controls="business-location-options" value={businessInlineEdit.query} onChange={event => setBusinessInlineEdit({ property: 'located-in', query: event.target.value })} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); commitQuery(); } else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setBusinessInlineEdit(null); } }} />
                 <div id="business-location-options" role="listbox">
                   <button type="button" role="option" aria-selected={!structure.container} onClick={() => commitInlineLocation({ kind: 'none' })}>{structure.container ? 'Clear location' : 'No location'}</button>
                   {matches.map(container => <button type="button" role="option" aria-selected={structure.container?.id === container.id} key={container.id} onClick={() => commitInlineLocation({ kind: 'existing', containerId: container.id })}>{container.title}</button>)}
-                  {normalized && !exact && <button type="button" role="option" aria-selected="false" onClick={() => commitInlineLocation({ kind: 'new', title: businessInlineEdit.query })}>Create &quot;{businessInlineEdit.query.trim()}&quot;</button>}
+                  {trimmedQuery && !exact && <button type="button" role="option" aria-selected="false" onClick={commitQuery}>Create &quot;{trimmedQuery}&quot;</button>}
                 </div>
                 {businessInlineEdit.error && <p className="error-message" role="alert">{businessInlineEdit.error}</p>}
               </div>;
