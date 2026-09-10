@@ -378,7 +378,15 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(inspector.getByRole('combobox', { name: 'Edit Located in' })).toHaveValue('Website');
     await user.clear(inspector.getByRole('combobox', { name: 'Edit Located in' })); await user.type(inspector.getByRole('combobox', { name: 'Edit Located in' }), 'Mobile'); await user.click(inspector.getByRole('option', { name: 'Mobile app' }));
     expect(region().getByRole('button', { name: /Mobile app/ })).toBeInTheDocument();
-    await user.click(region().getByRole('button', { name: /Edit Located in/ })); await user.clear(inspector.getByRole('combobox', { name: 'Edit Located in' })); await user.type(inspector.getByRole('combobox', { name: 'Edit Located in' }), 'Landing pages'); await user.click(inspector.getByRole('option', { name: 'Create "Landing pages"' }));
+    await user.click(region().getByRole('button', { name: /Edit Located in/ })); await user.clear(inspector.getByRole('combobox', { name: 'Edit Located in' })); await user.type(inspector.getByRole('combobox', { name: 'Edit Located in' }), 'WebSi{Enter}');
+    expect(inspector.queryByRole('combobox', { name: 'Edit Located in' })).not.toBeInTheDocument(); expect(region().getByRole('button', { name: 'Edit Located in, WebSi' })).toBeInTheDocument();
+    await user.click(region().getByRole('button', { name: /Edit Located in/ })); await user.clear(inspector.getByRole('combobox', { name: 'Edit Located in' })); await user.type(inspector.getByRole('combobox', { name: 'Edit Located in' }), '  website  ');
+    expect(inspector.queryByRole('option', { name: /Create.*website/i })).not.toBeInTheDocument(); await user.keyboard('{Enter}');
+    expect(region().getByRole('button', { name: 'Edit Located in, Website' })).toBeInTheDocument();
+    await user.click(inspector.getByLabelText('Consulting')); expect(inspector.getByText('Unsaved changes')).toBeInTheDocument();
+    await user.click(region().getByRole('button', { name: /Edit Located in/ })); await user.clear(inspector.getByRole('combobox', { name: 'Edit Located in' })); await user.keyboard('{Enter}');
+    expect(inspector.getByRole('combobox', { name: 'Edit Located in' })).toHaveValue(''); expect(inspector.getByText('Unsaved changes')).toBeInTheDocument();
+    await user.type(inspector.getByRole('combobox', { name: 'Edit Located in' }), 'Landing pages'); await user.click(inspector.getByRole('option', { name: 'Create "Landing pages"' }));
     expect(region().getByRole('button', { name: /Landing pages/ })).toBeInTheDocument();
     await user.click(region().getByRole('button', { name: /Edit Located in/ })); await user.keyboard('{Escape}'); expect(region().getByRole('button', { name: /Landing pages/ })).toBeInTheDocument();
     await user.click(region().getByRole('button', { name: /Edit Located in/ })); await user.click(inspector.getByRole('option', { name: 'Clear location' })); expect(region().getByRole('button', { name: 'Edit Located in' })).toHaveTextContent('Add location');
