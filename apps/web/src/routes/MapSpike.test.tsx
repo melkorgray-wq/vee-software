@@ -127,7 +127,10 @@ function replacementDocument(): MapDocument {
 describe('temporary DEV Map bridge owner integration', () => {
   it('loads visible entities and placements while clearing stale document interaction state', async () => {
     const user = userEvent.setup();
-    render(<MapSpike initialDocument={touchpointInspectorDocument(true)} />);
+    const initial = touchpointInspectorDocument(true);
+    initial.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
+    initial.offerJobSelections.push({ id: 'offer-selection', offerId: 'offer-a', productJobIntentId: 'intent' });
+    render(<MapSpike initialDocument={initial} />);
     const checkoutNode = screen.getByRole('button', { name: 'Checkout' });
     await user.click(checkoutNode);
     const inspector = await openInspector(user);
@@ -135,6 +138,9 @@ describe('temporary DEV Map bridge owner integration', () => {
     await user.clear(inspector.getByRole('textbox', { name: 'Edit title, Checkout' }));
     await user.type(inspector.getByRole('textbox', { name: 'Edit title, Checkout' }), 'Stale checkout draft');
     await user.click(inspector.getByRole('button', { name: 'Edit linked Offers' }));
+    await user.keyboard('{Escape}');
+    await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
+    await user.click(inspector.getByRole('button', { name: 'Offer · Subscription' }));
 
     act(() => window.__VEE_DEV__!.load(replacementDocument()));
 
@@ -146,6 +152,12 @@ describe('temporary DEV Map bridge owner integration', () => {
     await openMap(user);
     expect(screen.getByRole('button', { name: 'Replacement Product' })).toHaveAttribute('data-x', '321');
     expect(screen.getByRole('button', { name: 'Replacement Product' })).toHaveAttribute('data-y', '654');
+
+    act(() => window.__VEE_DEV__!.load(initial));
+    await user.click(screen.getByRole('button', { name: 'Checkout' }));
+    const reloadedInspector = await openInspector(user);
+    await user.click(reloadedInspector.getByRole('button', { name: 'Edit Client scope' }));
+    expect(reloadedInspector.getByRole('button', { name: 'Offer · Subscription' })).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('dumps the latest durable UI document without transient editor state', async () => {

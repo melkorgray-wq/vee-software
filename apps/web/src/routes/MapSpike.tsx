@@ -461,6 +461,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setParentPicker(null);
     setBusinessInlineEdit(null);
     setConnectionPicker(null);
+    setExpandedClientSources({});
     setLocalRemoval(null);
     const neutralRelationsMode = inactiveRelationsMode();
     setRelationsMode(neutralRelationsMode);
