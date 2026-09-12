@@ -10,6 +10,7 @@ import { focusedRelationTarget, inactiveRelationsMode, reduceRelationsMode, rela
 import { relationGroupsForEntity } from '../map-relation-projection';
 import { deriveRelationLensTrace } from '../map-relation-lens';
 import { emptyInspectorHistory, inspectorHistoryReducer, traverseInspectorHistory } from '../inspector-navigation';
+import { registerDevMapBridge } from '../dev-map-bridge';
 import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, reconsiderPlacementAfterRelationCommit, type ProposedPlacementRelation } from '../map-placement';
 import { nearestSpatialCandidate, spatialDirectionForKey } from '../map-spatial-navigation';
 import { enterMoveMode, inactiveMoveMode, moveInMode, moveVectorForKey, type MoveMode } from '../map-move-mode';
@@ -443,6 +444,53 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     ? deriveTouchpointBusinessStructure(document, selected.id)
     : undefined;
   const inspectorDirty = Boolean(selected && editDraft && (() => { const baseline = draftFor(selected); return JSON.stringify({ ...editDraft, touchpointIntent: undefined }) !== JSON.stringify({ ...baseline, touchpointIntent: undefined }) || Boolean(editDraft.touchpointIntent && baseline.touchpointIntent && !equalTouchpointIntentDraft(editDraft.touchpointIntent, baseline.touchpointIntent)); })());
+
+  function resetDocumentInteractionState() {
+    setSelectedId(null);
+    selectedRef.current = null;
+    setEditDraft(null);
+    setInspectorTitleEdit(null);
+    setInlineEdit(null);
+    dispatchInspectorHistory({ type: 'replace', history: emptyInspectorHistory() });
+    setMenu(null);
+    setQuick(null);
+    setMode('idle');
+    setCreateDraft(draft());
+    setOffersPicker(null);
+    setParentPicker(null);
+    setBusinessInlineEdit(null);
+    setConnectionPicker(null);
+    setLocalRemoval(null);
+    const neutralRelationsMode = inactiveRelationsMode();
+    setRelationsMode(neutralRelationsMode);
+    relationsModeRef.current = neutralRelationsMode;
+    const neutralMoveMode = inactiveMoveMode();
+    setMoveMode(neutralMoveMode);
+    moveModeRef.current = neutralMoveMode;
+    setProductConfirmation(null);
+    setProductAddingKind(false);
+    setProductInline(null);
+    setProductInlineTitle('');
+    setProductExpanded({});
+    setOfferExpanded({});
+    setOfferIntentSectionIds({});
+    setOfferSelectionMemory({});
+    setProductIntentSectionIds([]);
+    setRememberedProductOutcomes({});
+    rememberedProductOutcomesRef.current = {};
+    pendingInspectorRevealRef.current = null;
+    pendingAfterApplyRef.current = null;
+    productApplyBypassRef.current = false;
+    setCopiedId(null);
+    copiedRef.current = null;
+    setMessage(null);
+  }
+
+  useEffect(() => registerDevMapBridge(import.meta.env.DEV, () => documentRef.current, nextDocument => {
+    resetDocumentInteractionState();
+    documentRef.current = nextDocument;
+    setDocument(nextDocument);
+  }), []);
 
   useEffect(() => {
     if (message?.kind !== 'success') return;
