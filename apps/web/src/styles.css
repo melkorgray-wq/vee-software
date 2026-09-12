@@ -98,7 +98,11 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .intent-semantic-leaf > button { justify-self: start; max-width: 100%; padding: .15rem 0; border: 0; background: transparent; color: var(--color-accent); text-align: left; overflow-wrap: anywhere; }
 .intent-path-variants { display: grid; gap: .1rem; margin-left: .25rem; padding-left: .55rem; border-left: 1px dashed var(--border-soft); }
 .intent-path-row { min-width: 0; }
-.global-intent-trigger { justify-self: start; margin-top: .2rem; }
+.intent-source-list { display: grid; gap: .2rem; }
+.intent-source-disclosure { display: grid; min-width: 0; border-bottom: 1px solid var(--border-subtle); }
+.intent-source-toggle { display: flex; align-items: center; gap: .4rem; width: 100%; padding: .5rem .1rem; border: 0; background: transparent; color: var(--color-foreground); text-align: left; }
+.intent-source-toggle > span { width: .8rem; color: rgba(255,255,255,.58); }
+.intent-source-dendrite { display: grid; gap: .55rem; padding: .2rem 0 .7rem 1.2rem; }
 .touchpoint-client-job, .touchpoint-client-financial { display: grid; justify-items: start; gap: .2rem; min-width: 0; }
 .touchpoint-client-job > small, .touchpoint-client-financial > small { color: rgba(255,255,255,.58); }
 .touchpoint-client-job button, .touchpoint-client-financial button { max-width: 100%; padding: .15rem 0; border: 0; background: transparent; color: var(--color-accent); text-align: left; text-decoration: underline; text-underline-offset: .18em; overflow-wrap: anywhere; }
@@ -119,8 +123,11 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .intent-checkbox > small { grid-column: 2; color: rgba(255,255,255,.58); }
 .intent-checkbox.unavailable { opacity: .58; }
 .parent-contributor-paths { display: grid; gap: .1rem; margin-left: 1.4rem; padding-left: .55rem; border-left: 1px dashed var(--border-soft); }
-.global-intent-discovery { display: grid; gap: .65rem; margin-top: .2rem; padding: .7rem 0 0; border-top: 1px solid var(--border-subtle); }
-.global-intent-results { display: grid; gap: .45rem; max-height: 17.5rem; margin: .65rem 0; overflow: auto; }
+.global-intent-discovery { display: grid; gap: .45rem; padding: 0 0 .45rem; border-bottom: 1px solid var(--border-subtle); }
+.global-intent-results { display: grid; gap: .35rem; max-height: 17.5rem; margin: .2rem 0; overflow: auto; }
+.kind-shortcut-results { display: flex; flex-wrap: wrap; gap: .35rem; }
+.kind-shortcut-results > button { padding: .3rem .45rem; font-size: .82rem; }
+.kind-shortcut-heading { display: grid; justify-items: start; gap: .25rem; }
 .intent-discovery-leaf { display: block; width: 100%; padding: .35rem .5rem; text-align: left; }
 .intent-source-block button:focus-visible, .intent-checkbox input:focus-visible, .intent-discovery-leaf:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .inspector form { display: grid; gap: 1rem; }

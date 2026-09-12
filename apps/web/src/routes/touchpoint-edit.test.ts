@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyMapDocument, relevantRepulsorsForTouchpoint, type MapDocument } from '@vee/domain';
-import { applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointParent, connectionPickerCatalogue, createTouchpointIntentDraft, equalTouchpointIntentDraft, filterConnectionCandidates, selectCurrentOfferIntent, touchpointClientScope, touchpointIntentCatalogue, touchpointUpstreamSources, validateTouchpointIntentDraft } from './touchpoint-edit';
+import { applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointParent, connectionPickerCatalogue, createTouchpointIntentDraft, equalTouchpointIntentDraft, filterConnectionCandidates, globalIntentDiscovery, selectCurrentOfferIntent, touchpointClientScope, touchpointIntentCatalogue, touchpointUpstreamSources, validateTouchpointIntentDraft } from './touchpoint-edit';
 
 function fixture(): MapDocument {
   return {
@@ -154,6 +154,45 @@ describe('Touchpoint edit intent draft', () => {
   it('DO results retain their owning Job', () => {
     const result = connectionPickerCatalogue(fixture(), 'touchpoint').find(candidate => candidate.semanticLeafId === 'do-a');
     expect(result).toMatchObject({ kind: 'job', entity: { id: 'job', kind: 'core_functional_job' }, desiredOutcome: { id: 'do-a' } });
+  });
+
+  it('discovers ontology-valid title matches with owner-aware branches', () => {
+    const document = fixture();
+    document.entities.push({ id: 'offer-match', kind: 'offer', title: 'DO B commercial' }, { id: 'repulsor-match', kind: 'repulsor', title: 'DO B concern' });
+    const result = globalIntentDiscovery(document, { query: 'do b' });
+    expect(result.titleMatches.jobGroups).toHaveLength(1);
+    expect(result.titleMatches.jobGroups[0]).toMatchObject({ job: { id: 'job' }, leaves: [{ entity: { id: 'do-b' }, owningJobId: 'job' }] });
+    expect(result.titleMatches.directLeaves).toEqual([]);
+    expect(JSON.stringify(result)).not.toContain('offer-match');
+    expect(JSON.stringify(result)).not.toContain('repulsor-match');
+  });
+
+  it('returns kind labels and aliases separately from simultaneous title matches', () => {
+    const document = fixture();
+    document.entities.push({ id: 'outcome-emotion', kind: 'emotional_job', title: 'Outcome confidence' });
+    const outcome = globalIntentDiscovery(document, { query: 'Outcome' });
+    expect(outcome.titleMatches.directLeaves.map(leaf => leaf.entity.id)).toContain('outcome-emotion');
+    expect(outcome.kindShortcutMatches.map(match => match.kind)).toEqual(expect.arrayContaining(['desired_outcome', 'financial_desired_outcome']));
+    expect(globalIntentDiscovery(document, { query: 'Desired' }).kindShortcutMatches.map(match => match.kind)).toEqual(expect.arrayContaining(['desired_outcome', 'financial_desired_outcome']));
+  });
+
+  it('browses only eligible entities for a selected kind shortcut', () => {
+    const document = fixture();
+    document.entities.push(
+      { id: 'related', kind: 'related_job', title: 'Related' }, { id: 'related-do', kind: 'desired_outcome', title: 'Related result' },
+      { id: 'chain', kind: 'consumption_chain_job', title: 'Chain' }, { id: 'chain-do', kind: 'desired_outcome', title: 'Chain result' },
+      { id: 'social', kind: 'social_job', title: 'Belong' }, { id: 'product-nope', kind: 'product', title: 'Desired Product' },
+    );
+    document.relationships.push(
+      { id: 'related-owns', kind: 'job_has_desired_outcome', jobId: 'related', desiredOutcomeId: 'related-do' },
+      { id: 'chain-owns', kind: 'job_has_desired_outcome', jobId: 'chain', desiredOutcomeId: 'chain-do' },
+    );
+    const desired = globalIntentDiscovery(document, { query: 'desired', kind: 'desired_outcome' });
+    expect(desired.jobGroups.flatMap(group => group.leaves.map(leaf => leaf.entity.id))).toEqual(['do-a', 'do-b', 'related-do', 'chain-do']);
+    expect(desired.directLeaves).toEqual([]);
+    expect(globalIntentDiscovery(document, { query: 'social', kind: 'social_job' }).directLeaves.map(leaf => leaf.entity.id)).toEqual(['social']);
+    expect(globalIntentDiscovery(document, { query: 'financial', kind: 'financial_desired_outcome' }).directLeaves.map(leaf => leaf.entity.id)).toEqual(['fdo']);
+    expect(JSON.stringify(desired)).not.toContain('product-nope');
   });
 
   it('FDO is excluded from Product connection candidates', () => {
