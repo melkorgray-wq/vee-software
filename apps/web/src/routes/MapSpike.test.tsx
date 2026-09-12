@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useEffect, useState, type MouseEvent, type ReactNode } from 'react';
+import { StrictMode, useEffect, useState, type MouseEvent, type ReactNode } from 'react';
 import { isRenderedTitleTruncated, MapNode, MapSpike } from './MapSpike';
 import { applyTouchpointIntentDraft, type MapDocument } from '@vee/domain';
 
@@ -13,6 +13,11 @@ vi.mock('@xyflow/react', () => ({
   BaseEdge: () => null, useInternalNode: () => undefined, useStore: () => [], Background: () => null, Controls: () => null, Handle: () => null, MarkerType: { ArrowClosed: 'arrowclosed' }, Position: { Left: 'left', Right: 'right' },
 }));
 vi.mock('../router', () => ({ Link: ({ children }: { children: ReactNode }) => <a href="/">{children}</a> }));
+
+afterEach(() => {
+  cleanup();
+  delete window.__VEE_DEV__;
+});
 
 async function globalProduct(user: ReturnType<typeof userEvent.setup>) { await user.click(screen.getByRole('button', { name: 'Add element' })); await user.type(screen.getByLabelText('Title'), 'Orbit'); await user.click(screen.getByRole('button', { name: 'Create' })); await openMap(user); }
 function contextualEditor(name: string) { return within(screen.getByRole('heading', { name }).closest('form')!); }
@@ -107,6 +112,78 @@ function relationLensDocument(multiple = false): MapDocument {
   document.touchpointJobSelections = [{ id: 'touch-selection', touchpointId: 'touch', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] }];
   return document;
 }
+
+function replacementDocument(): MapDocument {
+  return {
+    id: 'replacement-map', title: 'Replacement map',
+    entities: [{ id: 'replacement', kind: 'product', title: 'Replacement Product' }],
+    relationships: [], productJobIntents: [], offerJobSelections: [], offerFinancialIntents: [],
+    touchpointJobSelections: [], touchpointFinancialSelections: [], touchpointContainers: [],
+    epistemicAnnotations: [], views: [{ id: 'spike-view', title: 'View' }],
+    placements: [{ viewId: 'spike-view', entityId: 'replacement', x: 321, y: 654 }],
+  };
+}
+
+describe('temporary DEV Map bridge owner integration', () => {
+  it('loads visible entities and placements while clearing stale document interaction state', async () => {
+    const user = userEvent.setup();
+    render(<MapSpike initialDocument={touchpointInspectorDocument(true)} />);
+    const checkoutNode = screen.getByRole('button', { name: 'Checkout' });
+    await user.click(checkoutNode);
+    const inspector = await openInspector(user);
+    await user.click(inspector.getByRole('button', { name: 'Edit title, Checkout' }));
+    await user.clear(inspector.getByRole('textbox', { name: 'Edit title, Checkout' }));
+    await user.type(inspector.getByRole('textbox', { name: 'Edit title, Checkout' }), 'Stale checkout draft');
+    await user.click(inspector.getByRole('button', { name: 'Edit linked Offers' }));
+
+    act(() => window.__VEE_DEV__!.load(replacementDocument()));
+
+    expect(screen.getByRole('tab', { name: 'Entity Inspector' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('Select an entity on the Map to inspect it.')).toBeInTheDocument();
+    expect(screen.queryByText('Stale checkout draft')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Checkout' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await openMap(user);
+    expect(screen.getByRole('button', { name: 'Replacement Product' })).toHaveAttribute('data-x', '321');
+    expect(screen.getByRole('button', { name: 'Replacement Product' })).toHaveAttribute('data-y', '654');
+  });
+
+  it('dumps the latest durable UI document without transient editor state', async () => {
+    const user = userEvent.setup();
+    render(<MapSpike />);
+    await globalProduct(user);
+    await user.click(screen.getByRole('button', { name: 'Orbit' }));
+    const inspector = await openInspector(user);
+    await user.click(inspector.getByRole('button', { name: 'Edit title, Orbit' }));
+    await user.type(inspector.getByRole('textbox', { name: 'Edit title, Orbit' }), ' transient');
+
+    const dumped = window.__VEE_DEV__!.dump();
+    expect(dumped.entities).toContainEqual(expect.objectContaining({ title: 'Orbit' }));
+    expect(dumped.placements.some(placement => placement.entityId === dumped.entities.find(entity => entity.title === 'Orbit')?.id)).toBe(true);
+    expect(dumped).not.toHaveProperty('selectedId');
+    expect(dumped).not.toHaveProperty('editDraft');
+    expect(dumped).not.toHaveProperty('menu');
+  });
+
+  it('keeps StrictMode and overlapping mount cleanup ownership-safe', () => {
+    const first = render(<StrictMode><MapSpike initialDocument={touchpointInspectorDocument()} /></StrictMode>);
+    const firstBridge = window.__VEE_DEV__;
+    const second = render(<StrictMode><MapSpike initialDocument={replacementDocument()} /></StrictMode>);
+    const secondBridge = window.__VEE_DEV__;
+    expect(secondBridge).not.toBe(firstBridge);
+    expect(secondBridge!.dump().id).toBe('replacement-map');
+
+    first.unmount();
+    expect(window.__VEE_DEV__).toBe(secondBridge);
+    second.unmount();
+    expect(window.__VEE_DEV__).toBeUndefined();
+
+    const remounted = render(<StrictMode><MapSpike initialDocument={touchpointInspectorDocument()} /></StrictMode>);
+    expect(window.__VEE_DEV__!.dump().id).toBe('map');
+    remounted.unmount();
+    expect(window.__VEE_DEV__).toBeUndefined();
+  });
+});
 
 describe('clickable satellite Relation Lens', () => {
   afterEach(cleanup);
