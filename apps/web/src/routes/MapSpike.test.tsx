@@ -1398,18 +1398,15 @@ describe('searchable Touchpoint connection picker', () => {
     document.offerJobSelections.push({ id: 'offer-selection', offerId: 'offer-a', productJobIntentId: 'intent' });
     document.touchpointJobSelections.push({ id: 'touch-selection', touchpointId: 'touch', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] });
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(document);
-    await user.click(inspector.getByRole('button', { name: 'Add Client-side connection' }));
-    let offerSource = inspector.getByRole('region', { name: 'Offer Subscription' });
-    expect(within(offerSource).getByRole('checkbox', { name: 'Finish faster' })).toBeChecked();
-    await user.click(within(offerSource).getByRole('checkbox', { name: 'Reduce errors' }));
-    offerSource = inspector.getByRole('region', { name: 'Offer Subscription' });
-    expect(within(offerSource).getByRole('checkbox', { name: 'Finish faster' })).toBeChecked();
-    expect(within(offerSource).getByRole('checkbox', { name: 'Reduce errors' })).toBeChecked();
-    expect(within(offerSource).getAllByRole('checkbox')).toHaveLength(2);
-    await user.click(within(offerSource).getByRole('checkbox', { name: 'Finish faster' }));
-    offerSource = inspector.getByRole('region', { name: 'Offer Subscription' });
-    expect(within(offerSource).getByRole('checkbox', { name: 'Finish faster' })).not.toBeChecked();
-    expect(within(offerSource).getByRole('checkbox', { name: 'Reduce errors' })).toBeChecked();
+    await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
+    const scope = inspector.getByRole('region', { name: 'Client scope' });
+    expect(within(scope).queryByRole('heading', { name: 'Upstream Client intent' })).not.toBeInTheDocument();
+    expect(within(scope).getByRole('checkbox', { name: 'Finish faster' })).toBeChecked();
+    await user.click(within(scope).getByRole('checkbox', { name: 'Reduce errors' }));
+    expect(within(scope).getByRole('checkbox', { name: 'Finish faster' })).toBeChecked();
+    expect(within(scope).getByRole('checkbox', { name: 'Reduce errors' })).toBeChecked();
+    await user.click(within(scope).getByRole('checkbox', { name: 'Finish faster' }));
+    expect(within(scope).getByRole('checkbox', { name: 'Finish faster' })).not.toBeChecked();
     expect(document.productJobIntents[0]?.addressedDesiredOutcomeIds).toEqual(['do-a', 'do-b']);
     expect(document.offerJobSelections).toEqual([{ id: 'offer-selection', offerId: 'offer-a', productJobIntentId: 'intent' }]);
   });
@@ -1426,19 +1423,20 @@ describe('searchable Touchpoint connection picker', () => {
     document.touchpointJobSelections.push({ id: 'parent-path', touchpointId: 'parent', offerId: 'parent-offer', productJobIntentId: 'parent-intent', addressedDesiredOutcomeIds: ['do-a'] });
     document.placements.push({ viewId: 'spike-view', entityId: 'parent-offer', x: 1120, y: 0 }, { viewId: 'spike-view', entityId: 'parent', x: 1260, y: 0 });
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(document);
-    await user.click(inspector.getByRole('button', { name: 'Add Client-side connection' }));
-    const parentSource = inspector.getByRole('region', { name: 'Parent Parent' });
-    await user.click(within(parentSource).getByRole('checkbox', { name: 'Finish faster' }));
-    expect(inspector.getByRole('heading', { name: 'Upstream Client intent' })).toBeInTheDocument();
-    expect(within(inspector.getByRole('region', { name: 'Parent Parent' })).getByRole('checkbox', { name: 'Finish faster' })).toBeChecked();
-    expect(within(inspector.getByRole('region', { name: 'Parent Parent' })).getByRole('checkbox', { name: 'via Subscription' })).toBeChecked();
+    await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
+    const scope = inspector.getByRole('region', { name: 'Client scope' });
+    await user.click(within(scope).getByRole('checkbox', { name: 'Finish faster' }));
+    expect(within(scope).getByRole('button', { name: 'Finish editing Client scope' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(scope).getByRole('checkbox', { name: 'from Parent' })).toBeChecked();
+    expect(within(scope).getAllByRole('checkbox', { name: 'via Subscription' })).toHaveLength(2);
+    expect(scope).toHaveTextContent('Parent provenance · Parent provenance');
     expect(document.relationships.some(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.offerId === 'parent-offer' && relation.touchpointId === 'touch')).toBe(false);
   });
   it('keeps the Client scope pencil immediately after its heading', () => {
     const inspector = renderTouchpointInspector();
     const scope = inspector.getByRole('region', { name: 'Client scope' });
     const heading = within(scope).getByRole('heading', { name: 'Client scope' });
-    const pencil = within(scope).getByRole('button', { name: 'Add Client-side connection' });
+    const pencil = within(scope).getByRole('button', { name: 'Edit Client scope' });
     const headingRow = heading.closest('.touchpoint-client-scope-heading');
 
     expect(headingRow).toContainElement(heading);
@@ -1449,7 +1447,7 @@ describe('searchable Touchpoint connection picker', () => {
   it('uses the same accessible pencil affordance for empty, populated, and unavailable Client scope', () => {
     const emptyInspector = renderTouchpointInspector();
     let scope = emptyInspector.getByRole('region', { name: 'Client scope' });
-    let pencil = within(scope).getByRole('button', { name: 'Add Client-side connection' });
+    let pencil = within(scope).getByRole('button', { name: 'Edit Client scope' });
     expect(pencil).toHaveTextContent('✎');
     expect(pencil.querySelector('.business-structure-edit-affordance')).toHaveAttribute('aria-hidden', 'true');
     expect(within(scope).queryByText('Add connection')).not.toBeInTheDocument();
@@ -1459,30 +1457,32 @@ describe('searchable Touchpoint connection picker', () => {
     let populatedId = 0;
     populated = applyTouchpointIntentDraft(populated, { touchpointId: 'touch', draft: { jobLeaves: [{ jobId: 'job', semanticLeafId: 'do-a', desiredOutcomeId: 'do-a', contributorOfferIds: ['offer-a'] }], financialLeaves: [], pendingJobLeafIds: [], pendingFinancialLeafIds: [] }, newId: () => `populated-selection-${++populatedId}` });
     scope = renderTouchpointInspector(populated).getByRole('region', { name: 'Client scope' });
-    expect(within(scope).getByRole('button', { name: 'Add Client-side connection' })).toBeEnabled();
+    expect(within(scope).getByRole('button', { name: 'Edit Client scope' })).toBeEnabled();
     cleanup();
 
     const unavailable = touchpointInspectorDocument();
     unavailable.relationships = unavailable.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint');
     scope = renderTouchpointInspector(unavailable).getByRole('region', { name: 'Client scope' });
-    pencil = within(scope).getByRole('button', { name: 'Add Client-side connection' });
+    pencil = within(scope).getByRole('button', { name: 'Edit Client scope' });
     expect(pencil).toBeDisabled();
     expect(within(scope).getByRole('heading', { name: 'Client scope' })).toHaveAccessibleName('Client scope');
   });
 
-  it('opens inside Client scope and Cancel or Escape restores focus to the pencil', async () => {
+  it('opens the same Client scope section and Escape restores focus to the pencil', async () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector();
     const scope = inspector.getByRole('region', { name: 'Client scope' });
-    const pencil = within(scope).getByRole('button', { name: 'Add Client-side connection' });
+    const pencil = within(scope).getByRole('button', { name: 'Edit Client scope' });
     await user.click(pencil);
-    expect(within(scope).getByRole('region', { name: 'Upstream Client intent' })).toHaveClass('connection-picker');
-    await user.click(within(scope).getByRole('button', { name: 'Cancel' }));
+    expect(within(scope).getByRole('button', { name: 'Finish editing Client scope' })).toBeInTheDocument();
+    expect(within(scope).queryByText('Upstream Client intent')).not.toBeInTheDocument();
+    await user.click(within(scope).getByRole('button', { name: 'Find Client intent elsewhere' }));
+    expect(within(scope).getByRole('searchbox', { name: 'Search by title' })).toBeInTheDocument();
+    fireEvent.keyDown(scope, { key: 'Escape' });
+    expect(within(scope).queryByRole('searchbox', { name: 'Search by title' })).not.toBeInTheDocument();
+    expect(within(scope).getByRole('button', { name: 'Finish editing Client scope' })).toBeInTheDocument();
+    fireEvent.keyDown(scope, { key: 'Escape' });
     await act(() => new Promise(resolve => requestAnimationFrame(resolve)));
-    expect(pencil).toHaveFocus();
-    await user.click(pencil);
-    fireEvent.keyDown(within(scope).getByRole('region', { name: 'Upstream Client intent' }), { key: 'Escape' });
-    await act(() => new Promise(resolve => requestAnimationFrame(resolve)));
-    expect(within(scope).queryByRole('region', { name: 'Upstream Client intent' })).not.toBeInTheDocument();
+    expect(within(scope).queryByRole('button', { name: 'Finish editing Client scope' })).not.toBeInTheDocument();
     expect(pencil).toHaveFocus();
   });
 
@@ -1493,7 +1493,7 @@ describe('searchable Touchpoint connection picker', () => {
     const inspector = renderTouchpointInspector(document);
     const neighborhood = inspector.getByText('Neighborhood').closest<HTMLElement>('.business-structure-derived')!;
     const scope = inspector.getByRole('region', { name: 'Client scope' });
-    const addConnection = within(scope).getByRole('button', { name: 'Add Client-side connection' });
+    const addConnection = within(scope).getByRole('button', { name: 'Edit Client scope' });
     expect(neighborhood.compareDocumentPosition(scope) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(scope).toContainElement(addConnection);
     expect(inspector.queryByRole('button', { name: 'Select all current Offer intent' })).not.toBeInTheDocument();
@@ -1505,7 +1505,9 @@ describe('searchable Touchpoint connection picker', () => {
   it('Add connection searches by title and browses all Core Functional Jobs', async () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector();
     expect(inspector.queryByText('Reduce errors')).not.toBeInTheDocument();
-    await user.click(inspector.getByRole('button', { name: 'Add Client-side connection' }));
+    await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
+    expect(inspector.queryByRole('searchbox', { name: 'Search by title' })).not.toBeInTheDocument();
+    await user.click(inspector.getByText('Find Client intent elsewhere'));
     await user.selectOptions(inspector.getByLabelText('Entity kind'), 'core_functional_job');
     expect(inspector.getByRole('button', { name: /Finish faster/ })).toBeInTheDocument();
     expect(inspector.getByRole('button', { name: /Reduce errors/ })).toBeInTheDocument();
@@ -1516,16 +1518,15 @@ describe('searchable Touchpoint connection picker', () => {
 
   it('selecting a DO commits its owner-aware relation under Client scope', async () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector();
-    await user.click(inspector.getByRole('button', { name: 'Add Client-side connection' }));
+    await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
     await user.click(inspector.getByText('Find Client intent elsewhere'));
     await user.click(inspector.getByRole('button', { name: /Finish faster/ }));
     expect(within(inspector.getByRole('region', { name: 'Client scope' })).getByRole('button', { name: 'Make progress' })).toBeInTheDocument();
-    expect(within(inspector.getByRole('region', { name: 'Client scope' }).querySelector<HTMLElement>('.touchpoint-client-scope-content')!).getByRole('button', { name: 'Finish faster' })).toBeInTheDocument();
+    expect(within(inspector.getByRole('region', { name: 'Client scope' })).getByRole('checkbox', { name: 'Finish faster' })).toBeChecked();
     expect(inspector.queryByRole('region', { name: 'Connected' })).not.toBeInTheDocument();
     expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
     const scope = inspector.getByRole('region', { name: 'Client scope' });
-    expect(within(scope).getByRole('region', { name: 'Upstream Client intent' })).toBeInTheDocument();
-    expect(within(scope.querySelector<HTMLElement>('.touchpoint-client-scope-content')!).getAllByRole('button', { name: 'Finish faster' })).toHaveLength(1);
+    expect(within(scope).getByRole('button', { name: 'Finish editing Client scope' })).toBeInTheDocument();
   });
 
   it('repositions only the Touchpoint after its represented intent route commits', async () => {
@@ -1533,7 +1534,7 @@ describe('searchable Touchpoint connection picker', () => {
     document.placements = document.placements.map(placement => placement.entityId === 'touch' ? { ...placement, x: 1200, y: 300 } : placement);
     const before = new Map(document.placements.map(placement => [placement.entityId, { x: placement.x, y: placement.y }]));
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(document);
-    await user.click(inspector.getByRole('button', { name: 'Add Client-side connection' }));
+    await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
     await user.click(inspector.getByText('Find Client intent elsewhere'));
     await user.click(inspector.getByRole('button', { name: /Finish faster/ }));
     await user.click(screen.getByRole('tab', { name: 'Map' }));
@@ -1547,14 +1548,14 @@ describe('searchable Touchpoint connection picker', () => {
 
   it('cancelled picker leaves the durable document unchanged', async () => {
     const user = userEvent.setup(); const document = touchpointInspectorDocument(); const snapshot = structuredClone(document); const inspector = renderTouchpointInspector(document);
-    await user.click(inspector.getByRole('button', { name: 'Add Client-side connection' }));
-    await user.click(inspector.getByRole('button', { name: 'Cancel' }));
+    await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
+    await user.click(inspector.getByRole('button', { name: 'Finish editing Client scope' }));
     expect(document).toEqual(snapshot); expect(inspector.getByRole('region', { name: 'Client scope' })).toHaveTextContent('No Client-side connections yet.');
   });
 
   it('with multiple Offers contributor is not guessed and commit is blocked', async () => {
     const user = userEvent.setup(); const document = touchpointInspectorDocument(true); const snapshot = structuredClone(document); const inspector = renderTouchpointInspector(document);
-    await user.click(inspector.getByRole('button', { name: 'Add Client-side connection' }));
+    await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
     await user.click(inspector.getByText('Find Client intent elsewhere'));
     await user.click(inspector.getByRole('button', { name: /Finish faster/ }));
     const contributors = within(inspector.getByRole('group', { name: 'Which linked Offers contribute here?' }));
@@ -1565,19 +1566,19 @@ describe('searchable Touchpoint connection picker', () => {
   });
 
   it('direct Job to Touchpoint selection is unavailable', async () => {
-    const user = userEvent.setup(); const inspector = renderTouchpointInspector(); await user.click(inspector.getByRole('button', { name: 'Add Client-side connection' }));
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(); await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
     expect(inspector.queryByRole('button', { name: /^Make progress$/ })).not.toBeInTheDocument();
   });
 
   it('selecting one DO activates its parent visually without selecting its sibling', async () => {
-    const user = userEvent.setup(); const inspector = renderTouchpointInspector(); await user.click(inspector.getByRole('button', { name: 'Add Client-side connection' }));
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(); await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
     await user.click(inspector.getByText('Find Client intent elsewhere'));
     const selected = inspector.getByRole('button', { name: 'Finish faster' }); expect(inspector.getByRole('button', { name: 'Reduce errors' })).toBeInTheDocument(); await user.click(selected);
     const scope = inspector.getByRole('region', { name: 'Client scope' });
     expect(within(scope).getByRole('button', { name: 'Make progress' })).toBeInTheDocument();
     const durable = scope.querySelector<HTMLElement>('.touchpoint-client-scope-content')!;
-    expect(within(durable).getByRole('button', { name: 'Finish faster' })).toBeInTheDocument();
-    expect(within(durable).queryByRole('button', { name: 'Reduce errors' })).not.toBeInTheDocument();
+    expect(within(durable).getByRole('checkbox', { name: 'Finish faster' })).toBeChecked();
+    expect(within(durable).queryByRole('checkbox', { name: 'Reduce errors' })).not.toBeInTheDocument();
   });
 });
 

@@ -91,8 +91,14 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .touchpoint-client-scope-heading { display: flex; align-items: center; justify-content: flex-start; gap: .3rem; padding-bottom: .35rem; border-bottom: 1px solid var(--border-subtle); }
 .touchpoint-client-scope-heading > h4 { margin: 0; color: rgba(255,255,255,.72); font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; }
 .touchpoint-client-scope-heading > button { flex: 0 0 auto; padding: .1rem .25rem; }
-.touchpoint-client-scope > .connection-picker { margin: .25rem 0 0; padding: .75rem; border: 1px solid var(--border-subtle); border-radius: .5rem; background: transparent; }
 .touchpoint-client-scope-content { display: grid; gap: .75rem; min-width: 0; }
+.inline-intent-editor { gap: .6rem; }
+.inline-intent-editor .intent-leaves { width: 100%; padding-left: 1.2rem; }
+.intent-semantic-leaf { display: grid; gap: .15rem; min-width: 0; }
+.intent-semantic-leaf > button { justify-self: start; max-width: 100%; padding: .15rem 0; border: 0; background: transparent; color: var(--color-accent); text-align: left; overflow-wrap: anywhere; }
+.intent-path-variants { display: grid; gap: .1rem; margin-left: .25rem; padding-left: .55rem; border-left: 1px dashed var(--border-soft); }
+.intent-path-row { min-width: 0; }
+.global-intent-trigger { justify-self: start; margin-top: .2rem; }
 .touchpoint-client-job, .touchpoint-client-financial { display: grid; justify-items: start; gap: .2rem; min-width: 0; }
 .touchpoint-client-job > small, .touchpoint-client-financial > small { color: rgba(255,255,255,.58); }
 .touchpoint-client-job button, .touchpoint-client-financial button { max-width: 100%; padding: .15rem 0; border: 0; background: transparent; color: var(--color-accent); text-align: left; text-decoration: underline; text-underline-offset: .18em; overflow-wrap: anywhere; }
@@ -113,8 +119,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .intent-checkbox > small { grid-column: 2; color: rgba(255,255,255,.58); }
 .intent-checkbox.unavailable { opacity: .58; }
 .parent-contributor-paths { display: grid; gap: .1rem; margin-left: 1.4rem; padding-left: .55rem; border-left: 1px dashed var(--border-soft); }
-.global-intent-discovery { margin-top: .5rem; padding-top: .55rem; border-top: 1px solid var(--border-subtle); }
-.global-intent-discovery > summary { cursor: pointer; font-weight: 650; }
+.global-intent-discovery { display: grid; gap: .65rem; margin-top: .2rem; padding: .7rem 0 0; border-top: 1px solid var(--border-subtle); }
 .global-intent-results { display: grid; gap: .45rem; max-height: 17.5rem; margin: .65rem 0; overflow: auto; }
 .intent-discovery-leaf { display: block; width: 100%; padding: .35rem .5rem; text-align: left; }
 .intent-source-block button:focus-visible, .intent-checkbox input:focus-visible, .intent-discovery-leaf:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
