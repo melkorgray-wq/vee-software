@@ -87,7 +87,7 @@ type ProductConfirmation =
   | { mode: 'impact'; owner: 'product'; pending?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getProductIntentChangeImpact> }
   | { mode: 'impact'; owner: 'offer'; pending?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getOfferIntentChangeImpact> }
   | { mode: 'impact'; owner: 'touchpoint'; pending?: () => void; immediateCommit?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getTouchpointLinkedOfferChangeImpact> };
-type ClientScopeEditor = { mode: 'upstream' | 'global-search' | 'current-contributor-choice' | 'ancestor-contributor-choice' | 'invalid'; actionOrigin?: 'parent-source' | 'global-discovery'; query: string; kind?: ConnectionPickerKind | undefined; target?: { leaf: UpstreamLeaf } | undefined; bulkTargets?: UpstreamLeaf[]; currentContributorCandidateIds?: string[]; contributorOfferIds: string[]; ancestorContributingOfferIds: Record<string, string>; unresolved?: Extract<BottomUpTouchpointResult, { status: 'unresolved' | 'invalid' }> };
+type ClientScopeEditor = { mode: 'upstream' | 'global-search' | 'current-contributor-choice' | 'ancestor-contributor-choice' | 'invalid'; actionOrigin?: 'parent-source' | 'global-discovery'; query: string; kind?: ConnectionPickerKind | undefined; target?: { leaf: UpstreamLeaf } | undefined; currentContributorCandidateIds?: string[]; contributorOfferIds: string[]; ancestorContributingOfferIds: Record<string, string>; unresolved?: Extract<BottomUpTouchpointResult, { status: 'unresolved' | 'invalid' }> };
 const draft = (kind: ProvisionalEntityKind = 'product'): EditDraft => ({
   title: '',
   side: isClientRootEntityKind(kind) || isContextualClientEntityKind(kind) || kind === 'repulsor' ? 'client' : 'business',
@@ -1517,16 +1517,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         finishLocal(commitTouchpointIntentPathPlan(documentRef.current, plan), leaf.checkboxId);
       } catch (error) { publishError(error instanceof Error ? error.message : 'Client scope could not be changed.'); }
     };
-    const selectAll = (blocks: typeof sources) => {
-      try {
-        let next = documentRef.current;
-        for (const leaf of blocks.flatMap(source => [...source.jobGroups.flatMap(group => group.leaves), ...source.financialLeaves]).filter(leaf => leaf.available && !leaf.checked)) {
-          const target = leaf.kind === 'financial' ? { kind: 'financial' as const, touchpointId: selected.id, offerId: leaf.contributorOfferId, offerFinancialIntentId: leaf.offerFinancialIntentId!, semanticLeafId: leaf.semanticId } : { kind: 'job' as const, touchpointId: selected.id, offerId: leaf.contributorOfferId, productJobIntentId: leaf.productJobIntentId!, semanticLeafId: leaf.semanticId };
-          next = commitTouchpointIntentPathPlan(next, planTouchpointIntentPathChange(next, { target, checked: true, newSelectionId: crypto.randomUUID() }));
-        }
-        finishLocal(next);
-      } catch (error) { publishError(error instanceof Error ? error.message : 'Client scope could not be changed.'); }
-    };
     const authorOne = (durable: MapDocument, leaf: UpstreamLeaf, contributors: string[], ancestors: Record<string, string>, newId?: () => string) => authorTouchpointIntentBottomUp(durable, leaf.kind === 'financial'
       ? { touchpointId: selected.id, contributingOfferIds: contributors, ancestorContributingOfferIds: ancestors, financialDesiredOutcomeId: leaf.semanticId, ...(newId ? { newId } : {}) }
       : { touchpointId: selected.id, contributingOfferIds: contributors, ancestorContributingOfferIds: ancestors, jobId: jobIdForLeaf(leaf)!, addressedDesiredOutcomeIds: leaf.kind === 'desired-outcome' ? [leaf.semanticId] : [], ...(newId ? { newId } : {}) });
@@ -1537,33 +1527,12 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         setConnectionPicker(current => current && ({ ...current, mode: result.status === 'unresolved' ? 'ancestor-contributor-choice' : 'invalid', actionOrigin, target: { leaf }, currentContributorCandidateIds: contributors, contributorOfferIds: contributors, ancestorContributingOfferIds: ancestors, unresolved: result }));
       } catch (error) { publishError(error instanceof Error ? error.message : 'Client intent could not be authored.'); }
     };
-    const runParentBulk = (leaves: UpstreamLeaf[], contributors: string[], ancestors: Record<string, string>) => {
-      try {
-        for (const leaf of leaves) {
-          try {
-            const result = authorOne(documentRef.current, leaf, contributors, ancestors);
-            if (result.status !== 'complete') { setConnectionPicker(current => current && ({ ...current, mode: result.status === 'unresolved' ? 'ancestor-contributor-choice' : 'invalid', actionOrigin: 'parent-source', bulkTargets: leaves, currentContributorCandidateIds: contributors, contributorOfferIds: contributors, ancestorContributingOfferIds: ancestors, unresolved: result })); return; }
-          } catch (error) { if (!(error && typeof error === 'object' && 'code' in error && error.code === 'invalid_selection_ids')) throw error; }
-        }
-        let next = documentRef.current;
-        for (const leaf of leaves) { const result = authorOne(next, leaf, contributors, ancestors, () => crypto.randomUUID()); if (result.status !== 'complete') throw new Error('Contributor resolution changed during bulk authoring.'); next = result.document; }
-        finishLocal(next); setConnectionPicker({ mode: 'upstream', query: '', kind: undefined, contributorOfferIds: [], ancestorContributingOfferIds: {} });
-      } catch (error) { publishError(error instanceof Error ? error.message : 'Parent scope could not be selected.'); }
-    };
     const chooseDiscovery = (leaf: UpstreamLeaf) => {
       const candidates = leaf.childContributorOfferIds ?? offers.filter(offerId => leaf.kind === 'financial' || document.relationships.some(relation => relation.kind === 'product_packaged_as_offer' && relation.offerId === offerId));
       const actionOrigin = leaf.sourceId === 'global' ? 'global-discovery' as const : 'parent-source' as const;
       if (!candidates.length) { setConnectionPicker(current => current && ({ ...current, mode: 'invalid', actionOrigin, target: { leaf }, currentContributorCandidateIds: [], contributorOfferIds: [], unresolved: { status: 'invalid', reason: 'no_ancestor_contributor_path', touchpointId: selected.id } })); return; }
       if (candidates.length === 1) runBottomUp(leaf, candidates, {}, actionOrigin);
       else setConnectionPicker(current => current && ({ ...current, mode: 'current-contributor-choice', actionOrigin, target: { leaf }, currentContributorCandidateIds: candidates, contributorOfferIds: [], ancestorContributingOfferIds: {} }));
-    };
-    const chooseParentBulk = (source: (typeof sources)[number]) => {
-      const leaves = [...source.jobGroups.flatMap(group => group.leaves), ...source.financialLeaves].filter(leaf => leaf.available && !leaf.checked);
-      if (!leaves.length) return;
-      const common = leaves.reduce<string[]>((ids, leaf) => ids.filter(id => leaf.childContributorOfferIds?.includes(id)), [...(leaves[0]!.childContributorOfferIds ?? [])]);
-      if (!common.length) { setConnectionPicker(current => current && ({ ...current, mode: 'invalid', actionOrigin: 'parent-source', bulkTargets: leaves, currentContributorCandidateIds: [], contributorOfferIds: [], unresolved: { status: 'invalid', reason: 'no_ancestor_contributor_path', touchpointId: selected.id } })); return; }
-      if (common.length === 1) runParentBulk(leaves, common, {});
-      else setConnectionPicker(current => current && ({ ...current, mode: 'current-contributor-choice', actionOrigin: 'parent-source', bulkTargets: leaves, target: undefined, currentContributorCandidateIds: common, contributorOfferIds: [], ancestorContributingOfferIds: {} }));
     };
     const removeParentContributor = (leaf: UpstreamLeaf, offerId: string) => {
       const owningJobId = jobIdForLeaf(leaf);
@@ -1616,8 +1585,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
           <label>Entity kind<select aria-label="Entity kind" value={connectionPicker.kind ?? ''} onChange={event => setConnectionPicker({ ...connectionPicker, mode: 'global-search', kind: (event.target.value || undefined) as ConnectionPickerKind | undefined })}><option value="">All kinds</option>{CONNECTION_PICKER_KINDS.map(kind => <option value={kind} key={kind}>{KIND_LABELS[kind]}</option>)}</select></label>
           <div className="global-intent-results">{discovery.jobGroups.map(group => <div className="intent-job-branch" key={group.job.id}><strong><small>{KIND_LABELS[group.job.kind]}</small>{group.job.title}</strong>{group.leaves.map(leaf => <button type="button" className="intent-discovery-leaf" key={leaf.checkboxId} onClick={() => chooseDiscovery(leaf)}>{leaf.entity.title}</button>)}</div>)}{discovery.directLeaves.map(leaf => <button type="button" className="intent-discovery-leaf" key={leaf.checkboxId} onClick={() => chooseDiscovery(leaf)}><small>{KIND_LABELS[leaf.entity.kind]}</small>{leaf.entity.title}</button>)}</div>
         </section>}
-        {connectionPicker.mode === 'current-contributor-choice' && (connectionPicker.target || connectionPicker.bulkTargets) && <fieldset className="contributor-chooser"><legend>Which linked Offers contribute here?</legend>{(connectionPicker.currentContributorCandidateIds ?? []).map(offerId => <label className="checkbox" key={offerId}><input type="checkbox" checked={connectionPicker.contributorOfferIds.includes(offerId)} onChange={event => setConnectionPicker({ ...connectionPicker, contributorOfferIds: event.target.checked ? [...connectionPicker.contributorOfferIds, offerId] : connectionPicker.contributorOfferIds.filter(id => id !== offerId) })} />{entityTitle(document, offerId)}</label>)}<button type="button" disabled={!connectionPicker.contributorOfferIds.length} onClick={() => connectionPicker.bulkTargets ? runParentBulk(connectionPicker.bulkTargets, connectionPicker.contributorOfferIds, connectionPicker.ancestorContributingOfferIds) : runBottomUp(connectionPicker.target!.leaf, connectionPicker.contributorOfferIds, connectionPicker.ancestorContributingOfferIds, connectionPicker.actionOrigin!)}>Continue</button></fieldset>}
-        {connectionPicker.mode === 'ancestor-contributor-choice' && connectionPicker.unresolved?.status === 'unresolved' && (connectionPicker.target || connectionPicker.bulkTargets) && <fieldset className="contributor-chooser"><legend>Contributor for {entityTitle(document, connectionPicker.unresolved.touchpointId)}</legend>{connectionPicker.unresolved.candidateOfferIds.map(offerId => <button type="button" key={offerId} onClick={() => { const ancestors = { ...connectionPicker.ancestorContributingOfferIds, [connectionPicker.unresolved!.touchpointId]: offerId }; if (connectionPicker.bulkTargets) runParentBulk(connectionPicker.bulkTargets, connectionPicker.contributorOfferIds, ancestors); else runBottomUp(connectionPicker.target!.leaf, connectionPicker.contributorOfferIds, ancestors, connectionPicker.actionOrigin!); }}>{entityTitle(document, offerId)}</button>)}</fieldset>}
+        {connectionPicker.mode === 'current-contributor-choice' && connectionPicker.target && <fieldset className="contributor-chooser"><legend>Which linked Offers contribute here?</legend>{(connectionPicker.currentContributorCandidateIds ?? []).map(offerId => <label className="checkbox" key={offerId}><input type="checkbox" checked={connectionPicker.contributorOfferIds.includes(offerId)} onChange={event => setConnectionPicker({ ...connectionPicker, contributorOfferIds: event.target.checked ? [...connectionPicker.contributorOfferIds, offerId] : connectionPicker.contributorOfferIds.filter(id => id !== offerId) })} />{entityTitle(document, offerId)}</label>)}<button type="button" disabled={!connectionPicker.contributorOfferIds.length} onClick={() => runBottomUp(connectionPicker.target!.leaf, connectionPicker.contributorOfferIds, connectionPicker.ancestorContributingOfferIds, connectionPicker.actionOrigin!)}>Continue</button></fieldset>}
+        {connectionPicker.mode === 'ancestor-contributor-choice' && connectionPicker.unresolved?.status === 'unresolved' && connectionPicker.target && <fieldset className="contributor-chooser"><legend>Contributor for {entityTitle(document, connectionPicker.unresolved.touchpointId)}</legend>{connectionPicker.unresolved.candidateOfferIds.map(offerId => <button type="button" key={offerId} onClick={() => { const ancestors = { ...connectionPicker.ancestorContributingOfferIds, [connectionPicker.unresolved!.touchpointId]: offerId }; runBottomUp(connectionPicker.target!.leaf, connectionPicker.contributorOfferIds, ancestors, connectionPicker.actionOrigin!); }}>{entityTitle(document, offerId)}</button>)}</fieldset>}
         {connectionPicker.mode === 'invalid' && connectionPicker.unresolved?.status === 'invalid' && <p role="alert">No contributor path exists for {entityTitle(document, connectionPicker.unresolved.touchpointId)} ({connectionPicker.unresolved.touchpointId}).</p>}
       </div>}
       {localRemoval && <div role="dialog" aria-modal="true" aria-labelledby="local-removal-heading" className="confirmation-dialog"><h4 id="local-removal-heading">Remove this local Client path?</h4><p>This also removes {localRemoval.mitigationRelationshipIds.length} dependent mitigation record(s).</p>{localRemoval.mitigationRelationshipIds.map(id => <p key={id}><strong>{id}</strong></p>)}<div className="choice-row"><button type="button" className="danger" onClick={() => { const pending = localRemoval; setLocalRemoval(null); finishLocal(pending.plans.reduce((next, plan) => commitTouchpointIntentPathPlan(next, plan), documentRef.current), pending.returnFocusId); }}>Remove</button><button type="button" onClick={() => { const id = localRemoval.returnFocusId; setLocalRemoval(null); requestAnimationFrame(() => globalThis.document.getElementById(id)?.focus()); }}>Cancel</button></div></div>}
