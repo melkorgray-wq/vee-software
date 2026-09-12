@@ -15,7 +15,7 @@ import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, recons
 import { nearestSpatialCandidate, spatialDirectionForKey } from '../map-spatial-navigation';
 import { enterMoveMode, inactiveMoveMode, moveInMode, moveVectorForKey, type MoveMode } from '../map-move-mode';
 import { Link } from '../router';
-import { CONNECTION_PICKER_KINDS, applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointParent, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, globalIntentDiscovery, touchpointClientScope, touchpointUpstreamSources, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft, type UpstreamLeaf } from './touchpoint-edit';
+import { applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointParent, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, globalIntentDiscovery, touchpointClientScope, touchpointUpstreamSources, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft, type UpstreamLeaf } from './touchpoint-edit';
 import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
 import { deriveTouchpointBusinessStructure } from '../touchpoint-business-structure';
 
@@ -394,6 +394,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [productExpanded, setProductExpanded] = useState<Record<string, boolean>>({});
   const [offerExpanded, setOfferExpanded] = useState<Record<string, boolean>>({});
   const [connectionPicker, setConnectionPicker] = useState<ClientScopeEditor | null>(null);
+  const [expandedClientSources, setExpandedClientSources] = useState<Record<string, boolean>>({});
   const [localRemoval, setLocalRemoval] = useState<{ plans: TouchpointIntentPathPlan[]; mitigationRelationshipIds: string[]; returnFocusId: string } | null>(null);
   const connectionPickerButtonRef = useRef<HTMLButtonElement>(null);
   const [offerIntentSectionIds, setOfferIntentSectionIds] = useState<Record<string, string[]>>({});
@@ -1470,8 +1471,11 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     if (selected?.kind !== 'touchpoint' || !editDraft?.touchpointIntent) return null;
     const scope = touchpointClientScope(document, selected.id);
     const offers = editDraft.linkedOfferIds;
-    const sources = touchpointUpstreamSources(document, selected.id);
-    const discovery = connectionPicker ? globalIntentDiscovery(document, connectionPicker) : { jobGroups: [], directLeaves: [] };
+    const allSources = touchpointUpstreamSources(document, selected.id);
+    const parentSource = allSources.find(source => source.sourceKind === 'parent');
+    const sources = (parentSource ? [parentSource] : allSources.filter(source => source.sourceKind === 'offer'))
+      .filter(source => source.jobGroups.length || source.financialLeaves.length);
+    const discovery = connectionPicker ? globalIntentDiscovery(document, connectionPicker) : { jobGroups: [], directLeaves: [], titleMatches: { jobGroups: [], directLeaves: [] }, kindShortcutMatches: [] };
     const jobIdForLeaf = (leaf: UpstreamLeaf) => leaf.kind === 'desired-outcome' ? leaf.owningJobId : leaf.kind === 'job' ? leaf.semanticId : undefined;
     const closePicker = () => {
       setConnectionPicker(null);
@@ -1540,32 +1544,15 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       const financialSelection = document.touchpointFinancialSelections.find(item => item.touchpointId === selected.id && item.offerId === offerId && item.financialDesiredOutcomeId === leaf.semanticId);
       toggleLeaf({ ...leaf, contributorOfferId: offerId, ...(jobSelection ? { productJobIntentId: jobSelection.productJobIntentId } : {}), ...(financialSelection ? { offerFinancialIntentId: financialSelection.offerFinancialIntentId } : {}) }, false);
     };
-    const upstreamJobGroups = new Map<string, { job: Entity; leaves: Map<string, { entity: Entity; variants: { leaf: UpstreamLeaf; source: (typeof sources)[number] }[] }> }>();
-    const upstreamFinancial = new Map<string, { entity: Entity; variants: { leaf: UpstreamLeaf; source: (typeof sources)[number] }[] }>();
-    for (const source of sources) {
-      for (const group of source.jobGroups) {
-        const merged = upstreamJobGroups.get(group.job.id) ?? { job: group.job, leaves: new Map() };
-        for (const leaf of group.leaves) {
-          const entry = merged.leaves.get(leaf.semanticId) ?? { entity: leaf.entity, variants: [] };
-          entry.variants.push({ leaf, source }); merged.leaves.set(leaf.semanticId, entry);
-        }
-        upstreamJobGroups.set(group.job.id, merged);
-      }
-      for (const leaf of source.financialLeaves) {
-        const entry = upstreamFinancial.get(leaf.semanticId) ?? { entity: leaf.entity, variants: [] };
-        entry.variants.push({ leaf, source }); upstreamFinancial.set(leaf.semanticId, entry);
-      }
-    }
     const renderVariant = ({ leaf, source }: { leaf: UpstreamLeaf; source: (typeof sources)[number] }, showSource: boolean) => <div className="intent-path-row" key={`${source.sourceKind}:${source.source.id}:${leaf.checkboxId}`}>
       <label className={`intent-checkbox${leaf.available ? '' : ' unavailable'}`}><input id={leaf.checkboxId} aria-label={showSource ? `${source.sourceKind === 'offer' ? 'via' : 'from'} ${source.source.title}` : leaf.entity.title} type="checkbox" disabled={!leaf.available} checked={leaf.checked} onChange={event => toggleLeaf(leaf, event.target.checked)} /><span>{showSource ? `${source.sourceKind === 'offer' ? 'via' : 'from'} ${source.source.title}` : leaf.entity.title}</span>{source.sourceKind === 'parent' && <small>Parent provenance{leaf.provenanceOfferIds?.length ? ` · ${leaf.provenanceOfferIds.map(id => entityTitle(document, id)).join(', ')}` : ''}</small>}{!leaf.available && <small>No valid Child contributor path</small>}</label>
       {source.sourceKind === 'parent' && Boolean(leaf.checkedContributorOfferIds?.length) && <div className="parent-contributor-paths">{leaf.checkedContributorOfferIds!.map(offerId => <label className="intent-checkbox" key={offerId}><input type="checkbox" checked onChange={() => removeParentContributor(leaf, offerId)} /><span>via {entityTitle(document, offerId)}</span></label>)}</div>}
     </div>;
-    const renderMergedLeaf = (entry: { entity: Entity; variants: { leaf: UpstreamLeaf; source: (typeof sources)[number] }[] }) => entry.variants.length === 1
-      ? renderVariant(entry.variants[0]!, false)
-      : <div className="intent-semantic-leaf" key={entry.entity.id}><button type="button" onClick={() => navigateInspector(entry.entity.id)}>{entry.entity.title}</button><div className="intent-path-variants">{entry.variants.map(variant => renderVariant(variant, true))}</div></div>;
     const editing = Boolean(connectionPicker);
-    const exitEdit = () => { setLocalRemoval(null); closePicker(); };
-    return <section className={`touchpoint-client-scope${editing ? ' is-editing' : ''}`} aria-labelledby="touchpoint-client-scope-heading" onKeyDown={event => { if (event.key !== 'Escape' || !connectionPicker) return; event.preventDefault(); event.stopPropagation(); if (connectionPicker.mode !== 'upstream') setConnectionPicker({ mode: 'upstream', query: '', kind: undefined, contributorOfferIds: [], ancestorContributingOfferIds: {} }); else exitEdit(); }}>
+    const exitEdit = () => { setLocalRemoval(null); setExpandedClientSources({}); closePicker(); };
+    const resetTransientSearch = () => setConnectionPicker({ mode: 'upstream', query: '', kind: undefined, contributorOfferIds: [], ancestorContributingOfferIds: {} });
+    const renderDiscoveryMatches = (matches: typeof discovery.titleMatches) => <div className="global-intent-results">{matches.jobGroups.map(group => <div className="intent-job-branch" key={group.job.id}><button type="button" onClick={() => navigateInspector(group.job.id)}><small>{KIND_LABELS[group.job.kind]}</small>{group.job.title}</button>{group.leaves.map(leaf => <button type="button" className="intent-discovery-leaf" key={leaf.checkboxId} onClick={() => chooseDiscovery(leaf)}>{leaf.entity.title}</button>)}</div>)}{matches.directLeaves.map(leaf => <button type="button" className="intent-discovery-leaf" key={leaf.checkboxId} onClick={() => chooseDiscovery(leaf)}><small>{KIND_LABELS[leaf.entity.kind]}</small>{leaf.entity.title}</button>)}</div>;
+    return <section className={`touchpoint-client-scope${editing ? ' is-editing' : ''}`} aria-labelledby="touchpoint-client-scope-heading" onKeyDown={event => { if (event.key !== 'Escape' || !connectionPicker) return; event.preventDefault(); event.stopPropagation(); if (connectionPicker.mode !== 'upstream' || connectionPicker.query || connectionPicker.kind) resetTransientSearch(); else exitEdit(); }}>
       <div className="touchpoint-client-scope-heading"><h4 id="touchpoint-client-scope-heading">Client scope</h4><button ref={connectionPickerButtonRef} type="button" className="business-structure-edit-value" aria-label={editing ? 'Finish editing Client scope' : 'Edit Client scope'} aria-pressed={editing} disabled={!offers.length} onClick={() => editing ? exitEdit() : setConnectionPicker({ mode: 'upstream', query: '', kind: undefined, contributorOfferIds: [], ancestorContributingOfferIds: {} })}><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button></div>
       {!editing && (scope.jobGroups.length || scope.financialLeaves.length) ? <div className="touchpoint-client-scope-content">
         {scope.jobGroups.map(group => <div className={`touchpoint-client-job ${group.desiredOutcomes.length ? 'has-outcomes' : 'direct-job'}`} key={group.job.id}>
@@ -1576,15 +1563,14 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         {scope.financialLeaves.map(leaf => <div className="touchpoint-client-financial" key={leaf.semanticLeafId}><small>{KIND_LABELS[leaf.entity.kind]}</small><button type="button" onClick={() => navigateInspector(leaf.entity.id)}>{leaf.entity.title}</button></div>)}
       </div> : !editing && <p className="touchpoint-client-scope-empty">No Client-side connections yet.</p>}
       {connectionPicker && <div className="touchpoint-client-scope-content inline-intent-editor">
-        {[...upstreamJobGroups.values()].map(group => <div className={`touchpoint-client-job ${[...group.leaves.values()].some(entry => entry.variants[0]?.leaf.kind === 'desired-outcome') ? 'has-outcomes' : 'direct-job'}`} key={group.job.id}><small>{KIND_LABELS[group.job.kind]}</small><button type="button" onClick={() => navigateInspector(group.job.id)}>{group.job.title}</button><div className="intent-leaves">{[...group.leaves.values()].map(renderMergedLeaf)}</div></div>)}
-        {[...upstreamFinancial.values()].map(entry => <div className="touchpoint-client-financial" key={entry.entity.id}><small>{KIND_LABELS[entry.entity.kind]}</small>{renderMergedLeaf(entry)}</div>)}
-        {!upstreamJobGroups.size && !upstreamFinancial.size && <p className="touchpoint-client-scope-empty">No upstream Client intent available.</p>}
-        {connectionPicker.mode === 'upstream' && <button type="button" className="text-action global-intent-trigger" onClick={() => setConnectionPicker({ ...connectionPicker, mode: 'global-search' })}>Find Client intent elsewhere</button>}
-        {connectionPicker.mode === 'global-search' && <section className="global-intent-discovery" aria-label="Find Client intent elsewhere">
-          <label>Search by title<input type="search" value={connectionPicker.query} onChange={event => setConnectionPicker({ ...connectionPicker, mode: 'global-search', query: event.target.value })} /></label>
-          <label>Entity kind<select aria-label="Entity kind" value={connectionPicker.kind ?? ''} onChange={event => setConnectionPicker({ ...connectionPicker, mode: 'global-search', kind: (event.target.value || undefined) as ConnectionPickerKind | undefined })}><option value="">All kinds</option>{CONNECTION_PICKER_KINDS.map(kind => <option value={kind} key={kind}>{KIND_LABELS[kind]}</option>)}</select></label>
-          <div className="global-intent-results">{discovery.jobGroups.map(group => <div className="intent-job-branch" key={group.job.id}><strong><small>{KIND_LABELS[group.job.kind]}</small>{group.job.title}</strong>{group.leaves.map(leaf => <button type="button" className="intent-discovery-leaf" key={leaf.checkboxId} onClick={() => chooseDiscovery(leaf)}>{leaf.entity.title}</button>)}</div>)}{discovery.directLeaves.map(leaf => <button type="button" className="intent-discovery-leaf" key={leaf.checkboxId} onClick={() => chooseDiscovery(leaf)}><small>{KIND_LABELS[leaf.entity.kind]}</small>{leaf.entity.title}</button>)}</div>
-        </section>}
+        <section className="global-intent-discovery" aria-label="Find Client intent"><label>Search Client intent<input type="search" value={connectionPicker.query} onChange={event => setConnectionPicker({ ...connectionPicker, mode: event.target.value ? 'global-search' : 'upstream', query: event.target.value, kind: undefined })} /></label>
+          {connectionPicker.kind ? <><div className="kind-shortcut-heading"><button type="button" className="text-action" onClick={() => setConnectionPicker({ ...connectionPicker, kind: undefined })}>Back to results for “{connectionPicker.query}”</button><strong>{KIND_LABELS[connectionPicker.kind]}</strong></div>{renderDiscoveryMatches({ jobGroups: discovery.jobGroups, directLeaves: discovery.directLeaves })}</> : connectionPicker.query && <><div className="kind-shortcut-results" aria-label="Kind shortcuts">{discovery.kindShortcutMatches.map(shortcut => <button type="button" key={shortcut.kind} onClick={() => setConnectionPicker({ ...connectionPicker, mode: 'global-search', kind: shortcut.kind })}>Browse {shortcut.label}</button>)}</div>{renderDiscoveryMatches(discovery.titleMatches)}</>}
+        </section>
+        <div className="intent-source-list">{sources.map(source => {
+          const disclosureId = `client-source-${encodeURIComponent(selected.id)}-${encodeURIComponent(source.source.id)}`;
+          const expanded = Boolean(expandedClientSources[disclosureId]);
+          return <section className="intent-source-disclosure" key={`${source.sourceKind}:${source.source.id}`}><button type="button" className="intent-source-toggle" aria-expanded={expanded} aria-controls={disclosureId} onClick={() => setExpandedClientSources(current => ({ ...current, [disclosureId]: !expanded }))}><span aria-hidden="true">{expanded ? '▾' : '▸'}</span>{source.sourceKind === 'parent' ? 'Parent' : 'Offer'} · {source.source.title}</button>{expanded && <div id={disclosureId} className="intent-source-dendrite">{source.jobGroups.map(group => <div className={`touchpoint-client-job ${group.leaves.some(leaf => leaf.kind === 'desired-outcome') ? 'has-outcomes' : 'direct-job'}`} key={group.job.id}><small>{KIND_LABELS[group.job.kind]}</small><button type="button" onClick={() => navigateInspector(group.job.id)}>{group.job.title}</button><div className="intent-leaves">{group.leaves.map(leaf => <div className="intent-semantic-leaf" key={leaf.checkboxId}>{leaf.entity.id !== group.job.id && <button type="button" onClick={() => navigateInspector(leaf.entity.id)}>{leaf.entity.title}</button>}{renderVariant({ leaf, source }, false)}</div>)}</div></div>)}{source.financialLeaves.map(leaf => <div className="touchpoint-client-financial" key={leaf.checkboxId}><small>{KIND_LABELS[leaf.entity.kind]}</small><button type="button" onClick={() => navigateInspector(leaf.entity.id)}>{leaf.entity.title}</button>{renderVariant({ leaf, source }, false)}</div>)}</div>}</section>;
+        })}{!sources.length && <p className="touchpoint-client-scope-empty">No upstream Client intent available.</p>}</div>
         {connectionPicker.mode === 'current-contributor-choice' && connectionPicker.target && <fieldset className="contributor-chooser"><legend>Which linked Offers contribute here?</legend>{(connectionPicker.currentContributorCandidateIds ?? []).map(offerId => <label className="checkbox" key={offerId}><input type="checkbox" checked={connectionPicker.contributorOfferIds.includes(offerId)} onChange={event => setConnectionPicker({ ...connectionPicker, contributorOfferIds: event.target.checked ? [...connectionPicker.contributorOfferIds, offerId] : connectionPicker.contributorOfferIds.filter(id => id !== offerId) })} />{entityTitle(document, offerId)}</label>)}<button type="button" disabled={!connectionPicker.contributorOfferIds.length} onClick={() => runBottomUp(connectionPicker.target!.leaf, connectionPicker.contributorOfferIds, connectionPicker.ancestorContributingOfferIds, connectionPicker.actionOrigin!)}>Continue</button></fieldset>}
         {connectionPicker.mode === 'ancestor-contributor-choice' && connectionPicker.unresolved?.status === 'unresolved' && connectionPicker.target && <fieldset className="contributor-chooser"><legend>Contributor for {entityTitle(document, connectionPicker.unresolved.touchpointId)}</legend>{connectionPicker.unresolved.candidateOfferIds.map(offerId => <button type="button" key={offerId} onClick={() => { const ancestors = { ...connectionPicker.ancestorContributingOfferIds, [connectionPicker.unresolved!.touchpointId]: offerId }; runBottomUp(connectionPicker.target!.leaf, connectionPicker.contributorOfferIds, ancestors, connectionPicker.actionOrigin!); }}>{entityTitle(document, offerId)}</button>)}</fieldset>}
         {connectionPicker.mode === 'invalid' && connectionPicker.unresolved?.status === 'invalid' && <p role="alert">No contributor path exists for {entityTitle(document, connectionPicker.unresolved.touchpointId)} ({connectionPicker.unresolved.touchpointId}).</p>}

@@ -93,17 +93,44 @@ export function touchpointUpstreamSources(document: MapDocument, touchpointId: s
 }
 
 export type GlobalIntentGroup = { job: Entity; leaves: UpstreamLeaf[] };
-export type GlobalIntentDiscovery = { jobGroups: GlobalIntentGroup[]; directLeaves: UpstreamLeaf[] };
+export type GlobalIntentMatches = { jobGroups: GlobalIntentGroup[]; directLeaves: UpstreamLeaf[] };
+export type GlobalIntentDiscovery = GlobalIntentMatches & {
+  titleMatches: GlobalIntentMatches;
+  kindShortcutMatches: { kind: ConnectionPickerKind; label: string }[];
+};
+const discoveryKindTerms: Record<ConnectionPickerKind, { label: string; aliases: string[] }> = {
+  core_functional_job: { label: 'Core Functional Job', aliases: ['core', 'functional', 'job'] },
+  related_job: { label: 'Related Job', aliases: ['related', 'job'] },
+  consumption_chain_job: { label: 'Consumption Chain Job', aliases: ['consumption', 'chain', 'job'] },
+  desired_outcome: { label: 'Desired Outcome', aliases: ['desired', 'outcome', 'do'] },
+  emotional_job: { label: 'Emotional Job', aliases: ['emotional', 'emotion', 'job'] },
+  social_job: { label: 'Social Job', aliases: ['social', 'job'] },
+  financial_desired_outcome: { label: 'Financial Desired Outcome', aliases: ['financial', 'desired', 'outcome', 'fdo'] },
+};
 export function globalIntentDiscovery(document: MapDocument, input: { query: string; kind?: ConnectionPickerKind | undefined }): GlobalIntentDiscovery {
-  const query = input.query.trim().toLocaleLowerCase(); const jobGroups: GlobalIntentGroup[] = []; const directLeaves: UpstreamLeaf[] = [];
-  for (const entity of document.entities) {
+  const query = input.query.trim().toLocaleLowerCase();
+  const project = (kind: ConnectionPickerKind | undefined, titleQuery: string): GlobalIntentMatches => {
+    const jobGroups: GlobalIntentGroup[] = []; const directLeaves: UpstreamLeaf[] = [];
+    for (const entity of document.entities) {
     if (doBearing.has(entity.kind)) {
-      const leaves = document.relationships.flatMap(relation => relation.kind === 'job_has_desired_outcome' && relation.jobId === entity.id ? document.entities.filter(candidate => candidate.id === relation.desiredOutcomeId && candidate.kind === 'desired_outcome') : []).filter(outcome => !query || entity.title.toLocaleLowerCase().includes(query) || outcome.title.toLocaleLowerCase().includes(query));
-      const visible = input.kind === 'desired_outcome' ? leaves.filter(outcome => !query || outcome.title.toLocaleLowerCase().includes(query)) : (!input.kind || input.kind === entity.kind) ? leaves : [];
-      if (visible.length && (!query || entity.title.toLocaleLowerCase().includes(query) || visible.length)) jobGroups.push({ job: entity, leaves: visible.map(outcome => ({ kind: 'desired-outcome', entity: outcome, semanticId: outcome.id, sourceId: 'global', contributorOfferId: '', checkboxId: `global:${entity.id}:${outcome.id}`, checked: false, available: true, owningJobId: entity.id })) });
-    } else if ((direct.has(entity.kind) || entity.kind === 'financial_desired_outcome') && (!input.kind || input.kind === entity.kind) && (!query || entity.title.toLocaleLowerCase().includes(query))) directLeaves.push({ kind: entity.kind === 'financial_desired_outcome' ? 'financial' : 'job', entity, semanticId: entity.id, sourceId: 'global', contributorOfferId: '', checkboxId: `global:${entity.id}`, checked: false, available: true });
-  }
-  return { jobGroups, directLeaves };
+      const outcomes = document.relationships.flatMap(relation => relation.kind === 'job_has_desired_outcome' && relation.jobId === entity.id ? document.entities.filter(candidate => candidate.id === relation.desiredOutcomeId && candidate.kind === 'desired_outcome') : []);
+      const jobMatches = !titleQuery || entity.title.toLocaleLowerCase().includes(titleQuery);
+      const visible = kind === 'desired_outcome'
+        ? outcomes
+        : (!kind || kind === entity.kind) ? outcomes.filter(outcome => jobMatches || outcome.title.toLocaleLowerCase().includes(titleQuery)) : [];
+      const titleVisible = kind === 'desired_outcome' && titleQuery ? visible.filter(outcome => outcome.title.toLocaleLowerCase().includes(titleQuery)) : visible;
+      if (titleVisible.length) jobGroups.push({ job: entity, leaves: titleVisible.map(outcome => ({ kind: 'desired-outcome', entity: outcome, semanticId: outcome.id, sourceId: 'global', contributorOfferId: '', checkboxId: `global:${entity.id}:${outcome.id}`, checked: false, available: true, owningJobId: entity.id })) });
+    } else if ((direct.has(entity.kind) || entity.kind === 'financial_desired_outcome') && (!kind || kind === entity.kind) && (!titleQuery || entity.title.toLocaleLowerCase().includes(titleQuery))) directLeaves.push({ kind: entity.kind === 'financial_desired_outcome' ? 'financial' : 'job', entity, semanticId: entity.id, sourceId: 'global', contributorOfferId: '', checkboxId: `global:${entity.id}`, checked: false, available: true });
+    }
+    return { jobGroups, directLeaves };
+  };
+  const titleMatches = query ? project(undefined, query) : { jobGroups: [], directLeaves: [] };
+  const kindShortcutMatches = query ? CONNECTION_PICKER_KINDS.flatMap(kind => {
+    const terms = discoveryKindTerms[kind];
+    return terms.label.toLocaleLowerCase().includes(query) || terms.aliases.some(alias => alias.includes(query) || query.includes(alias)) ? [{ kind, label: terms.label }] : [];
+  }) : [];
+  const visible = input.kind ? project(input.kind, '') : titleMatches;
+  return { ...visible, titleMatches, kindShortcutMatches };
 }
 export const jobLeafKey = (leaf: Pick<TouchpointJobLeaf, 'semanticLeafId'>) => `job:${leaf.semanticLeafId}`;
 export const financialLeafKey = (leaf: Pick<TouchpointFinancialLeaf, 'financialDesiredOutcomeId'>) => `financial:${leaf.financialDesiredOutcomeId}`;
