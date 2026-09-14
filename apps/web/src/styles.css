@@ -118,8 +118,9 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .intent-job-branch { display: grid; gap: .3rem; min-width: 0; padding-left: .65rem; border-left: 1px solid var(--border-soft); }
 .intent-job-branch small, .intent-discovery-leaf small { display: block; color: rgba(255,255,255,.58); }
 .intent-leaves { display: grid; gap: .2rem; padding-left: .65rem; }
-.inspector label.intent-checkbox { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: .2rem .45rem; padding: .2rem 0; font-weight: 400; }
-.inspector label.intent-checkbox > input { width: auto; margin-top: .15rem; }
+.inspector .intent-checkbox { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: .2rem .45rem; padding: .2rem 0; font-weight: 400; }
+.inspector .intent-checkbox > input { width: auto; margin-top: .15rem; }
+.inspector div.intent-checkbox > button { justify-self: start; max-width: 100%; padding: 0; border: 0; background: transparent; color: var(--color-accent); text-align: left; overflow-wrap: anywhere; }
 .intent-checkbox > small { grid-column: 2; color: rgba(255,255,255,.58); }
 .intent-checkbox.unavailable { opacity: .58; }
 .parent-contributor-paths { display: grid; gap: .1rem; margin-left: 1.4rem; padding-left: .55rem; border-left: 1px dashed var(--border-soft); }
