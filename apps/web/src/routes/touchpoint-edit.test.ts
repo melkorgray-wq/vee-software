@@ -100,7 +100,7 @@ describe('Touchpoint edit intent draft', () => {
     document.touchpointFinancialSelections.push({ id: 'parent-fdo-path', touchpointId: 'parent', offerId: 'offer-a', offerFinancialIntentId: 'parent-fdo', financialDesiredOutcomeId: 'fdo' });
 
     const parent = touchpointUpstreamSources(document, 'touch').find(source => source.sourceKind === 'parent')!;
-    const leaf = parent.jobGroups[0]!.leaves[0]!;
+    const leaf = parent.jobGroups[0]!.leaves.find(item => item.semanticId === 'do-a')!;
     expect(leaf).toMatchObject({ semanticId: 'do-a', owningJobId: 'job', contributorOfferId: '', available: true, checked: false, provenanceOfferIds: ['offer-a'], childContributorOfferIds: ['offer-b'] });
     expect(parent.financialLeaves[0]).toMatchObject({ semanticId: 'fdo', contributorOfferId: '', available: true, provenanceOfferIds: ['offer-a'], childContributorOfferIds: ['offer-b'] });
   });
@@ -110,7 +110,7 @@ describe('Touchpoint edit intent draft', () => {
     document.entities.push({ id: 'parent', kind: 'touchpoint', title: 'Parent' });
     document.relationships.push({ id: 'contains', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'parent', childTouchpointId: 'touch' });
     document.touchpointJobSelections.push({ id: 'parent-path', touchpointId: 'parent', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] });
-    const leaf = touchpointUpstreamSources(document, 'touch').find(source => source.sourceKind === 'parent')!.jobGroups[0]!.leaves[0]!;
+    const leaf = touchpointUpstreamSources(document, 'touch').find(source => source.sourceKind === 'parent')!.jobGroups[0]!.leaves.find(item => item.semanticId === 'do-a')!;
     expect(leaf.checkedContributorOfferIds).toEqual(['offer-a', 'offer-b']);
     expect(leaf.provenanceOfferIds).toEqual(['offer-a']);
   });
@@ -161,7 +161,8 @@ describe('Touchpoint edit intent draft', () => {
     document.entities.push({ id: 'offer-match', kind: 'offer', title: 'DO B commercial' }, { id: 'repulsor-match', kind: 'repulsor', title: 'DO B concern' });
     const result = globalIntentDiscovery(document, { query: 'do b' });
     expect(result.titleMatches.jobGroups).toHaveLength(1);
-    expect(result.titleMatches.jobGroups[0]).toMatchObject({ job: { id: 'job' }, leaves: [{ entity: { id: 'do-b' }, owningJobId: 'job' }] });
+    expect(result.titleMatches.jobGroups[0]?.job.id).toBe('job');
+    expect(result.titleMatches.jobGroups[0]?.leaves.find(leaf => leaf.semanticId === 'do-b')).toMatchObject({ entity: { id: 'do-b' }, owningJobId: 'job' });
     expect(result.titleMatches.directLeaves).toEqual([]);
     expect(JSON.stringify(result)).not.toContain('offer-match');
     expect(JSON.stringify(result)).not.toContain('repulsor-match');
@@ -185,11 +186,11 @@ describe('Touchpoint edit intent draft', () => {
       ],
     });
     expect(leaves.find(leaf => leaf.semanticId === 'do-b')).toMatchObject({ checked: true, owningJobId: 'job' });
-    expect(globalIntentDiscovery(document, { query: 'do b', touchpointId: 'other-touch' }).titleMatches.jobGroups[0]!.leaves[0]).toMatchObject({
+    expect(globalIntentDiscovery(document, { query: 'do b', touchpointId: 'other-touch' }).titleMatches.jobGroups[0]!.leaves.find(leaf => leaf.semanticId === 'do-b')).toMatchObject({
       checked: true,
       contributorPaths: [{ offerId: 'offer-a' }],
     });
-    expect(globalIntentDiscovery(document, { query: 'do b', touchpointId: 'missing' }).titleMatches.jobGroups[0]!.leaves[0]).toMatchObject({ checked: false, contributorPaths: [] });
+    expect(globalIntentDiscovery(document, { query: 'do b', touchpointId: 'missing' }).titleMatches.jobGroups[0]!.leaves.find(leaf => leaf.semanticId === 'do-b')).toMatchObject({ checked: false, contributorPaths: [] });
   });
 
   it('returns kind labels and aliases separately from simultaneous title matches', () => {
@@ -213,7 +214,7 @@ describe('Touchpoint edit intent draft', () => {
       { id: 'chain-owns', kind: 'job_has_desired_outcome', jobId: 'chain', desiredOutcomeId: 'chain-do' },
     );
     const desired = globalIntentDiscovery(document, { query: 'desired', kind: 'desired_outcome' });
-    expect(desired.jobGroups.flatMap(group => group.leaves.map(leaf => leaf.entity.id))).toEqual(['do-a', 'do-b', 'related-do', 'chain-do']);
+    expect(desired.jobGroups.flatMap(group => group.leaves.filter(leaf => leaf.kind === 'desired-outcome').map(leaf => leaf.entity.id))).toEqual(['do-a', 'do-b', 'related-do', 'chain-do']);
     expect(desired.directLeaves).toEqual([]);
     expect(globalIntentDiscovery(document, { query: 'social', kind: 'social_job' }).directLeaves.map(leaf => leaf.entity.id)).toEqual(['social']);
     expect(globalIntentDiscovery(document, { query: 'financial', kind: 'financial_desired_outcome' }).directLeaves.map(leaf => leaf.entity.id)).toEqual(['fdo']);
@@ -227,7 +228,7 @@ describe('Touchpoint edit intent draft', () => {
 
   it('catalogues Client-owned semantic leaves independently of upstream intent', () => {
     const catalogue = touchpointIntentCatalogue(fixture());
-    expect(catalogue.jobs.map(leaf => leaf.semanticLeafId)).toEqual(['do-a', 'do-b', 'emotional']);
+    expect(catalogue.jobs.map(leaf => leaf.semanticLeafId)).toEqual(['job', 'do-a', 'do-b', 'emotional']);
     expect(catalogue.financial).toEqual([{ financialDesiredOutcomeId: 'fdo', contributorOfferIds: [] }]);
   });
 
@@ -235,7 +236,7 @@ describe('Touchpoint edit intent draft', () => {
     const draft = createTouchpointIntentDraft(fixture(), 'touch');
     expect(draft.jobLeaves.find(leaf => leaf.semanticLeafId === 'do-a')?.contributorOfferIds).toEqual(['offer-a', 'offer-b']);
     expect(draft.jobLeaves.find(leaf => leaf.semanticLeafId === 'do-b')?.contributorOfferIds).toEqual(['offer-b']);
-    expect(draft.durableBranchSnapshot.touchpointIntentLeafIds).toEqual(['job:do-a', 'job:do-b']);
+    expect(draft.durableBranchSnapshot.touchpointIntentLeafIds).toEqual(['job:job', 'job:do-a', 'job:do-b']);
     expect(draft.durableBranchSnapshot.otherClientIntentLeafIds).toEqual(['job:emotional', 'financial:fdo']);
   });
 
@@ -325,6 +326,7 @@ describe('Touchpoint edit intent draft', () => {
     document.entities.push({ id: 'repulsor', kind: 'repulsor', title: 'Doubt' });
     document.relationships.push({ id: 'resists', kind: 'repulsor_resists', repulsorId: 'repulsor', targetEntityId: 'job' });
     const intent = createTouchpointIntentDraft(document, 'touch');
+    intent.jobLeaves.find(leaf => leaf.semanticLeafId === 'job')!.contributorOfferIds = ['offer-a'];
     intent.jobLeaves.find(leaf => leaf.semanticLeafId === 'do-a')!.contributorOfferIds = ['offer-a'];
     intent.jobLeaves.find(leaf => leaf.semanticLeafId === 'do-b')!.contributorOfferIds = [];
     const nextId = (() => { let value = 0; return () => `new-${++value}`; })();

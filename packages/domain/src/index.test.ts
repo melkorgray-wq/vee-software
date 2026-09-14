@@ -210,7 +210,7 @@ describe('map authoring domain', () => {
       let offered = addEntity(productCopy, { ...place, entityId: 'offer', title: 'Offer', kind: 'offer', linkedProductId: 'product', relationshipId: 'packaged' });
       offered = setOfferJobSelections(offered, { offerId: 'offer', productJobIntentIds: ['intent'], newSelectionIds: ['selection'] });
       const offerCopy = duplicateEntity(offered, { sourceEntityId: 'offer', entityId: 'offer-copy', viewId: 'view', x: 50, y: 60, relationshipIds: ['fresh-packaged', 'fresh-selection'] });
-      expect(offerCopy.offerJobSelections).toContainEqual({ id: 'fresh-selection', offerId: 'offer-copy', productJobIntentId: 'intent' });
+      expect(offerCopy.offerJobSelections).toContainEqual({ id: 'fresh-selection', offerId: 'offer-copy', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] });
     });
   });
 
@@ -383,7 +383,8 @@ describe('Touchpoint intent scope', () => {
   });
   it('rejects invalid or contributor-less draft paths without mutating the input', () => {
     const d = scoped(); const before = structuredClone(d); let ids = 0;
-    expect(() => applyTouchpointIntentDraft(d, { touchpointId: 'touch', draft: { jobLeaves: [{ jobId: 'job', semanticLeafId: 'job', contributorOfferIds: ['offer'] }], financialLeaves: [], pendingJobLeafIds: [], pendingFinancialLeafIds: [] }, newId: () => `id-${++ids}` })).toThrow(/requires a Desired Outcome/);
+    const jobOnly = applyTouchpointIntentDraft(d, { touchpointId: 'touch', draft: { jobLeaves: [{ jobId: 'job', semanticLeafId: 'job', contributorOfferIds: ['offer'] }], financialLeaves: [], pendingJobLeafIds: [], pendingFinancialLeafIds: [] }, newId: () => `id-${++ids}` });
+    expect(jobOnly.touchpointJobSelections[0]?.addressedDesiredOutcomeIds).toEqual([]);
     expect(() => applyTouchpointIntentDraft(d, { touchpointId: 'touch', draft: { jobLeaves: [{ jobId: 'job', semanticLeafId: 'outcome', desiredOutcomeId: 'outcome', contributorOfferIds: [] }], financialLeaves: [], pendingJobLeafIds: ['outcome'], pendingFinancialLeafIds: [] }, newId: () => `id-${++ids}` })).toThrow(/contributing Offer/);
     expect(d).toEqual(before); expect(d.productJobIntents).toEqual([]);
   });
@@ -397,10 +398,11 @@ describe('Touchpoint intent scope', () => {
     const draft = (jobLeaves: { jobId: string; semanticLeafId: string; desiredOutcomeId?: string; contributorOfferIds: string[] }[] = [], financialLeaves: { financialDesiredOutcomeId: string; contributorOfferIds: string[] }[] = []) => ({ jobLeaves, financialLeaves, pendingJobLeafIds: [], pendingFinancialLeafIds: [] });
     const ids = (prefix = 'generated') => { let index = 0; return () => `${prefix}-${++index}`; };
 
-    it('DO-bearing Job rejects a direct Job to Touchpoint selection without a DO', () => {
-      const d = scoped();
-      expect(() => authorTouchpointIntentBottomUp(d, { touchpointId: 'touch', contributingOfferIds: ['offer'], jobId: 'job', addressedDesiredOutcomeIds: [], productJobIntentIds: ['intent'], offerJobSelectionIds: ['offer-selection'], touchpointSelectionIds: ['touch-selection'] })).toThrow(/requires at least one Desired Outcome/);
-      expect(d.productJobIntents).toEqual([]); expect(d.offerJobSelections).toEqual([]); expect(d.touchpointJobSelections).toEqual([]);
+    it('DO-bearing Job supports a Job-only path without a route subset', () => {
+      const d = completed(authorTouchpointIntentBottomUp(scoped(), { touchpointId: 'touch', contributingOfferIds: ['offer'], jobId: 'job', addressedDesiredOutcomeIds: [], productJobIntentIds: ['intent'], offerJobSelectionIds: ['offer-selection'], touchpointSelectionIds: ['touch-selection'] }));
+      expect(d.productJobIntents[0]?.addressedDesiredOutcomeIds).toEqual([]);
+      expect(d.offerJobSelections[0]?.addressedDesiredOutcomeIds).toEqual([]);
+      expect(d.touchpointJobSelections[0]?.addressedDesiredOutcomeIds).toEqual([]);
     });
 
     it('selecting one DO does not include its sibling DO', () => {
@@ -434,7 +436,7 @@ describe('Touchpoint intent scope', () => {
       const before = scoped();
       const d = completed(authorTouchpointIntentBottomUp(before, { touchpointId: 'touch', contributingOfferIds: ['offer'], jobId: 'job', addressedDesiredOutcomeIds: ['outcome'], productJobIntentIds: ['intent'], offerJobSelectionIds: ['offer-selection'], touchpointSelectionIds: ['touch-selection'] }));
       expect(d.productJobIntents).toEqual([{ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['outcome'] }]);
-      expect(d.offerJobSelections).toEqual([{ id: 'offer-selection', offerId: 'offer', productJobIntentId: 'intent' }]);
+      expect(d.offerJobSelections).toEqual([{ id: 'offer-selection', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['outcome'] }]);
       expect(d.touchpointJobSelections).toEqual([{ id: 'touch-selection', touchpointId: 'touch', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['outcome'] }]);
       expect(before.productJobIntents).toEqual([]);
     });
@@ -452,7 +454,7 @@ describe('Touchpoint intent scope', () => {
       d = setOfferJobSelections(d, { offerId: 'offer', productJobIntentIds: ['intent'], newSelectionIds: ['offer-selection'] });
       d = completed(authorTouchpointIntentBottomUp(d, { touchpointId: 'touch', contributingOfferIds: ['offer', 'offer-b'], jobId: 'job', addressedDesiredOutcomeIds: ['outcome'], productJobIntentIds: [], offerJobSelectionIds: ['offer-selection-b'], touchpointSelectionIds: ['touch-a', 'touch-b'] }));
       expect(d.productJobIntents).toHaveLength(1);
-      expect(d.offerJobSelections).toEqual(expect.arrayContaining([{ id: 'offer-selection', offerId: 'offer', productJobIntentId: 'intent' }, { id: 'offer-selection-b', offerId: 'offer-b', productJobIntentId: 'intent' }]));
+      expect(d.offerJobSelections).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'offer-selection', addressedDesiredOutcomeIds: ['outcome'] }), expect.objectContaining({ id: 'offer-selection-b', addressedDesiredOutcomeIds: ['outcome'] })]));
     });
 
     it('repeated Apply is idempotent', () => {
@@ -545,8 +547,20 @@ describe('Touchpoint intent scope', () => {
     d = setOfferJobSelections(d, { offerId: 'offer', productJobIntentIds: ['intent'], newSelectionIds: ['offer-selection'] });
     d = selectAllLinkedOfferIntentsForTouchpoint(d, { touchpointId: 'touch', jobSelectionIds: ['touch-selection'], financialSelectionIds: [] });
     expect(d.touchpointJobSelections[0]?.addressedDesiredOutcomeIds).toEqual(['outcome']);
-    expect(() => setTouchpointIntentSelections(d, { touchpointId: 'touch', selections: [{ id: 'narrowed', kind: 'job', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] }] })).toThrowError(/requires at least one Desired Outcome/);
+    d = setTouchpointIntentSelections(d, { touchpointId: 'touch', selections: [{ id: 'touch-selection', kind: 'job', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] }] });
+    expect(d.touchpointJobSelections[0]?.addressedDesiredOutcomeIds).toEqual([]);
     expect(() => setTouchpointIntentSelections(d, { touchpointId: 'touch', selections: [{ id: 'bad', kind: 'job', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['job'] }] })).toThrow();
+  });
+  it('keeps Offer path identity while changing its explicit subset and reads legacy scope as the Product scope', () => {
+    let d = scoped();
+    d = addProductJobIntent(d, { id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['outcome'] });
+    d = setOfferJobSelections(d, { offerId: 'offer', productJobIntentIds: ['intent'], newSelectionIds: ['offer-selection'] });
+    d = setOfferJobSelections(d, { offerId: 'offer', selections: [{ productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] }], newSelectionIds: [] });
+    expect(d.offerJobSelections).toEqual([{ id: 'offer-selection', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] }]);
+    expect(() => setTouchpointIntentSelections(d, { touchpointId: 'touch', selections: [{ id: 'local', kind: 'job', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['outcome'] }] })).toThrowError(/immediate Offer scope/);
+    const legacy = { ...d, offerJobSelections: [{ id: 'legacy', offerId: 'offer', productJobIntentId: 'intent' }] };
+    const selected = setTouchpointIntentSelections(legacy, { touchpointId: 'touch', selections: [{ id: 'legacy-local', kind: 'job', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['outcome'] }] });
+    expect(selected.touchpointJobSelections[0]?.addressedDesiredOutcomeIds).toEqual(['outcome']);
   });
   it('keeps FDO at Offer level and exposes a confirmed cascade impact', () => {
     let d = scoped();
@@ -563,9 +577,10 @@ describe('Touchpoint intent scope', () => {
     let d = scoped();
     d = addProductJobIntent(d, { id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: [] });
     d = setOfferJobSelections(d, { offerId: 'offer', productJobIntentIds: ['intent'], newSelectionIds: ['offer-selection'] });
-    const selected = selectAllLinkedOfferIntentsForTouchpoint(d, { touchpointId: 'touch', jobSelectionIds: [], financialSelectionIds: [] });
-    expect(selected.offerJobSelections).toHaveLength(1); expect(selected.touchpointJobSelections).toEqual([]);
-    expect(() => authorTouchpointIntentBottomUp(d, { touchpointId: 'touch', contributingOfferIds: ['offer'], jobId: 'job', addressedDesiredOutcomeIds: [], productJobIntentIds: [], offerJobSelectionIds: [], touchpointSelectionIds: ['local'] })).toThrowError(/requires at least one Desired Outcome/);
+    const selected = selectAllLinkedOfferIntentsForTouchpoint(d, { touchpointId: 'touch', jobSelectionIds: ['local'], financialSelectionIds: [] });
+    expect(selected.offerJobSelections).toHaveLength(1); expect(selected.touchpointJobSelections[0]?.addressedDesiredOutcomeIds).toEqual([]);
+    const authored = completed(authorTouchpointIntentBottomUp(d, { touchpointId: 'touch', contributingOfferIds: ['offer'], jobId: 'job', addressedDesiredOutcomeIds: [], productJobIntentIds: [], offerJobSelectionIds: [], touchpointSelectionIds: ['local'] }));
+    expect(authored.touchpointJobSelections[0]?.addressedDesiredOutcomeIds).toEqual([]);
     expect(d.touchpointJobSelections).toEqual([]);
   });
   it('normalizes downstream outcome scope without deleting incomplete upstream intent', () => {
@@ -574,7 +589,7 @@ describe('Touchpoint intent scope', () => {
     d = setOfferJobSelections(d, { offerId: 'offer', productJobIntentIds: ['intent'], newSelectionIds: ['offer-selection'] });
     d = setTouchpointIntentSelections(d, { touchpointId: 'touch', selections: [{ id: 'local', kind: 'job', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['outcome'] }] });
     d = updateProductJobIntent(d, { id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: [] });
-    expect(d.productJobIntents[0]?.addressedDesiredOutcomeIds).toEqual([]); expect(d.offerJobSelections).toHaveLength(1); expect(d.touchpointJobSelections).toEqual([]); expect(d.entities.some(entity => entity.id === 'outcome')).toBe(true);
+    expect(d.productJobIntents[0]?.addressedDesiredOutcomeIds).toEqual([]); expect(d.offerJobSelections).toHaveLength(1); expect(d.touchpointJobSelections).toEqual([expect.objectContaining({ id: 'local', addressedDesiredOutcomeIds: [] })]); expect(d.entities.some(entity => entity.id === 'outcome')).toBe(true);
   });
   it('distributes downward only to explicitly selected descendants', () => {
     let d = scoped();
@@ -608,14 +623,14 @@ describe('Product intent change impact', () => {
     return setTouchpointIntentSelections(d, { touchpointId: 'touch', selections: [{ id: 'touch-selection', kind: 'job', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a', 'do-b'] }] });
   }
   it('reports Offer and Touchpoint paths removed with a Product Job Intent', () => {
-    expect(getProductIntentChangeImpact(downstreamDocument(), { productId: 'product', intents: [] })).toEqual({ offerJobSelectionIds: ['offer-selection'], touchpointJobSelectionIds: ['touch-selection'], narrowedTouchpointSelections: [] });
+    expect(getProductIntentChangeImpact(downstreamDocument(), { productId: 'product', intents: [] })).toEqual({ offerJobSelectionIds: ['offer-selection'], touchpointJobSelectionIds: ['touch-selection'], narrowedOfferSelections: [], narrowedTouchpointSelections: [] });
   });
   it('reports only the removed Desired Outcome scope and preserves contributing paths', () => {
-    expect(getProductIntentChangeImpact(downstreamDocument(), { productId: 'product', intents: [{ jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] }] })).toEqual({ offerJobSelectionIds: [], touchpointJobSelectionIds: [], narrowedTouchpointSelections: [{ touchpointJobSelectionId: 'touch-selection', removedDesiredOutcomeIds: ['do-b'] }] });
+    expect(getProductIntentChangeImpact(downstreamDocument(), { productId: 'product', intents: [{ jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] }] })).toEqual({ offerJobSelectionIds: [], touchpointJobSelectionIds: [], narrowedOfferSelections: [{ offerJobSelectionId: 'offer-selection', removedDesiredOutcomeIds: ['do-b'] }], narrowedTouchpointSelections: [{ touchpointJobSelectionId: 'touch-selection', removedDesiredOutcomeIds: ['do-b'] }] });
   });
   it('has no impact for additive Product intent', () => {
     const d = downstreamDocument();
-    expect(getProductIntentChangeImpact(d, { productId: 'product', intents: [{ jobId: 'job', addressedDesiredOutcomeIds: ['do-a', 'do-b'] }] })).toEqual({ offerJobSelectionIds: [], touchpointJobSelectionIds: [], narrowedTouchpointSelections: [] });
+    expect(getProductIntentChangeImpact(d, { productId: 'product', intents: [{ jobId: 'job', addressedDesiredOutcomeIds: ['do-a', 'do-b'] }] })).toEqual({ offerJobSelectionIds: [], touchpointJobSelectionIds: [], narrowedOfferSelections: [], narrowedTouchpointSelections: [] });
   });
 });
 
