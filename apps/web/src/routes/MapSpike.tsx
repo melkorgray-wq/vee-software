@@ -397,7 +397,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [offerExpanded, setOfferExpanded] = useState<Record<string, boolean>>({});
   const [connectionPicker, setConnectionPicker] = useState<ClientScopeEditor | null>(null);
   const [expandedClientSources, setExpandedClientSources] = useState<Record<string, boolean>>({});
-  const [localRemoval, setLocalRemoval] = useState<{ plans: TouchpointIntentPathPlan[]; mitigationRelationshipIds: string[]; returnFocusId: string } | null>(null);
+  const [localRemoval, setLocalRemoval] = useState<{ plans: TouchpointIntentPathPlan[]; mitigationRelationshipIds: string[]; cancelFocusId: string; commitFocusIds: string[] } | null>(null);
+  const pendingLocalFocusIdsRef = useRef<string[]>([]);
   const connectionPickerButtonRef = useRef<HTMLButtonElement>(null);
   const [offerIntentSectionIds, setOfferIntentSectionIds] = useState<Record<string, string[]>>({});
   const [offerSelectionMemory, setOfferSelectionMemory] = useState<Record<string, string[]>>({});
@@ -548,6 +549,16 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     if (!productConfirmation) return;
     confirmationRef.current?.querySelector<HTMLElement>('button')?.focus();
   }, [productConfirmation]);
+  useLayoutEffect(() => {
+    if (!pendingLocalFocusIdsRef.current.length) return;
+    const focused = pendingLocalFocusIdsRef.current.some(id => {
+      const target = globalThis.document.getElementById(id);
+      if (!target) return false;
+      target.focus();
+      return true;
+    });
+    if (focused) pendingLocalFocusIdsRef.current = [];
+  });
   function closeProductConfirmation() {
     const target = productConfirmation?.returnFocus;
     setProductConfirmation(null);
@@ -1487,12 +1498,12 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       setConnectionPicker(null);
       requestAnimationFrame(() => connectionPickerButtonRef.current?.focus());
     };
-    const finishLocal = (nextDocument: MapDocument, focusId?: string) => {
+    const finishLocal = (nextDocument: MapDocument, focusIds: string[] = []) => {
       const next = reconsiderPlacementAfterRelationCommit(documentRef.current, nextDocument, VIEW_ID, selected.id);
+      pendingLocalFocusIdsRef.current = focusIds;
       setDocument(next);
       setEditDraft({ ...editDraft, touchpointIntent: createTouchpointIntentDraft(next, selected.id) });
       publishSuccess('Client scope updated.');
-      if (focusId) requestAnimationFrame(() => globalThis.document.getElementById(focusId)?.focus());
     };
     const concreteParentLeaf = (leaf: UpstreamLeaf, offerId: string, durable: MapDocument): UpstreamLeaf | undefined => {
       const jobSelection = durable.touchpointJobSelections.find(item => item.touchpointId === selected.id && item.offerId === offerId && durable.productJobIntents.find(intent => intent.id === item.productJobIntentId)?.jobId === jobIdForLeaf(leaf));
@@ -1514,8 +1525,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
           plannedDocument = commitTouchpointIntentPathPlan(plannedDocument, plan);
         }
         const impacts = [...new Set(plans.flatMap(plan => plan.impact.mitigationRelationshipIds))];
-        if (impacts.length) setLocalRemoval({ plans, mitigationRelationshipIds: impacts, returnFocusId: leaf.checkboxId });
-        else finishLocal(plannedDocument, leaf.checkboxId);
+        if (impacts.length) setLocalRemoval({ plans, mitigationRelationshipIds: impacts, cancelFocusId: leaf.checkboxId, commitFocusIds: [leaf.checkboxId] });
+        else finishLocal(plannedDocument, [leaf.checkboxId]);
         return;
       }
       try {
@@ -1523,8 +1534,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
           ? { kind: 'financial' as const, touchpointId: selected.id, offerId: leaf.contributorOfferId, offerFinancialIntentId: leaf.offerFinancialIntentId!, semanticLeafId: leaf.semanticId }
           : { kind: 'job' as const, touchpointId: selected.id, offerId: leaf.contributorOfferId, productJobIntentId: leaf.productJobIntentId!, semanticLeafId: leaf.semanticId };
         const plan = planTouchpointIntentPathChange(documentRef.current, { target, checked, ...(checked ? { newSelectionId: crypto.randomUUID() } : {}) });
-        if (!checked && plan.impact.mitigationRelationshipIds.length) { setLocalRemoval({ plans: [plan], mitigationRelationshipIds: plan.impact.mitigationRelationshipIds, returnFocusId: leaf.checkboxId }); return; }
-        finishLocal(commitTouchpointIntentPathPlan(documentRef.current, plan), leaf.checkboxId);
+        if (!checked && plan.impact.mitigationRelationshipIds.length) { setLocalRemoval({ plans: [plan], mitigationRelationshipIds: plan.impact.mitigationRelationshipIds, cancelFocusId: leaf.checkboxId, commitFocusIds: [leaf.checkboxId] }); return; }
+        finishLocal(commitTouchpointIntentPathPlan(documentRef.current, plan), [leaf.checkboxId]);
       } catch (error) { publishError(error instanceof Error ? error.message : 'Client scope could not be changed.'); }
     };
     const authorOne = (durable: MapDocument, leaf: UpstreamLeaf, contributors: string[], ancestors: Record<string, string>, newId?: () => string) => authorTouchpointIntentBottomUp(durable, leaf.kind === 'financial'
@@ -1534,7 +1545,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       try {
         const result = authorOne(documentRef.current, leaf, contributors, ancestors, () => crypto.randomUUID());
         if (result.status === 'complete') {
-          finishLocal(result.document, leaf.checkboxId);
+          finishLocal(result.document, [leaf.checkboxId]);
           setConnectionPicker(current => current ? { mode: current.query ? 'global-search' : 'upstream', query: current.query, kind: current.kind, contributorOfferIds: [], ancestorContributingOfferIds: {} } : current);
           return;
         }
@@ -1552,7 +1563,20 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       const owningJobId = jobIdForLeaf(leaf);
       const jobSelection = document.touchpointJobSelections.find(item => item.touchpointId === selected.id && item.offerId === offerId && document.productJobIntents.find(intent => intent.id === item.productJobIntentId)?.jobId === owningJobId);
       const financialSelection = document.touchpointFinancialSelections.find(item => item.touchpointId === selected.id && item.offerId === offerId && item.financialDesiredOutcomeId === leaf.semanticId);
-      toggleLeaf({ ...leaf, contributorOfferId: offerId, ...(jobSelection ? { productJobIntentId: jobSelection.productJobIntentId } : {}), ...(financialSelection ? { offerFinancialIntentId: financialSelection.offerFinancialIntentId } : {}) }, false);
+      const contributorButtonId = `${leaf.checkboxId}-contributor-${offerId}`;
+      const commitFocusIds = (leaf.checkedContributorOfferIds ?? []).filter(id => id !== offerId).map(id => `${leaf.checkboxId}-contributor-${id}`).concat(leaf.checkboxId);
+      const concrete = { ...leaf, contributorOfferId: offerId, ...(jobSelection ? { productJobIntentId: jobSelection.productJobIntentId } : {}), ...(financialSelection ? { offerFinancialIntentId: financialSelection.offerFinancialIntentId } : {}) };
+      const target = concrete.kind === 'financial'
+        ? { kind: 'financial' as const, touchpointId: selected.id, offerId, offerFinancialIntentId: concrete.offerFinancialIntentId!, semanticLeafId: concrete.semanticId }
+        : { kind: 'job' as const, touchpointId: selected.id, offerId, productJobIntentId: concrete.productJobIntentId!, semanticLeafId: concrete.semanticId };
+      try {
+        const plan = planTouchpointIntentPathChange(documentRef.current, { target, checked: false });
+        if (plan.impact.mitigationRelationshipIds.length) {
+          setLocalRemoval({ plans: [plan], mitigationRelationshipIds: plan.impact.mitigationRelationshipIds, cancelFocusId: contributorButtonId, commitFocusIds });
+          return;
+        }
+        finishLocal(commitTouchpointIntentPathPlan(documentRef.current, plan), commitFocusIds);
+      } catch (error) { publishError(error instanceof Error ? error.message : 'Client scope could not be changed.'); }
     };
     const editing = Boolean(connectionPicker);
     const exitEdit = () => { setLocalRemoval(null); setExpandedClientSources({}); closePicker(); };
@@ -1581,7 +1605,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         {options?.provenance && <small>Parent provenance{leaf.provenanceOfferIds?.length ? ` · ${leaf.provenanceOfferIds.map(id => entityTitle(document, id)).join(', ')}` : ''}</small>}
         {!leaf.available && <small>No valid Child contributor path</small>}
       </div>
-      {options?.showContributorPaths && Boolean(leaf.checkedContributorOfferIds?.length) && <div className="parent-contributor-paths">{leaf.checkedContributorOfferIds!.map(offerId => <label className="intent-checkbox" key={offerId}><input aria-label={`via ${entityTitle(document, offerId)}`} type="checkbox" checked onChange={() => removeContributor(leaf, offerId)} /><span>via {entityTitle(document, offerId)}</span></label>)}</div>}
+      {options?.showContributorPaths && Boolean(leaf.checkedContributorOfferIds?.length) && <div className="contributor-attributions">{leaf.checkedContributorOfferIds!.map(offerId => {
+        const offerTitle = entityTitle(document, offerId);
+        return <div className="contributor-attribution" key={offerId}><span>via {offerTitle}</span><button id={`${leaf.checkboxId}-contributor-${offerId}`} type="button" aria-label={`Remove ${offerTitle} contributor`} onClick={() => removeContributor(leaf, offerId)}><span aria-hidden="true">×</span></button></div>;
+      })}</div>}
       {renderResolver(leaf)}
     </div>;
     const renderJobGroup = (group: (typeof discovery.titleMatches.jobGroups)[number], options?: { provenance?: boolean }) => {
@@ -1614,7 +1641,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
           return <section className="intent-source-disclosure" key={`${source.sourceKind}:${source.source.id}`}><button type="button" className="intent-source-toggle" aria-expanded={expanded} aria-controls={disclosureId} onClick={() => setExpandedClientSources(current => ({ ...current, [disclosureId]: !expanded }))}><span aria-hidden="true">{expanded ? '▾' : '▸'}</span>{source.sourceKind === 'parent' ? 'Parent' : 'Offer'} · {source.source.title}</button>{expanded && <div id={disclosureId} className="intent-source-dendrite">{source.jobGroups.map(group => renderJobGroup(group, { provenance: source.sourceKind === 'parent' }))}{source.financialLeaves.map(leaf => <div className="touchpoint-client-financial" key={leaf.checkboxId}><small>{KIND_LABELS[leaf.entity.kind]}</small>{renderSelectableRow(leaf, { provenance: source.sourceKind === 'parent', showContributorPaths: source.sourceKind === 'parent' })}</div>)}</div>}</section>;
         })}{!sources.length && <p className="touchpoint-client-scope-empty">No upstream Client intent available.</p>}</div>
       </div>}
-      {localRemoval && <div role="dialog" aria-modal="true" aria-labelledby="local-removal-heading" className="confirmation-dialog"><h4 id="local-removal-heading">Remove this local Client path?</h4><p>This also removes {localRemoval.mitigationRelationshipIds.length} dependent mitigation record(s).</p>{localRemoval.mitigationRelationshipIds.map(id => <p key={id}><strong>{id}</strong></p>)}<div className="choice-row"><button type="button" className="danger" onClick={() => { const pending = localRemoval; setLocalRemoval(null); finishLocal(pending.plans.reduce((next, plan) => commitTouchpointIntentPathPlan(next, plan), documentRef.current), pending.returnFocusId); }}>Remove</button><button type="button" onClick={() => { const id = localRemoval.returnFocusId; setLocalRemoval(null); requestAnimationFrame(() => globalThis.document.getElementById(id)?.focus()); }}>Cancel</button></div></div>}
+      {localRemoval && <div role="dialog" aria-modal="true" aria-labelledby="local-removal-heading" className="confirmation-dialog"><h4 id="local-removal-heading">Remove this local Client path?</h4><p>This also removes {localRemoval.mitigationRelationshipIds.length} dependent mitigation record(s).</p>{localRemoval.mitigationRelationshipIds.map(id => <p key={id}><strong>{id}</strong></p>)}<div className="choice-row"><button type="button" className="danger" onClick={() => { const pending = localRemoval; setLocalRemoval(null); finishLocal(pending.plans.reduce((next, plan) => commitTouchpointIntentPathPlan(next, plan), documentRef.current), pending.commitFocusIds); }}>Remove</button><button type="button" onClick={() => { pendingLocalFocusIdsRef.current = [localRemoval.cancelFocusId]; setLocalRemoval(null); }}>Cancel</button></div></div>}
     </section>;
   }
   function semanticParentField(d: EditDraft, setter: (d: EditDraft) => void) {
