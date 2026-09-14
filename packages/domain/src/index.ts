@@ -366,7 +366,7 @@ export function authorTouchpointIntentBottomUp(document: MapDocument, input: Bot
       const intent = document.productJobIntents.find(item => item.id === selection.productJobIntentId);
       if (intent?.jobId !== input.jobId) return false;
       const outcomes = input.addressedDesiredOutcomeIds ?? [];
-      return outcomes.length ? outcomes.every(id => selection.addressedDesiredOutcomeIds.includes(id)) : selection.addressedDesiredOutcomeIds.length === 0;
+      return outcomes.length ? outcomes.every(id => selection.addressedDesiredOutcomeIds.includes(id)) : true;
     });
   const paths: { touchpointId: string; offerId: string }[] = input.contributingOfferIds.map(offerId => ({ touchpointId: input.touchpointId, offerId }));
   for (const touchpointId of ancestry) {
@@ -526,6 +526,7 @@ export interface ProductIntentChangeImpact {
 }
 export interface OfferIntentChangeImpact {
   touchpointJobSelectionIds: string[];
+  narrowedTouchpointSelections: { touchpointJobSelectionId: string; removedDesiredOutcomeIds: string[] }[];
   touchpointFinancialSelectionIds: string[];
 }
 export type TouchpointLinkedOfferImpactPath =
@@ -569,17 +570,25 @@ export function getTouchpointLinkedOfferChangeImpact(document: MapDocument, inpu
 }
 
 /** Calculates downstream selections pruned by atomically replacing an Offer draft. */
-export function getOfferIntentChangeImpact(document: MapDocument, input: { offerId: string; productId: string; productJobIntentIds: string[]; financialDesiredOutcomeIds: string[] }): OfferIntentChangeImpact {
+export function getOfferIntentChangeImpact(document: MapDocument, input: { offerId: string; productId: string; selections?: OfferJobSelectionInput[]; productJobIntentIds?: string[]; financialDesiredOutcomeIds: string[] }): OfferIntentChangeImpact {
   entityOfKind(document, input.offerId, 'offer', 'Offer');
   entityOfKind(document, input.productId, 'product', 'Product');
-  const allowedJobs = new Set(input.productJobIntentIds);
+  const proposedSelections = input.selections ?? (input.productJobIntentIds ?? []).map(productJobIntentId => ({ productJobIntentId, addressedDesiredOutcomeIds: effectiveOfferDesiredOutcomeIds(document, document.offerJobSelections.find(selection => selection.offerId === input.offerId && selection.productJobIntentId === productJobIntentId) ?? { id: '', offerId: input.offerId, productJobIntentId }) }));
+  const allowedJobs = new Set(proposedSelections.map(selection => selection.productJobIntentId));
   for (const intentId of allowedJobs) if (!document.productJobIntents.some(intent => intent.id === intentId && intent.productId === input.productId)) throw new DomainError('offer_selection_wrong_product', 'Offer selections must belong to the Offer Product.');
   const allowedFinancial = new Set(input.financialDesiredOutcomeIds);
   input.financialDesiredOutcomeIds.forEach(id => entityOfKind(document, id, 'financial_desired_outcome', 'Financial Desired Outcome'));
   const removedJobSelections = new Set(document.offerJobSelections.filter(selection => selection.offerId === input.offerId && !allowedJobs.has(selection.productJobIntentId)).map(selection => selection.id));
   const removedFinancialIntents = new Set(document.offerFinancialIntents.filter(intent => intent.offerId === input.offerId && !allowedFinancial.has(intent.financialDesiredOutcomeId)).map(intent => intent.id));
+  const proposedScopes = new Map(proposedSelections.map(selection => [selection.productJobIntentId, new Set(selection.addressedDesiredOutcomeIds)]));
   return {
     touchpointJobSelectionIds: document.touchpointJobSelections.filter(selection => selection.offerId === input.offerId && removedJobSelections.has(document.offerJobSelections.find(item => item.offerId === input.offerId && item.productJobIntentId === selection.productJobIntentId)?.id ?? '')).map(selection => selection.id),
+    narrowedTouchpointSelections: document.touchpointJobSelections.flatMap(selection => {
+      if (selection.offerId !== input.offerId || removedJobSelections.has(document.offerJobSelections.find(item => item.offerId === input.offerId && item.productJobIntentId === selection.productJobIntentId)?.id ?? '')) return [];
+      const scope = proposedScopes.get(selection.productJobIntentId);
+      const removedDesiredOutcomeIds = selection.addressedDesiredOutcomeIds.filter(id => !scope?.has(id));
+      return removedDesiredOutcomeIds.length ? [{ touchpointJobSelectionId: selection.id, removedDesiredOutcomeIds }] : [];
+    }),
     touchpointFinancialSelectionIds: document.touchpointFinancialSelections.filter(selection => selection.offerId === input.offerId && removedFinancialIntents.has(selection.offerFinancialIntentId)).map(selection => selection.id),
   };
 }

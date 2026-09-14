@@ -119,8 +119,8 @@ export function globalIntentDiscovery(document: MapDocument, input: { query: str
     if (owningJobId) return document.touchpointJobSelections.flatMap(selection => {
       if (selection.touchpointId !== input.touchpointId) return [];
       const intent = document.productJobIntents.find(item => item.id === selection.productJobIntentId);
-      const selectedIds = selection.addressedDesiredOutcomeIds.length ? selection.addressedDesiredOutcomeIds : intent ? [intent.jobId] : [];
-      return intent?.jobId === owningJobId && selectedIds.includes(semanticId)
+      const contributes = semanticId === owningJobId || selection.addressedDesiredOutcomeIds.includes(semanticId);
+      return intent?.jobId === owningJobId && contributes
         ? [{ id: pathId(input.touchpointId!, 'discovery', 'local', selection.offerId, semanticId), offerId: selection.offerId, productJobIntentId: selection.productJobIntentId }]
         : [];
     });

@@ -193,6 +193,13 @@ describe('Touchpoint edit intent draft', () => {
     expect(globalIntentDiscovery(document, { query: 'do b', touchpointId: 'missing' }).titleMatches.jobGroups[0]!.leaves.find(leaf => leaf.semanticId === 'do-b')).toMatchObject({ checked: false, contributorPaths: [] });
   });
 
+  it('projects Job contributor paths even when those paths also contain Desired Outcomes', () => {
+    const result = globalIntentDiscovery(fixture(), { query: 'Job', touchpointId: 'touch' });
+    const job = result.titleMatches.jobGroups[0]?.leaves.find(leaf => leaf.kind === 'job');
+    expect(job).toMatchObject({ checked: true, checkedContributorOfferIds: ['offer-a', 'offer-b'] });
+    expect(job?.contributorPaths?.map(path => path.offerId)).toEqual(['offer-a', 'offer-b']);
+  });
+
   it('returns kind labels and aliases separately from simultaneous title matches', () => {
     const document = fixture();
     document.entities.push({ id: 'outcome-emotion', kind: 'emotional_job', title: 'Outcome confidence' });
