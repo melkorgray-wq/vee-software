@@ -1,4 +1,4 @@
-import { addTouchpointContainer, applyTouchpointIntentDraft, relevantRepulsorsForTouchpoint, setTouchpointMitigations, updateEntity, type Entity, type MapDocument, type TouchpointIntentDraft as DomainTouchpointIntentDraft, type TouchpointIntentFinancialLeaf, type TouchpointIntentJobLeaf } from '@vee/domain';
+import { addTouchpointContainer, applyTouchpointIntentDraft, effectiveOfferDesiredOutcomeIds, relevantRepulsorsForTouchpoint, setTouchpointMitigations, updateEntity, type Entity, type MapDocument, type TouchpointIntentDraft as DomainTouchpointIntentDraft, type TouchpointIntentFinancialLeaf, type TouchpointIntentJobLeaf } from '@vee/domain';
 
 export type TouchpointJobLeaf = TouchpointIntentJobLeaf;
 export type TouchpointFinancialLeaf = TouchpointIntentFinancialLeaf;
@@ -45,8 +45,8 @@ export function touchpointUpstreamSources(document: MapDocument, touchpointId: s
       if (path.productJobIntentId) {
         const intent = document.productJobIntents.find(item => item.id === path.productJobIntentId); const job = document.entities.find(item => item.id === intent?.jobId);
         if (!intent || !job || (!doBearing.has(job.kind) && !direct.has(job.kind))) continue;
-        const semanticIds = doBearing.has(job.kind) ? intent.addressedDesiredOutcomeIds : [job.id];
-        if (!semanticIds.length) continue;
+        const offerSelection = document.offerJobSelections.find(selection => selection.offerId === path.offerId && selection.productJobIntentId === intent.id);
+        const semanticIds = doBearing.has(job.kind) ? [job.id, ...(offerSelection ? effectiveOfferDesiredOutcomeIds(document, offerSelection) : [])] : [job.id];
         const group = groups.get(job.id) ?? { job, leaves: [] };
         for (const semanticId of semanticIds) {
           const entity = semanticId === job.id ? job : document.entities.find(item => item.id === semanticId && item.kind === 'desired_outcome');
@@ -73,7 +73,7 @@ export function touchpointUpstreamSources(document: MapDocument, touchpointId: s
     for (const selection of document.touchpointJobSelections.filter(item => item.touchpointId === parent.id)) {
       const intent = document.productJobIntents.find(item => item.id === selection.productJobIntentId); const job = document.entities.find(item => item.id === intent?.jobId);
       if (!intent || !job || (!doBearing.has(job.kind) && !direct.has(job.kind))) continue;
-      const semanticIds = doBearing.has(job.kind) ? selection.addressedDesiredOutcomeIds : [job.id]; const group = groups.get(job.id) ?? { job, leaves: [] };
+      const semanticIds = doBearing.has(job.kind) ? [job.id, ...selection.addressedDesiredOutcomeIds] : [job.id]; const group = groups.get(job.id) ?? { job, leaves: [] };
       for (const semanticId of semanticIds) {
         const entity = semanticId === job.id ? job : document.entities.find(item => item.id === semanticId && item.kind === 'desired_outcome'); if (!entity) continue;
         const candidates = childOffers.filter(offerId => document.relationships.some(relation => relation.kind === 'product_packaged_as_offer' && relation.offerId === offerId));
@@ -119,8 +119,8 @@ export function globalIntentDiscovery(document: MapDocument, input: { query: str
     if (owningJobId) return document.touchpointJobSelections.flatMap(selection => {
       if (selection.touchpointId !== input.touchpointId) return [];
       const intent = document.productJobIntents.find(item => item.id === selection.productJobIntentId);
-      const selectedIds = selection.addressedDesiredOutcomeIds.length ? selection.addressedDesiredOutcomeIds : intent ? [intent.jobId] : [];
-      return intent?.jobId === owningJobId && selectedIds.includes(semanticId)
+      const contributes = semanticId === owningJobId || selection.addressedDesiredOutcomeIds.includes(semanticId);
+      return intent?.jobId === owningJobId && contributes
         ? [{ id: pathId(input.touchpointId!, 'discovery', 'local', selection.offerId, semanticId), offerId: selection.offerId, productJobIntentId: selection.productJobIntentId }]
         : [];
     });
@@ -147,7 +147,7 @@ export function globalIntentDiscovery(document: MapDocument, input: { query: str
         ? outcomes
         : (!kind || kind === entity.kind) ? outcomes.filter(outcome => jobMatches || outcome.title.toLocaleLowerCase().includes(titleQuery)) : [];
       const titleVisible = kind === 'desired_outcome' && titleQuery ? visible.filter(outcome => outcome.title.toLocaleLowerCase().includes(titleQuery)) : visible;
-      if (titleVisible.length) jobGroups.push({ job: entity, leaves: titleVisible.map(outcome => discoveryLeaf({ kind: 'desired-outcome', entity: outcome, semanticId: outcome.id, sourceId: 'global', contributorOfferId: '', checkboxId: `global:${entity.id}:${outcome.id}`, checked: false, available: true, owningJobId: entity.id })) });
+      if (jobMatches || titleVisible.length) jobGroups.push({ job: entity, leaves: [discoveryLeaf({ kind: 'job', entity, semanticId: entity.id, sourceId: 'global', contributorOfferId: '', checkboxId: `global:${entity.id}`, checked: false, available: true, owningJobId: entity.id }), ...titleVisible.map(outcome => discoveryLeaf({ kind: 'desired-outcome', entity: outcome, semanticId: outcome.id, sourceId: 'global', contributorOfferId: '', checkboxId: `global:${entity.id}:${outcome.id}`, checked: false, available: true, owningJobId: entity.id }))] });
     } else if ((direct.has(entity.kind) || entity.kind === 'financial_desired_outcome') && (!kind || kind === entity.kind) && (!titleQuery || entity.title.toLocaleLowerCase().includes(titleQuery))) directLeaves.push(discoveryLeaf({ kind: entity.kind === 'financial_desired_outcome' ? 'financial' : 'job', entity, semanticId: entity.id, sourceId: 'global', contributorOfferId: '', checkboxId: `global:${entity.id}`, checked: false, available: true, ...(direct.has(entity.kind) ? { owningJobId: entity.id } : {}) }));
     }
     return { jobGroups, directLeaves };
@@ -197,9 +197,9 @@ export function touchpointIntentCatalogue(document: MapDocument): { jobs: Touchp
   const jobs = document.entities.flatMap((entity): TouchpointJobLeaf[] => {
     if (direct.has(entity.kind)) return [{ jobId: entity.id, semanticLeafId: entity.id, contributorOfferIds: [] }];
     if (!doBearing.has(entity.kind)) return [];
-    return document.relationships.flatMap((relation) => relation.kind === 'job_has_desired_outcome' && relation.jobId === entity.id
+    return [{ jobId: entity.id, semanticLeafId: entity.id, contributorOfferIds: [] }, ...document.relationships.flatMap((relation) => relation.kind === 'job_has_desired_outcome' && relation.jobId === entity.id
       ? [{ jobId: entity.id, semanticLeafId: relation.desiredOutcomeId, desiredOutcomeId: relation.desiredOutcomeId, contributorOfferIds: [] }]
-      : []);
+      : [])];
   });
   const financial = document.entities
     .filter((entity) => entity.kind === 'financial_desired_outcome')
@@ -213,7 +213,7 @@ export function createTouchpointIntentDraft(document: MapDocument, touchpointId:
   for (const selection of document.touchpointJobSelections.filter((item) => item.touchpointId === touchpointId)) {
     const intent = document.productJobIntents.find((item) => item.id === selection.productJobIntentId);
     if (!intent) continue;
-    const semanticIds = selection.addressedDesiredOutcomeIds.length ? selection.addressedDesiredOutcomeIds : [intent.jobId];
+    const semanticIds = [intent.jobId, ...selection.addressedDesiredOutcomeIds];
     for (const semanticLeafId of semanticIds) {
       const leaf = jobs.get(semanticLeafId);
       if (leaf && !leaf.contributorOfferIds.includes(selection.offerId)) leaf.contributorOfferIds.push(selection.offerId);
@@ -253,7 +253,8 @@ export function touchpointClientScope(document: MapDocument, touchpointId: strin
       const entity = document.entities.find((candidate) => candidate.id === leaf.desiredOutcomeId && candidate.kind === 'desired_outcome');
       return entity ? [{ entity, semanticLeafId: leaf.semanticLeafId, contributorOfferIds: [...leaf.contributorOfferIds] }] : [];
     });
-    return desiredOutcomes.length ? [{ job, desiredOutcomes }] : [];
+    const membership = leaves.find(leaf => leaf.semanticLeafId === job.id);
+    return membership ? [{ job, semanticLeafId: job.id, contributorOfferIds: [...membership.contributorOfferIds], desiredOutcomes }] : [];
   });
   const financialLeaves = durable.financialLeaves.flatMap((leaf) => {
     if (!selectedKeys.has(financialLeafKey(leaf))) return [];
@@ -418,7 +419,7 @@ export function selectCurrentOfferIntent(document: MapDocument, draft: Touchpoin
       const intent = document.productJobIntents.find(item => item.id === selection.productJobIntentId);
       const job = intent && document.entities.find(entity => entity.id === intent.jobId);
       if (!intent || !job) continue;
-      const semanticLeafIds = doBearing.has(job.kind) ? intent.addressedDesiredOutcomeIds : direct.has(job.kind) ? [job.id] : [];
+      const semanticLeafIds = doBearing.has(job.kind) ? [job.id, ...effectiveOfferDesiredOutcomeIds(document, selection)] : direct.has(job.kind) ? [job.id] : [];
       for (const leafId of semanticLeafIds) {
         const contributors = jobContributors.get(leafId) ?? new Set<string>();
         contributors.add(offerId); jobContributors.set(leafId, contributors);

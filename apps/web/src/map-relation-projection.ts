@@ -1,4 +1,4 @@
-import type { MapDocument } from '@vee/domain';
+import { effectiveOfferDesiredOutcomeIds, type MapDocument } from '@vee/domain';
 
 export type SatelliteKind =
   | 'core_functional_job'
@@ -68,7 +68,10 @@ export function focusedDesiredOutcomeChildren(document: MapDocument, sourceId: s
   const ownedOutcomeIds = new Set(document.relationships.flatMap(relationship =>
     relationship.kind === 'job_has_desired_outcome' && relationship.jobId === job.id ? [relationship.desiredOutcomeId] : [],
   ));
-  return [...new Set(intent.addressedDesiredOutcomeIds)].flatMap(entityId => {
+  const outcomeIds = source.kind === 'offer'
+    ? effectiveOfferDesiredOutcomeIds(document, document.offerJobSelections.find(selection => selection.offerId === source.id && selection.productJobIntentId === intent.id)!)
+    : intent.addressedDesiredOutcomeIds;
+  return [...new Set(outcomeIds)].flatMap(entityId => {
     const outcome = entities.get(entityId);
     return outcome?.kind === 'desired_outcome' && ownedOutcomeIds.has(entityId) ? [{ entityId, title: outcome.title }] : [];
   }).sort((left, right) => compare(left.entityId, right.entityId));
@@ -153,7 +156,7 @@ export function projectMapRelationSatellites(document: MapDocument): SatelliteGr
       add(offer.id, 'repulsor', resistance.repulsorId, [selection.id, intent.id, resistance.id]);
       add(resistance.repulsorId, 'offer', offer.id, [selection.id, intent.id, resistance.id]);
     }
-    for (const outcomeId of intent.addressedDesiredOutcomeIds) {
+    for (const outcomeId of effectiveOfferDesiredOutcomeIds(document, selection)) {
       if (
         entities.get(outcomeId)?.kind === 'desired_outcome'
         && document.relationships.some(relationship => relationship.kind === 'job_has_desired_outcome' && relationship.jobId === job.id && relationship.desiredOutcomeId === outcomeId)
