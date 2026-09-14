@@ -1463,7 +1463,7 @@ describe('searchable Touchpoint connection picker', () => {
     await user.click(within(scope).getByRole('checkbox', { name: 'Finish faster' }));
     expect(within(scope).getByRole('button', { name: 'Finish editing Client scope' })).toHaveAttribute('aria-pressed', 'true');
     expect(within(scope).getByRole('checkbox', { name: 'Finish faster' })).toBeChecked();
-    expect(within(scope).getAllByRole('checkbox', { name: 'via Subscription' })).toHaveLength(1);
+    expect(within(scope).getAllByRole('checkbox', { name: 'via Subscription' })).toHaveLength(2);
     expect(scope).toHaveTextContent('Parent provenance · Parent provenance');
     expect(document.relationships.some(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.offerId === 'parent-offer' && relation.touchpointId === 'touch')).toBe(false);
   });
@@ -1704,11 +1704,38 @@ describe('searchable Touchpoint connection picker', () => {
     await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
     await user.type(inspector.getByRole('searchbox', { name: 'Search Client intent' }), 'Finish faster');
     await user.click(inspector.getByRole('checkbox', { name: 'Finish faster' }));
-    const contributors = within(inspector.getByRole('group', { name: 'Which linked Offers contribute here?' }));
+    const contributorGroup = inspector.getByRole('group', { name: 'Which linked Offers contribute here?' });
+    const contributors = within(contributorGroup);
     expect(contributors.getByRole('checkbox', { name: 'Subscription' })).not.toBeChecked();
     expect(contributors.getByRole('checkbox', { name: 'Consulting' })).not.toBeChecked();
     expect(contributors.getByRole('button', { name: 'Continue' })).toBeDisabled();
     expect(document).toEqual(snapshot);
+    const initiatingCheckbox = inspector.getByRole('checkbox', { name: 'Finish faster' });
+    expect(initiatingCheckbox.closest('.intent-path-row')).toContainElement(contributorGroup);
+    expect(contributorGroup.closest('.inline-intent-editor')!.querySelector('.intent-source-list')).not.toContainElement(contributorGroup);
+    await user.click(contributors.getByRole('button', { name: 'Cancel' }));
+    expect(document).toEqual(snapshot);
+    expect(inspector.getByRole('searchbox', { name: 'Search Client intent' })).toHaveValue('Finish faster');
+    expect(inspector.getByRole('button', { name: 'Finish editing Client scope' })).toHaveAttribute('aria-pressed', 'true');
+    expect(initiatingCheckbox).toHaveFocus();
+  });
+
+  it('Escape closes only the row-local contributor resolver and preserves discovery state', async () => {
+    const user = userEvent.setup(); const document = touchpointInspectorDocument(true); const snapshot = structuredClone(document); const inspector = renderTouchpointInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
+    const search = inspector.getByRole('searchbox', { name: 'Search Client intent' });
+    await user.type(search, 'Finish faster');
+    const initiatingCheckbox = inspector.getByRole('checkbox', { name: 'Finish faster' });
+    await user.click(initiatingCheckbox);
+    expect(inspector.getByRole('group', { name: 'Which linked Offers contribute here?' })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    expect(inspector.queryByRole('group', { name: 'Which linked Offers contribute here?' })).not.toBeInTheDocument();
+    expect(document).toEqual(snapshot);
+    expect(search).toHaveValue('Finish faster');
+    expect(inspector.getByRole('button', { name: 'Finish editing Client scope' })).toHaveAttribute('aria-pressed', 'true');
+    expect(initiatingCheckbox).toHaveFocus();
   });
 
   it('selecting a DO-bearing Job alone creates checked Job membership without a route', async () => {
