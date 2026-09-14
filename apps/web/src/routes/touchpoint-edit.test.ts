@@ -167,6 +167,31 @@ describe('Touchpoint edit intent draft', () => {
     expect(JSON.stringify(result)).not.toContain('repulsor-match');
   });
 
+  it('projects current-Touchpoint semantic membership and concrete contributor paths into discovery', () => {
+    const document = fixture();
+    document.entities.push({ id: 'other-touch', kind: 'touchpoint', title: 'Other' });
+    document.touchpointJobSelections.push({
+      id: 'other-selection', touchpointId: 'other-touch', offerId: 'offer-a',
+      productJobIntentId: document.productJobIntents[0]!.id, addressedDesiredOutcomeIds: ['do-b'],
+    });
+
+    const leaves = globalIntentDiscovery(document, { query: 'do', touchpointId: 'touch' }).titleMatches.jobGroups.flatMap(group => group.leaves);
+    expect(leaves.find(leaf => leaf.semanticId === 'do-a')).toMatchObject({
+      checked: true,
+      owningJobId: 'job',
+      contributorPaths: [
+        { offerId: 'offer-a', productJobIntentId: expect.any(String) },
+        { offerId: 'offer-b', productJobIntentId: expect.any(String) },
+      ],
+    });
+    expect(leaves.find(leaf => leaf.semanticId === 'do-b')).toMatchObject({ checked: true, owningJobId: 'job' });
+    expect(globalIntentDiscovery(document, { query: 'do b', touchpointId: 'other-touch' }).titleMatches.jobGroups[0]!.leaves[0]).toMatchObject({
+      checked: true,
+      contributorPaths: [{ offerId: 'offer-a' }],
+    });
+    expect(globalIntentDiscovery(document, { query: 'do b', touchpointId: 'missing' }).titleMatches.jobGroups[0]!.leaves[0]).toMatchObject({ checked: false, contributorPaths: [] });
+  });
+
   it('returns kind labels and aliases separately from simultaneous title matches', () => {
     const document = fixture();
     document.entities.push({ id: 'outcome-emotion', kind: 'emotional_job', title: 'Outcome confidence' });
