@@ -36,7 +36,9 @@ const pathId = (touchpointId: string, sourceKind: string, sourceId: string, offe
 /** Durable, framework-independent projection for the upstream-first Client scope editor. */
 export function touchpointUpstreamSources(document: MapDocument, touchpointId: string): TouchpointUpstreamBlock[] {
   const linked = new Set(document.relationships.flatMap(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === touchpointId ? [relation.offerId] : []));
-  const checkedJob = (offerId: string, intentId: string, semanticId: string) => document.touchpointJobSelections.some(selection => selection.touchpointId === touchpointId && selection.offerId === offerId && selection.productJobIntentId === intentId && (selection.addressedDesiredOutcomeIds.length ? selection.addressedDesiredOutcomeIds.includes(semanticId) : document.productJobIntents.find(intent => intent.id === intentId)?.jobId === semanticId));
+  const jobSelection = (offerId: string, intentId: string) => document.touchpointJobSelections.find(selection => selection.touchpointId === touchpointId && selection.offerId === offerId && selection.productJobIntentId === intentId);
+  const checkedJob = (offerId: string, intentId: string) => Boolean(jobSelection(offerId, intentId));
+  const checkedDesiredOutcome = (offerId: string, intentId: string, desiredOutcomeId: string) => Boolean(jobSelection(offerId, intentId)?.addressedDesiredOutcomeIds.includes(desiredOutcomeId));
   const checkedFinancial = (offerId: string, intentId: string) => document.touchpointFinancialSelections.some(selection => selection.touchpointId === touchpointId && selection.offerId === offerId && selection.offerFinancialIntentId === intentId);
   const block = (sourceKind: 'offer' | 'parent', source: Entity, paths: { offerId: string; productJobIntentId?: string; offerFinancialIntentId?: string }[]): TouchpointUpstreamBlock => {
     const groups = new Map<string, UpstreamJobGroup>(); const financialLeaves: UpstreamLeaf[] = [];
@@ -51,7 +53,7 @@ export function touchpointUpstreamSources(document: MapDocument, touchpointId: s
         for (const semanticId of semanticIds) {
           const entity = semanticId === job.id ? job : document.entities.find(item => item.id === semanticId && item.kind === 'desired_outcome');
           if (!entity || group.leaves.some(leaf => leaf.semanticId === semanticId && leaf.contributorOfferId === path.offerId)) continue;
-          group.leaves.push({ kind: semanticId === job.id ? 'job' : 'desired-outcome', entity, semanticId, sourceId: source.id, contributorOfferId: path.offerId, checkboxId: pathId(touchpointId, sourceKind, source.id, path.offerId, semanticId), checked: checkedJob(path.offerId, intent.id, semanticId), available, productJobIntentId: intent.id, owningJobId: job.id });
+          group.leaves.push({ kind: semanticId === job.id ? 'job' : 'desired-outcome', entity, semanticId, sourceId: source.id, contributorOfferId: path.offerId, checkboxId: pathId(touchpointId, sourceKind, source.id, path.offerId, semanticId), checked: semanticId === job.id ? checkedJob(path.offerId, intent.id) : checkedDesiredOutcome(path.offerId, intent.id, semanticId), available, productJobIntentId: intent.id, owningJobId: job.id });
         }
         if (group.leaves.length) groups.set(job.id, group);
       } else if (path.offerFinancialIntentId) {
@@ -77,7 +79,7 @@ export function touchpointUpstreamSources(document: MapDocument, touchpointId: s
       for (const semanticId of semanticIds) {
         const entity = semanticId === job.id ? job : document.entities.find(item => item.id === semanticId && item.kind === 'desired_outcome'); if (!entity) continue;
         const candidates = childOffers.filter(offerId => document.relationships.some(relation => relation.kind === 'product_packaged_as_offer' && relation.offerId === offerId));
-        const checked = candidates.filter(offerId => document.touchpointJobSelections.some(child => child.touchpointId === touchpointId && child.offerId === offerId && document.productJobIntents.find(item => item.id === child.productJobIntentId)?.jobId === job.id && (child.addressedDesiredOutcomeIds.length ? child.addressedDesiredOutcomeIds.includes(semanticId) : semanticId === job.id)));
+        const checked = candidates.filter(offerId => document.touchpointJobSelections.some(child => child.touchpointId === touchpointId && child.offerId === offerId && document.productJobIntents.find(item => item.id === child.productJobIntentId)?.jobId === job.id && (semanticId === job.id || child.addressedDesiredOutcomeIds.includes(semanticId))));
         const prior = group.leaves.find(leaf => leaf.semanticId === semanticId);
         if (prior) { prior.provenanceOfferIds = [...new Set([...(prior.provenanceOfferIds ?? []), selection.offerId])]; continue; }
         group.leaves.push({ kind: semanticId === job.id ? 'job' : 'desired-outcome', entity, semanticId, sourceId: parent.id, contributorOfferId: '', checkboxId: pathId(touchpointId, 'parent', parent.id, 'child-contributor', semanticId), checked: checked.length > 0, available: candidates.length > 0, provenanceOfferIds: [selection.offerId], childContributorOfferIds: candidates, checkedContributorOfferIds: checked, owningJobId: job.id });

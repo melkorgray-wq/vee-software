@@ -89,6 +89,22 @@ describe('Touchpoint parent commit', () => {
 });
 
 describe('Touchpoint edit intent draft', () => {
+  it.each([
+    { subset: [] as string[], checkedOutcomes: [] },
+    { subset: ['do-a'], checkedOutcomes: ['do-a'] },
+    { subset: ['do-a', 'do-b'], checkedOutcomes: ['do-a', 'do-b'] },
+  ])('projects an Offer Job path with $subset independently from its Desired Outcome subset', ({ subset, checkedOutcomes }) => {
+    const document = fixture();
+    document.touchpointJobSelections = [{ id: 'path', touchpointId: 'touch', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: subset }];
+
+    const leaves = touchpointUpstreamSources(document, 'touch').find(source => source.sourceKind === 'offer' && source.source.id === 'offer-a')!.jobGroups[0]!.leaves;
+
+    expect(leaves.find(leaf => leaf.semanticId === 'job')).toMatchObject({ checked: true });
+    for (const desiredOutcomeId of ['do-a', 'do-b']) {
+      expect(leaves.find(leaf => leaf.semanticId === desiredOutcomeId)).toMatchObject({ checked: checkedOutcomes.includes(desiredOutcomeId) });
+    }
+  });
+
   it('projects Parent semantics independently from the Parent contributor', () => {
     const document = fixture();
     document.entities.push({ id: 'parent', kind: 'touchpoint', title: 'Parent' });
@@ -113,6 +129,20 @@ describe('Touchpoint edit intent draft', () => {
     const leaf = touchpointUpstreamSources(document, 'touch').find(source => source.sourceKind === 'parent')!.jobGroups[0]!.leaves.find(item => item.semanticId === 'do-a')!;
     expect(leaf.checkedContributorOfferIds).toEqual(['offer-a', 'offer-b']);
     expect(leaf.provenanceOfferIds).toEqual(['offer-a']);
+  });
+
+  it('projects an empty Child Job path into Parent Job membership without inheriting Parent contributor identity', () => {
+    const document = fixture();
+    document.entities.push({ id: 'parent', kind: 'touchpoint', title: 'Parent' });
+    document.relationships.push({ id: 'contains', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'parent', childTouchpointId: 'touch' });
+    document.touchpointJobSelections = [
+      { id: 'parent-path', touchpointId: 'parent', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] },
+      { id: 'child-path', touchpointId: 'touch', offerId: 'offer-b', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] },
+    ];
+
+    const leaves = touchpointUpstreamSources(document, 'touch').find(source => source.sourceKind === 'parent')!.jobGroups[0]!.leaves;
+    expect(leaves.find(leaf => leaf.semanticId === 'job')).toMatchObject({ checked: true, checkedContributorOfferIds: ['offer-b'], provenanceOfferIds: ['offer-a'] });
+    expect(leaves.find(leaf => leaf.semanticId === 'do-a')).toMatchObject({ checked: false, checkedContributorOfferIds: [], provenanceOfferIds: ['offer-a'] });
   });
   it('commits only a normalized URL and returns the durable document for an unchanged value', () => {
     const document = fixture();
