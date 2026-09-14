@@ -1463,7 +1463,9 @@ describe('searchable Touchpoint connection picker', () => {
     await user.click(within(scope).getByRole('checkbox', { name: 'Finish faster' }));
     expect(within(scope).getByRole('button', { name: 'Finish editing Client scope' })).toHaveAttribute('aria-pressed', 'true');
     expect(within(scope).getByRole('checkbox', { name: 'Finish faster' })).toBeChecked();
-    expect(within(scope).getAllByRole('checkbox', { name: 'via Subscription' })).toHaveLength(2);
+    expect(within(scope).getAllByText('via Subscription')).toHaveLength(2);
+    expect(within(scope).queryByRole('checkbox', { name: 'via Subscription' })).not.toBeInTheDocument();
+    expect(within(scope).getAllByRole('button', { name: 'Remove Subscription contributor' })).toHaveLength(2);
     expect(scope).toHaveTextContent('Parent provenance · Parent provenance');
     expect(document.relationships.some(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.offerId === 'parent-offer' && relation.touchpointId === 'touch')).toBe(false);
   });
@@ -1567,7 +1569,9 @@ describe('searchable Touchpoint connection picker', () => {
     const discovery = inspector.getByRole('region', { name: 'Find Client intent' });
     expect(within(discovery).getByRole('checkbox', { name: 'Finish faster' })).toBeChecked();
     const outcomeRow = within(discovery).getByRole('checkbox', { name: 'Finish faster' }).closest<HTMLElement>('.intent-semantic-leaf')!;
-    expect(within(outcomeRow).getByRole('checkbox', { name: 'via Subscription' })).toBeChecked();
+    expect(within(outcomeRow).getByText('via Subscription')).toBeInTheDocument();
+    expect(within(outcomeRow).queryByRole('checkbox', { name: 'via Subscription' })).not.toBeInTheDocument();
+    expect(within(outcomeRow).getByRole('button', { name: 'Remove Subscription contributor' })).toHaveAttribute('type', 'button');
   });
 
   it('semantic DO uncheck preserves stable Job paths without changing Product or Offer scope', async () => {
@@ -1634,15 +1638,67 @@ describe('searchable Touchpoint connection picker', () => {
     const discovery = inspector.getByRole('region', { name: 'Find Client intent' });
 
     const outcomeRow = within(discovery).getByRole('checkbox', { name: 'Finish faster' }).closest<HTMLElement>('.intent-semantic-leaf')!;
-    await user.click(within(outcomeRow).getByRole('checkbox', { name: 'via Subscription' }));
+    const subscriptionRemove = within(outcomeRow).getByRole('button', { name: 'Remove Subscription contributor' });
+    const consultingRemove = within(outcomeRow).getByRole('button', { name: 'Remove Consulting contributor' });
+    expect(subscriptionRemove).not.toBe(consultingRemove);
+    await user.click(subscriptionRemove);
 
     expect(within(discovery).getByRole('checkbox', { name: 'Finish faster' })).toBeChecked();
-    expect(within(outcomeRow).queryByRole('checkbox', { name: 'via Subscription' })).not.toBeInTheDocument();
-    expect(within(outcomeRow).getByRole('checkbox', { name: 'via Consulting' })).toBeChecked();
+    expect(within(outcomeRow).queryByText('via Subscription')).not.toBeInTheDocument();
+    expect(within(outcomeRow).getByText('via Consulting')).toBeInTheDocument();
+    expect(within(outcomeRow).queryByRole('checkbox', { name: /via (Subscription|Consulting)/ })).not.toBeInTheDocument();
+    expect(within(outcomeRow).getByRole('button', { name: 'Remove Consulting contributor' })).toHaveFocus();
     expect(window.__VEE_DEV__!.dump().touchpointJobSelections.filter(selection => selection.touchpointId === 'touch')).toEqual([
       expect.objectContaining({ id: 'touch-selection-a', offerId: 'offer-a', addressedDesiredOutcomeIds: [] }),
       expect.objectContaining({ offerId: 'offer-b', addressedDesiredOutcomeIds: ['do-a'] }),
     ]);
+
+    await user.click(within(outcomeRow).getByRole('button', { name: 'Remove Consulting contributor' }));
+    expect(within(discovery).getByRole('checkbox', { name: 'Finish faster' })).not.toBeChecked();
+    expect(within(outcomeRow).queryByText(/via (Subscription|Consulting)/)).not.toBeInTheDocument();
+    expect(within(discovery).getByRole('checkbox', { name: 'Finish faster' })).toHaveFocus();
+    expect(window.__VEE_DEV__!.dump().touchpointJobSelections.map(selection => selection.addressedDesiredOutcomeIds)).toEqual([[], []]);
+  });
+
+  it('confirms dependency-sensitive contributor removal and restores row focus after Cancel or commit', async () => {
+    const document = touchpointInspectorDocument();
+    document.entities.push(
+      { id: 'direct-job', kind: 'emotional_job', title: 'Feel confident' },
+      { id: 'repulsor', kind: 'repulsor', title: 'Delay concern' },
+    );
+    document.placements.push(
+      { viewId: 'spike-view', entityId: 'direct-job', x: 980, y: 0 },
+      { viewId: 'spike-view', entityId: 'repulsor', x: 1120, y: 0 },
+    );
+    document.relationships.push(
+      { id: 'resists-job', kind: 'repulsor_resists', repulsorId: 'repulsor', targetEntityId: 'direct-job' },
+      { id: 'mitigates-delay', kind: 'touchpoint_mitigates_repulsor', touchpointId: 'touch', repulsorId: 'repulsor' },
+    );
+    document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'direct-job', addressedDesiredOutcomeIds: [] });
+    document.offerJobSelections.push({ id: 'offer-selection', offerId: 'offer-a', productJobIntentId: 'intent' });
+    document.touchpointJobSelections.push({ id: 'touch-selection', touchpointId: 'touch', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] });
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
+    await user.type(inspector.getByRole('searchbox', { name: 'Search Client intent' }), 'Feel confident');
+    const discovery = inspector.getByRole('region', { name: 'Find Client intent' });
+    const checkbox = within(discovery).getByRole('checkbox', { name: 'Feel confident' });
+    const remove = within(checkbox.closest<HTMLElement>('.intent-path-row')!).getByRole('button', { name: 'Remove Subscription contributor' });
+
+    await user.click(remove);
+    let confirmation = screen.getByRole('dialog', { name: 'Remove this local Client path?' });
+    expect(checkbox).toBeChecked();
+    expect(window.__VEE_DEV__!.dump().relationships).toContainEqual(expect.objectContaining({ id: 'mitigates-delay' }));
+    await user.click(within(confirmation).getByRole('button', { name: 'Cancel' }));
+    expect(remove).toHaveFocus();
+    expect(checkbox).toBeChecked();
+
+    await user.click(remove);
+    confirmation = screen.getByRole('dialog', { name: 'Remove this local Client path?' });
+    await user.click(within(confirmation).getByRole('button', { name: 'Remove' }));
+    expect(checkbox).not.toBeChecked();
+    expect(checkbox).toHaveFocus();
+    expect(inspector.getByRole('button', { name: 'Finish editing Client scope' })).toHaveAttribute('aria-pressed', 'true');
+    expect(window.__VEE_DEV__!.dump().relationships).not.toContainEqual(expect.objectContaining({ id: 'mitigates-delay' }));
   });
 
   it('navigates from a discovery title without toggling its adjacent checkbox or durable membership', async () => {

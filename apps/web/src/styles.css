@@ -123,7 +123,14 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .inspector div.intent-checkbox > button { justify-self: start; max-width: 100%; padding: 0; border: 0; background: transparent; color: var(--color-accent); text-align: left; overflow-wrap: anywhere; }
 .intent-checkbox > small { grid-column: 2; color: rgba(255,255,255,.58); }
 .intent-checkbox.unavailable { opacity: .58; }
-.parent-contributor-paths { display: grid; gap: .1rem; margin-left: 1.4rem; padding-left: .55rem; border-left: 1px dashed var(--border-soft); }
+.contributor-attributions { display: grid; justify-items: start; gap: .1rem; margin-left: 1.4rem; padding-left: .55rem; border-left: 1px dashed var(--border-soft); }
+.contributor-attribution { display: flex; align-items: center; gap: .25rem; min-height: 1.75rem; color: rgba(255,255,255,.58); font-size: .78rem; }
+.touchpoint-client-job .contributor-attribution > button,
+.touchpoint-client-financial .contributor-attribution > button { display: inline-grid; place-items: center; width: 1.75rem; min-width: 1.75rem; height: 1.75rem; padding: 0; border: 0; border-radius: .25rem; background: transparent; color: inherit; font-size: 1rem; line-height: 1; text-decoration: none; }
+.touchpoint-client-job .contributor-attribution > button:hover,
+.touchpoint-client-financial .contributor-attribution > button:hover { background: rgba(255,255,255,.08); color: var(--color-foreground); }
+.touchpoint-client-job .contributor-attribution > button:focus-visible,
+.touchpoint-client-financial .contributor-attribution > button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .global-intent-discovery { display: grid; gap: .45rem; padding: 0 0 .45rem; border-bottom: 1px solid var(--border-subtle); }
 .global-intent-results { display: grid; gap: .35rem; max-height: 17.5rem; margin: .2rem 0; overflow: auto; }
 .kind-shortcut-results { display: flex; flex-wrap: wrap; gap: .35rem; }
