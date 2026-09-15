@@ -1598,19 +1598,23 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       if (connectionPicker.mode === 'invalid' && connectionPicker.unresolved?.status === 'invalid') return <fieldset className="contributor-chooser"><legend>Contributor unavailable</legend><p role="alert">No contributor path exists for {entityTitle(document, connectionPicker.unresolved.touchpointId)} ({connectionPicker.unresolved.touchpointId}).</p><button type="button" onClick={cancelResolver}>Cancel</button></fieldset>;
       return null;
     };
-    const renderSelectableRow = (leaf: UpstreamLeaf, options?: { provenance?: boolean; showContributorPaths?: boolean }) => <div className="intent-path-row" key={leaf.checkboxId}>
-      <div className={`intent-checkbox${leaf.available ? '' : ' unavailable'}`}>
-        <input id={leaf.checkboxId} aria-label={leaf.entity.title} type="checkbox" disabled={!leaf.available} checked={leaf.checked} onChange={event => toggleLeaf(leaf, event.target.checked)} />
-        <button type="button" onClick={() => navigateInspector(leaf.entity.id)}>{leaf.entity.title}</button>
-        {options?.provenance && <small>Parent provenance{leaf.provenanceOfferIds?.length ? ` · ${leaf.provenanceOfferIds.map(id => entityTitle(document, id)).join(', ')}` : ''}</small>}
-        {!leaf.available && <small>No valid Child contributor path</small>}
-      </div>
-      {options?.showContributorPaths && Boolean(leaf.checkedContributorOfferIds?.length) && <div className="contributor-attributions">{leaf.checkedContributorOfferIds!.map(offerId => {
-        const offerTitle = entityTitle(document, offerId);
-        return <div className="contributor-attribution" key={offerId}><span>via {offerTitle}</span><button id={`${leaf.checkboxId}-contributor-${offerId}`} type="button" aria-label={`Remove ${offerTitle} contributor`} onClick={() => removeContributor(leaf, offerId)}><span aria-hidden="true">×</span></button></div>;
-      })}</div>}
-      {renderResolver(leaf)}
-    </div>;
+    const renderSelectableRow = (leaf: UpstreamLeaf, options?: { provenance?: boolean; showContributorPaths?: boolean }) => {
+      const contributorOfferIds = leaf.checkedContributorOfferIds ?? [];
+      const contributorCount = contributorOfferIds.length;
+      return <div className="intent-path-row" key={leaf.checkboxId}>
+        <div className={`intent-checkbox${leaf.available ? '' : ' unavailable'}`}>
+          <input id={leaf.checkboxId} aria-label={leaf.entity.title} type="checkbox" disabled={!leaf.available} checked={leaf.checked} onChange={event => toggleLeaf(leaf, event.target.checked)} />
+          <button type="button" onClick={() => navigateInspector(leaf.entity.id)}>{leaf.entity.title}</button>
+          {options?.provenance && <small>Parent provenance{leaf.provenanceOfferIds?.length ? ` · ${leaf.provenanceOfferIds.map(id => entityTitle(document, id)).join(', ')}` : ''}</small>}
+          {!leaf.available && <small>No valid Child contributor path</small>}
+        </div>
+        {options?.showContributorPaths && contributorCount > 0 && <div className="contributor-attributions">{contributorOfferIds.map(offerId => {
+          const offerTitle = entityTitle(document, offerId);
+          return <div className="contributor-attribution" key={offerId}><span>via {offerTitle}</span>{contributorCount > 1 && <button id={`${leaf.checkboxId}-contributor-${offerId}`} type="button" aria-label={`Remove ${offerTitle} contributor`} onClick={() => removeContributor(leaf, offerId)}><span aria-hidden="true">×</span></button>}</div>;
+        })}</div>}
+        {renderResolver(leaf)}
+      </div>;
+    };
     const renderJobGroup = (group: (typeof discovery.titleMatches.jobGroups)[number], options?: { provenance?: boolean }) => {
       const jobLeaf = group.leaves.find(leaf => leaf.kind === 'job');
       const outcomes = group.leaves.filter(leaf => leaf.kind === 'desired-outcome');
