@@ -15,7 +15,7 @@ import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, recons
 import { nearestSpatialCandidate, spatialDirectionForKey } from '../map-spatial-navigation';
 import { enterMoveMode, inactiveMoveMode, moveInMode, moveVectorForKey, type MoveMode } from '../map-move-mode';
 import { Link } from '../router';
-import { applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, globalIntentDiscovery, touchpointClientScope, touchpointUpstreamSources, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft, type UpstreamLeaf } from './touchpoint-edit';
+import { commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, globalIntentDiscovery, touchpointClientScope, touchpointUpstreamSources, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft, type UpstreamLeaf } from './touchpoint-edit';
 import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
 import { deriveTouchpointBusinessStructure } from '../touchpoint-business-structure';
 
@@ -87,7 +87,7 @@ type ProductConfirmation =
   | { mode: 'dirty'; pending: () => void; returnFocus: HTMLElement | null }
   | { mode: 'impact'; owner: 'product'; pending?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getProductIntentChangeImpact> }
   | { mode: 'impact'; owner: 'offer'; pending?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getOfferIntentChangeImpact> }
-  | { mode: 'impact'; owner: 'touchpoint'; pending?: () => void; immediateCommit?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getTouchpointLinkedOfferChangeImpact> };
+  | { mode: 'impact'; owner: 'touchpoint'; immediateCommit: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getTouchpointLinkedOfferChangeImpact> };
 type ClientScopeEditor = { mode: 'upstream' | 'global-search' | 'current-contributor-choice' | 'ancestor-contributor-choice' | 'invalid'; actionOrigin?: 'parent-source' | 'global-discovery'; query: string; kind?: ConnectionPickerKind | undefined; target?: { leaf: UpstreamLeaf } | undefined; currentContributorCandidateIds?: string[]; contributorOfferIds: string[]; ancestorContributingOfferIds: Record<string, string>; unresolved?: Extract<BottomUpTouchpointResult, { status: 'unresolved' | 'invalid' }> };
 const draft = (kind: ProvisionalEntityKind = 'product'): EditDraft => ({
   title: '',
@@ -564,13 +564,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setProductConfirmation(null);
     requestAnimationFrame(() => target?.focus());
   }
-  function restoreTouchpointApplyFocus(target?: HTMLElement | null) {
-    requestAnimationFrame(() => {
-      if (target?.isConnected && !target.matches(':disabled')) target.focus();
-      else (globalThis.document.querySelector<HTMLElement>('#inspector-workspace-panel form input[required], #inspector-workspace-panel form select[required], #inspector-workspace-panel form input:not([type="hidden"]):not(:disabled), #inspector-workspace-panel form select:not(:disabled), #inspector-workspace-panel form textarea:not(:disabled)') ?? inspectorTitleButtonRef.current)?.focus();
-    });
-  }
-
   function draftFor(entity: Entity, source = document): EditDraft {
     const result = draft(entity.kind);
     result.title = entity.title;
@@ -694,40 +687,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     publishSuccess('Parent Touchpoint updated.');
     requestAnimationFrame(() => parentPickerButtonRef.current?.focus());
   }
-  function applyTouchpointChanges(pending = pendingAfterApplyRef.current, returnFocus?: HTMLElement | null, confirmed = false): boolean {
-    const durable = documentRef.current;
-    const entity = durable.entities.find(candidate => candidate.id === selectedRef.current);
-    const currentDraft = editDraft;
-    if (entity?.kind !== 'touchpoint' || !currentDraft?.touchpointIntent) return false;
-    try {
-      const impact = getTouchpointLinkedOfferChangeImpact(durable, { touchpointId: entity.id, linkedOfferIds: currentDraft.linkedOfferIds });
-      if (!confirmed && impact.length) {
-        setProductConfirmation({ mode: 'impact', owner: 'touchpoint', impact, ...(pending ? { pending } : {}), returnFocus: returnFocus ?? globalThis.document.activeElement as HTMLElement | null });
-        return false;
-      }
-      const postConfirmationDraft = confirmed ? {
-        ...currentDraft.touchpointIntent,
-        jobLeaves: currentDraft.touchpointIntent.jobLeaves.map(leaf => ({ ...leaf, contributorOfferIds: leaf.contributorOfferIds.filter(id => currentDraft.linkedOfferIds.includes(id)) })),
-        financialLeaves: currentDraft.touchpointIntent.financialLeaves.map(leaf => ({ ...leaf, contributorOfferIds: leaf.contributorOfferIds.filter(id => currentDraft.linkedOfferIds.includes(id)) })),
-      } : currentDraft.touchpointIntent;
-      const committed = applyTouchpointEditDraft(durable, {
-        touchpointId: entity.id,
-        draft: { ...currentDraft, touchpointIntent: postConfirmationDraft },
-        newId: () => crypto.randomUUID(),
-      });
-      const next = reconsiderPlacementAfterRelationCommit(durable, committed, VIEW_ID, entity.id);
-      setDocument(next);
-      setEditDraft(draftFor(next.entities.find(candidate => candidate.id === entity.id)!, next));
-      publishSuccess('Changes applied.');
-      pendingAfterApplyRef.current = null;
-      pending?.();
-      restoreTouchpointApplyFocus(returnFocus);
-      return true;
-    } catch (error) {
-      publishError(error instanceof Error ? error.message : 'Changes could not be applied.');
-      return false;
-    }
-  }
   function resetProductSession(entity: Entity | undefined, source = document) {
     setProductExpanded({});
     rememberedProductOutcomesRef.current = {};
@@ -748,7 +707,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     }
   }
   function guardsDirtySession(entity: Entity | undefined): boolean {
-    return Boolean(entity && (entity.kind === 'product' || entity.kind === 'offer' || entity.kind === 'touchpoint') && inspectorDirty);
+    return Boolean(entity && (entity.kind === 'product' || entity.kind === 'offer') && inspectorDirty);
   }
   function discardDirtySession(pending: () => void) {
     const durable = documentRef.current;
@@ -2297,7 +2256,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               onSubmit={(e: FormEvent) => {
                 e.preventDefault();
                 if (selected.kind === 'touchpoint') {
-                  applyTouchpointChanges();
                   return;
                 }
                 try {
@@ -2441,7 +2399,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                   Open {editDraft.title}
                 </a>
               )}
-              {connectionPicker === null && <div className={`apply-footer ${inspectorDirty ? 'dirty' : ''}`}>
+              {selected.kind !== 'touchpoint' && connectionPicker === null && <div className={`apply-footer ${inspectorDirty ? 'dirty' : ''}`}>
                 {inspectorDirty && <span>Unsaved changes</span>}
                 <button className="primary" disabled={!inspectorDirty || Boolean(editDraft.touchpointIntent && validateTouchpointIntentDraft(editDraft.touchpointIntent, editDraft.linkedOfferIds))}>Apply changes</button>
               </div>}
@@ -2466,7 +2424,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       {productConfirmation && (
         <div className="confirmation-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeProductConfirmation(); }}>
           <div ref={confirmationRef} role="dialog" aria-modal="true" aria-labelledby="product-confirmation-title" className="confirmation-dialog" onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); closeProductConfirmation(); } }}>
-            <h2 id="product-confirmation-title">{productConfirmation.mode === 'dirty' ? `Unsaved ${selected?.kind === 'offer' ? 'Offer' : selected?.kind === 'touchpoint' ? 'Touchpoint' : 'Product'} changes` : 'This change affects downstream intent'}</h2>
+            <h2 id="product-confirmation-title">{productConfirmation.mode === 'dirty' ? `Unsaved ${selected?.kind === 'offer' ? 'Offer' : 'Product'} changes` : 'This change affects downstream intent'}</h2>
             {productConfirmation.mode === 'impact' && productConfirmation.owner === 'product' && (
               <div className="impact-list">
                 {productConfirmation.impact.offerJobSelectionIds.map(id => { const selection = document.offerJobSelections.find(item => item.id === id); const offer = document.entities.find(entity => entity.id === selection?.offerId); const intent = document.productJobIntents.find(item => item.id === selection?.productJobIntentId); const job = document.entities.find(entity => entity.id === intent?.jobId); return <p key={id}><strong>{offer?.title}</strong><span>loses {job?.title}</span></p>; })}
@@ -2489,12 +2447,12 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             )}
             <div className="actions">
               {productConfirmation.mode === 'dirty' ? <>
-                <button type="button" className="primary" disabled={selected?.kind === 'touchpoint' && Boolean(editDraft?.touchpointIntent && validateTouchpointIntentDraft(editDraft.touchpointIntent, editDraft.linkedOfferIds))} onClick={() => { const pending = productConfirmation.pending; const returnFocus = productConfirmation.returnFocus; setProductConfirmation(null); if (selected?.kind === 'touchpoint') applyTouchpointChanges(pending, returnFocus); else { pendingAfterApplyRef.current = pending; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>Apply</button>
+                <button type="button" className="primary" onClick={() => { const pending = productConfirmation.pending; setProductConfirmation(null); pendingAfterApplyRef.current = pending; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); }}>Apply</button>
                 <button type="button" onClick={() => discardDirtySession(productConfirmation.pending)}>Discard</button>
                 <button type="button" onClick={closeProductConfirmation}>Keep editing</button>
               </> : <>
                 <button type="button" onClick={closeProductConfirmation}>Cancel</button>
-                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; setProductConfirmation(null); if (confirmation.owner === 'touchpoint' && confirmation.immediateCommit) confirmation.immediateCommit(); else if (confirmation.owner === 'touchpoint') applyTouchpointChanges(confirmation.pending, confirmation.returnFocus, true); else { productApplyBypassRef.current = true; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>Apply changes</button>
+                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; setProductConfirmation(null); if (confirmation.owner === 'touchpoint') confirmation.immediateCommit(); else { productApplyBypassRef.current = true; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>{productConfirmation.owner === 'touchpoint' ? 'Confirm removal' : 'Apply changes'}</button>
               </>}
             </div>
           </div>
