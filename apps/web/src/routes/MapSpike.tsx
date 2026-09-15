@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useReducer, useRef, useState, type CSSPrope
 import { createPortal } from 'react-dom';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, planTouchpointIntentPathChange, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan } from '@vee/domain';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, planTouchpointIntentPathChange, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, disclosureOverlayPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction, type Point, type WorkspaceShortcutState } from '../map-interaction';
@@ -15,7 +15,7 @@ import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, recons
 import { nearestSpatialCandidate, spatialDirectionForKey } from '../map-spatial-navigation';
 import { enterMoveMode, inactiveMoveMode, moveInMode, moveVectorForKey, type MoveMode } from '../map-move-mode';
 import { Link } from '../router';
-import { applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointParent, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, globalIntentDiscovery, touchpointClientScope, touchpointUpstreamSources, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft, type UpstreamLeaf } from './touchpoint-edit';
+import { applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, globalIntentDiscovery, touchpointClientScope, touchpointUpstreamSources, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft, type UpstreamLeaf } from './touchpoint-edit';
 import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
 import { deriveTouchpointBusinessStructure } from '../touchpoint-business-structure';
 
@@ -1937,6 +1937,31 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       </div>
     </section>;
   }
+  function touchpointResistanceSection() {
+    if (selected?.kind !== 'touchpoint') return null;
+    const repulsors = relevantRepulsorsForTouchpoint(document, selected.id);
+    const mitigated = new Set(document.relationships.flatMap(relation => relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === selected.id ? [relation.repulsorId] : []));
+    const commitMitigation = (repulsorId: string, checked: boolean) => {
+      const result = commitSemanticOperation(documentRef.current, semanticCommitState({ semanticallyComplete: true, valid: true }), durable =>
+        commitTouchpointMitigation(durable, { touchpointId: selected.id, repulsorId, mitigated: checked, newId: () => crypto.randomUUID() }));
+      if (result.state.status === 'failed') {
+        publishError(result.state.message);
+        return;
+      }
+      documentRef.current = result.document;
+      setDocument(result.document);
+      const durableIds = result.document.relationships.flatMap(relation => relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === selected.id ? [relation.repulsorId] : []);
+      setEditDraft(current => current ? { ...current, mitigatedRepulsorIds: durableIds } : current);
+      publishSuccess(checked ? 'Mitigation added.' : 'Mitigation removed.');
+    };
+    return <section className="touchpoint-resistance" aria-labelledby="touchpoint-resistance-heading">
+      <h4 id="touchpoint-resistance-heading">Resistance</h4>
+      {repulsors.length ? <ul>{repulsors.map(repulsor => <li key={repulsor.id}>
+        <div className="touchpoint-resistance-exposure"><button type="button" onClick={() => navigateInspector(repulsor.id)}>{repulsor.title}</button><small>Derived</small></div>
+        <label className="touchpoint-resistance-mitigation"><input type="checkbox" aria-label={`${repulsor.title}: Mitigated here`} checked={mitigated.has(repulsor.id)} onChange={event => commitMitigation(repulsor.id, event.target.checked)} />Mitigated here</label>
+      </li>)}</ul> : <p className="touchpoint-resistance-empty">No relevant Repulsors.</p>}
+    </section>;
+  }
   function quickForm(q: Quick) {
     return (
       <form
@@ -2371,6 +2396,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             >
               {touchpointBusinessStructureSection()}
               {touchpointClientScopeSection()}
+              {touchpointResistanceSection()}
               {selected.kind === 'offer' && (
                 <div className="connected-field">
                 <label>

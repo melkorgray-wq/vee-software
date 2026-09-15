@@ -290,6 +290,22 @@ export type TouchpointEditDraft = {
   touchpointIntent: TouchpointIntentDraft;
 };
 
+/** Immediately commits one authored mitigation from a fresh durable Touchpoint snapshot. */
+export function commitTouchpointMitigation(document: MapDocument, input: { touchpointId: string; repulsorId: string; mitigated: boolean; newId: () => string }): MapDocument {
+  const touchpoint = document.entities.find(entity => entity.id === input.touchpointId);
+  if (touchpoint?.kind !== 'touchpoint') throw new Error('Touchpoint does not exist.');
+  if (!relevantRepulsorsForTouchpoint(document, touchpoint.id).some(repulsor => repulsor.id === input.repulsorId)) throw new Error('Repulsor is not relevant to this Touchpoint.');
+  const current = document.relationships.flatMap(relation => relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === touchpoint.id ? [relation.repulsorId] : []);
+  const alreadyMitigated = current.includes(input.repulsorId);
+  if (alreadyMitigated === input.mitigated) return document;
+  const repulsorIds = input.mitigated ? [...current, input.repulsorId] : current.filter(id => id !== input.repulsorId);
+  return setTouchpointMitigations(document, {
+    touchpointId: touchpoint.id,
+    repulsorIds,
+    newRelationshipIds: input.mitigated ? [input.newId()] : [],
+  });
+}
+
 /** Immediately commits the complete target Offer set from a fresh durable Touchpoint snapshot. */
 export function commitTouchpointLinkedOffers(document: MapDocument, input: { touchpointId: string; linkedOfferIds: string[]; confirmedRemoval?: boolean; newId: () => string }): MapDocument {
   const touchpoint = document.entities.find(entity => entity.id === input.touchpointId);
