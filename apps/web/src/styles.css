@@ -245,8 +245,8 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .touchpoint-resistance li { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: flex-start; gap: .35rem .45rem; padding-top: .45rem; border-top: 1px solid var(--border-subtle); }
 .touchpoint-resistance li > .inspector-entity-navigation { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .touchpoint-resistance-derived { padding: .14rem .35rem; border: 1px solid var(--border-subtle); border-radius: 999px; color: rgba(255,255,255,.58); font-size: .68rem; letter-spacing: .05em; line-height: 1; text-transform: uppercase; }
-.touchpoint-resistance-mitigation { display: inline-flex; flex: 0 0 auto; align-items: center; width: max-content; gap: .35rem; padding: .22rem .45rem; border: 1px solid var(--border-subtle); border-radius: .35rem; background: var(--surface-2); cursor: pointer; white-space: nowrap; font-size: .82rem; }
-.touchpoint-resistance-mitigation:has(input:checked) { border-color: var(--border-soft); background: var(--surface-3); color: rgba(255,255,255,.9); }
-.touchpoint-resistance-mitigation:focus-within { outline: 2px solid var(--color-accent); outline-offset: 2px; }
-.touchpoint-resistance-mitigation input { margin: 0; }
+.inspector label.touchpoint-resistance-mitigation { display: inline-flex; flex: 0 0 auto; flex-direction: row; align-items: center; width: max-content; gap: .35rem; padding: .22rem .45rem; border: 1px solid var(--border-subtle); border-radius: .35rem; background: var(--surface-2); cursor: pointer; white-space: nowrap; font-size: .82rem; font-weight: 400; }
+.inspector label.touchpoint-resistance-mitigation:has(input:checked) { border-color: var(--border-soft); background: var(--surface-3); color: rgba(255,255,255,.9); }
+.inspector label.touchpoint-resistance-mitigation:focus-within { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.inspector label.touchpoint-resistance-mitigation > input[type="checkbox"] { flex: 0 0 auto; width: auto; min-width: auto; height: auto; margin: 0; padding: 0; }
 .touchpoint-resistance-empty { color: rgba(255,255,255,.62); font-size: .84rem; }
