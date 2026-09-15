@@ -98,6 +98,72 @@ function renderTouchpointInspector(document = touchpointInspectorDocument()) {
   return within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
 }
 
+function resistanceDocument(): MapDocument {
+  const document = touchpointInspectorDocument();
+  document.entities.push(
+    { id: 'repulsor-job', kind: 'repulsor', title: 'Job resistance' },
+    { id: 'fdo', kind: 'financial_desired_outcome', title: 'Stay affordable' },
+    { id: 'repulsor-financial', kind: 'repulsor', title: 'Financial resistance' },
+  );
+  document.relationships.push(
+    { id: 'resists-job', kind: 'repulsor_resists', repulsorId: 'repulsor-job', targetEntityId: 'job' },
+    { id: 'resists-financial', kind: 'repulsor_resists', repulsorId: 'repulsor-financial', targetEntityId: 'fdo' },
+  );
+  document.productJobIntents = [{ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] }];
+  document.offerJobSelections = [{ id: 'offer-job', offerId: 'offer-a', productJobIntentId: 'intent' }];
+  document.offerFinancialIntents = [{ id: 'offer-financial', offerId: 'offer-a', financialDesiredOutcomeId: 'fdo' }];
+  document.touchpointJobSelections = [{ id: 'touch-job', touchpointId: 'touch', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] }];
+  document.touchpointFinancialSelections = [{ id: 'touch-financial', touchpointId: 'touch', offerId: 'offer-a', offerFinancialIntentId: 'offer-financial', financialDesiredOutcomeId: 'fdo' }];
+  document.placements.push(
+    { viewId: 'spike-view', entityId: 'repulsor-job', x: 1000, y: 0 },
+    { viewId: 'spike-view', entityId: 'fdo', x: 1140, y: 0 },
+    { viewId: 'spike-view', entityId: 'repulsor-financial', x: 1280, y: 0 },
+  );
+  return document;
+}
+
+describe('Touchpoint Resistance section', () => {
+  afterEach(cleanup);
+
+  it('is always present with a compact empty state and no completion action', () => {
+    const inspector = renderTouchpointInspector();
+    const resistance = within(inspector.getByRole('region', { name: 'Resistance' }));
+    expect(resistance.getByText('No relevant Repulsors.')).toBeInTheDocument();
+    expect(resistance.queryByRole('button', { name: /Apply|Save|Done/i })).not.toBeInTheDocument();
+  });
+
+  it('shows Job and Financial exposures as Derived and commits each checkbox immediately', async () => {
+    const user = userEvent.setup();
+    const inspector = renderTouchpointInspector(resistanceDocument());
+    const resistance = within(inspector.getByRole('region', { name: 'Resistance' }));
+    expect(resistance.getAllByText('Derived')).toHaveLength(2);
+    expect(resistance.getByRole('button', { name: 'Job resistance' })).toBeInTheDocument();
+    expect(resistance.getByRole('button', { name: 'Financial resistance' })).toBeInTheDocument();
+    const checkbox = resistance.getByRole('checkbox', { name: 'Job resistance: Mitigated here' });
+    expect(checkbox).not.toBeChecked();
+    await user.click(checkbox);
+    expect(checkbox).toBeChecked();
+    expect(window.__VEE_DEV__!.dump().relationships.filter(relation => relation.kind === 'touchpoint_mitigates_repulsor')).toEqual([
+      expect.objectContaining({ touchpointId: 'touch', repulsorId: 'repulsor-job' }),
+    ]);
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+    await user.click(checkbox);
+    expect(window.__VEE_DEV__!.dump().relationships.some(relation => relation.kind === 'touchpoint_mitigates_repulsor')).toBe(false);
+  });
+
+  it('renders an existing mitigation checked and keeps title navigation independent', async () => {
+    const user = userEvent.setup(); const document = resistanceDocument();
+    document.relationships.push({ id: 'mitigates-job', kind: 'touchpoint_mitigates_repulsor', touchpointId: 'touch', repulsorId: 'repulsor-job' });
+    const inspector = renderTouchpointInspector(document);
+    const resistance = within(inspector.getByRole('region', { name: 'Resistance' }));
+    const checkbox = resistance.getByRole('checkbox', { name: 'Job resistance: Mitigated here' });
+    expect(checkbox).toBeChecked();
+    await user.click(resistance.getByRole('button', { name: 'Job resistance' }));
+    expect(checkbox).not.toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump().relationships).toContainEqual(expect.objectContaining({ id: 'mitigates-job' }));
+  });
+});
+
 function relationLensDocument(multiple = false): MapDocument {
   const document = touchpointInspectorDocument();
   if (multiple) {

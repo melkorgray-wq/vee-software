@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyMapDocument, relevantRepulsorsForTouchpoint, type MapDocument } from '@vee/domain';
-import { applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointParent, connectionPickerCatalogue, createTouchpointIntentDraft, equalTouchpointIntentDraft, filterConnectionCandidates, globalIntentDiscovery, selectCurrentOfferIntent, touchpointClientScope, touchpointIntentCatalogue, touchpointUpstreamSources, validateTouchpointIntentDraft } from './touchpoint-edit';
+import { applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, connectionPickerCatalogue, createTouchpointIntentDraft, equalTouchpointIntentDraft, filterConnectionCandidates, globalIntentDiscovery, selectCurrentOfferIntent, touchpointClientScope, touchpointIntentCatalogue, touchpointUpstreamSources, validateTouchpointIntentDraft } from './touchpoint-edit';
 
 function fixture(): MapDocument {
   return {
@@ -37,6 +37,34 @@ describe('Touchpoint linked Offer commit', () => {
     expect(added.relationships).not.toContainEqual(expect.objectContaining({ id: 'presents-a' }));
     expect(added.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint')).toEqual(document.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint'));
     expect(document).toEqual(snapshot);
+  });
+});
+
+describe('Touchpoint mitigation commit', () => {
+  it('adds and removes only the requested relevant mitigation while retaining IDs and remaining mitigations', () => {
+    const document = fixture();
+    document.entities.push({ id: 'repulsor-a', kind: 'repulsor', title: 'Doubt' }, { id: 'repulsor-b', kind: 'repulsor', title: 'Delay' });
+    document.relationships.push(
+      { id: 'resists-a', kind: 'repulsor_resists', repulsorId: 'repulsor-a', targetEntityId: 'job' },
+      { id: 'resists-b', kind: 'repulsor_resists', repulsorId: 'repulsor-b', targetEntityId: 'job' },
+      { id: 'mitigates-b', kind: 'touchpoint_mitigates_repulsor', touchpointId: 'touch', repulsorId: 'repulsor-b' },
+    );
+    const added = commitTouchpointMitigation(document, { touchpointId: 'touch', repulsorId: 'repulsor-a', mitigated: true, newId: () => 'mitigates-a' });
+    expect(added.relationships).toEqual(expect.arrayContaining([
+      { id: 'mitigates-a', kind: 'touchpoint_mitigates_repulsor', touchpointId: 'touch', repulsorId: 'repulsor-a' },
+      { id: 'mitigates-b', kind: 'touchpoint_mitigates_repulsor', touchpointId: 'touch', repulsorId: 'repulsor-b' },
+    ]));
+    expect(commitTouchpointMitigation(added, { touchpointId: 'touch', repulsorId: 'repulsor-a', mitigated: true, newId: () => { throw new Error('must not allocate'); } })).toBe(added);
+    const removed = commitTouchpointMitigation(added, { touchpointId: 'touch', repulsorId: 'repulsor-a', mitigated: false, newId: () => { throw new Error('must not allocate'); } });
+    expect(removed.relationships).not.toContainEqual(expect.objectContaining({ id: 'mitigates-a' }));
+    expect(removed.relationships).toContainEqual(expect.objectContaining({ id: 'mitigates-b' }));
+    expect(commitTouchpointMitigation(removed, { touchpointId: 'touch', repulsorId: 'repulsor-a', mitigated: false, newId: () => { throw new Error('must not allocate'); } })).toBe(removed);
+  });
+
+  it('rejects a Repulsor outside the current derived relevance', () => {
+    const document = fixture();
+    document.entities.push({ id: 'repulsor', kind: 'repulsor', title: 'Irrelevant' });
+    expect(() => commitTouchpointMitigation(document, { touchpointId: 'touch', repulsorId: 'repulsor', mitigated: true, newId: () => 'unused' })).toThrow(/not relevant/);
   });
 });
 
