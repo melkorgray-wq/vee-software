@@ -91,8 +91,10 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .touchpoint-client-scope-heading { display: flex; align-items: center; justify-content: flex-start; gap: .3rem; padding-bottom: .35rem; border-bottom: 1px solid var(--border-subtle); }
 .touchpoint-client-scope-heading > h4 { margin: 0; color: rgba(255,255,255,.72); font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; }
 .touchpoint-client-scope-heading > button { flex: 0 0 auto; padding: .1rem .25rem; }
+.touchpoint-client-scope-heading > .touchpoint-client-scope-done { padding: .18rem .45rem; border: 1px solid var(--border-soft); border-radius: .3rem; color: var(--color-accent); font-size: .76rem; font-weight: 600; line-height: 1.1; }
 .touchpoint-client-scope-content { display: grid; gap: .75rem; min-width: 0; }
 .inline-intent-editor { gap: .6rem; }
+.inline-intent-editor > .touchpoint-client-scope-help { margin: 0; color: rgba(255,255,255,.54); font-size: .72rem; }
 .inline-intent-editor .intent-leaves { width: 100%; padding-left: 1.2rem; }
 .intent-semantic-leaf { display: grid; gap: .15rem; min-width: 0; }
 .intent-semantic-leaf > button { justify-self: start; max-width: 100%; padding: .15rem 0; border: 0; background: transparent; color: var(--color-accent); text-align: left; overflow-wrap: anywhere; }
