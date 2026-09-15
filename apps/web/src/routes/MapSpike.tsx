@@ -1957,7 +1957,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     return <section className="touchpoint-resistance" aria-labelledby="touchpoint-resistance-heading">
       <h4 id="touchpoint-resistance-heading">Resistance</h4>
       {repulsors.length ? <ul>{repulsors.map(repulsor => <li key={repulsor.id}>
-        <div className="touchpoint-resistance-exposure"><button type="button" onClick={() => navigateInspector(repulsor.id)}>{repulsor.title}</button><small>Derived</small></div>
+        <div className="touchpoint-resistance-exposure"><button type="button" className="inspector-entity-navigation" onClick={() => navigateInspector(repulsor.id)}>{repulsor.title}</button><small>Derived</small></div>
         <label className="touchpoint-resistance-mitigation"><input type="checkbox" aria-label={`${repulsor.title}: Mitigated here`} checked={mitigated.has(repulsor.id)} onChange={event => commitMitigation(repulsor.id, event.target.checked)} />Mitigated here</label>
       </li>)}</ul> : <p className="touchpoint-resistance-empty">No relevant Repulsors.</p>}
     </section>;
