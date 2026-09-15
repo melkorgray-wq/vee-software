@@ -2084,6 +2084,8 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
     const inspector = renderTouchpointInspector(document); await user.click(inspector.getByRole('button', { name: 'Edit linked Offers' })); const linkedOffers = within(inspector.getByRole('group', { name: 'Offers property' }));
     await user.click(linkedOffers.getByRole('checkbox', { name: 'Subscription' }));
     let review = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
+    expect(within(review).getByRole('button', { name: 'Confirm removal' })).toBeInTheDocument();
+    expect(within(review).queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
     expect(within(review).getByText('path to Make progress → Finish faster will be removed; alternative: Consulting')).toBeInTheDocument();
     await user.click(within(review).getByRole('button', { name: 'Cancel' })); expect(review).not.toBeInTheDocument();
     expect(linkedOffers.getByRole('checkbox', { name: 'Subscription' })).toBeChecked();
@@ -2093,7 +2095,7 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
       expect.objectContaining({ touchpointId: 'touch', offerId: 'offer-b' }),
     ]));
     await user.click(linkedOffers.getByRole('checkbox', { name: 'Subscription' })); review = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
-    await user.click(within(review).getByRole('button', { name: 'Apply changes' }));
+    await user.click(within(review).getByRole('button', { name: 'Confirm removal' }));
     expect(linkedOffers.getByRole('checkbox', { name: 'Subscription' })).not.toBeChecked(); expect(linkedOffers.getByRole('checkbox', { name: 'Consulting' })).toBeChecked();
     await user.click(screen.getByRole('tab', { name: 'Map' }));
     const map = screen.getByLabelText('Map canvas');
@@ -2183,6 +2185,7 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
     await user.click(within(intent).getByRole('checkbox', { name: 'Reduce errors' }));
     await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
     const review = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
+    expect(within(review).getByRole('button', { name: 'Apply changes' })).toBeInTheDocument();
     expect(within(review).getByText('loses Reduce errors')).toBeInTheDocument();
     await user.click(within(review).getByRole('button', { name: 'Apply changes' }));
     expect(window.__VEE_DEV__!.dump().touchpointJobSelections).toEqual([expect.objectContaining({ id: 'touch-selection', addressedDesiredOutcomeIds: [] })]);
@@ -2200,6 +2203,7 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
     await user.click(within(intent).getByRole('checkbox', { name: 'Reduce errors' }));
     await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
     const review = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
+    expect(within(review).getByRole('button', { name: 'Apply changes' })).toBeInTheDocument();
     expect(within(review).getByText('loses Reduce errors')).toBeInTheDocument();
   });
 

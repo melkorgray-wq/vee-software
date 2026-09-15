@@ -2452,7 +2452,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 <button type="button" onClick={closeProductConfirmation}>Keep editing</button>
               </> : <>
                 <button type="button" onClick={closeProductConfirmation}>Cancel</button>
-                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; setProductConfirmation(null); if (confirmation.owner === 'touchpoint') confirmation.immediateCommit(); else { productApplyBypassRef.current = true; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>Apply changes</button>
+                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; setProductConfirmation(null); if (confirmation.owner === 'touchpoint') confirmation.immediateCommit(); else { productApplyBypassRef.current = true; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>{productConfirmation.owner === 'touchpoint' ? 'Confirm removal' : 'Apply changes'}</button>
               </>}
             </div>
           </div>
