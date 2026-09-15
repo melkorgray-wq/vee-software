@@ -1622,7 +1622,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     };
     const renderDiscoveryMatches = (matches: typeof discovery.titleMatches) => <div className="global-intent-results">{matches.jobGroups.map(group => renderJobGroup(group))}{matches.directLeaves.map(leaf => <div className="intent-discovery-leaf" key={leaf.checkboxId}><small>{KIND_LABELS[leaf.entity.kind]}</small>{renderSelectableRow(leaf, { showContributorPaths: true })}</div>)}</div>;
     return <section className={`touchpoint-client-scope${editing ? ' is-editing' : ''}`} aria-labelledby="touchpoint-client-scope-heading" onKeyDown={event => { if (event.key !== 'Escape' || !connectionPicker) return; event.preventDefault(); event.stopPropagation(); if (['current-contributor-choice', 'ancestor-contributor-choice', 'invalid'].includes(connectionPicker.mode)) cancelResolver(); else if (connectionPicker.mode !== 'upstream' || connectionPicker.query || connectionPicker.kind) resetTransientSearch(); else exitEdit(); }}>
-      <div className="touchpoint-client-scope-heading"><h4 id="touchpoint-client-scope-heading">Client scope</h4><button ref={connectionPickerButtonRef} type="button" className="business-structure-edit-value" aria-label={editing ? 'Finish editing Client scope' : 'Edit Client scope'} aria-pressed={editing} disabled={!offers.length} onClick={() => editing ? exitEdit() : setConnectionPicker({ mode: 'upstream', query: '', kind: undefined, contributorOfferIds: [], ancestorContributingOfferIds: {} })}><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button></div>
+      <div className="touchpoint-client-scope-heading"><h4 id="touchpoint-client-scope-heading">Client scope</h4><button ref={connectionPickerButtonRef} type="button" className="business-structure-edit-value" aria-label={editing ? 'Close Client scope authoring' : 'Edit Client scope'} aria-pressed={editing} disabled={!offers.length} onClick={() => editing ? exitEdit() : setConnectionPicker({ mode: 'upstream', query: '', kind: undefined, contributorOfferIds: [], ancestorContributingOfferIds: {} })}><span className="business-structure-edit-affordance" aria-hidden="true">{editing ? '×' : '✎'}</span></button></div>
       {!editing && (scope.jobGroups.length || scope.financialLeaves.length) ? <div className="touchpoint-client-scope-content">
         {scope.jobGroups.map(group => <div className={`touchpoint-client-job ${group.desiredOutcomes.length ? 'has-outcomes' : 'direct-job'}`} key={group.job.id}>
           <small>{KIND_LABELS[group.job.kind]}</small>
@@ -2410,10 +2410,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                   Open {editDraft.title}
                 </a>
               )}
-              <div className={`apply-footer ${inspectorDirty ? 'dirty' : ''}`}>
+              {connectionPicker === null && <div className={`apply-footer ${inspectorDirty ? 'dirty' : ''}`}>
                 {inspectorDirty && <span>Unsaved changes</span>}
                 <button className="primary" disabled={!inspectorDirty || Boolean(editDraft.touchpointIntent && validateTouchpointIntentDraft(editDraft.touchpointIntent, editDraft.linkedOfferIds))}>Apply changes</button>
-              </div>
+              </div>}
             </form>
           ) : (
             <div className="inspector-empty-state">
