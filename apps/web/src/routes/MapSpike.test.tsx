@@ -1465,7 +1465,7 @@ describe('searchable Touchpoint connection picker', () => {
     expect(within(scope).getByRole('checkbox', { name: 'Finish faster' })).toBeChecked();
     expect(within(scope).getAllByText('via Subscription')).toHaveLength(2);
     expect(within(scope).queryByRole('checkbox', { name: 'via Subscription' })).not.toBeInTheDocument();
-    expect(within(scope).getAllByRole('button', { name: 'Remove Subscription contributor' })).toHaveLength(2);
+    expect(within(scope).queryByRole('button', { name: 'Remove Subscription contributor' })).not.toBeInTheDocument();
     expect(scope).toHaveTextContent('Parent provenance · Parent provenance');
     expect(document.relationships.some(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.offerId === 'parent-offer' && relation.touchpointId === 'touch')).toBe(false);
   });
@@ -1647,6 +1647,18 @@ describe('searchable Touchpoint connection picker', () => {
     expect(inspector.getByRole('button', { name: /Reduce errors/ })).toBeInTheDocument();
   });
 
+  it('omits contributor attribution for an unchecked discovery result', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector();
+    await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
+    await user.type(inspector.getByRole('searchbox', { name: 'Search Client intent' }), 'Finish faster');
+    const checkbox = within(inspector.getByRole('region', { name: 'Find Client intent' })).getByRole('checkbox', { name: 'Finish faster' });
+    const row = checkbox.closest<HTMLElement>('.intent-path-row')!;
+
+    expect(checkbox).not.toBeChecked();
+    expect(row.querySelector('.contributor-attributions')).not.toBeInTheDocument();
+    expect(within(row).queryByText(/^via /)).not.toBeInTheDocument();
+  });
+
   it('renders an already-authored semantic result checked before any search action', async () => {
     const document = touchpointInspectorDocument();
     document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
@@ -1662,7 +1674,8 @@ describe('searchable Touchpoint connection picker', () => {
     const outcomeRow = within(discovery).getByRole('checkbox', { name: 'Finish faster' }).closest<HTMLElement>('.intent-semantic-leaf')!;
     expect(within(outcomeRow).getByText('via Subscription')).toBeInTheDocument();
     expect(within(outcomeRow).queryByRole('checkbox', { name: 'via Subscription' })).not.toBeInTheDocument();
-    expect(within(outcomeRow).getByRole('button', { name: 'Remove Subscription contributor' })).toHaveAttribute('type', 'button');
+    expect(within(outcomeRow).queryByRole('button', { name: 'Remove Subscription contributor' })).not.toBeInTheDocument();
+    expect(within(outcomeRow).getByRole('checkbox', { name: 'Finish faster' })).toBeEnabled();
   });
 
   it('semantic DO uncheck preserves stable Job paths without changing Product or Offer scope', async () => {
@@ -1738,21 +1751,22 @@ describe('searchable Touchpoint connection picker', () => {
     expect(within(outcomeRow).queryByText('via Subscription')).not.toBeInTheDocument();
     expect(within(outcomeRow).getByText('via Consulting')).toBeInTheDocument();
     expect(within(outcomeRow).queryByRole('checkbox', { name: /via (Subscription|Consulting)/ })).not.toBeInTheDocument();
-    expect(within(outcomeRow).getByRole('button', { name: 'Remove Consulting contributor' })).toHaveFocus();
+    expect(within(outcomeRow).queryByRole('button', { name: 'Remove Consulting contributor' })).not.toBeInTheDocument();
+    expect(within(discovery).getByRole('checkbox', { name: 'Finish faster' })).toHaveFocus();
     expect(window.__VEE_DEV__!.dump().touchpointJobSelections.filter(selection => selection.touchpointId === 'touch')).toEqual([
       expect.objectContaining({ id: 'touch-selection-a', offerId: 'offer-a', addressedDesiredOutcomeIds: [] }),
       expect.objectContaining({ offerId: 'offer-b', addressedDesiredOutcomeIds: ['do-a'] }),
     ]);
 
-    await user.click(within(outcomeRow).getByRole('button', { name: 'Remove Consulting contributor' }));
+    await user.click(within(discovery).getByRole('checkbox', { name: 'Finish faster' }));
     expect(within(discovery).getByRole('checkbox', { name: 'Finish faster' })).not.toBeChecked();
     expect(within(outcomeRow).queryByText(/via (Subscription|Consulting)/)).not.toBeInTheDocument();
     expect(within(discovery).getByRole('checkbox', { name: 'Finish faster' })).toHaveFocus();
     expect(window.__VEE_DEV__!.dump().touchpointJobSelections.map(selection => selection.addressedDesiredOutcomeIds)).toEqual([[], []]);
   });
 
-  it('confirms dependency-sensitive contributor removal and restores row focus after Cancel or commit', async () => {
-    const document = touchpointInspectorDocument();
+  it('preserves dependency impact confirmation after a multi-contributor path becomes single', async () => {
+    const document = touchpointInspectorDocument(true);
     document.entities.push(
       { id: 'direct-job', kind: 'emotional_job', title: 'Feel confident' },
       { id: 'repulsor', kind: 'repulsor', title: 'Delay concern' },
@@ -1766,24 +1780,35 @@ describe('searchable Touchpoint connection picker', () => {
       { id: 'mitigates-delay', kind: 'touchpoint_mitigates_repulsor', touchpointId: 'touch', repulsorId: 'repulsor' },
     );
     document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'direct-job', addressedDesiredOutcomeIds: [] });
-    document.offerJobSelections.push({ id: 'offer-selection', offerId: 'offer-a', productJobIntentId: 'intent' });
-    document.touchpointJobSelections.push({ id: 'touch-selection', touchpointId: 'touch', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] });
+    document.offerJobSelections.push(
+      { id: 'offer-selection-a', offerId: 'offer-a', productJobIntentId: 'intent' },
+      { id: 'offer-selection-b', offerId: 'offer-b', productJobIntentId: 'intent' },
+    );
+    document.touchpointJobSelections.push(
+      { id: 'touch-selection-a', touchpointId: 'touch', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] },
+      { id: 'touch-selection-b', touchpointId: 'touch', offerId: 'offer-b', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] },
+    );
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(document);
     await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
     await user.type(inspector.getByRole('searchbox', { name: 'Search Client intent' }), 'Feel confident');
     const discovery = inspector.getByRole('region', { name: 'Find Client intent' });
     const checkbox = within(discovery).getByRole('checkbox', { name: 'Feel confident' });
-    const remove = within(checkbox.closest<HTMLElement>('.intent-path-row')!).getByRole('button', { name: 'Remove Subscription contributor' });
+    const row = checkbox.closest<HTMLElement>('.intent-path-row')!;
+    const remove = within(row).getByRole('button', { name: 'Remove Subscription contributor' });
 
     await user.click(remove);
+    expect(checkbox).toBeChecked();
+    expect(within(row).getByText('via Consulting')).toBeInTheDocument();
+    expect(within(row).queryByRole('button', { name: 'Remove Consulting contributor' })).not.toBeInTheDocument();
+    await user.click(checkbox);
     let confirmation = screen.getByRole('dialog', { name: 'Remove this local Client path?' });
     expect(checkbox).toBeChecked();
     expect(window.__VEE_DEV__!.dump().relationships).toContainEqual(expect.objectContaining({ id: 'mitigates-delay' }));
     await user.click(within(confirmation).getByRole('button', { name: 'Cancel' }));
-    expect(remove).toHaveFocus();
+    expect(checkbox).toHaveFocus();
     expect(checkbox).toBeChecked();
 
-    await user.click(remove);
+    await user.click(checkbox);
     confirmation = screen.getByRole('dialog', { name: 'Remove this local Client path?' });
     await user.click(within(confirmation).getByRole('button', { name: 'Remove' }));
     expect(checkbox).not.toBeChecked();
