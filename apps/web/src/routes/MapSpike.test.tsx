@@ -147,7 +147,8 @@ describe('Touchpoint Resistance section', () => {
     expect(window.__VEE_DEV__!.dump().relationships.filter(relation => relation.kind === 'touchpoint_mitigates_repulsor')).toEqual([
       expect.objectContaining({ touchpointId: 'touch', repulsorId: 'repulsor-job' }),
     ]);
-    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+    expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
     await user.click(checkbox);
     expect(window.__VEE_DEV__!.dump().relationships.some(relation => relation.kind === 'touchpoint_mitigates_repulsor')).toBe(false);
   });
@@ -550,7 +551,7 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(inspector.getByRole('heading', { name: 'Footer CTA' })).toBeInTheDocument();
   });
 
-  it('URL Enter commits immediately, synchronizes only URL, and legacy Apply preserves it', async () => {
+  it('URL Enter commits immediately without a generic Apply', async () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
     await user.click(within(inspector.getByRole('region', { name: 'Business structure' })).getByRole('button', { name: /Edit web address/ }));
     const input = inspector.getByRole('textbox', { name: 'Edit web address' });
@@ -558,7 +559,8 @@ describe('Touchpoint Business structure Inspector', () => {
     await user.clear(input); await user.type(input, 'https://committed.example{Enter}');
     const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
     expect(structure.getByRole('link', { name: 'https://committed.example' })).toBeInTheDocument();
-    await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
+    expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'touch')).toEqual(expect.objectContaining({ url: 'https://committed.example' }));
     expect(within(inspector.getByRole('region', { name: 'Business structure' })).getByRole('link', { name: 'https://committed.example' })).toBeInTheDocument();
   });
 
@@ -1233,7 +1235,7 @@ describe('map-first authoring interactions', () => {
     const user = userEvent.setup(); let document = touchpointInspectorDocument(true);
     let id = 0; document = applyTouchpointIntentDraft(document, { touchpointId: 'touch', draft: { jobLeaves: [{ jobId: 'job', semanticLeafId: 'do-a', desiredOutcomeId: 'do-a', contributorOfferIds: ['offer-a', 'offer-b'] }], financialLeaves: [], pendingJobLeafIds: [], pendingFinancialLeafIds: [] }, newId: () => `seed-${++id}` });
     const inspector = renderTouchpointInspector(document); await user.click(inspector.getByRole('button', { name: 'Edit linked Offers' })); const linkedOffers = within(inspector.getByRole('group', { name: 'Offers property' }));
-    await user.click(linkedOffers.getByRole('checkbox', { name: 'Subscription' })); await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
+    await user.click(linkedOffers.getByRole('checkbox', { name: 'Subscription' }));
     const dialog = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
     fireEvent.keyDown(window, { code: 'Space', key: ' ', ctrlKey: true, shiftKey: true });
     expect(dialog).toBeInTheDocument(); expect(screen.getByRole('tab', { name: 'Entity Inspector' })).toHaveAttribute('aria-selected', 'true');
@@ -1575,64 +1577,32 @@ describe('searchable Touchpoint connection picker', () => {
     expect(within(scope).queryByRole('searchbox', { name: 'Search Client intent' })).not.toBeInTheDocument();
     expect(within(scope).getByRole('button', { name: 'Edit Client scope' })).toHaveTextContent('✎');
     expect(within(scope).getByRole('button', { name: 'Edit Client scope' })).toHaveFocus();
-    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+    expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
   });
 
-  it('restores an unrelated dirty Inspector draft after closing authoring without applying it', async () => {
-    const document = touchpointInspectorDocument();
-    const touchpoint = document.entities.find((entity): entity is Extract<MapDocument['entities'][number], { kind: 'touchpoint' }> => entity.id === 'touch' && entity.kind === 'touchpoint')!;
-    touchpoint.url = 'https://draft.example';
-    document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
-    document.offerJobSelections.push({ id: 'offer-selection', offerId: 'offer-a', productJobIntentId: 'intent' });
-    const user = userEvent.setup(); const inspector = renderTouchpointInspector(document);
-    touchpoint.url = 'https://durable.example';
-    await user.click(screen.getByRole('tab', { name: 'Map' }));
-    await user.click(screen.getByRole('tab', { name: 'Entity Inspector' }));
-    const draftLink = inspector.getByRole('link', { name: 'Open Checkout' });
-    expect(draftLink).toHaveAttribute('href', 'https://draft.example');
-    expect(inspector.getByText('Unsaved changes')).toBeInTheDocument();
-    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
-
+  it('closes Client scope without creating a durable staged draft or footer', async () => {
+    const user = userEvent.setup();
+    const inspector = renderTouchpointInspector();
     await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
-    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
-    expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
-    expect(draftLink).toHaveAttribute('href', 'https://draft.example');
-    await user.type(inspector.getByRole('searchbox', { name: 'Search Client intent' }), 'Finish faster');
-    await user.click(inspector.getByRole('checkbox', { name: 'Finish faster' }));
     const beforeClose = structuredClone(window.__VEE_DEV__!.dump());
-    expect(beforeClose.entities.find(entity => entity.id === 'touch')).toEqual(expect.objectContaining({ url: 'https://durable.example' }));
-
     await user.click(inspector.getByRole('button', { name: 'Close Client scope authoring' }));
     expect(window.__VEE_DEV__!.dump()).toEqual(beforeClose);
-    expect(inspector.getByText('Unsaved changes')).toBeInTheDocument();
-    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
-    expect(draftLink).toHaveAttribute('href', 'https://draft.example');
-
-    await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
-    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'touch')).toEqual(expect.objectContaining({ url: 'https://draft.example' }));
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
+    expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
   });
 
-  it('restores an unrelated dirty Inspector draft after final Escape without mutating the document', async () => {
-    const document = touchpointInspectorDocument();
-    const touchpoint = document.entities.find((entity): entity is Extract<MapDocument['entities'][number], { kind: 'touchpoint' }> => entity.id === 'touch' && entity.kind === 'touchpoint')!;
-    touchpoint.url = 'https://escape-draft.example';
-    const user = userEvent.setup(); const inspector = renderTouchpointInspector(document);
-    touchpoint.url = 'https://escape-durable.example';
-    await user.click(screen.getByRole('tab', { name: 'Map' }));
-    await user.click(screen.getByRole('tab', { name: 'Entity Inspector' }));
-    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
-
+  it('Escape closes Client scope without creating a durable staged draft or footer', async () => {
+    const user = userEvent.setup();
+    const inspector = renderTouchpointInspector();
     await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
     const scope = inspector.getByRole('region', { name: 'Client scope' });
     const beforeEscape = structuredClone(window.__VEE_DEV__!.dump());
-    expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
     fireEvent.keyDown(scope, { key: 'Escape' });
     await act(() => new Promise(resolve => requestAnimationFrame(resolve)));
-
     expect(window.__VEE_DEV__!.dump()).toEqual(beforeEscape);
-    expect(inspector.getByText('Unsaved changes')).toBeInTheDocument();
-    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
-    expect(inspector.getByRole('link', { name: 'Open Checkout' })).toHaveAttribute('href', 'https://escape-draft.example');
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
+    expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
     expect(within(scope).getByRole('button', { name: 'Edit Client scope' })).toHaveFocus();
   });
 
@@ -1679,7 +1649,8 @@ describe('searchable Touchpoint connection picker', () => {
     expect(window.__VEE_DEV__!.dump()).toEqual(beforeEscape);
     expect(within(scope).queryByRole('button', { name: 'Close Client scope authoring' })).not.toBeInTheDocument();
     expect(pencil).toHaveFocus();
-    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+    expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
   });
 
   it('places durable Client scope after Neighborhood and before authoring controls with an owner-nested DO', () => {
@@ -2111,7 +2082,7 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
     const user = userEvent.setup(); let document = touchpointInspectorDocument(true);
     document = applyTouchpointIntentDraft(document, { touchpointId: 'touch', draft: { jobLeaves: [{ jobId: 'job', semanticLeafId: 'do-a', desiredOutcomeId: 'do-a', contributorOfferIds: ['offer-a', 'offer-b'] }], financialLeaves: [], pendingJobLeafIds: [], pendingFinancialLeafIds: [] }, newId: (() => { let id = 0; return () => `seed-${++id}`; })() });
     const inspector = renderTouchpointInspector(document); await user.click(inspector.getByRole('button', { name: 'Edit linked Offers' })); const linkedOffers = within(inspector.getByRole('group', { name: 'Offers property' }));
-    await user.click(linkedOffers.getByRole('checkbox', { name: 'Subscription' })); await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
+    await user.click(linkedOffers.getByRole('checkbox', { name: 'Subscription' }));
     let review = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
     expect(within(review).getByText('path to Make progress → Finish faster will be removed; alternative: Consulting')).toBeInTheDocument();
     await user.click(within(review).getByRole('button', { name: 'Cancel' })); expect(review).not.toBeInTheDocument();
@@ -2161,10 +2132,32 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
     expect(map.querySelector('[data-source="offer-b"][data-target="touch"]')).toBeInTheDocument();
   });
 
-  it('existing Product and Offer Inspector interaction tests continue to pass', () => {
+  it('does not show the staged footer in the Touchpoint Inspector', () => {
     const inspector = renderTouchpointInspector();
     expect(within(inspector.getByRole('group', { name: 'Offers property' })).getByRole('button', { name: 'Subscription' })).toBeInTheDocument();
-    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+    expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
+  });
+
+  it('navigates from an unchanged Touchpoint without an unsaved-changes dialog', async () => {
+    const user = userEvent.setup();
+    const inspector = renderTouchpointInspector();
+    await user.click(within(inspector.getByRole('group', { name: 'Offers property' })).getByRole('button', { name: 'Subscription' }));
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: /Unsaved .* changes/ })).not.toBeInTheDocument();
+  });
+
+  it('navigates after a local Touchpoint commit without a false unsaved-changes dialog', async () => {
+    const user = userEvent.setup();
+    const inspector = renderTouchpointInspector(touchpointInspectorDocument());
+    await user.click(within(inspector.getByRole('region', { name: 'Business structure' })).getByRole('button', { name: /Edit web address/ }));
+    const input = inspector.getByRole('textbox', { name: 'Edit web address' });
+    await user.clear(input);
+    await user.type(input, 'https://durable.example{Enter}');
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'touch')).toEqual(expect.objectContaining({ url: 'https://durable.example' }));
+    await user.click(within(inspector.getByRole('group', { name: 'Offers property' })).getByRole('button', { name: 'Subscription' }));
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: /Unsaved .* changes/ })).not.toBeInTheDocument();
   });
 
   it('preserves an explicit narrowed Offer subset across an unrelated Offer Apply', async () => {
