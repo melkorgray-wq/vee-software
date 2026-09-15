@@ -137,7 +137,7 @@ describe('Touchpoint Resistance section', () => {
     const inspector = renderTouchpointInspector(resistanceDocument());
     const resistance = within(inspector.getByRole('region', { name: 'Resistance' }));
     expect(resistance.getAllByText('Derived')).toHaveLength(2);
-    expect(resistance.getByRole('button', { name: 'Job resistance' })).toBeInTheDocument();
+    expect(resistance.getByRole('button', { name: 'Job resistance' })).toHaveClass('inspector-entity-navigation');
     expect(resistance.getByRole('button', { name: 'Financial resistance' })).toBeInTheDocument();
     const checkbox = resistance.getByRole('checkbox', { name: 'Job resistance: Mitigated here' });
     expect(checkbox).not.toBeChecked();
