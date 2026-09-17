@@ -1,4 +1,4 @@
-import { addTouchpointContainer, applyTouchpointIntentDraft, effectiveOfferDesiredOutcomeIds, relevantRepulsorsForTouchpoint, setTouchpointMitigations, updateEntity, type Entity, type MapDocument, type TouchpointIntentDraft as DomainTouchpointIntentDraft, type TouchpointIntentFinancialLeaf, type TouchpointIntentJobLeaf } from '@vee/domain';
+import { addTouchpointContainer, applyTouchpointIntentDraft, commitTouchpointParent as commitDomainTouchpointParent, effectiveOfferDesiredOutcomeIds, relevantRepulsorsForTouchpoint, setTouchpointMitigations, updateEntity, type Entity, type MapDocument, type TouchpointIntentDraft as DomainTouchpointIntentDraft, type TouchpointIntentFinancialLeaf, type TouchpointIntentJobLeaf } from '@vee/domain';
 
 export type TouchpointJobLeaf = TouchpointIntentJobLeaf;
 export type TouchpointFinancialLeaf = TouchpointIntentFinancialLeaf;
@@ -333,21 +333,8 @@ export function commitTouchpointLinkedOffers(document: MapDocument, input: { tou
 
 /** Immediately commits a parent from a fresh durable Touchpoint snapshot. */
 export function commitTouchpointParent(document: MapDocument, input: { touchpointId: string; parentTouchpointId: string; newId: () => string }): MapDocument {
-  const touchpoint = document.entities.find(entity => entity.id === input.touchpointId);
-  if (touchpoint?.kind !== 'touchpoint') throw new Error('Touchpoint does not exist.');
-  if (input.parentTouchpointId && !document.entities.some(entity => entity.id === input.parentTouchpointId && entity.kind === 'touchpoint')) throw new Error('Parent must be an existing Touchpoint.');
-  const currentParentId = document.relationships.find((relation): relation is Extract<MapDocument['relationships'][number], { kind: 'touchpoint_contains_touchpoint' }> => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === touchpoint.id)?.parentTouchpointId ?? '';
-  if (currentParentId === input.parentTouchpointId) return document;
-  const linkedOfferIds = document.relationships.flatMap(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === touchpoint.id ? [relation.offerId] : []);
-  return applyTouchpointEditDraft(document, { touchpointId: touchpoint.id, newId: input.newId, draft: {
-    title: touchpoint.title, linkedOfferIds, parentTouchpointId: input.parentTouchpointId,
-    locatedInId: touchpoint.locatedInId ?? '',
-    locatedInQuery: document.touchpointContainers.find(container => container.id === touchpoint.locatedInId)?.title ?? '',
-    locationDraft: touchpoint.locatedInId ? { kind: 'existing', containerId: touchpoint.locatedInId } : { kind: 'none' },
-    url: touchpoint.url ?? '',
-    mitigatedRepulsorIds: document.relationships.flatMap(relation => relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === touchpoint.id ? [relation.repulsorId] : []),
-    touchpointIntent: createTouchpointIntentDraft(document, touchpoint.id),
-  } });
+  const currentParentId = document.relationships.find((relation): relation is Extract<MapDocument['relationships'][number], { kind: 'touchpoint_contains_touchpoint' }> => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === input.touchpointId)?.parentTouchpointId ?? '';
+  return commitDomainTouchpointParent(document, { touchpointId: input.touchpointId, parentTouchpointId: input.parentTouchpointId, ...(input.parentTouchpointId && !currentParentId ? { relationshipId: input.newId() } : {}) });
 }
 
 type TouchpointBusinessPropertyInput =
