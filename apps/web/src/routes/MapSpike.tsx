@@ -238,9 +238,16 @@ function ContainerCombobox({ value, query, document, onChange }: { value: string
     </div>
   );
 }
-function InlineTitleEditor({ title, onCommit, onCancel, className = 'inline-node-title nodrag nopan', accessibleLabel = `Edit title for ${title}`, stopPointerEvents = true }: { title: string; onCommit: (title: string) => boolean | void; onCancel: () => void; className?: string; accessibleLabel?: string; stopPointerEvents?: boolean }) {
+function InlineTitleEditor({ title, onCommit, onCancel, className = 'inline-node-title nodrag nopan', accessibleLabel = `Edit title for ${title}`, stopPointerEvents = true, autoSize = false }: { title: string; onCommit: (title: string) => boolean | void; onCancel: () => void; className?: string; accessibleLabel?: string; stopPointerEvents?: boolean; autoSize?: boolean }) {
   const [draftTitle, setDraftTitle] = useState(() => title);
   const completedRef = useRef(false);
+  const fieldRef = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const field = fieldRef.current;
+    if (!autoSize || !field) return;
+    field.style.height = 'auto';
+    if (field.scrollHeight) field.style.height = `${field.scrollHeight}px`;
+  }, [autoSize, draftTitle]);
   const commit = (field: HTMLTextAreaElement) => {
     if (completedRef.current) return;
     if (!draftTitle.trim()) {
@@ -256,9 +263,10 @@ function InlineTitleEditor({ title, onCommit, onCancel, className = 'inline-node
   };
   return (
     <textarea
+      ref={fieldRef}
       className={className}
       aria-label={accessibleLabel}
-      rows={2}
+      rows={autoSize ? 1 : 2}
       value={draftTitle}
       autoFocus
       onChange={(event) => setDraftTitle(normalizeTitleLineBreaks(event.target.value))}
@@ -2161,7 +2169,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             <h2 id="inspector-title" className="visually-hidden">Entity Inspector</h2>
             {mode !== 'create' && selected && editDraft && <div className="inspector-identity">
               <h3 aria-label={selected.title}>{inspectorTitleEdit?.entityId === selected.id
-                ? <InlineTitleEditor title={inspectorTitleEdit.title} onCommit={title => finishInspectorTitleEdit(title)} onCancel={() => finishInspectorTitleEdit(false)} className="inline-inspector-title" accessibleLabel={`Edit title, ${inspectorTitleEdit.title}`} stopPointerEvents={false} />
+                ? <InlineTitleEditor title={inspectorTitleEdit.title} onCommit={title => finishInspectorTitleEdit(title)} onCancel={() => finishInspectorTitleEdit(false)} className="inline-inspector-title" accessibleLabel={`Edit title, ${inspectorTitleEdit.title}`} stopPointerEvents={false} autoSize />
                 : <button ref={inspectorTitleButtonRef} type="button" className="inspector-title-button" aria-label={`Edit title, ${selected.title}`} onClick={startInspectorTitleEdit}>{selected.title}</button>}
               </h3>
               <p>{KIND_LABELS[selected.kind]} · {editDraft.side === 'business' ? 'Business side' : 'Client side'} <span className="immutable-note">(type and side cannot be changed)</span></p>
