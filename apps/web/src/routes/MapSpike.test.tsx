@@ -1530,7 +1530,7 @@ describe('searchable Touchpoint connection picker', () => {
     expect(within(scope).queryByRole('button', { name: 'Offer · Subscription' })).not.toBeInTheDocument();
     await user.click(within(scope).getByRole('button', { name: 'Parent · Parent' }));
     await user.click(within(scope).getByRole('checkbox', { name: 'Finish faster' }));
-    expect(within(scope).getByRole('button', { name: 'Close Client scope authoring' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(scope).getByRole('button', { name: 'Close Client scope authoring' })).not.toHaveAttribute('aria-pressed');
     expect(within(scope).getByRole('checkbox', { name: 'Finish faster' })).toBeChecked();
     expect(within(scope).getAllByText('via Subscription')).toHaveLength(2);
     expect(within(scope).queryByRole('checkbox', { name: 'via Subscription' })).not.toBeInTheDocument();
@@ -1555,11 +1555,13 @@ describe('searchable Touchpoint connection picker', () => {
     const scope = inspector.getByRole('region', { name: 'Client scope' });
     const pencil = within(scope).getByRole('button', { name: 'Edit Client scope' });
     expect(pencil).toHaveTextContent('✎');
+    expect(pencil).not.toHaveAttribute('aria-pressed');
 
     await user.click(pencil);
 
     const close = within(scope).getByRole('button', { name: 'Close Client scope authoring' });
     expect(close).toHaveTextContent('Close');
+    expect(close).not.toHaveAttribute('aria-pressed');
     expect(close).not.toHaveTextContent('×');
     expect(close).not.toHaveTextContent('Done');
     expect(close).not.toHaveTextContent('Save');
@@ -1856,7 +1858,7 @@ describe('searchable Touchpoint connection picker', () => {
     await user.click(within(confirmation).getByRole('button', { name: 'Remove' }));
     expect(checkbox).not.toBeChecked();
     expect(checkbox).toHaveFocus();
-    expect(inspector.getByRole('button', { name: 'Close Client scope authoring' })).toHaveAttribute('aria-pressed', 'true');
+    expect(inspector.getByRole('button', { name: 'Close Client scope authoring' })).not.toHaveAttribute('aria-pressed');
     expect(window.__VEE_DEV__!.dump().relationships).not.toContainEqual(expect.objectContaining({ id: 'mitigates-delay' }));
   });
 
@@ -1931,7 +1933,7 @@ describe('searchable Touchpoint connection picker', () => {
     await user.click(contributors.getByRole('button', { name: 'Back' }));
     expect(document).toEqual(snapshot);
     expect(inspector.getByRole('searchbox', { name: 'Search Client intent' })).toHaveValue('Finish faster');
-    expect(inspector.getByRole('button', { name: 'Close Client scope authoring' })).toHaveAttribute('aria-pressed', 'true');
+    expect(inspector.getByRole('button', { name: 'Close Client scope authoring' })).not.toHaveAttribute('aria-pressed');
     expect(initiatingCheckbox).toHaveFocus();
   });
 
@@ -1949,7 +1951,7 @@ describe('searchable Touchpoint connection picker', () => {
     expect(inspector.queryByRole('group', { name: 'Which linked Offers contribute here?' })).not.toBeInTheDocument();
     expect(document).toEqual(snapshot);
     expect(search).toHaveValue('Finish faster');
-    expect(inspector.getByRole('button', { name: 'Close Client scope authoring' })).toHaveAttribute('aria-pressed', 'true');
+    expect(inspector.getByRole('button', { name: 'Close Client scope authoring' })).not.toHaveAttribute('aria-pressed');
     expect(initiatingCheckbox).toHaveFocus();
   });
 
