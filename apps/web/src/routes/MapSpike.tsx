@@ -1913,15 +1913,15 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             <div className="business-structure-property" role="group" aria-label="Parent property"><h5>Parent</h5>
               {parentPicker ? (() => {
                 const query = parentPicker.query.trim().toLocaleLowerCase();
-                const allOptions = [{ id: '', title: 'Standalone' }, ...parentTouchpointOptions(documentRef.current, structure.touchpoint.id)];
+                const allOptions = parentTouchpointOptions(documentRef.current, structure.touchpoint.id);
                 const options = allOptions.filter(option => !query || option.title.toLocaleLowerCase().includes(query));
                 const searchable = allOptions.length >= RELATION_EDITOR_SEARCH_THRESHOLD;
                 const selectedParentId = structure.parent?.id ?? '';
                 return <div ref={relationEditorRef} className="inspector-relation-editor" aria-label="Parent Touchpoint editor">
-                  <div className="inspector-relation-editor-header"><strong>Parent Touchpoint</strong><button type="button" className="inspector-secondary-action" onClick={() => closeRelationEditor()}>Close</button></div>
+                  <div className="inspector-relation-editor-header"><strong>Parent Touchpoint</strong><div className="inspector-relation-editor-actions">{structure.parent && <button type="button" className="inspector-secondary-action" onClick={() => commitParentImmediately(structure.touchpoint.id, '')}>Clear parent</button>}<button type="button" className="inspector-secondary-action" onClick={() => closeRelationEditor()}>Close</button></div></div>
                   {searchable && <label className="inspector-relation-editor-search" htmlFor="parent-touchpoint-search">Search Touchpoints<input autoFocus id="parent-touchpoint-search" type="search" value={parentPicker.query} onChange={event => setParentPicker({ query: event.target.value })} /></label>}
                   <div className="inspector-relation-candidates" role="radiogroup" aria-label="Parent Touchpoint options" aria-live="polite">
-                    {options.length ? options.map((option, index) => <label className="inspector-relation-row inspector-relation-row-radio" key={option.id || 'standalone'}><input autoFocus={!searchable && index === 0} type="radio" name="parent-touchpoint" checked={selectedParentId === option.id} onChange={() => undefined} onClick={() => commitParentImmediately(structure.touchpoint.id, option.id)} /><span className="inspector-relation-indicator" aria-hidden="true" /><span>{option.title}</span></label>) : <p role="status">No matching Touchpoints.</p>}
+                    {options.length ? options.map((option, index) => <label className="inspector-relation-row inspector-relation-row-radio" key={option.id}><input autoFocus={!searchable && index === 0} type="radio" name="parent-touchpoint" checked={selectedParentId === option.id} onChange={() => undefined} onClick={() => commitParentImmediately(structure.touchpoint.id, option.id)} /><span className="inspector-relation-indicator" aria-hidden="true" /><span>{option.title}</span></label>) : <p role="status">No matching Touchpoints.</p>}
                   </div>
                 </div>;
               })() : <div className="business-structure-parent-value">
