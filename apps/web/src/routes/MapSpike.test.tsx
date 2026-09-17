@@ -472,7 +472,7 @@ describe('Touchpoint Business structure Inspector', () => {
     }
   });
 
-  it('opens a small linked Offers editor without search and restores focus after Escape and Close', async () => {
+  it('returns focus to Edit linked Offers after the explicit Close button', async () => {
     const user = userEvent.setup();
     const inspector = renderTouchpointInspector(structureDocument());
     const offers = within(inspector.getByRole('group', { name: 'Offers property' }));
@@ -484,14 +484,11 @@ describe('Touchpoint Business structure Inspector', () => {
     await user.click(edit);
     expect(offers.queryByRole('searchbox', { name: 'Search Offers' })).not.toBeInTheDocument();
     expect(offers.getByRole('checkbox', { name: 'Subscription' })).toHaveFocus();
-    await user.keyboard('{Escape}');
-    await vi.waitFor(() => expect(offers.getByRole('button', { name: 'Edit linked Offers' })).toHaveFocus());
-    await user.click(offers.getByRole('button', { name: 'Edit linked Offers' }));
     await user.click(offers.getByRole('button', { name: 'Close' }));
     await vi.waitFor(() => expect(offers.getByRole('button', { name: 'Edit linked Offers' })).toHaveFocus());
   });
 
-  it('uses the whole Offer row for an immediate commit and preserves it across outside dismissal', async () => {
+  it('preserves an immediate Offer commit across pointer dismissal without completion actions', async () => {
     const user = userEvent.setup(); const document = structureDocument();
     document.relationships = document.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint' || relation.offerId !== 'offer-b' || relation.touchpointId !== 'touch');
     const inspector = renderTouchpointInspector(document); const offers = within(inspector.getByRole('group', { name: 'Offers property' }));
@@ -500,21 +497,58 @@ describe('Touchpoint Business structure Inspector', () => {
     await user.click(rowLabel.querySelector('span:last-child')!);
     expect(offers.getByRole('checkbox', { name: 'Consulting' })).toBeChecked();
     expect(window.__VEE_DEV__!.dump().relationships).toContainEqual(expect.objectContaining({ kind: 'offer_presented_at_touchpoint', offerId: 'offer-b', touchpointId: 'touch' }));
-    expect(offers.getByLabelText('Linked Offers editor')).toBeInTheDocument();
+    const editor = offers.getByLabelText('Linked Offers editor');
+    for (const name of ['Apply', 'Save', 'Done']) expect(within(editor).queryByRole('button', { name })).not.toBeInTheDocument();
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
     await user.click(inspector.getByRole('heading', { name: 'Placement' }));
     expect(offers.queryByLabelText('Linked Offers editor')).not.toBeInTheDocument();
     expect(window.__VEE_DEV__!.dump().relationships).toContainEqual(expect.objectContaining({ kind: 'offer_presented_at_touchpoint', offerId: 'offer-b', touchpointId: 'touch' }));
-    await vi.waitFor(() => expect(offers.getByRole('button', { name: 'Edit linked Offers' })).toHaveFocus());
+    expect(offers.getByRole('button', { name: 'Edit linked Offers' })).not.toHaveFocus();
   });
 
-  it('mutually dismisses relation editors without rollback and exposes no completion or transient Cancel actions', async () => {
+  it('lets an outside focusable control retain focus after pointer dismissal', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
+    const offers = within(inspector.getByRole('group', { name: 'Offers property' }));
+    await user.click(offers.getByRole('button', { name: 'Edit linked Offers' }));
+    const outsideButton = screen.getByRole('tab', { name: 'Entity Inspector' });
+    await user.click(outsideButton);
+    expect(offers.queryByLabelText('Linked Offers editor')).not.toBeInTheDocument();
+    expect(outsideButton).toHaveFocus();
+    expect(offers.getByRole('button', { name: 'Edit linked Offers' })).not.toHaveFocus();
+  });
+
+  it('does not force focus to the old pencil after non-focusable pointer dismissal', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
+    const offers = within(inspector.getByRole('group', { name: 'Offers property' }));
+    await user.click(offers.getByRole('button', { name: 'Edit linked Offers' }));
+    fireEvent.pointerDown(inspector.getByRole('heading', { name: 'Placement' }));
+    expect(offers.queryByLabelText('Linked Offers editor')).not.toBeInTheDocument();
+    expect(offers.getByRole('button', { name: 'Edit linked Offers' })).not.toHaveFocus();
+  });
+
+  it('switches from Offers to the Parent candidate flow without focusing the old pencil', async () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
     const offers = within(inspector.getByRole('group', { name: 'Offers property' })); const parent = within(inspector.getByRole('group', { name: 'Parent property' }));
     await user.click(offers.getByRole('button', { name: 'Edit linked Offers' }));
     await user.click(parent.getByRole('button', { name: 'Edit parent Touchpoint' }));
-    expect(offers.queryByLabelText('Linked Offers editor')).not.toBeInTheDocument(); expect(parent.getByLabelText('Parent Touchpoint editor')).toBeInTheDocument();
+    expect(parent.queryByRole('searchbox', { name: 'Search Touchpoints' })).not.toBeInTheDocument();
+    expect(parent.getAllByRole('radio')[0]).toHaveFocus();
+    expect(offers.getByRole('button', { name: 'Edit linked Offers' })).not.toHaveFocus();
+  });
+
+  it('switches from Parent to a threshold-sized searchable Offers flow without focusing the old pencil', async () => {
+    const user = userEvent.setup(); const document = structureDocument();
+    const offerCount = document.entities.filter(entity => entity.kind === 'offer').length;
+    for (let index = offerCount; index < RELATION_EDITOR_SEARCH_THRESHOLD; index += 1) {
+      document.entities.push({ id: `extra-offer-${index}`, kind: 'offer', title: `Extra Offer ${index}` });
+    }
+    const inspector = renderTouchpointInspector(document);
+    const offers = within(inspector.getByRole('group', { name: 'Offers property' })); const parent = within(inspector.getByRole('group', { name: 'Parent property' }));
+    await user.click(parent.getByRole('button', { name: 'Edit parent Touchpoint' }));
     await user.click(offers.getByRole('button', { name: 'Edit linked Offers' }));
-    expect(parent.queryByLabelText('Parent Touchpoint editor')).not.toBeInTheDocument(); expect(offers.getByLabelText('Linked Offers editor')).toBeInTheDocument();
+    expect(parent.queryByLabelText('Parent Touchpoint editor')).not.toBeInTheDocument();
+    expect(offers.getByRole('searchbox', { name: 'Search Offers' })).toHaveFocus();
+    expect(parent.getByRole('button', { name: 'Edit parent Touchpoint' })).not.toHaveFocus();
     for (const name of ['Apply', 'Save', 'Done', 'Cancel']) expect(within(offers.getByLabelText('Linked Offers editor')).queryByRole('button', { name })).not.toBeInTheDocument();
   });
 
