@@ -471,7 +471,7 @@ describe('Touchpoint Business structure Inspector', () => {
     }
   });
 
-  it('opens the linked Offers picker from one pencil and restores focus after Escape and Cancel', async () => {
+  it('opens a small linked Offers editor without search and restores focus after Escape and Close', async () => {
     const user = userEvent.setup();
     const inspector = renderTouchpointInspector(structureDocument());
     const offers = within(inspector.getByRole('group', { name: 'Offers property' }));
@@ -481,12 +481,40 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(edit.querySelector('.business-structure-edit-affordance')).toHaveAttribute('aria-hidden', 'true');
 
     await user.click(edit);
-    expect(offers.getByRole('searchbox', { name: 'Search Offers' })).toHaveFocus();
+    expect(offers.queryByRole('searchbox', { name: 'Search Offers' })).not.toBeInTheDocument();
+    expect(offers.getByRole('checkbox', { name: 'Subscription' })).toHaveFocus();
     await user.keyboard('{Escape}');
     await vi.waitFor(() => expect(offers.getByRole('button', { name: 'Edit linked Offers' })).toHaveFocus());
     await user.click(offers.getByRole('button', { name: 'Edit linked Offers' }));
-    await user.click(offers.getByRole('button', { name: 'Cancel' }));
+    await user.click(offers.getByRole('button', { name: 'Close' }));
     await vi.waitFor(() => expect(offers.getByRole('button', { name: 'Edit linked Offers' })).toHaveFocus());
+  });
+
+  it('uses the whole Offer row for an immediate commit and preserves it across outside dismissal', async () => {
+    const user = userEvent.setup(); const document = structureDocument();
+    document.relationships = document.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint' || relation.offerId !== 'offer-b' || relation.touchpointId !== 'touch');
+    const inspector = renderTouchpointInspector(document); const offers = within(inspector.getByRole('group', { name: 'Offers property' }));
+    await user.click(offers.getByRole('button', { name: 'Edit linked Offers' }));
+    const rowLabel = offers.getByText('Consulting').closest('label')!;
+    await user.click(rowLabel.querySelector('span:last-child')!);
+    expect(offers.getByRole('checkbox', { name: 'Consulting' })).toBeChecked();
+    expect(window.__VEE_DEV__!.dump().relationships).toContainEqual(expect.objectContaining({ kind: 'offer_presented_at_touchpoint', offerId: 'offer-b', touchpointId: 'touch' }));
+    expect(offers.getByLabelText('Linked Offers editor')).toBeInTheDocument();
+    await user.click(inspector.getByRole('heading', { name: 'Placement' }));
+    expect(offers.queryByLabelText('Linked Offers editor')).not.toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump().relationships).toContainEqual(expect.objectContaining({ kind: 'offer_presented_at_touchpoint', offerId: 'offer-b', touchpointId: 'touch' }));
+    await vi.waitFor(() => expect(offers.getByRole('button', { name: 'Edit linked Offers' })).toHaveFocus());
+  });
+
+  it('mutually dismisses relation editors without rollback and exposes no completion or transient Cancel actions', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
+    const offers = within(inspector.getByRole('group', { name: 'Offers property' })); const parent = within(inspector.getByRole('group', { name: 'Parent property' }));
+    await user.click(offers.getByRole('button', { name: 'Edit linked Offers' }));
+    await user.click(parent.getByRole('button', { name: 'Edit parent Touchpoint' }));
+    expect(offers.queryByLabelText('Linked Offers editor')).not.toBeInTheDocument(); expect(parent.getByLabelText('Parent Touchpoint editor')).toBeInTheDocument();
+    await user.click(offers.getByRole('button', { name: 'Edit linked Offers' }));
+    expect(parent.queryByLabelText('Parent Touchpoint editor')).not.toBeInTheDocument(); expect(offers.getByLabelText('Linked Offers editor')).toBeInTheDocument();
+    for (const name of ['Apply', 'Save', 'Done', 'Cancel']) expect(within(offers.getByLabelText('Linked Offers editor')).queryByRole('button', { name })).not.toBeInTheDocument();
   });
 
   it('keeps the empty Offers marker beside one pencil affordance', () => {
@@ -498,36 +526,48 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(offers.getAllByText('✎')).toHaveLength(1);
   });
 
-  it('authors Parent immediately while keeping navigation, filtering, descendants, clear, and focus behavior separate', async () => {
+  it('authors Parent immediately while keeping navigation, descendants, Standalone, and focus behavior separate', async () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
     const parent = () => within(inspector.getByRole('group', { name: 'Parent property' }));
     expect(parent().getByRole('button', { name: 'Front Page' })).toBeInTheDocument();
     expect(parent().getAllByRole('button', { name: 'Edit parent Touchpoint' })).toHaveLength(1);
     await user.click(parent().getByRole('button', { name: 'Edit parent Touchpoint' }));
-    const search = parent().getByRole('searchbox', { name: 'Search Touchpoints' }); expect(search).toHaveFocus();
-    expect(parent().getByRole('option', { name: 'Front Page' })).toHaveAttribute('aria-selected', 'true');
-    expect(parent().queryByRole('option', { name: 'Checkout' })).not.toBeInTheDocument();
-    expect(parent().queryByRole('option', { name: 'FAQ' })).not.toBeInTheDocument();
-    await user.type(search, 'abo');
-    expect(parent().getByRole('option', { name: 'About' })).toBeInTheDocument(); expect(parent().queryByRole('option', { name: 'Front Page' })).not.toBeInTheDocument();
+    expect(parent().queryByRole('searchbox', { name: 'Search Touchpoints' })).not.toBeInTheDocument();
+    expect(parent().getByRole('radio', { name: 'Standalone' })).toBeInTheDocument();
+    expect(parent().getByRole('radio', { name: 'Front Page' })).toBeChecked();
+    expect(parent().queryByRole('radio', { name: 'Checkout' })).not.toBeInTheDocument();
+    expect(parent().queryByRole('radio', { name: 'FAQ' })).not.toBeInTheDocument();
     await user.keyboard('{Escape}'); await vi.waitFor(() => expect(parent().getByRole('button', { name: 'Edit parent Touchpoint' })).toHaveFocus());
     await user.click(parent().getByRole('button', { name: 'Front Page' })); expect(inspector.getByRole('heading', { name: 'Front Page' })).toBeInTheDocument();
     await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
-    await user.click(parent().getByRole('button', { name: 'Edit parent Touchpoint' })); await user.click(parent().getByRole('option', { name: 'About' }));
+    await user.click(parent().getByRole('button', { name: 'Edit parent Touchpoint' })); await user.click(parent().getByRole('radio', { name: 'About' }));
     expect(parent().getByRole('button', { name: 'About' })).toBeInTheDocument(); expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
     expect(within(inspector.getByRole('group', { name: 'Children property' })).getByRole('button', { name: 'FAQ' })).toBeInTheDocument();
-    await user.click(parent().getByRole('button', { name: 'Edit parent Touchpoint' })); await user.click(parent().getByRole('button', { name: 'Clear parent' }));
+    await user.click(parent().getByRole('button', { name: 'Edit parent Touchpoint' })); await user.click(parent().getByRole('radio', { name: 'Standalone' }));
     expect(parent().getByText('Add parent')).toBeInTheDocument(); expect(parent().getAllByRole('button', { name: 'Edit parent Touchpoint' })).toHaveLength(1);
   });
 
-  it('shows an accessible empty Parent search and Cancel restores pencil focus without committing', async () => {
+  it('closes on current Parent selection without changing the document', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument()); const parent = within(inspector.getByRole('group', { name: 'Parent property' }));
+    const before = window.__VEE_DEV__!.dump();
+    await user.click(parent.getByRole('button', { name: 'Edit parent Touchpoint' }));
+    const current = parent.getByRole('radio', { name: 'Front Page' }); expect(current).toBeChecked(); await user.click(current);
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    expect(parent.queryByLabelText('Parent Touchpoint editor')).not.toBeInTheDocument();
+    await vi.waitFor(() => expect(parent.getByRole('button', { name: 'Edit parent Touchpoint' })).toHaveFocus());
+  });
+
+  it('progressively discloses Parent search for a large candidate set and Close restores focus', async () => {
     const user = userEvent.setup(); const document = structureDocument();
     document.relationships = document.relationships.filter(relation => relation.kind !== 'touchpoint_contains_touchpoint' || relation.childTouchpointId !== 'touch');
+    for (let index = 0; index < 4; index += 1) document.entities.push({ id: `extra-parent-${index}`, kind: 'touchpoint', title: `Extra parent ${index}` });
     const inspector = renderTouchpointInspector(document); const parent = within(inspector.getByRole('group', { name: 'Parent property' }));
     expect(parent.getByText('Add parent')).toBeInTheDocument();
-    await user.click(parent.getByRole('button', { name: 'Edit parent Touchpoint' })); await user.type(parent.getByRole('searchbox', { name: 'Search Touchpoints' }), 'no match');
+    await user.click(parent.getByRole('button', { name: 'Edit parent Touchpoint' }));
+    expect(parent.getByRole('radio', { name: 'Standalone' })).toBeInTheDocument();
+    await user.type(parent.getByRole('searchbox', { name: 'Search Touchpoints' }), 'no match');
     expect(parent.getByRole('status')).toHaveTextContent('No matching Touchpoints.');
-    await user.click(parent.getByRole('button', { name: 'Cancel' }));
+    await user.click(parent.getByRole('button', { name: 'Close' }));
     await vi.waitFor(() => expect(parent.getByRole('button', { name: 'Edit parent Touchpoint' })).toHaveFocus());
     expect(parent.getByText('Add parent')).toBeInTheDocument();
   });
@@ -636,7 +676,7 @@ describe('Touchpoint Business structure Inspector', () => {
     try {
       const inspector = renderTouchpointInspector(structureDocument());
       fireEvent.click(inspector.getByRole('button', { name: 'Edit parent Touchpoint' }));
-      fireEvent.click(inspector.getByRole('option', { name: 'About' }));
+      fireEvent.click(inspector.getByRole('radio', { name: 'About' }));
       expect(screen.getByRole('status')).toHaveTextContent('Parent Touchpoint updated.');
       act(() => vi.advanceTimersByTime(2499));
       expect(screen.getByRole('status')).toHaveTextContent('Parent Touchpoint updated.');
@@ -2104,6 +2144,7 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
     await user.click(linkedOffers.getByRole('checkbox', { name: 'Subscription' })); review = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
     await user.click(within(review).getByRole('button', { name: 'Confirm removal' }));
     expect(linkedOffers.getByRole('checkbox', { name: 'Subscription' })).not.toBeChecked(); expect(linkedOffers.getByRole('checkbox', { name: 'Consulting' })).toBeChecked();
+    expect(linkedOffers.getByRole('checkbox', { name: 'Subscription' })).toHaveFocus();
     await user.click(screen.getByRole('tab', { name: 'Map' }));
     const map = screen.getByLabelText('Map canvas');
     expect(map.querySelector('[data-source="offer-a"][data-target="touch"]')).not.toBeInTheDocument();

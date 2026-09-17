@@ -785,6 +785,24 @@ function createsCycle(document: MapDocument, parentId: string, childId: string):
   while (pending.length) { const id = pending.pop()!; if (id === parentId) return true; if (!seen.has(id)) { seen.add(id); pending.push(...(children.get(id) ?? [])); } }
   return false;
 }
+
+/** Commits the optional structural parent without rewriting the Touchpoint or unrelated records. */
+export function commitTouchpointParent(document: MapDocument, input: { touchpointId: string; parentTouchpointId: string; relationshipId?: string }): MapDocument {
+  if (!document.entities.some(entity => entity.id === input.touchpointId && entity.kind === 'touchpoint')) throw new DomainError('unknown_touchpoint', 'Touchpoint does not exist.');
+  const existing = document.relationships.filter((relationship): relationship is Extract<Relationship, { kind: 'touchpoint_contains_touchpoint' }> => relationship.kind === 'touchpoint_contains_touchpoint' && relationship.childTouchpointId === input.touchpointId);
+  if (existing.length > 1) throw new DomainError('multiple_touchpoint_parents', 'A Touchpoint may have only one structural parent.');
+  const current = existing[0];
+  if ((current?.parentTouchpointId ?? '') === input.parentTouchpointId) return document;
+  const relationships = document.relationships.filter(relationship => relationship !== current);
+  if (!input.parentTouchpointId) return { ...document, relationships };
+  if (!document.entities.some(entity => entity.id === input.parentTouchpointId && entity.kind === 'touchpoint')) throw new DomainError('invalid_parent_touchpoint', 'Parent must be an existing Touchpoint.');
+  if (input.parentTouchpointId === input.touchpointId) throw new DomainError('self_parent', 'A Touchpoint cannot contain itself.');
+  const relationshipId = current?.id ?? input.relationshipId;
+  if (!relationshipId) throw new DomainError('missing_parent_relationship_id', 'A parent relationship ID is required.');
+  assertRelationshipIds(document, [relationshipId], current ? [current.id] : []);
+  if (createsCycle({ ...document, relationships }, input.parentTouchpointId, input.touchpointId)) throw new DomainError('structural_cycle', 'Touchpoint containment cannot form a cycle.');
+  return { ...document, relationships: [...relationships, { id: relationshipId, kind: 'touchpoint_contains_touchpoint', parentTouchpointId: input.parentTouchpointId, childTouchpointId: input.touchpointId }] };
+}
 export type UpdateEntityInput = { entityId: string; title: string; locatedInId?: string; url?: string; linkedProductId?: string; linkedOfferIds?: string[]; relationshipIds?: string[]; parentTouchpointId?: string; parentEntityId?: string; parentRelationshipId?: string };
 export function updateEntity(document: MapDocument, input: UpdateEntityInput): MapDocument {
   const entity = document.entities.find(e => e.id === input.entityId); if (!entity) throw new DomainError('unknown_entity', 'Entity does not exist.');

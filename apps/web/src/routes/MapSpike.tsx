@@ -20,6 +20,7 @@ import { commitSemanticOperation, semanticCommitState } from './semantic-commit-
 import { deriveTouchpointBusinessStructure } from '../touchpoint-business-structure';
 
 const VIEW_ID = 'spike-view';
+export const RELATION_EDITOR_SEARCH_THRESHOLD = 7;
 const INITIAL_DOCUMENT = createEmptyMapDocument({
   mapId: 'spike-map',
   title: 'Untitled validation map',
@@ -398,6 +399,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const [offersPicker, setOffersPicker] = useState<{ query: string } | null>(null);
   const [parentPicker, setParentPicker] = useState<{ query: string } | null>(null);
+  const relationEditorRef = useRef<HTMLDivElement>(null);
   const parentPickerButtonRef = useRef<HTMLButtonElement>(null);
   const offersPickerButtonRef = useRef<HTMLButtonElement>(null);
   const [businessInlineEdit, setBusinessInlineEdit] = useState<{ property: 'url'; value: string; error?: string } | { property: 'located-in'; query: string; error?: string } | null>(null);
@@ -572,6 +574,44 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setProductConfirmation(null);
     requestAnimationFrame(() => target?.focus());
   }
+  function closeRelationEditor(restoreFocus = true) {
+    const focusTarget = offersPicker ? offersPickerButtonRef : parentPicker ? parentPickerButtonRef : null;
+    setOffersPicker(null);
+    setParentPicker(null);
+    if (restoreFocus) requestAnimationFrame(() => focusTarget?.current?.focus());
+  }
+  function openOffersEditor() {
+    setParentPicker(null);
+    setConnectionPicker(null);
+    setBusinessInlineEdit(null);
+    setOffersPicker({ query: '' });
+  }
+  function openParentEditor() {
+    setOffersPicker(null);
+    setConnectionPicker(null);
+    setBusinessInlineEdit(null);
+    setParentPicker({ query: '' });
+  }
+  useEffect(() => {
+    if (!offersPicker && !parentPicker) return;
+    const dismissOnPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof globalThis.Node) || relationEditorRef.current?.contains(target) || confirmationRef.current?.contains(target)) return;
+      const switchingEditors = target instanceof Element && Boolean(target.closest('[data-touchpoint-editor-affordance]'));
+      closeRelationEditor(!switchingEditors);
+    };
+    const dismissOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape' || productConfirmation) return;
+      event.preventDefault();
+      closeRelationEditor();
+    };
+    globalThis.document.addEventListener('pointerdown', dismissOnPointerDown);
+    globalThis.document.addEventListener('keydown', dismissOnEscape);
+    return () => {
+      globalThis.document.removeEventListener('pointerdown', dismissOnPointerDown);
+      globalThis.document.removeEventListener('keydown', dismissOnEscape);
+    };
+  }, [offersPicker, parentPicker, productConfirmation]);
   function draftFor(entity: Entity, source = document): EditDraft {
     const result = draft(entity.kind);
     result.title = entity.title;
@@ -681,6 +721,11 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   }
   function commitParentImmediately(touchpointId: string, parentTouchpointId: string) {
     const before = documentRef.current;
+    const currentParentId = before.relationships.find((relation): relation is Extract<Relationship, { kind: 'touchpoint_contains_touchpoint' }> => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === touchpointId)?.parentTouchpointId ?? '';
+    if (currentParentId === parentTouchpointId) {
+      closeRelationEditor();
+      return;
+    }
     const result = commitSemanticOperation(before, semanticCommitState({ semanticallyComplete: true, valid: true }), durable =>
       commitTouchpointParent(durable, { touchpointId, parentTouchpointId, newId: () => crypto.randomUUID() }));
     if (result.state.status === 'failed') {
@@ -1593,7 +1638,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     };
     const renderDiscoveryMatches = (matches: typeof discovery.titleMatches) => <div className="global-intent-results">{matches.jobGroups.map(group => renderJobGroup(group))}{matches.directLeaves.map(leaf => <div className="intent-discovery-leaf" key={leaf.checkboxId}><small>{KIND_LABELS[leaf.entity.kind]}</small>{renderSelectableRow(leaf, { showContributorPaths: true })}</div>)}</div>;
     return <section className={`touchpoint-client-scope${editing ? ' is-editing' : ''}`} aria-labelledby="touchpoint-client-scope-heading" onKeyDown={event => { if (event.key !== 'Escape' || !connectionPicker) return; event.preventDefault(); event.stopPropagation(); if (['current-contributor-choice', 'ancestor-contributor-choice', 'invalid'].includes(connectionPicker.mode)) backFromResolver(); else if (connectionPicker.mode !== 'upstream' || connectionPicker.query || connectionPicker.kind) resetTransientSearch(); else exitEdit(); }}>
-      <div className="touchpoint-client-scope-heading"><h4 id="touchpoint-client-scope-heading">Client scope</h4><button ref={connectionPickerButtonRef} type="button" className={editing ? 'inspector-secondary-action' : 'business-structure-edit-value'} aria-label={editing ? 'Close Client scope authoring' : 'Edit Client scope'} disabled={!offers.length} onClick={() => editing ? exitEdit() : setConnectionPicker({ mode: 'upstream', query: '', kind: undefined, contributorOfferIds: [], ancestorContributingOfferIds: {} })}>{editing ? 'Close' : <span className="business-structure-edit-affordance" aria-hidden="true">✎</span>}</button></div>
+      <div className="touchpoint-client-scope-heading"><h4 id="touchpoint-client-scope-heading">Client scope</h4><button ref={connectionPickerButtonRef} data-touchpoint-editor-affordance type="button" className={editing ? 'inspector-secondary-action' : 'business-structure-edit-value'} aria-label={editing ? 'Close Client scope authoring' : 'Edit Client scope'} disabled={!offers.length} onClick={() => { if (editing) exitEdit(); else { setOffersPicker(null); setParentPicker(null); setBusinessInlineEdit(null); setConnectionPicker({ mode: 'upstream', query: '', kind: undefined, contributorOfferIds: [], ancestorContributingOfferIds: {} }); } }}>{editing ? 'Close' : <span className="business-structure-edit-affordance" aria-hidden="true">✎</span>}</button></div>
       {!editing && (scope.jobGroups.length || scope.financialLeaves.length) ? <div className="touchpoint-client-scope-content">
         {scope.jobGroups.map(group => <div className={`touchpoint-client-job ${group.desiredOutcomes.length ? 'has-outcomes' : 'direct-job'}`} key={group.job.id}>
           <small>{KIND_LABELS[group.job.kind]}</small>
@@ -1829,17 +1874,18 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             <div className="business-structure-property" role="group" aria-label="Offers property"><h5>Offers</h5>
               {offersPicker ? (() => {
                 const query = offersPicker.query.trim().toLocaleLowerCase();
-                const offers = document.entities.filter(entity => entity.kind === 'offer' && (!query || entity.title.toLocaleLowerCase().includes(query)));
+                const allOffers = document.entities.filter(entity => entity.kind === 'offer');
+                const offers = allOffers.filter(entity => !query || entity.title.toLocaleLowerCase().includes(query));
                 const linked = new Set(structure.offers.map(offer => offer.id));
-                return <div className="business-structure-offers-picker" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); setOffersPicker(null); requestAnimationFrame(() => offersPickerButtonRef.current?.focus()); } }}>
-                  <label htmlFor="linked-offers-search">Search Offers</label>
-                  <input autoFocus id="linked-offers-search" type="search" value={offersPicker.query} onChange={event => setOffersPicker({ query: event.target.value })} />
-                  <div className="business-structure-offers-results" aria-live="polite">
-                    {offers.length ? offers.map(offer => <label className="business-structure-offer-choice" key={offer.id}><input type="checkbox" checked={linked.has(offer.id)} onChange={event => requestLinkedOffersCommit(event.target.checked ? [...linked, offer.id] : [...linked].filter(id => id !== offer.id), event.currentTarget)} /><span>{offer.title}</span></label>) : <p>No matching Offers.</p>}
+                const searchable = allOffers.length >= RELATION_EDITOR_SEARCH_THRESHOLD;
+                return <div ref={relationEditorRef} className="inspector-relation-editor" aria-label="Linked Offers editor">
+                  <div className="inspector-relation-editor-header"><strong>Linked Offers</strong><button type="button" className="inspector-secondary-action" onClick={() => closeRelationEditor()}>Close</button></div>
+                  {searchable && <label className="inspector-relation-editor-search" htmlFor="linked-offers-search">Search Offers<input autoFocus id="linked-offers-search" type="search" value={offersPicker.query} onChange={event => setOffersPicker({ query: event.target.value })} /></label>}
+                  <div className="inspector-relation-candidates" aria-live="polite">
+                    {offers.length ? offers.map((offer, index) => <label className="inspector-relation-row inspector-relation-row-checkbox" key={offer.id}><input autoFocus={!searchable && index === 0} type="checkbox" checked={linked.has(offer.id)} onChange={event => requestLinkedOffersCommit(event.target.checked ? [...linked, offer.id] : [...linked].filter(id => id !== offer.id), event.currentTarget)} /><span className="inspector-relation-indicator" aria-hidden="true" /><span>{offer.title}</span></label>) : <p>No matching Offers.</p>}
                   </div>
-                  <button type="button" onClick={() => { setOffersPicker(null); requestAnimationFrame(() => offersPickerButtonRef.current?.focus()); }}>Cancel</button>
                 </div>;
-              })() : <div className="business-structure-offers-value">{navigationList(structure.offers)}<button ref={offersPickerButtonRef} type="button" className="business-structure-edit-relations" aria-label="Edit linked Offers" onClick={() => setOffersPicker({ query: '' })}><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button></div>}
+              })() : <div className="business-structure-offers-value">{navigationList(structure.offers)}<button ref={offersPickerButtonRef} data-touchpoint-editor-affordance type="button" className="business-structure-edit-relations" aria-label="Edit linked Offers" onClick={openOffersEditor}><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button></div>}
             </div>
             <div className="business-structure-property" role="group" aria-label="Located in property"><h5>Located in</h5>{businessInlineEdit?.property === 'located-in' ? (() => {
               const trimmedQuery = businessInlineEdit.query.trim();
@@ -1859,34 +1905,28 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 </div>
                 {businessInlineEdit.error && <p className="error-message" role="alert">{businessInlineEdit.error}</p>}
               </div>;
-            })() : <button type="button" className={`business-structure-edit-value${structure.container ? '' : ' business-structure-edit-empty'}`} onClick={() => setBusinessInlineEdit({ property: 'located-in', query: structure.container?.title ?? '' })} aria-label={`Edit Located in${structure.container ? `, ${structure.container.title}` : ''}`}><span>{structure.container?.title ?? 'Add location'}</span><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button>}</div>
-            <div className="business-structure-property business-structure-url" role="group" aria-label="Web address property"><h5>URL</h5>{businessInlineEdit?.property === 'url' ? <div className="business-structure-editor"><input autoFocus aria-label="Edit web address" value={businessInlineEdit.value} onChange={event => setBusinessInlineEdit({ property: 'url', value: event.target.value })} onBlur={event => commitInlineUrl(event.currentTarget.value)} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); commitInlineUrl(event.currentTarget.value); } else if (event.key === 'Escape') { event.preventDefault(); setBusinessInlineEdit(null); } }} />{businessInlineEdit.error && <p className="error-message" role="alert">{businessInlineEdit.error}</p>}</div> : <div className="business-structure-editable-value"><button type="button" className={`business-structure-edit-value${structure.touchpoint.url ? '' : ' business-structure-edit-empty'}`} onClick={() => setBusinessInlineEdit({ property: 'url', value: structure.touchpoint.url ?? '' })} aria-label={`Edit web address${structure.touchpoint.url ? `, ${structure.touchpoint.url}` : ''}`}><span>{structure.touchpoint.url ?? 'Add URL'}</span><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button>{safeUrl(structure.touchpoint.url) && <a className="business-structure-external-link" href={safeUrl(structure.touchpoint.url)} target="_blank" rel="noreferrer" aria-label={structure.touchpoint.url}>↗</a>}</div>}</div>
+            })() : <button data-touchpoint-editor-affordance type="button" className={`business-structure-edit-value${structure.container ? '' : ' business-structure-edit-empty'}`} onClick={() => { setOffersPicker(null); setParentPicker(null); setConnectionPicker(null); setBusinessInlineEdit({ property: 'located-in', query: structure.container?.title ?? '' }); }} aria-label={`Edit Located in${structure.container ? `, ${structure.container.title}` : ''}`}><span>{structure.container?.title ?? 'Add location'}</span><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button>}</div>
+            <div className="business-structure-property business-structure-url" role="group" aria-label="Web address property"><h5>URL</h5>{businessInlineEdit?.property === 'url' ? <div className="business-structure-editor"><input autoFocus aria-label="Edit web address" value={businessInlineEdit.value} onChange={event => setBusinessInlineEdit({ property: 'url', value: event.target.value })} onBlur={event => commitInlineUrl(event.currentTarget.value)} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); commitInlineUrl(event.currentTarget.value); } else if (event.key === 'Escape') { event.preventDefault(); setBusinessInlineEdit(null); } }} />{businessInlineEdit.error && <p className="error-message" role="alert">{businessInlineEdit.error}</p>}</div> : <div className="business-structure-editable-value"><button data-touchpoint-editor-affordance type="button" className={`business-structure-edit-value${structure.touchpoint.url ? '' : ' business-structure-edit-empty'}`} onClick={() => { setOffersPicker(null); setParentPicker(null); setConnectionPicker(null); setBusinessInlineEdit({ property: 'url', value: structure.touchpoint.url ?? '' }); }} aria-label={`Edit web address${structure.touchpoint.url ? `, ${structure.touchpoint.url}` : ''}`}><span>{structure.touchpoint.url ?? 'Add URL'}</span><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button>{safeUrl(structure.touchpoint.url) && <a className="business-structure-external-link" href={safeUrl(structure.touchpoint.url)} target="_blank" rel="noreferrer" aria-label={structure.touchpoint.url}>↗</a>}</div>}</div>
           </section>
           <section className="business-structure-region business-structure-containment" aria-labelledby="business-containment-heading">
             <h5 id="business-containment-heading">Containment</h5>
             <div className="business-structure-property" role="group" aria-label="Parent property"><h5>Parent</h5>
               {parentPicker ? (() => {
                 const query = parentPicker.query.trim().toLocaleLowerCase();
-                const options = parentTouchpointOptions(documentRef.current, structure.touchpoint.id).filter(option => !query || option.title.toLocaleLowerCase().includes(query));
-                return <div className="business-structure-parent-picker" onKeyDown={event => {
-                  if (event.key === 'Escape') {
-                    event.preventDefault(); event.stopPropagation(); setParentPicker(null);
-                    requestAnimationFrame(() => parentPickerButtonRef.current?.focus());
-                  }
-                }}>
-                  <label htmlFor="parent-touchpoint-search">Search Touchpoints</label>
-                  <input autoFocus id="parent-touchpoint-search" type="search" value={parentPicker.query} onChange={event => setParentPicker({ query: event.target.value })} />
-                  <div className="business-structure-parent-results" role="listbox" aria-label="Parent Touchpoint options" aria-live="polite">
-                    {options.length ? options.map(option => <button type="button" role="option" aria-selected={structure.parent?.id === option.id} key={option.id} onClick={() => commitParentImmediately(structure.touchpoint.id, option.id)}>{option.title}</button>) : <p role="status">No matching Touchpoints.</p>}
-                  </div>
-                  <div className="business-structure-parent-actions">
-                    {structure.parent && <button type="button" onClick={() => commitParentImmediately(structure.touchpoint.id, '')}>Clear parent</button>}
-                    <button type="button" onClick={() => { setParentPicker(null); requestAnimationFrame(() => parentPickerButtonRef.current?.focus()); }}>Cancel</button>
+                const allOptions = [{ id: '', title: 'Standalone' }, ...parentTouchpointOptions(documentRef.current, structure.touchpoint.id)];
+                const options = allOptions.filter(option => !query || option.title.toLocaleLowerCase().includes(query));
+                const searchable = allOptions.length >= RELATION_EDITOR_SEARCH_THRESHOLD;
+                const selectedParentId = structure.parent?.id ?? '';
+                return <div ref={relationEditorRef} className="inspector-relation-editor" aria-label="Parent Touchpoint editor">
+                  <div className="inspector-relation-editor-header"><strong>Parent Touchpoint</strong><button type="button" className="inspector-secondary-action" onClick={() => closeRelationEditor()}>Close</button></div>
+                  {searchable && <label className="inspector-relation-editor-search" htmlFor="parent-touchpoint-search">Search Touchpoints<input autoFocus id="parent-touchpoint-search" type="search" value={parentPicker.query} onChange={event => setParentPicker({ query: event.target.value })} /></label>}
+                  <div className="inspector-relation-candidates" role="radiogroup" aria-label="Parent Touchpoint options" aria-live="polite">
+                    {options.length ? options.map((option, index) => <label className="inspector-relation-row inspector-relation-row-radio" key={option.id || 'standalone'}><input autoFocus={!searchable && index === 0} type="radio" name="parent-touchpoint" checked={selectedParentId === option.id} onChange={() => undefined} onClick={() => commitParentImmediately(structure.touchpoint.id, option.id)} /><span className="inspector-relation-indicator" aria-hidden="true" /><span>{option.title}</span></label>) : <p role="status">No matching Touchpoints.</p>}
                   </div>
                 </div>;
               })() : <div className="business-structure-parent-value">
                 {structure.parent ? navigationList([structure.parent]) : <span className="business-structure-edit-empty">Add parent</span>}
-                <button ref={parentPickerButtonRef} type="button" className="business-structure-edit-relations" aria-label="Edit parent Touchpoint" onClick={() => setParentPicker({ query: '' })}><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button>
+                <button ref={parentPickerButtonRef} data-touchpoint-editor-affordance type="button" className="business-structure-edit-relations" aria-label="Edit parent Touchpoint" onClick={openParentEditor}><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button>
               </div>}
             </div>
             <div className="business-structure-property" role="group" aria-label="Children property"><h5>Children</h5>{navigationList(structure.children)}</div>
@@ -2460,7 +2500,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 <button type="button" onClick={closeProductConfirmation}>Keep editing</button>
               </> : <>
                 <button type="button" onClick={closeProductConfirmation}>Cancel</button>
-                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; setProductConfirmation(null); if (confirmation.owner === 'touchpoint') confirmation.immediateCommit(); else { productApplyBypassRef.current = true; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>{productConfirmation.owner === 'touchpoint' ? 'Confirm removal' : 'Apply changes'}</button>
+                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; setProductConfirmation(null); if (confirmation.owner === 'touchpoint') { confirmation.immediateCommit(); requestAnimationFrame(() => confirmation.returnFocus?.focus()); } else { productApplyBypassRef.current = true; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>{productConfirmation.owner === 'touchpoint' ? 'Confirm removal' : 'Apply changes'}</button>
               </>}
             </div>
           </div>
