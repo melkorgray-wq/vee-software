@@ -2141,10 +2141,13 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
       expect.objectContaining({ touchpointId: 'touch', offerId: 'offer-a' }),
       expect.objectContaining({ touchpointId: 'touch', offerId: 'offer-b' }),
     ]));
-    await user.click(linkedOffers.getByRole('checkbox', { name: 'Subscription' })); review = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
+    const affectedCheckbox = linkedOffers.getByRole('checkbox', { name: 'Subscription' });
+    await user.click(affectedCheckbox); review = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
     await user.click(within(review).getByRole('button', { name: 'Confirm removal' }));
-    expect(linkedOffers.getByRole('checkbox', { name: 'Subscription' })).not.toBeChecked(); expect(linkedOffers.getByRole('checkbox', { name: 'Consulting' })).toBeChecked();
-    expect(linkedOffers.getByRole('checkbox', { name: 'Subscription' })).toHaveFocus();
+    const committedCheckbox = linkedOffers.getByRole('checkbox', { name: 'Subscription' });
+    expect(committedCheckbox).toBe(affectedCheckbox); expect(committedCheckbox.isConnected).toBe(true);
+    expect(committedCheckbox).not.toBeChecked(); expect(linkedOffers.getByRole('checkbox', { name: 'Consulting' })).toBeChecked();
+    await vi.waitFor(() => expect(committedCheckbox).toHaveFocus());
     await user.click(screen.getByRole('tab', { name: 'Map' }));
     const map = screen.getByLabelText('Map canvas');
     expect(map.querySelector('[data-source="offer-a"][data-target="touch"]')).not.toBeInTheDocument();
