@@ -574,20 +574,21 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setProductConfirmation(null);
     requestAnimationFrame(() => target?.focus());
   }
-  function closeRelationEditor(restoreFocus = true) {
+  type RelationEditorCloseReason = 'explicit' | 'commit' | 'pointer' | 'switch-editor';
+  function closeRelationEditor(reason: RelationEditorCloseReason) {
     const focusTarget = offersPicker ? offersPickerButtonRef : parentPicker ? parentPickerButtonRef : null;
     setOffersPicker(null);
     setParentPicker(null);
-    if (restoreFocus) requestAnimationFrame(() => focusTarget?.current?.focus());
+    if (reason === 'explicit' || reason === 'commit') requestAnimationFrame(() => focusTarget?.current?.focus());
   }
   function openOffersEditor() {
-    setParentPicker(null);
+    closeRelationEditor('switch-editor');
     setConnectionPicker(null);
     setBusinessInlineEdit(null);
     setOffersPicker({ query: '' });
   }
   function openParentEditor() {
-    setOffersPicker(null);
+    closeRelationEditor('switch-editor');
     setConnectionPicker(null);
     setBusinessInlineEdit(null);
     setParentPicker({ query: '' });
@@ -597,13 +598,12 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const dismissOnPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof globalThis.Node) || relationEditorRef.current?.contains(target) || confirmationRef.current?.contains(target)) return;
-      const switchingEditors = target instanceof Element && Boolean(target.closest('[data-touchpoint-editor-affordance]'));
-      closeRelationEditor(!switchingEditors);
+      closeRelationEditor('pointer');
     };
     const dismissOnEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key !== 'Escape' || productConfirmation) return;
       event.preventDefault();
-      closeRelationEditor();
+      closeRelationEditor('explicit');
     };
     globalThis.document.addEventListener('pointerdown', dismissOnPointerDown);
     globalThis.document.addEventListener('keydown', dismissOnEscape);
@@ -723,7 +723,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const before = documentRef.current;
     const currentParentId = before.relationships.find((relation): relation is Extract<Relationship, { kind: 'touchpoint_contains_touchpoint' }> => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === touchpointId)?.parentTouchpointId ?? '';
     if (currentParentId === parentTouchpointId) {
-      closeRelationEditor();
+      closeRelationEditor('commit');
       return;
     }
     const result = commitSemanticOperation(before, semanticCommitState({ semanticallyComplete: true, valid: true }), durable =>
@@ -736,9 +736,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setDocument(committed);
     const durableParentId = committed.relationships.find((relation): relation is Extract<MapDocument['relationships'][number], { kind: 'touchpoint_contains_touchpoint' }> => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === touchpointId)?.parentTouchpointId ?? '';
     setEditDraft(current => current ? { ...current, parentTouchpointId: durableParentId } : current);
-    setParentPicker(null);
+    closeRelationEditor('commit');
     publishSuccess('Parent Touchpoint updated.');
-    requestAnimationFrame(() => parentPickerButtonRef.current?.focus());
   }
   function resetProductSession(entity: Entity | undefined, source = document) {
     setProductExpanded({});
@@ -1879,7 +1878,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 const linked = new Set(structure.offers.map(offer => offer.id));
                 const searchable = allOffers.length >= RELATION_EDITOR_SEARCH_THRESHOLD;
                 return <div ref={relationEditorRef} className="inspector-relation-editor" aria-label="Linked Offers editor">
-                  <div className="inspector-relation-editor-header"><strong>Linked Offers</strong><button type="button" className="inspector-secondary-action" onClick={() => closeRelationEditor()}>Close</button></div>
+                  <div className="inspector-relation-editor-header"><strong>Linked Offers</strong><button type="button" className="inspector-secondary-action" onClick={() => closeRelationEditor('explicit')}>Close</button></div>
                   {searchable && <label className="inspector-relation-editor-search" htmlFor="linked-offers-search">Search Offers<input autoFocus id="linked-offers-search" type="search" value={offersPicker.query} onChange={event => setOffersPicker({ query: event.target.value })} /></label>}
                   <div className="inspector-relation-candidates" aria-live="polite">
                     {offers.length ? offers.map((offer, index) => <label className="inspector-relation-row inspector-relation-row-checkbox" key={offer.id}><input autoFocus={!searchable && index === 0} type="checkbox" checked={linked.has(offer.id)} onChange={event => requestLinkedOffersCommit(event.target.checked ? [...linked, offer.id] : [...linked].filter(id => id !== offer.id), event.currentTarget)} /><span className="inspector-relation-indicator" aria-hidden="true" /><span>{offer.title}</span></label>) : <p>No matching Offers.</p>}
@@ -1918,7 +1917,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 const searchable = allOptions.length >= RELATION_EDITOR_SEARCH_THRESHOLD;
                 const selectedParentId = structure.parent?.id ?? '';
                 return <div ref={relationEditorRef} className="inspector-relation-editor" aria-label="Parent Touchpoint editor">
-                  <div className="inspector-relation-editor-header"><strong>Parent Touchpoint</strong><div className="inspector-relation-editor-actions">{structure.parent && <button type="button" className="inspector-secondary-action" onClick={() => commitParentImmediately(structure.touchpoint.id, '')}>Clear parent</button>}<button type="button" className="inspector-secondary-action" onClick={() => closeRelationEditor()}>Close</button></div></div>
+                  <div className="inspector-relation-editor-header"><strong>Parent Touchpoint</strong><div className="inspector-relation-editor-actions">{structure.parent && <button type="button" className="inspector-secondary-action" onClick={() => commitParentImmediately(structure.touchpoint.id, '')}>Clear parent</button>}<button type="button" className="inspector-secondary-action" onClick={() => closeRelationEditor('explicit')}>Close</button></div></div>
                   {searchable && <label className="inspector-relation-editor-search" htmlFor="parent-touchpoint-search">Search Touchpoints<input autoFocus id="parent-touchpoint-search" type="search" value={parentPicker.query} onChange={event => setParentPicker({ query: event.target.value })} /></label>}
                   <div className="inspector-relation-candidates" role="radiogroup" aria-label="Parent Touchpoint options" aria-live="polite">
                     {options.length ? options.map((option, index) => <label className="inspector-relation-row inspector-relation-row-radio" key={option.id}><input autoFocus={!searchable && index === 0} type="radio" name="parent-touchpoint" checked={selectedParentId === option.id} onChange={() => undefined} onClick={() => commitParentImmediately(structure.touchpoint.id, option.id)} /><span className="inspector-relation-indicator" aria-hidden="true" /><span>{option.title}</span></label>) : <p role="status">No matching Touchpoints.</p>}
