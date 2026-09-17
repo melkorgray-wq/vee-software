@@ -428,7 +428,8 @@ describe('Touchpoint Business structure Inspector', () => {
     const structure = within(renderTouchpointInspector(document).getByRole('region', { name: 'Business structure' }));
     expect(structure.getAllByText('—').length).toBeGreaterThanOrEqual(3);
     expect(structure.getByRole('button', { name: 'Edit Located in' })).toHaveTextContent('Add location');
-    expect(structure.getByRole('button', { name: 'Edit web address' })).toHaveTextContent('Add URL');
+    expect(structure.getByText('Add URL')).toBeInTheDocument();
+    expect(structure.getByRole('button', { name: 'Edit web address' })).toHaveTextContent('✎');
     expect(structure.queryByText('Not specified')).not.toBeInTheDocument();
     expect(structure.queryByText('None')).not.toBeInTheDocument();
     expect(structure.getByText('Derived')).toBeInTheDocument();
@@ -454,13 +455,29 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(edit.querySelector('.business-structure-edit-affordance')).toHaveAttribute('aria-hidden', 'true');
   });
 
-  it('safe Touchpoint URL is rendered as external link', () => {
+  it('keeps a safe Touchpoint URL and indicator in one external-link surface beside its edit pencil', async () => {
+    const user = userEvent.setup();
     const structure = within(renderTouchpointInspector(structureDocument()).getByRole('region', { name: 'Business structure' }));
     const edit = structure.getByRole('button', { name: 'Edit web address, https://example.com/checkout' });
     const externalLink = structure.getByRole('link', { name: 'https://example.com/checkout' });
+    expect(externalLink).toHaveAttribute('href', 'https://example.com/checkout');
+    expect(externalLink).toHaveAttribute('target', '_blank');
     expect(edit.querySelector('.business-structure-edit-affordance')).toHaveTextContent('✎');
     expect(externalLink).toHaveAttribute('rel', 'noreferrer');
+    expect(externalLink).toHaveTextContent('https://example.com/checkout');
+    expect(externalLink).toHaveTextContent('↗');
+    expect(externalLink.querySelector('.business-structure-external-indicator')).toHaveAttribute('aria-hidden', 'true');
+    expect(structure.queryAllByRole('link')).toHaveLength(1);
+    expect(structure.queryByRole('link', { name: '↗' })).not.toBeInTheDocument();
+    expect(externalLink).not.toHaveClass('inspector-entity-navigation');
     expect(edit).not.toContainElement(externalLink);
+    expect(externalLink.closest('button')).toBeNull();
+
+    externalLink.addEventListener('click', event => event.preventDefault(), { once: true });
+    await user.click(externalLink);
+    expect(structure.queryByRole('textbox', { name: 'Edit web address' })).not.toBeInTheDocument();
+    await user.click(edit);
+    expect(structure.getByRole('textbox', { name: 'Edit web address' })).toHaveValue('https://example.com/checkout');
   });
 
   it('Offers, Located in, and URL expose one edit affordance each', () => {
@@ -663,6 +680,8 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
     expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'touch')).toEqual(expect.objectContaining({ url: 'https://committed.example' }));
     expect(within(inspector.getByRole('region', { name: 'Business structure' })).getByRole('link', { name: 'https://committed.example' })).toBeInTheDocument();
+    for (const name of ['Apply', 'Save', 'Done']) expect(inspector.queryByRole('button', { name })).not.toBeInTheDocument();
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
   });
 
   it('URL blur commits, blank clears, and Escape cancels', async () => {
@@ -670,10 +689,40 @@ describe('Touchpoint Business structure Inspector', () => {
     const region = () => within(inspector.getByRole('region', { name: 'Business structure' }));
     await user.click(region().getByRole('button', { name: /Edit web address/ })); await user.clear(inspector.getByLabelText('Edit web address')); await user.type(inspector.getByLabelText('Edit web address'), 'https://blur.example'); await user.tab();
     expect(region().getByRole('link', { name: 'https://blur.example' })).toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'touch')).toEqual(expect.objectContaining({ url: 'https://blur.example' }));
     await user.click(region().getByRole('button', { name: /Edit web address/ })); await user.clear(inspector.getByLabelText('Edit web address')); await user.keyboard('{Escape}');
     expect(region().getByRole('link', { name: 'https://blur.example' })).toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'touch')).toEqual(expect.objectContaining({ url: 'https://blur.example' }));
     await user.click(region().getByRole('button', { name: /Edit web address/ })); await user.clear(inspector.getByLabelText('Edit web address')); await user.keyboard('{Enter}');
-    expect(region().queryByRole('link')).not.toBeInTheDocument(); expect(region().getByRole('button', { name: 'Edit web address' })).toHaveTextContent('Add URL');
+    expect(region().queryByRole('link')).not.toBeInTheDocument(); expect(region().getByText('Add URL')).toBeInTheDocument(); expect(region().getByRole('button', { name: 'Edit web address' })).toHaveTextContent('✎');
+    for (const name of ['Apply', 'Save', 'Done']) expect(inspector.queryByRole('button', { name })).not.toBeInTheDocument();
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
+  });
+
+  it('keeps empty and unsafe stored URLs readable and editable without external-link semantics', async () => {
+    const user = userEvent.setup();
+    const emptyDocument = structureDocument();
+    const emptyTouchpoint = emptyDocument.entities.find(entity => entity.id === 'touch')!;
+    if (emptyTouchpoint.kind === 'touchpoint') delete emptyTouchpoint.url;
+    let inspector = renderTouchpointInspector(emptyDocument);
+    let region = within(inspector.getByRole('region', { name: 'Business structure' }));
+    expect(region.getByText('Add URL')).toBeInTheDocument();
+    expect(region.queryByRole('link')).not.toBeInTheDocument();
+    expect(region.queryByText('↗')).not.toBeInTheDocument();
+    await user.click(region.getByRole('button', { name: 'Edit web address' }));
+    expect(region.getByRole('textbox', { name: 'Edit web address' })).toHaveValue('');
+
+    cleanup();
+    const unsafeDocument = structureDocument();
+    const unsafeTouchpoint = unsafeDocument.entities.find(entity => entity.id === 'touch')!;
+    if (unsafeTouchpoint.kind === 'touchpoint') unsafeTouchpoint.url = 'javascript:alert(1)';
+    inspector = renderTouchpointInspector(unsafeDocument);
+    region = within(inspector.getByRole('region', { name: 'Business structure' }));
+    expect(region.getByText('javascript:alert(1)')).toBeInTheDocument();
+    expect(region.queryByRole('link')).not.toBeInTheDocument();
+    expect(region.queryByText('↗')).not.toBeInTheDocument();
+    await user.click(region.getByRole('button', { name: 'Edit web address, javascript:alert(1)' }));
+    expect(region.getByRole('textbox', { name: 'Edit web address' })).toHaveValue('javascript:alert(1)');
   });
 
   it('Located in chooses, creates, reuses, clears, and cancels without global Apply', async () => {
@@ -1109,7 +1158,7 @@ describe('map-first authoring interactions', () => {
     for (const text of ['Where does this Touchpoint exist?', 'No location selected', 'Choose an existing location', 'Create new location']) expect(screen.queryByText(text)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/URL/)).not.toBeRequired();
     await user.type(screen.getByLabelText('Title'), 'Unplaced consultation'); await user.selectOptions(screen.getByLabelText('Existing Offer'), screen.getByRole('option', { name: 'Subscription' })); await user.click(screen.getByRole('button', { name: 'Create' }));
-    expect(screen.getByRole('heading', { name: 'Unplaced consultation' })).toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Edit Located in' })).toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Edit web address' })).toHaveTextContent('Add URL');
+    expect(screen.getByRole('heading', { name: 'Unplaced consultation' })).toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Edit Located in' })).toBeInTheDocument(); expect(screen.getByText('Add URL')).toBeInTheDocument(); expect(screen.getByRole('button', { name: 'Edit web address' })).toHaveTextContent('✎');
   });
   it('keeps a new root location as a draft until Touchpoint creation commits it atomically', async () => {
     const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await quickOffer(user); await openInspector(user);
