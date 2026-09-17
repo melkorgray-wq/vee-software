@@ -1530,7 +1530,7 @@ describe('searchable Touchpoint connection picker', () => {
     expect(within(scope).queryByRole('button', { name: 'Offer · Subscription' })).not.toBeInTheDocument();
     await user.click(within(scope).getByRole('button', { name: 'Parent · Parent' }));
     await user.click(within(scope).getByRole('checkbox', { name: 'Finish faster' }));
-    expect(within(scope).getByRole('button', { name: 'Close Client scope authoring' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(scope).getByRole('button', { name: 'Close Client scope authoring' })).not.toHaveAttribute('aria-pressed');
     expect(within(scope).getByRole('checkbox', { name: 'Finish faster' })).toBeChecked();
     expect(within(scope).getAllByText('via Subscription')).toHaveLength(2);
     expect(within(scope).queryByRole('checkbox', { name: 'via Subscription' })).not.toBeInTheDocument();
@@ -1555,26 +1555,33 @@ describe('searchable Touchpoint connection picker', () => {
     const scope = inspector.getByRole('region', { name: 'Client scope' });
     const pencil = within(scope).getByRole('button', { name: 'Edit Client scope' });
     expect(pencil).toHaveTextContent('✎');
+    expect(pencil).not.toHaveAttribute('aria-pressed');
 
     await user.click(pencil);
 
     const close = within(scope).getByRole('button', { name: 'Close Client scope authoring' });
-    expect(close).toHaveTextContent('×');
+    expect(close).toHaveTextContent('Close');
+    expect(close).not.toHaveAttribute('aria-pressed');
+    expect(close).not.toHaveTextContent('×');
     expect(close).not.toHaveTextContent('Done');
+    expect(close).not.toHaveTextContent('Save');
+    expect(close).not.toHaveTextContent('Apply');
     expect(scope).not.toHaveTextContent('Changes apply immediately');
     expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
     expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
 
+    expect(window.__VEE_DEV__!.dump().touchpointJobSelections).toEqual([]);
     await user.type(within(scope).getByRole('searchbox', { name: 'Search Client intent' }), 'Finish faster');
     await user.click(within(scope).getByRole('checkbox', { name: 'Finish faster' }));
-    const beforeClose = structuredClone(window.__VEE_DEV__!.dump());
-    expect(beforeClose.touchpointJobSelections).toEqual([expect.objectContaining({ touchpointId: 'touch', addressedDesiredOutcomeIds: ['do-a'] })]);
+    const committed = structuredClone(window.__VEE_DEV__!.dump());
+    expect(committed.touchpointJobSelections).toEqual([expect.objectContaining({ touchpointId: 'touch', addressedDesiredOutcomeIds: ['do-a'] })]);
 
     await user.click(close);
     await act(() => new Promise(resolve => requestAnimationFrame(resolve)));
 
-    expect(window.__VEE_DEV__!.dump()).toEqual(beforeClose);
+    expect(window.__VEE_DEV__!.dump()).toEqual(committed);
     expect(within(scope).queryByRole('searchbox', { name: 'Search Client intent' })).not.toBeInTheDocument();
+    expect(within(scope).getByRole('button', { name: 'Finish faster' })).toBeInTheDocument();
     expect(within(scope).getByRole('button', { name: 'Edit Client scope' })).toHaveTextContent('✎');
     expect(within(scope).getByRole('button', { name: 'Edit Client scope' })).toHaveFocus();
     expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
@@ -1851,7 +1858,7 @@ describe('searchable Touchpoint connection picker', () => {
     await user.click(within(confirmation).getByRole('button', { name: 'Remove' }));
     expect(checkbox).not.toBeChecked();
     expect(checkbox).toHaveFocus();
-    expect(inspector.getByRole('button', { name: 'Close Client scope authoring' })).toHaveAttribute('aria-pressed', 'true');
+    expect(inspector.getByRole('button', { name: 'Close Client scope authoring' })).not.toHaveAttribute('aria-pressed');
     expect(window.__VEE_DEV__!.dump().relationships).not.toContainEqual(expect.objectContaining({ id: 'mitigates-delay' }));
   });
 
@@ -1923,10 +1930,10 @@ describe('searchable Touchpoint connection picker', () => {
     const initiatingCheckbox = inspector.getByRole('checkbox', { name: 'Finish faster' });
     expect(initiatingCheckbox.closest('.intent-path-row')).toContainElement(contributorGroup);
     expect(contributorGroup.closest('.inline-intent-editor')!.querySelector('.intent-source-list')).not.toContainElement(contributorGroup);
-    await user.click(contributors.getByRole('button', { name: 'Cancel' }));
+    await user.click(contributors.getByRole('button', { name: 'Back' }));
     expect(document).toEqual(snapshot);
     expect(inspector.getByRole('searchbox', { name: 'Search Client intent' })).toHaveValue('Finish faster');
-    expect(inspector.getByRole('button', { name: 'Close Client scope authoring' })).toHaveAttribute('aria-pressed', 'true');
+    expect(inspector.getByRole('button', { name: 'Close Client scope authoring' })).not.toHaveAttribute('aria-pressed');
     expect(initiatingCheckbox).toHaveFocus();
   });
 
@@ -1944,7 +1951,7 @@ describe('searchable Touchpoint connection picker', () => {
     expect(inspector.queryByRole('group', { name: 'Which linked Offers contribute here?' })).not.toBeInTheDocument();
     expect(document).toEqual(snapshot);
     expect(search).toHaveValue('Finish faster');
-    expect(inspector.getByRole('button', { name: 'Close Client scope authoring' })).toHaveAttribute('aria-pressed', 'true');
+    expect(inspector.getByRole('button', { name: 'Close Client scope authoring' })).not.toHaveAttribute('aria-pressed');
     expect(initiatingCheckbox).toHaveFocus();
   });
 

@@ -92,6 +92,9 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .touchpoint-client-scope-heading { display: flex; align-items: center; justify-content: flex-start; gap: .3rem; padding-bottom: .35rem; border-bottom: 1px solid var(--border-subtle); }
 .touchpoint-client-scope-heading > h4 { margin: 0; color: rgba(255,255,255,.72); font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; }
 .touchpoint-client-scope-heading > button { flex: 0 0 auto; padding: .1rem .25rem; }
+.inspector-secondary-action { border: 1px solid var(--border-soft); border-radius: .25rem; background: rgba(255,255,255,.06); color: rgba(255,255,255,.9); font-size: .75rem; line-height: 1.2; }
+.inspector-secondary-action:hover { background: rgba(255,255,255,.12); }
+.inspector-secondary-action:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .touchpoint-client-scope-content { display: grid; gap: .75rem; min-width: 0; }
 .inline-intent-editor { gap: .6rem; }
 .inline-intent-editor .intent-leaves { width: 100%; padding-left: 1.2rem; }
