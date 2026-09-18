@@ -2448,11 +2448,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               {repulsorTargetsField(editDraft, setEditDraft)}
               {touchFields(editDraft, setEditDraft, true, false)}
               {selected.kind === 'touchpoint' && touchpointIntentFields()}
-              {selected.kind === 'touchpoint' && safeUrl(editDraft.url) && (
-                <a href={safeUrl(editDraft.url)} target="_blank" rel="noreferrer">
-                  Open {editDraft.title}
-                </a>
-              )}
               {selected.kind !== 'touchpoint' && connectionPicker === null && <div className={`apply-footer ${inspectorDirty ? 'dirty' : ''}`}>
                 {inspectorDirty && <span>Unsaved changes</span>}
                 <button className="primary" disabled={!inspectorDirty || Boolean(editDraft.touchpointIntent && validateTouchpointIntentDraft(editDraft.touchpointIntent, editDraft.linkedOfferIds))}>Apply changes</button>
