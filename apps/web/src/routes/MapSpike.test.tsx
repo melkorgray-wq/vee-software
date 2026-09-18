@@ -672,6 +672,25 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(inspector.getByRole('heading', { name: 'Footer CTA' })).toBeInTheDocument();
   });
 
+  it.each(['Reassign…', 'Reassign all…'] as const)('keeps %s Search visible while its query reduces a large Parent candidate set', async action => {
+    const user = userEvent.setup(); const document = structureDocument();
+    for (let index = 0; index < RELATION_EDITOR_SEARCH_THRESHOLD; index += 1) {
+      document.entities.push({ id: `reassign-parent-${index}`, kind: 'touchpoint', title: index === 0 ? 'Needle Parent' : `Extra Parent ${index}` });
+      document.placements.push({ viewId: 'spike-view', entityId: `reassign-parent-${index}`, x: 1700 + index * 140, y: 0 });
+    }
+    const inspector = renderTouchpointInspector(document);
+    const children = within(inspector.getByRole('group', { name: 'Children property' }));
+    await user.click(children.getByRole('button', { name: 'Edit Children' }));
+    await user.click(children.getByRole('button', { name: action }));
+    const editor = within(children.getByLabelText('Reassign children'));
+    const search = editor.getByRole('searchbox', { name: 'Search Touchpoints' });
+    await user.type(search, 'Needle');
+    expect(editor.getByRole('searchbox', { name: 'Search Touchpoints' })).toBe(search);
+    expect(search).toHaveFocus();
+    expect(editor.getAllByRole('radio')).toHaveLength(1);
+    expect(editor.getByRole('radio', { name: 'Needle Parent' })).toBeInTheDocument();
+  });
+
   it('URL Enter commits immediately without a generic Apply', async () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
     await user.click(within(inspector.getByRole('region', { name: 'Business structure' })).getByRole('button', { name: /Edit web address/ }));
