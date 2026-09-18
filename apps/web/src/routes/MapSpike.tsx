@@ -95,6 +95,10 @@ type ChildrenEditor =
   | { mode: 'reassign-one' | 'reassign-all'; query: string; childTouchpointIds: string[]; error?: string }
   | { mode: 'resolve-contributor'; query: string; command: TouchpointStructuralCommand; choices: Record<string, string>; obligationKey: string; touchpointId: string; candidateOfferIds: string[]; returnMode: 'list' | 'reassign-one' | 'reassign-all'; error?: string }
   | { mode: 'create-child'; query: string; title: string; offerId: string; error?: string };
+function previousChildrenEditorLevel(editor: ChildrenEditor): ChildrenEditor {
+  if (editor.mode !== 'resolve-contributor' || editor.returnMode === 'list') return { mode: 'list', query: '' };
+  return { mode: editor.returnMode, query: '', childTouchpointIds: [...editor.command.childTouchpointIds] };
+}
 const draft = (kind: ProvisionalEntityKind = 'product'): EditDraft => ({
   title: '',
   side: isClientRootEntityKind(kind) || isContextualClientEntityKind(kind) || kind === 'repulsor' ? 'client' : 'business',
@@ -636,7 +640,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       if (event.key !== 'Escape') return;
       event.preventDefault();
       if (childrenEditor.mode === 'list') closeChildrenEditor('explicit');
-      else setChildrenEditor({ mode: 'list', query: '' });
+      else setChildrenEditor(previousChildrenEditorLevel(childrenEditor));
     };
     globalThis.document.addEventListener('pointerdown', pointer); globalThis.document.addEventListener('keydown', keyboard);
     return () => { globalThis.document.removeEventListener('pointerdown', pointer); globalThis.document.removeEventListener('keydown', keyboard); };
@@ -1957,7 +1961,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const renderChildrenEditor = () => {
       if (!childrenEditor) return null;
       const candidateModel = deriveTouchpointChildrenCandidates(document, structure.touchpoint.id);
-      if (childrenEditor.mode === 'resolve-contributor') return <div ref={childrenEditorRef} className="inspector-relation-editor" aria-label="Children contributor resolver"><fieldset><legend>Choose contributor for {entityTitle(document, childrenEditor.touchpointId)}</legend>{childrenEditor.candidateOfferIds.map(offerId => <label className="inspector-relation-row inspector-relation-row-radio" key={offerId}><input type="radio" name="children-contributor" onChange={() => runChildrenCommand(childrenEditor.command, { ...childrenEditor.choices, [childrenEditor.obligationKey]: offerId }, childrenEditor.returnMode)} /><span className="inspector-relation-indicator" aria-hidden="true"/><span>{entityTitle(document, offerId)}</span></label>)}</fieldset><button type="button" onClick={() => setChildrenEditor({ mode: 'list', query: '' })}>Back</button></div>;
+      if (childrenEditor.mode === 'resolve-contributor') return <div ref={childrenEditorRef} className="inspector-relation-editor" aria-label="Children contributor resolver"><fieldset><legend>Choose contributor for {entityTitle(document, childrenEditor.touchpointId)}</legend>{childrenEditor.candidateOfferIds.map(offerId => <label className="inspector-relation-row inspector-relation-row-radio" key={offerId}><input type="radio" name="children-contributor" onChange={() => runChildrenCommand(childrenEditor.command, { ...childrenEditor.choices, [childrenEditor.obligationKey]: offerId }, childrenEditor.returnMode)} /><span className="inspector-relation-indicator" aria-hidden="true"/><span>{entityTitle(document, offerId)}</span></label>)}</fieldset><button type="button" onClick={() => setChildrenEditor(previousChildrenEditorLevel(childrenEditor))}>Back</button></div>;
       if (childrenEditor.mode === 'create-child') {
         const offerIds = structure.offers.map(offer => offer.id); const chosen = offerIds.length === 1 ? offerIds[0]! : childrenEditor.offerId;
         return <div ref={childrenEditorRef} className="inspector-relation-editor" aria-label="Create child"><div className="inspector-relation-editor-header"><strong>Create child</strong><button type="button" onClick={() => setChildrenEditor({ mode: 'list', query: '' })}>Back</button></div>{!offerIds.length ? <p role="alert">Link an Offer to this Touchpoint before creating a child.</p> : <><label>Title<input autoFocus value={childrenEditor.title} onChange={event => setChildrenEditor({ ...childrenEditor, title: event.target.value })} onBlur={event => createChild(event.currentTarget.value, chosen)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); createChild(event.currentTarget.value, chosen); } }} /></label>{offerIds.length > 1 && <fieldset><legend>Initial Offer</legend>{structure.offers.map(offer => <label className="inspector-relation-row inspector-relation-row-radio" key={offer.id}><input type="radio" name="child-offer" checked={childrenEditor.offerId === offer.id} onChange={() => { const next = { ...childrenEditor, offerId: offer.id }; setChildrenEditor(next); createChild(next.title, offer.id); }} /><span className="inspector-relation-indicator" aria-hidden="true"/><span>{offer.title}</span></label>)}</fieldset>}</>}{childrenEditor.error && <p role="alert">{childrenEditor.error}</p>}</div>;

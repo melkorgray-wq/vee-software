@@ -691,6 +691,32 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(editor.getByRole('radio', { name: 'Needle Parent' })).toBeInTheDocument();
   });
 
+  it.each([
+    ['Reassign…', 'Back'], ['Reassign…', 'Escape'], ['Reassign all…', 'Back'], ['Reassign all…', 'Escape'],
+  ] as const)('%s contributor resolution uses %s to return to Parent selection', async (action, exit) => {
+    const user = userEvent.setup(); const document = structureDocument();
+    document.relationships.push(
+      { id: 'child-offer', kind: 'offer_presented_at_touchpoint', offerId: 'offer-a', touchpointId: 'child' },
+      { id: 'other-second-offer', kind: 'offer_presented_at_touchpoint', offerId: 'offer-b', touchpointId: 'other' },
+    );
+    document.productJobIntents = [{ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: [] }];
+    document.offerJobSelections = [{ id: 'offer-job', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] }];
+    document.touchpointJobSelections = [{ id: 'child-job', touchpointId: 'child', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] }];
+    const inspector = renderTouchpointInspector(document);
+    const children = within(inspector.getByRole('group', { name: 'Children property' }));
+    await user.click(children.getByRole('button', { name: 'Edit Children' }));
+    await user.click(children.getByRole('button', { name: action }));
+    await user.click(within(children.getByLabelText('Reassign children')).getByRole('radio', { name: 'About' }));
+    const resolver = within(children.getByLabelText('Children contributor resolver'));
+    if (exit === 'Back') await user.click(resolver.getByRole('button', { name: 'Back' }));
+    else await user.keyboard('{Escape}');
+    const restored = within(children.getByLabelText('Reassign children'));
+    expect(restored.getByText('Choose new parent')).toBeInTheDocument();
+    expect(restored.getByRole('radio', { name: 'About' })).toBeInTheDocument();
+    expect(children.queryByLabelText('Children contributor resolver')).not.toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump().relationships).toContainEqual(expect.objectContaining({ kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'touch', childTouchpointId: 'child' }));
+  });
+
   it('URL Enter commits immediately without a generic Apply', async () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
     await user.click(within(inspector.getByRole('region', { name: 'Business structure' })).getByRole('button', { name: /Edit web address/ }));
