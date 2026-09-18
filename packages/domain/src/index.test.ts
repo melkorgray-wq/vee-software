@@ -769,6 +769,25 @@ describe('Touchpoint local Job path subset planning', () => {
 });
 
 describe('Touchpoint structural subtree planning', () => {
+  function semanticMoveDocument(targetOfferIds: string[] = ['offer-b'], includeSibling = false) {
+    let d = offerDocument();
+    for (const offerId of [...new Set(targetOfferIds)].filter(id => id !== 'orphan-offer')) d = addEntity(d, { ...place, entityId: offerId, title: offerId, kind: 'offer', linkedProductId: 'product', relationshipId: `packages-${offerId}` });
+    if (targetOfferIds.includes('orphan-offer')) d = { ...d, entities: [...d.entities, { id: 'orphan-offer', title: 'Orphan Offer', kind: 'offer' }] };
+    d = addEntity(d, { ...place, entityId: 'old-parent', title: 'Old Parent', kind: 'touchpoint', linkedOfferIds: ['offer'], relationshipIds: ['old-parent-offer'] });
+    d = addEntity(d, { ...place, entityId: 'new-parent', title: 'New Parent', kind: 'touchpoint', linkedOfferIds: targetOfferIds, relationshipIds: targetOfferIds.map(id => `new-parent-${id}`) });
+    d = addEntity(d, { ...place, entityId: 'moved', title: 'Moved', kind: 'touchpoint', linkedOfferIds: ['offer'], relationshipIds: ['moved-offer'], parentTouchpointId: 'old-parent', parentRelationshipId: 'old-moved' });
+    d = addEntity(d, { ...place, entityId: 'deep', title: 'Deep', kind: 'touchpoint', linkedOfferIds: ['offer'], relationshipIds: ['deep-offer'], parentTouchpointId: 'moved', parentRelationshipId: 'moved-deep' });
+    if (includeSibling) d = addEntity(d, { ...place, entityId: 'sibling', title: 'Sibling', kind: 'touchpoint', linkedOfferIds: ['offer'], relationshipIds: ['sibling-offer'], parentTouchpointId: 'old-parent', parentRelationshipId: 'old-sibling' });
+    d = addEntity(d, { ...place, entityId: 'job', title: 'Job', kind: 'core_functional_job' });
+    d = addEntity(d, { ...place, entityId: 'outcome', title: 'Outcome', kind: 'desired_outcome', parentEntityId: 'job', relationshipId: 'job-outcome' });
+    d = addEntity(d, { ...place, entityId: 'fdo', title: 'FDO', kind: 'financial_desired_outcome' });
+    d = addProductJobIntent(d, { id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['outcome'] });
+    d = setOfferJobSelections(d, { offerId: 'offer', selections: [{ productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['outcome'] }], newSelectionIds: ['offer-job'] });
+    d = setOfferFinancialIntents(d, { offerId: 'offer', financialDesiredOutcomeIds: ['fdo'], newIntentIds: ['offer-fdo'] });
+    return d;
+  }
+  const allocator = () => { let next = 0; return () => `planned-${next++}`; };
+
   it('detaches one root without changing its subtree, semantic records, entity, or placement', () => {
     let before = touchpoint(); before = touchpoint(before, 'child', 'touch'); before = touchpoint(before, 'grandchild', 'child');
     before.touchpointJobSelections.push({ id: 'local', touchpointId: 'child', offerId: 'offer', productJobIntentId: 'missing', addressedDesiredOutcomeIds: [] });
@@ -795,5 +814,83 @@ describe('Touchpoint structural subtree planning', () => {
     expect(planTouchpointStructuralChange(before, { command: { kind: 'attach', childTouchpointIds: ['child'], targetParentTouchpointId: 'grandchild' }, newId: () => 'new' })).toMatchObject({ status: 'invalid', reason: 'already_parented' });
     expect(planTouchpointStructuralChange(before, { command: { kind: 'reassign', childTouchpointIds: ['child'], targetParentTouchpointId: 'grandchild' }, newId: () => 'new' })).toMatchObject({ status: 'invalid', reason: 'structural_cycle' });
     expect(before).toEqual(snapshot);
+  });
+
+  it('reassigns an authored branch and reconciles root Job membership plus a deep DO through one contributor', () => {
+    let before = semanticMoveDocument();
+    before = setTouchpointIntentSelections(before, { touchpointId: 'moved', selections: [{ id: 'moved-job', kind: 'job', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] }] });
+    before = setTouchpointIntentSelections(before, { touchpointId: 'deep', selections: [{ id: 'deep-job', kind: 'job', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['outcome'] }] });
+    before = setTouchpointIntentSelections(before, { touchpointId: 'old-parent', selections: [{ id: 'old-job', kind: 'job', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['outcome'] }] });
+    const snapshot = structuredClone(before);
+    const result = planTouchpointStructuralChange(before, { command: { kind: 'reassign', childTouchpointIds: ['moved'], targetParentTouchpointId: 'new-parent' }, newId: allocator() });
+    expect(result.status).toBe('complete'); if (result.status !== 'complete') return;
+    expect(result.document.relationships).toContainEqual({ id: 'old-moved', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'new-parent', childTouchpointId: 'moved' });
+    expect(result.document.relationships).toContainEqual({ id: 'moved-deep', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'moved', childTouchpointId: 'deep' });
+    expect(result.document.touchpointJobSelections.find(item => item.touchpointId === 'new-parent')).toMatchObject({ offerId: 'offer-b', addressedDesiredOutcomeIds: ['outcome'] });
+    expect(result.document.touchpointJobSelections.find(item => item.id === 'old-job')).toEqual(before.touchpointJobSelections.find(item => item.id === 'old-job'));
+    expect(result.affectedAncestorTouchpointIds).toEqual(['new-parent']);
+    expect(before).toEqual(snapshot);
+  });
+
+  it('keeps FDO Offer-owned while reconciling it through the new ancestry', () => {
+    let before = semanticMoveDocument();
+    before = setTouchpointIntentSelections(before, { touchpointId: 'deep', selections: [{ id: 'deep-fdo', kind: 'financial', offerId: 'offer', offerFinancialIntentId: 'offer-fdo' }] });
+    const productScope = structuredClone(before.productJobIntents);
+    const result = planTouchpointStructuralChange(before, { command: { kind: 'reassign', childTouchpointIds: ['moved'], targetParentTouchpointId: 'new-parent' }, newId: allocator() });
+    expect(result.status).toBe('complete'); if (result.status !== 'complete') return;
+    expect(result.document.offerFinancialIntents).toContainEqual(expect.objectContaining({ offerId: 'offer-b', financialDesiredOutcomeId: 'fdo' }));
+    expect(result.document.touchpointFinancialSelections).toContainEqual(expect.objectContaining({ touchpointId: 'new-parent', offerId: 'offer-b', financialDesiredOutcomeId: 'fdo' }));
+    expect(result.document.productJobIntents).toEqual(productScope);
+  });
+
+  it('returns one stable unresolved contributor obligation and completes after that choice without interim mutation', () => {
+    let before = semanticMoveDocument(['offer-b', 'offer-c']);
+    before = setTouchpointIntentSelections(before, { touchpointId: 'deep', selections: [{ id: 'deep-job', kind: 'job', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['outcome'] }] });
+    const snapshot = structuredClone(before); const command = { kind: 'reassign' as const, childTouchpointIds: ['moved'], targetParentTouchpointId: 'new-parent' };
+    const unresolved = planTouchpointStructuralChange(before, { command, newId: allocator() });
+    expect(unresolved).toMatchObject({ status: 'unresolved', touchpointId: 'new-parent', sourceTouchpointId: 'deep', candidateOfferIds: ['offer-b', 'offer-c'] });
+    expect(before).toEqual(snapshot);
+    if (unresolved.status !== 'unresolved') return;
+    const complete = planTouchpointStructuralChange(before, { command, ancestorContributorChoices: { [unresolved.obligationKey]: 'offer-c' }, newId: allocator() });
+    expect(complete.status).toBe('complete'); if (complete.status !== 'complete') return;
+    expect(complete.document.touchpointJobSelections).toContainEqual(expect.objectContaining({ touchpointId: 'new-parent', offerId: 'offer-c', addressedDesiredOutcomeIds: ['outcome'] }));
+  });
+
+  it('returns invalid without publishing containment when the new ancestry has no contributor path', () => {
+    let before = semanticMoveDocument();
+    before = setTouchpointIntentSelections(before, { touchpointId: 'moved', selections: [{ id: 'moved-job', kind: 'job', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] }] });
+    before = { ...before, relationships: before.relationships.filter(relation => !(relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === 'new-parent')) };
+    const snapshot = structuredClone(before);
+    expect(planTouchpointStructuralChange(before, { command: { kind: 'reassign', childTouchpointIds: ['moved'], targetParentTouchpointId: 'new-parent' }, newId: allocator() })).toMatchObject({ status: 'invalid', reason: 'no_ancestor_contributor_path', touchpointId: 'new-parent' });
+    expect(before).toEqual(snapshot);
+    expect(before.relationships).toContainEqual(expect.objectContaining({ parentTouchpointId: 'old-parent', childTouchpointId: 'moved' }));
+  });
+
+  it('bulk reassign applies semantic additions from every branch in one complete document', () => {
+    let before = semanticMoveDocument(['offer-b'], true);
+    before = setTouchpointIntentSelections(before, { touchpointId: 'deep', selections: [{ id: 'deep-job', kind: 'job', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['outcome'] }] });
+    before = setTouchpointIntentSelections(before, { touchpointId: 'sibling', selections: [{ id: 'sibling-fdo', kind: 'financial', offerId: 'offer', offerFinancialIntentId: 'offer-fdo' }] });
+    before = setTouchpointIntentSelections(before, { touchpointId: 'old-parent', selections: [{ id: 'old-job', kind: 'job', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['outcome'] }, { id: 'old-fdo', kind: 'financial', offerId: 'offer', offerFinancialIntentId: 'offer-fdo' }] });
+    const oldJob = before.touchpointJobSelections.find(selection => selection.id === 'old-job'); const oldFdo = before.touchpointFinancialSelections.find(selection => selection.id === 'old-fdo');
+    const result = planTouchpointStructuralChange(before, { command: { kind: 'reassign', childTouchpointIds: ['moved', 'sibling'], targetParentTouchpointId: 'new-parent' }, newId: allocator() });
+    expect(result.status).toBe('complete'); if (result.status !== 'complete') return;
+    expect(result.document.relationships.flatMap(relation => relation.kind === 'touchpoint_contains_touchpoint' && ['moved', 'sibling'].includes(relation.childTouchpointId) ? [relation.parentTouchpointId] : [])).toEqual(['new-parent', 'new-parent']);
+    expect(result.document.touchpointJobSelections).toContainEqual(expect.objectContaining({ touchpointId: 'new-parent', offerId: 'offer-b', addressedDesiredOutcomeIds: ['outcome'] }));
+    expect(result.document.touchpointFinancialSelections).toContainEqual(expect.objectContaining({ touchpointId: 'new-parent', offerId: 'offer-b', financialDesiredOutcomeId: 'fdo' }));
+    expect(result.document.touchpointJobSelections.find(selection => selection.id === 'old-job')).toEqual(oldJob);
+    expect(result.document.touchpointFinancialSelections.find(selection => selection.id === 'old-fdo')).toEqual(oldFdo);
+    expect(result.affectedAncestorTouchpointIds).toEqual(['new-parent']);
+  });
+
+  it('bulk invalidation after an earlier branch plan leaves every branch on its old parent', () => {
+    let before = semanticMoveDocument(['orphan-offer'], true);
+    before = setTouchpointIntentSelections(before, { touchpointId: 'moved', selections: [{ id: 'moved-fdo', kind: 'financial', offerId: 'offer', offerFinancialIntentId: 'offer-fdo' }] });
+    before = setTouchpointIntentSelections(before, { touchpointId: 'sibling', selections: [{ id: 'sibling-job', kind: 'job', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['outcome'] }] });
+    const snapshot = structuredClone(before);
+    const result = planTouchpointStructuralChange(before, { command: { kind: 'reassign', childTouchpointIds: ['moved', 'sibling'], targetParentTouchpointId: 'new-parent' }, newId: allocator() });
+    expect(result).toMatchObject({ status: 'invalid', reason: 'no_ancestor_contributor_path', touchpointId: 'new-parent' });
+    expect(before).toEqual(snapshot);
+    expect(before.relationships.flatMap(relation => relation.kind === 'touchpoint_contains_touchpoint' && ['moved', 'sibling'].includes(relation.childTouchpointId) ? [relation.parentTouchpointId] : [])).toEqual(['old-parent', 'old-parent']);
+    expect(before.offerFinancialIntents.some(intent => intent.offerId === 'orphan-offer')).toBe(false);
   });
 });
