@@ -455,7 +455,7 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(edit.querySelector('.business-structure-edit-affordance')).toHaveAttribute('aria-hidden', 'true');
   });
 
-  it('keeps a safe Touchpoint URL and indicator in one external-link surface beside its edit pencil', async () => {
+  it('keeps a safe Touchpoint URL in one external-link surface beside its edit pencil', async () => {
     const user = userEvent.setup();
     const structure = within(renderTouchpointInspector(structureDocument()).getByRole('region', { name: 'Business structure' }));
     const edit = structure.getByRole('button', { name: 'Edit web address, https://example.com/checkout' });
@@ -465,13 +465,13 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(edit.querySelector('.business-structure-edit-affordance')).toHaveTextContent('✎');
     expect(externalLink).toHaveAttribute('rel', 'noreferrer');
     expect(externalLink).toHaveTextContent('https://example.com/checkout');
-    expect(externalLink).toHaveTextContent('↗');
-    expect(externalLink.querySelector('.business-structure-external-indicator')).toHaveAttribute('aria-hidden', 'true');
+    expect(externalLink).not.toHaveTextContent('↗');
+    expect(externalLink.parentElement?.querySelector('.business-structure-external-indicator')).not.toBeInTheDocument();
     expect(structure.queryAllByRole('link')).toHaveLength(1);
-    expect(structure.queryByRole('link', { name: '↗' })).not.toBeInTheDocument();
     expect(externalLink).not.toHaveClass('inspector-entity-navigation');
     expect(edit).not.toContainElement(externalLink);
     expect(externalLink.closest('button')).toBeNull();
+    expect(externalLink).not.toHaveTextContent('✎');
 
     externalLink.addEventListener('click', event => event.preventDefault(), { once: true });
     await user.click(externalLink);
@@ -709,7 +709,9 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(region.getByText('Add URL')).toBeInTheDocument();
     expect(region.queryByRole('link')).not.toBeInTheDocument();
     expect(region.queryByText('↗')).not.toBeInTheDocument();
-    await user.click(region.getByRole('button', { name: 'Edit web address' }));
+    const emptyEdit = region.getByRole('button', { name: 'Edit web address' });
+    expect(emptyEdit.querySelector('.business-structure-edit-affordance')).toHaveTextContent('✎');
+    await user.click(emptyEdit);
     expect(region.getByRole('textbox', { name: 'Edit web address' })).toHaveValue('');
 
     cleanup();
@@ -721,7 +723,9 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(region.getByText('javascript:alert(1)')).toBeInTheDocument();
     expect(region.queryByRole('link')).not.toBeInTheDocument();
     expect(region.queryByText('↗')).not.toBeInTheDocument();
-    await user.click(region.getByRole('button', { name: 'Edit web address, javascript:alert(1)' }));
+    const unsafeEdit = region.getByRole('button', { name: 'Edit web address, javascript:alert(1)' });
+    expect(unsafeEdit.querySelector('.business-structure-edit-affordance')).toHaveTextContent('✎');
+    await user.click(unsafeEdit);
     expect(region.getByRole('textbox', { name: 'Edit web address' })).toHaveValue('javascript:alert(1)');
   });
 
@@ -1616,7 +1620,9 @@ describe('map-first authoring interactions', () => {
 it('renders an accessible peripheral link only for a safe Touchpoint URL', () => {
   const layout = { diameter: 96, titleFontSize: 14, kindFontSize: 12, contentWidth: 65, compactTitle: false };
   const { rerender } = render(<MapNode data={{ title: 'Front Page', kindLabel: 'Touchpoint', url: '/front', layout }} />);
-  expect(screen.getByRole('link', { name: 'Open Front Page' })).toHaveClass('node-link', 'nodrag', 'nopan');
+  const mapLink = screen.getByRole('link', { name: 'Open Front Page' });
+  expect(mapLink).toHaveClass('node-link', 'nodrag', 'nopan');
+  expect(mapLink).toHaveTextContent('↗');
   rerender(<MapNode data={{ title: 'Unsafe', kindLabel: 'Touchpoint', url: 'javascript:alert(1)', layout }} />);
   expect(screen.queryByRole('link')).not.toBeInTheDocument();
 });

@@ -67,12 +67,11 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .business-structure-links { display: flex; flex-wrap: wrap; gap: .25rem .8rem; margin: 0; padding: 0; list-style: none; }
 .business-structure-links button, .inspector-entity-navigation { min-width: 0; padding: .15rem 0; border: 0; background: transparent; color: var(--color-accent); text-align: left; text-decoration: underline; text-underline-offset: .18em; overflow-wrap: anywhere; }
 .business-structure-empty { color: rgba(255,255,255,.5) !important; font-style: italic; }
-.business-structure-editable-value { display: flex; align-items: baseline; gap: .35rem; min-width: 0; }
+.business-structure-editable-value { display: flex; align-items: baseline; gap: .45rem; min-width: 0; }
 .business-structure-url .business-structure-editable-value > span { min-width: 0; overflow-wrap: anywhere; }
-.business-structure-external-link { display: inline-flex; min-width: 0; align-items: baseline; gap: .3rem; color: var(--color-accent); overflow-wrap: anywhere; }
-.business-structure-external-link > span:first-child { min-width: 0; overflow-wrap: anywhere; }
-.business-structure-external-indicator { flex: 0 0 auto; font-size: .8rem; }
-.business-structure-external-link:focus-visible { outline: 1px solid var(--color-primary); outline-offset: 2px; }
+.business-structure-external-link { min-width: 0; color: rgba(255,255,255,.9); text-decoration: none; overflow-wrap: anywhere; }
+.business-structure-external-link:hover { text-decoration: underline; text-underline-offset: .18em; }
+.business-structure-external-link:focus-visible { outline: 1px solid var(--color-primary); outline-offset: 2px; text-decoration: underline; text-underline-offset: .18em; }
 .business-structure-edit-value { display: inline-flex; align-items: baseline; gap: .35rem; max-width: 100%; min-width: 0; padding: .1rem .2rem; border: 0; background: transparent; color: rgba(255,255,255,.9); text-align: left; overflow-wrap: anywhere; }
 .business-structure-edit-value > span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .business-structure-edit-affordance { flex: 0 0 auto; color: rgba(255,255,255,.46); font-size: .78rem; }

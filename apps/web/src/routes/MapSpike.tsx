@@ -1909,7 +1909,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               const storedUrl = structure.touchpoint.url;
               const destination = safeUrl(storedUrl);
               return <div className="business-structure-editable-value">
-                {destination ? <a className="business-structure-external-link" href={destination} target="_blank" rel="noreferrer"><span>{storedUrl}</span><span className="business-structure-external-indicator" aria-hidden="true">↗</span></a> : <span className={storedUrl ? undefined : 'business-structure-edit-empty'}>{storedUrl ?? 'Add URL'}</span>}
+                {destination ? <a className="business-structure-external-link" href={destination} target="_blank" rel="noreferrer">{storedUrl}</a> : <span className={storedUrl ? undefined : 'business-structure-edit-empty'}>{storedUrl ?? 'Add URL'}</span>}
                 <button data-touchpoint-editor-affordance type="button" className="business-structure-edit-relations" onClick={() => { setOffersPicker(null); setParentPicker(null); setConnectionPicker(null); setBusinessInlineEdit({ property: 'url', value: storedUrl ?? '' }); }} aria-label={`Edit web address${storedUrl ? `, ${storedUrl}` : ''}`}><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button>
               </div>;
             })()}</div>
