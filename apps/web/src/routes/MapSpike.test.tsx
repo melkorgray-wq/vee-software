@@ -457,9 +457,10 @@ describe('Touchpoint Business structure Inspector', () => {
 
   it('keeps a safe Touchpoint URL in one external-link surface beside its edit pencil', async () => {
     const user = userEvent.setup();
-    const structure = within(renderTouchpointInspector(structureDocument()).getByRole('region', { name: 'Business structure' }));
+    const inspector = renderTouchpointInspector(structureDocument());
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
     const edit = structure.getByRole('button', { name: 'Edit web address, https://example.com/checkout' });
-    const externalLink = structure.getByRole('link', { name: 'https://example.com/checkout' });
+    const externalLink = inspector.getByRole('link', { name: 'https://example.com/checkout' });
     expect(externalLink).toHaveAttribute('href', 'https://example.com/checkout');
     expect(externalLink).toHaveAttribute('target', '_blank');
     expect(edit.querySelector('.business-structure-edit-affordance')).toHaveTextContent('✎');
@@ -467,7 +468,9 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(externalLink).toHaveTextContent('https://example.com/checkout');
     expect(externalLink).not.toHaveTextContent('↗');
     expect(externalLink.parentElement?.querySelector('.business-structure-external-indicator')).not.toBeInTheDocument();
-    expect(structure.queryAllByRole('link')).toHaveLength(1);
+    expect(externalLink.closest('[role="tabpanel"]')?.querySelectorAll('a[href="https://example.com/checkout"]')).toHaveLength(1);
+    expect(inspector.queryByRole('link', { name: 'Open Checkout' })).not.toBeInTheDocument();
+    expect(inspector.queryByText('Open Checkout')).not.toBeInTheDocument();
     expect(externalLink).not.toHaveClass('inspector-entity-navigation');
     expect(edit).not.toContainElement(externalLink);
     expect(externalLink.closest('button')).toBeNull();
@@ -475,7 +478,7 @@ describe('Touchpoint Business structure Inspector', () => {
 
     externalLink.addEventListener('click', event => event.preventDefault(), { once: true });
     await user.click(externalLink);
-    expect(structure.queryByRole('textbox', { name: 'Edit web address' })).not.toBeInTheDocument();
+    expect(inspector.queryByRole('textbox', { name: 'Edit web address' })).not.toBeInTheDocument();
     await user.click(edit);
     expect(structure.getByRole('textbox', { name: 'Edit web address' })).toHaveValue('https://example.com/checkout');
   });
