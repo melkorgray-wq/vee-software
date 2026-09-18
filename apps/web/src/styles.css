@@ -92,6 +92,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .connection-picker { border: 1px solid var(--border-subtle); border-radius: .5rem; margin: .75rem 0; padding: .75rem; }
 .touchpoint-client-scope { display: grid; gap: .65rem; min-width: 0; margin: .25rem 0 0; padding: 1rem 0 0; border: 0; border-top: 1px solid var(--border-subtle); background: transparent; }
 .touchpoint-client-scope-heading { display: flex; align-items: center; justify-content: flex-start; gap: .3rem; padding-bottom: .35rem; border-bottom: 1px solid var(--border-subtle); }
+.touchpoint-client-scope.is-editing .touchpoint-client-scope-heading { justify-content: space-between; }
 .touchpoint-client-scope-heading > h4 { margin: 0; color: rgba(255,255,255,.72); font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; }
 .touchpoint-client-scope-heading > button { flex: 0 0 auto; padding: .1rem .25rem; }
 .inspector-secondary-action { border: 1px solid var(--border-soft); border-radius: .25rem; background: rgba(255,255,255,.06); color: rgba(255,255,255,.9); font-size: .75rem; line-height: 1.2; }
@@ -104,8 +105,9 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .intent-semantic-leaf > button { justify-self: start; max-width: 100%; padding: .15rem 0; border: 0; background: transparent; color: var(--color-accent); text-align: left; overflow-wrap: anywhere; }
 .intent-path-variants { display: grid; gap: .1rem; margin-left: .25rem; padding-left: .55rem; border-left: 1px dashed var(--border-soft); }
 .intent-path-row { min-width: 0; }
-.intent-source-list { display: grid; gap: .2rem; }
-.intent-source-disclosure { display: grid; min-width: 0; border-bottom: 1px solid var(--border-subtle); }
+.intent-source-list { display: grid; gap: 0; }
+.intent-source-list > .intent-source-disclosure { display: grid; min-width: 0; margin: 0; padding: 0; border: 0; border-bottom: 1px solid var(--border-subtle); background: transparent; }
+.intent-source-list > .intent-source-disclosure:last-child { border-bottom: 0; }
 .intent-source-toggle { display: flex; align-items: center; gap: .4rem; width: 100%; padding: .5rem .1rem; border: 0; background: transparent; color: var(--color-foreground); text-align: left; }
 .intent-source-toggle > span { width: .8rem; color: rgba(255,255,255,.58); }
 .intent-source-dendrite { display: grid; gap: .55rem; padding: .2rem 0 .7rem 1.2rem; }
@@ -144,7 +146,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .touchpoint-client-financial .contributor-attribution > button:hover { background: rgba(255,255,255,.08); color: var(--color-foreground); }
 .touchpoint-client-job .contributor-attribution > button:focus-visible,
 .touchpoint-client-financial .contributor-attribution > button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
-.global-intent-discovery { display: grid; gap: .45rem; padding: 0 0 .45rem; border-bottom: 1px solid var(--border-subtle); }
+.touchpoint-client-scope .global-intent-discovery { display: grid; gap: .45rem; margin: 0; padding: 0 0 .45rem; border: 0; border-bottom: 1px solid var(--border-subtle); background: transparent; }
 .global-intent-results { display: grid; gap: .35rem; max-height: 17.5rem; margin: .2rem 0; overflow: auto; }
 .kind-shortcut-results { display: flex; flex-wrap: wrap; gap: .35rem; }
 .kind-shortcut-results > button { padding: .3rem .45rem; font-size: .82rem; }

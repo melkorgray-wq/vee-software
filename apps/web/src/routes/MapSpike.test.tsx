@@ -1709,6 +1709,35 @@ describe('searchable Touchpoint connection picker', () => {
     expect(heading.nextElementSibling).toBe(pencil);
   });
 
+  it('keeps Client scope authoring as discovery followed by semantic source disclosures', async () => {
+    const document = touchpointInspectorDocument();
+    document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
+    document.offerJobSelections.push({ id: 'offer-selection', offerId: 'offer-a', productJobIntentId: 'intent' });
+    const user = userEvent.setup();
+    const inspector = renderTouchpointInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
+    const scope = inspector.getByRole('region', { name: 'Client scope' });
+
+    expect(scope.querySelectorAll('.global-intent-discovery')).toHaveLength(1);
+    const sourceList = scope.querySelector<HTMLElement>('.intent-source-list');
+    expect(sourceList).toBeInTheDocument();
+    const sources = sourceList!.querySelectorAll<HTMLElement>('.intent-source-disclosure');
+    expect(sources.length).toBeGreaterThan(0);
+    sources.forEach(source => {
+      expect(source.parentElement).toBe(sourceList);
+      expect(source.tagName).toBe('SECTION');
+    });
+
+    const toggle = sources[0]!.querySelector<HTMLButtonElement>('.intent-source-toggle');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle).toHaveAttribute('aria-controls');
+    await user.click(toggle!);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const disclosureId = toggle!.getAttribute('aria-controls')!;
+    expect(scope.ownerDocument.getElementById(disclosureId)).toHaveClass('intent-source-dendrite');
+    expect(within(scope).queryByRole('button', { name: /done|save|apply/i })).not.toBeInTheDocument();
+  });
+
   it('uses a dismiss control without presenting Client scope as a completion step', async () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector();
     const scope = inspector.getByRole('region', { name: 'Client scope' });
