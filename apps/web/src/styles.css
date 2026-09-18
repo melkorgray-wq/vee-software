@@ -256,6 +256,9 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .inspector-relation-row-radio .inspector-relation-indicator { border-radius: 50%; }
 .inspector-relation-row-checkbox .inspector-relation-indicator { border-radius: .15rem; }
 .inspector-relation-row > input:checked + .inspector-relation-indicator { border-color: var(--color-primary); background: var(--color-primary); box-shadow: inset 0 0 0 .18rem var(--surface-solid-1); }
+.children-relation-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .35rem; }
+.children-relation-row small { display: block; color: rgba(255,255,255,.58); font-size: .7rem; }
+.inspector-relation-editor h6 { margin: .3rem 0 0; color: rgba(255,255,255,.65); font-size: .7rem; letter-spacing: .04em; text-transform: uppercase; }
 .touchpoint-resistance { display: grid; gap: .45rem; padding: .8rem; border: 1px solid var(--border-subtle); border-radius: .4rem; background: var(--surface-1); }
 .touchpoint-resistance h4, .touchpoint-resistance p { margin: 0; }
 .touchpoint-resistance ul { display: grid; gap: .45rem; margin: 0; padding: 0; list-style: none; }

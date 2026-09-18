@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, removeProductJobIntent, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, createEmptyMapDocument, duplicateEntity, movePlacement, updateEntity, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct, planTouchpointIntentPathChange, commitTouchpointIntentPathPlan, commitTouchpointParent } from './index';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, removeProductJobIntent, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, createEmptyMapDocument, duplicateEntity, movePlacement, updateEntity, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct, planTouchpointIntentPathChange, commitTouchpointIntentPathPlan, commitTouchpointParent, planTouchpointStructuralChange } from './index';
 
 function completed(result: ReturnType<typeof authorTouchpointIntentBottomUp>) { if (result.status !== 'complete') throw new Error(`Expected complete, got ${result.status}`); return result.document; }
 
@@ -765,5 +765,35 @@ describe('Touchpoint local Job path subset planning', () => {
     const next = commitTouchpointIntentPathPlan(before, plan);
     expect(next.touchpointJobSelections).toEqual([{ id: 'touch-selection', touchpointId: 'touch', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-b'] }]);
     expect(next.productJobIntents).toEqual(snapshot.productJobIntents); expect(next.offerJobSelections).toEqual(snapshot.offerJobSelections);
+  });
+});
+
+describe('Touchpoint structural subtree planning', () => {
+  it('detaches one root without changing its subtree, semantic records, entity, or placement', () => {
+    let before = touchpoint(); before = touchpoint(before, 'child', 'touch'); before = touchpoint(before, 'grandchild', 'child');
+    before.touchpointJobSelections.push({ id: 'local', touchpointId: 'child', offerId: 'offer', productJobIntentId: 'missing', addressedDesiredOutcomeIds: [] });
+    const snapshot = structuredClone(before);
+    const result = planTouchpointStructuralChange(before, { command: { kind: 'detach', childTouchpointIds: ['child'] }, newId: () => 'unused' });
+    expect(result.status).toBe('complete');
+    if (result.status !== 'complete') return;
+    expect(result.document.relationships.some(relation => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === 'child')).toBe(false);
+    expect(result.document.relationships).toContainEqual({ id: 'contains-grandchild', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'child', childTouchpointId: 'grandchild' });
+    expect(result.document.entities).toEqual(before.entities); expect(result.document.placements).toEqual(before.placements); expect(result.document.touchpointJobSelections).toEqual(before.touchpointJobSelections);
+    expect(before).toEqual(snapshot);
+  });
+
+  it('detach all is one immutable commit over the source snapshot', () => {
+    let before = touchpoint(); before = touchpoint(before, 'a', 'touch'); before = touchpoint(before, 'b', 'touch'); before = touchpoint(before, 'nested', 'a');
+    const result = planTouchpointStructuralChange(before, { command: { kind: 'detach', childTouchpointIds: ['a', 'b'] }, newId: () => 'unused' });
+    expect(result.status).toBe('complete');
+    if (result.status !== 'complete') return;
+    expect(result.document.relationships.filter(relation => relation.kind === 'touchpoint_contains_touchpoint')).toEqual([{ id: 'contains-nested', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'a', childTouchpointId: 'nested' }]);
+  });
+
+  it('rejects attaching an already-parented root and a cycle without mutation', () => {
+    let before = touchpoint(); before = touchpoint(before, 'child', 'touch'); before = touchpoint(before, 'grandchild', 'child'); const snapshot = structuredClone(before);
+    expect(planTouchpointStructuralChange(before, { command: { kind: 'attach', childTouchpointIds: ['child'], targetParentTouchpointId: 'grandchild' }, newId: () => 'new' })).toMatchObject({ status: 'invalid', reason: 'already_parented' });
+    expect(planTouchpointStructuralChange(before, { command: { kind: 'reassign', childTouchpointIds: ['child'], targetParentTouchpointId: 'grandchild' }, newId: () => 'new' })).toMatchObject({ status: 'invalid', reason: 'structural_cycle' });
+    expect(before).toEqual(snapshot);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MapDocument } from '@vee/domain';
-import { deriveTouchpointBusinessStructure } from './touchpoint-business-structure';
+import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets } from './touchpoint-business-structure';
 
 function fixture(): MapDocument {
   return {
@@ -95,5 +95,22 @@ describe('Touchpoint Business structure read model', () => {
   it('ordering is deterministic', () => {
     const document = fixture(); document.entities.push({ id: 'z', kind: 'touchpoint', title: 'About', locatedInId: 'web' });
     expect(deriveTouchpointBusinessStructure(document, 'touch')!.otherTouchpointsInContainer.map(item => item.id)).toEqual(['other', 'z', 'parent']);
+  });
+});
+
+describe('Touchpoint Children candidate projection', () => {
+  it('separates standalone branches and leaves and excludes parented/cycle-forming Touchpoints', () => {
+    const document = fixture();
+    document.entities.push({ id: 'branch', kind: 'touchpoint', title: 'Branch' }, { id: 'branch-child', kind: 'touchpoint', title: 'Branch child' }, { id: 'leaf', kind: 'touchpoint', title: 'Leaf' });
+    document.relationships.push({ id: 'branch-edge', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'branch', childTouchpointId: 'branch-child' });
+    const result = deriveTouchpointChildrenCandidates(document, 'touch');
+    expect(result.currentChildren.map(item => item.id)).toEqual(['child']);
+    expect(result.standaloneBranches.map(item => [item.touchpoint.id, item.childCount])).toEqual([['branch', 1]]);
+    expect(result.standaloneLeaves.map(item => item.touchpoint.id)).toContain('leaf');
+    expect([...result.standaloneBranches, ...result.standaloneLeaves].map(item => item.touchpoint.id)).not.toContain('parent');
+  });
+
+  it('allows parented reassign targets while excluding moved descendants and current parent', () => {
+    expect(deriveTouchpointReassignTargets(fixture(), ['child'], 'touch').map(item => item.id)).toEqual(['other', 'parent']);
   });
 });

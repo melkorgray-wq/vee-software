@@ -485,8 +485,8 @@ describe('Touchpoint Business structure Inspector', () => {
 
   it('Offers, Located in, and URL expose one edit affordance each', () => {
     const structure = within(renderTouchpointInspector(structureDocument()).getByRole('region', { name: 'Business structure' }));
-    expect(structure.getAllByRole('button', { name: /^Edit / })).toHaveLength(4);
-    expect(structure.getAllByText('✎')).toHaveLength(4);
+    expect(structure.getAllByRole('button', { name: /^Edit / })).toHaveLength(5);
+    expect(structure.getAllByText('✎')).toHaveLength(5);
     for (const name of ['Subscription', 'Consulting', 'Front Page', 'FAQ']) {
       expect(structure.getAllByRole('button', { name }).every(button => !button.querySelector('.business-structure-edit-affordance'))).toBe(true);
     }

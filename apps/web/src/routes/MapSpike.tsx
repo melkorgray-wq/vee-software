@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useReducer, useRef, useState, type CSSPrope
 import { createPortal } from 'react-dom';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, planTouchpointIntentPathChange, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan } from '@vee/domain';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, disclosureOverlayPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction, type Point, type WorkspaceShortcutState } from '../map-interaction';
@@ -17,7 +17,7 @@ import { enterMoveMode, inactiveMoveMode, moveInMode, moveVectorForKey, type Mov
 import { Link } from '../router';
 import { commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, globalIntentDiscovery, touchpointClientScope, touchpointUpstreamSources, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft, type UpstreamLeaf } from './touchpoint-edit';
 import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
-import { deriveTouchpointBusinessStructure } from '../touchpoint-business-structure';
+import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets } from '../touchpoint-business-structure';
 
 const VIEW_ID = 'spike-view';
 export const RELATION_EDITOR_SEARCH_THRESHOLD = 7;
@@ -90,6 +90,11 @@ type ProductConfirmation =
   | { mode: 'impact'; owner: 'offer'; pending?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getOfferIntentChangeImpact> }
   | { mode: 'impact'; owner: 'touchpoint'; immediateCommit: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getTouchpointLinkedOfferChangeImpact> };
 type ClientScopeEditor = { mode: 'upstream' | 'global-search' | 'current-contributor-choice' | 'ancestor-contributor-choice' | 'invalid'; actionOrigin?: 'parent-source' | 'global-discovery'; query: string; kind?: ConnectionPickerKind | undefined; target?: { leaf: UpstreamLeaf } | undefined; currentContributorCandidateIds?: string[]; contributorOfferIds: string[]; ancestorContributingOfferIds: Record<string, string>; unresolved?: Extract<BottomUpTouchpointResult, { status: 'unresolved' | 'invalid' }> };
+type ChildrenEditor =
+  | { mode: 'list'; query: string; error?: string }
+  | { mode: 'reassign-one' | 'reassign-all'; query: string; childTouchpointIds: string[]; error?: string }
+  | { mode: 'resolve-contributor'; query: string; command: TouchpointStructuralCommand; choices: Record<string, string>; obligationKey: string; touchpointId: string; candidateOfferIds: string[]; returnMode: 'list' | 'reassign-one' | 'reassign-all'; error?: string }
+  | { mode: 'create-child'; query: string; title: string; offerId: string; error?: string };
 const draft = (kind: ProvisionalEntityKind = 'product'): EditDraft => ({
   title: '',
   side: isClientRootEntityKind(kind) || isContextualClientEntityKind(kind) || kind === 'repulsor' ? 'client' : 'business',
@@ -399,7 +404,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const [offersPicker, setOffersPicker] = useState<{ query: string } | null>(null);
   const [parentPicker, setParentPicker] = useState<{ query: string } | null>(null);
+  const [childrenEditor, setChildrenEditor] = useState<ChildrenEditor | null>(null);
   const relationEditorRef = useRef<HTMLDivElement>(null);
+  const childrenEditorRef = useRef<HTMLDivElement>(null);
+  const childrenEditorButtonRef = useRef<HTMLButtonElement>(null);
   const parentPickerButtonRef = useRef<HTMLButtonElement>(null);
   const offersPickerButtonRef = useRef<HTMLButtonElement>(null);
   const [businessInlineEdit, setBusinessInlineEdit] = useState<{ property: 'url'; value: string; error?: string } | { property: 'located-in'; query: string; error?: string } | null>(null);
@@ -473,6 +481,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setCreateDraft(draft());
     setOffersPicker(null);
     setParentPicker(null);
+    setChildrenEditor(null);
     setBusinessInlineEdit(null);
     setConnectionPicker(null);
     setExpandedClientSources({});
@@ -525,6 +534,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       setInspectorTitleEdit(null);
       setOffersPicker(null);
       setParentPicker(null);
+      setChildrenEditor(null);
       setConnectionPicker(null);
     }
   }, [selected, selectedId]);
@@ -596,17 +606,41 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setLocalRemoval(null);
   }
   function openOffersEditor() {
+    setChildrenEditor(null);
     closeRelationEditor('switch-editor');
     if (!closeClientScopeEditor('switch-editor')) return;
     setBusinessInlineEdit(null);
     setOffersPicker({ query: '' });
   }
   function openParentEditor() {
+    setChildrenEditor(null);
     closeRelationEditor('switch-editor');
     if (!closeClientScopeEditor('switch-editor')) return;
     setBusinessInlineEdit(null);
     setParentPicker({ query: '' });
   }
+  function closeChildrenEditor(reason: 'explicit' | 'pointer' | 'switch-editor') {
+    setChildrenEditor(null);
+    if (reason === 'explicit') requestAnimationFrame(() => childrenEditorButtonRef.current?.focus());
+  }
+  function openChildrenEditor() {
+    closeRelationEditor('switch-editor');
+    if (!closeClientScopeEditor('switch-editor')) return;
+    setBusinessInlineEdit(null);
+    setChildrenEditor({ mode: 'list', query: '' });
+  }
+  useEffect(() => {
+    if (!childrenEditor) return;
+    const pointer = (event: PointerEvent) => { if (event.target instanceof globalThis.Node && !childrenEditorRef.current?.contains(event.target)) closeChildrenEditor('pointer'); };
+    const keyboard = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      if (childrenEditor.mode === 'list') closeChildrenEditor('explicit');
+      else setChildrenEditor({ mode: 'list', query: '' });
+    };
+    globalThis.document.addEventListener('pointerdown', pointer); globalThis.document.addEventListener('keydown', keyboard);
+    return () => { globalThis.document.removeEventListener('pointerdown', pointer); globalThis.document.removeEventListener('keydown', keyboard); };
+  }, [childrenEditor]);
   useEffect(() => {
     if (!offersPicker && !parentPicker) return;
     const dismissOnPointerDown = (event: PointerEvent) => {
@@ -1668,7 +1702,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     };
     const renderDiscoveryMatches = (matches: typeof discovery.titleMatches) => <div className="global-intent-results">{matches.jobGroups.map(group => renderJobGroup(group))}{matches.directLeaves.map(leaf => <div className="intent-discovery-leaf" key={leaf.checkboxId}><small>{KIND_LABELS[leaf.entity.kind]}</small>{renderSelectableRow(leaf, { showContributorPaths: true })}</div>)}</div>;
     return <section ref={clientScopeEditorRef} className={`touchpoint-client-scope${editing ? ' is-editing' : ''}`} aria-labelledby="touchpoint-client-scope-heading" onKeyDown={event => { if (event.key !== 'Escape' || !connectionPicker || localRemoval) return; event.preventDefault(); event.stopPropagation(); if (['current-contributor-choice', 'ancestor-contributor-choice', 'invalid'].includes(connectionPicker.mode)) backFromResolver(); else closeClientScopeEditor('explicit'); }}>
-      <div className="touchpoint-client-scope-heading"><h4 id="touchpoint-client-scope-heading">Client scope</h4><button ref={connectionPickerButtonRef} data-touchpoint-editor-affordance type="button" className={editing ? 'inspector-secondary-action' : 'business-structure-edit-value'} aria-label={editing ? 'Close Client scope authoring' : 'Edit Client scope'} disabled={!offers.length} onClick={() => { if (editing) closeClientScopeEditor('explicit'); else { closeRelationEditor('switch-editor'); setBusinessInlineEdit(null); setConnectionPicker({ mode: 'upstream', query: '', kind: undefined, contributorOfferIds: [], ancestorContributingOfferIds: {} }); } }}>{editing ? 'Close' : <span className="business-structure-edit-affordance" aria-hidden="true">✎</span>}</button></div>
+      <div className="touchpoint-client-scope-heading"><h4 id="touchpoint-client-scope-heading">Client scope</h4><button ref={connectionPickerButtonRef} data-touchpoint-editor-affordance type="button" className={editing ? 'inspector-secondary-action' : 'business-structure-edit-value'} aria-label={editing ? 'Close Client scope authoring' : 'Edit Client scope'} disabled={!offers.length} onClick={() => { if (editing) closeClientScopeEditor('explicit'); else { closeRelationEditor('switch-editor'); closeChildrenEditor('switch-editor'); setBusinessInlineEdit(null); setConnectionPicker({ mode: 'upstream', query: '', kind: undefined, contributorOfferIds: [], ancestorContributingOfferIds: {} }); } }}>{editing ? 'Close' : <span className="business-structure-edit-affordance" aria-hidden="true">✎</span>}</button></div>
       {!editing && (scope.jobGroups.length || scope.financialLeaves.length) ? <div className="touchpoint-client-scope-content">
         {scope.jobGroups.map(group => <div className={`touchpoint-client-job ${group.desiredOutcomes.length ? 'has-outcomes' : 'direct-job'}`} key={group.job.id}>
           <small>{KIND_LABELS[group.job.kind]}</small>
@@ -1896,6 +1930,48 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const navigationList = (entities: { id: string; title: string }[]) => entities.length
       ? <ul className="business-structure-links">{entities.map(entity => <li key={entity.id}><button type="button" onClick={() => navigateInspector(entity.id)}>{entity.title}</button></li>)}</ul>
       : <p className="business-structure-empty" aria-label="None">—</p>;
+    const runChildrenCommand = (command: TouchpointStructuralCommand, choices: Record<string, string> = {}, returnMode: 'list' | 'reassign-one' | 'reassign-all' = 'list') => {
+      try {
+        const result = planTouchpointStructuralChange(documentRef.current, { command, ancestorContributorChoices: choices, newId: () => crypto.randomUUID() });
+        if (result.status === 'complete') {
+          let committed = result.document;
+          command.childTouchpointIds.forEach(id => { committed = reconsiderPlacementAfterRelationCommit(documentRef.current, committed, VIEW_ID, id); });
+          setDocument(committed); setChildrenEditor({ mode: 'list', query: '' });
+          if (result.affectedAncestorTouchpointIds.length) {
+            const titles = result.affectedAncestorTouchpointIds.map(id => committed.entities.find(entity => entity.id === id)?.title).filter(Boolean);
+            publishSuccess(titles.length === 1 ? `Client scope also updated on ${titles[0]}.` : `Client scope also updated on ${titles.length} ancestor Touchpoints.`);
+          }
+        } else if (result.status === 'unresolved') setChildrenEditor({ mode: 'resolve-contributor', query: '', command, choices, obligationKey: result.obligationKey, touchpointId: result.touchpointId, candidateOfferIds: result.candidateOfferIds, returnMode });
+        else setChildrenEditor(current => current ? { ...current, error: result.reason === 'no_ancestor_contributor_path' ? `No contributor path is available for ${entityTitle(documentRef.current, result.touchpointId)}.` : 'That structural change is not valid.' } : current);
+      } catch (error) { setChildrenEditor(current => current ? { ...current, error: error instanceof Error ? error.message : 'Children could not be updated.' } : current); }
+    };
+    const createChild = (title: string, offerId: string) => {
+      if (!title.trim() || !offerId) return;
+      try {
+        const entityId = crypto.randomUUID();
+        const placement = findRelatedPlacement(documentRef.current, VIEW_ID, layoutForEntity({ kind: 'touchpoint', title }), [structure.touchpoint.id], [{ sourceId: structure.touchpoint.id, targetId: entityId }]);
+        const next = addEntity(documentRef.current, { entityId, kind: 'touchpoint', title, viewId: VIEW_ID, x: placement.x, y: placement.y, linkedOfferIds: [offerId], relationshipIds: [crypto.randomUUID()], parentTouchpointId: structure.touchpoint.id, parentRelationshipId: crypto.randomUUID() });
+        setDocument(next); setChildrenEditor({ mode: 'list', query: '' });
+      } catch (error) { setChildrenEditor(current => current?.mode === 'create-child' ? { ...current, error: error instanceof Error ? error.message : 'Child could not be created.' } : current); }
+    };
+    const renderChildrenEditor = () => {
+      if (!childrenEditor) return null;
+      const candidateModel = deriveTouchpointChildrenCandidates(document, structure.touchpoint.id);
+      if (childrenEditor.mode === 'resolve-contributor') return <div ref={childrenEditorRef} className="inspector-relation-editor" aria-label="Children contributor resolver"><fieldset><legend>Choose contributor for {entityTitle(document, childrenEditor.touchpointId)}</legend>{childrenEditor.candidateOfferIds.map(offerId => <label className="inspector-relation-row inspector-relation-row-radio" key={offerId}><input type="radio" name="children-contributor" onChange={() => runChildrenCommand(childrenEditor.command, { ...childrenEditor.choices, [childrenEditor.obligationKey]: offerId }, childrenEditor.returnMode)} /><span className="inspector-relation-indicator" aria-hidden="true"/><span>{entityTitle(document, offerId)}</span></label>)}</fieldset><button type="button" onClick={() => setChildrenEditor({ mode: 'list', query: '' })}>Back</button></div>;
+      if (childrenEditor.mode === 'create-child') {
+        const offerIds = structure.offers.map(offer => offer.id); const chosen = offerIds.length === 1 ? offerIds[0]! : childrenEditor.offerId;
+        return <div ref={childrenEditorRef} className="inspector-relation-editor" aria-label="Create child"><div className="inspector-relation-editor-header"><strong>Create child</strong><button type="button" onClick={() => setChildrenEditor({ mode: 'list', query: '' })}>Back</button></div>{!offerIds.length ? <p role="alert">Link an Offer to this Touchpoint before creating a child.</p> : <><label>Title<input autoFocus value={childrenEditor.title} onChange={event => setChildrenEditor({ ...childrenEditor, title: event.target.value })} onBlur={event => createChild(event.currentTarget.value, chosen)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); createChild(event.currentTarget.value, chosen); } }} /></label>{offerIds.length > 1 && <fieldset><legend>Initial Offer</legend>{structure.offers.map(offer => <label className="inspector-relation-row inspector-relation-row-radio" key={offer.id}><input type="radio" name="child-offer" checked={childrenEditor.offerId === offer.id} onChange={() => { const next = { ...childrenEditor, offerId: offer.id }; setChildrenEditor(next); createChild(next.title, offer.id); }} /><span className="inspector-relation-indicator" aria-hidden="true"/><span>{offer.title}</span></label>)}</fieldset>}</>}{childrenEditor.error && <p role="alert">{childrenEditor.error}</p>}</div>;
+      }
+      if (childrenEditor.mode === 'reassign-one' || childrenEditor.mode === 'reassign-all') {
+        const targets = deriveTouchpointReassignTargets(document, childrenEditor.childTouchpointIds, structure.touchpoint.id).filter(item => !childrenEditor.query || item.title.toLocaleLowerCase().includes(childrenEditor.query.toLocaleLowerCase()));
+        return <div ref={childrenEditorRef} className="inspector-relation-editor" aria-label="Reassign children"><div className="inspector-relation-editor-header"><strong>Choose new parent</strong><button type="button" onClick={() => setChildrenEditor({ mode: 'list', query: '' })}>Back</button></div>{targets.length >= RELATION_EDITOR_SEARCH_THRESHOLD && <label>Search Touchpoints<input type="search" value={childrenEditor.query} onChange={event => setChildrenEditor({ ...childrenEditor, query: event.target.value })}/></label>}<div role="radiogroup">{targets.map(target => <label className="inspector-relation-row inspector-relation-row-radio" key={target.id}><input type="radio" name="children-target" onChange={() => runChildrenCommand({ kind: 'reassign', childTouchpointIds: childrenEditor.childTouchpointIds, targetParentTouchpointId: target.id }, {}, childrenEditor.mode)} /><span className="inspector-relation-indicator" aria-hidden="true"/><span>{target.title}</span></label>)}</div>{childrenEditor.error && <p role="alert">{childrenEditor.error}</p>}</div>;
+      }
+      const all = [...candidateModel.currentChildren, ...candidateModel.standaloneBranches.map(item => item.touchpoint), ...candidateModel.standaloneLeaves.map(item => item.touchpoint)];
+      const searchable = all.length >= RELATION_EDITOR_SEARCH_THRESHOLD; const query = childrenEditor.query.toLocaleLowerCase();
+      const row = (touchpoint: Extract<Entity, { kind: 'touchpoint' }>, checked: boolean, childCount = 0) => <div className="children-relation-row" key={touchpoint.id}><label className="inspector-relation-row inspector-relation-row-checkbox"><input type="checkbox" checked={checked} onChange={event => runChildrenCommand(event.target.checked ? { kind: 'attach', childTouchpointIds: [touchpoint.id], targetParentTouchpointId: structure.touchpoint.id } : { kind: 'detach', childTouchpointIds: [touchpoint.id] })}/><span className="inspector-relation-indicator" aria-hidden="true"/><span>{touchpoint.title}{childCount > 0 && <small>{childCount} {childCount === 1 ? 'child' : 'children'}</small>}</span></label>{checked && <button type="button" className="inspector-secondary-action" onClick={() => setChildrenEditor({ mode: 'reassign-one', query: '', childTouchpointIds: [touchpoint.id] })}>Reassign…</button>}</div>;
+      const filter = <T extends { touchpoint: { title: string } }>(items: T[]) => items.filter(item => !query || item.touchpoint.title.toLocaleLowerCase().includes(query));
+      return <div ref={childrenEditorRef} className="inspector-relation-editor" aria-label="Children editor"><div className="inspector-relation-editor-header"><strong>Children</strong><div className="inspector-relation-editor-actions"><button type="button" onClick={() => setChildrenEditor({ mode: 'create-child', query: '', title: '', offerId: '' })}>Create child</button>{candidateModel.currentChildren.length > 0 && <><button type="button" onClick={() => setChildrenEditor({ mode: 'reassign-all', query: '', childTouchpointIds: candidateModel.currentChildren.map(item => item.id) })}>Reassign all…</button><button type="button" onClick={() => runChildrenCommand({ kind: 'detach', childTouchpointIds: candidateModel.currentChildren.map(item => item.id) })}>Detach all</button></>}<button type="button" onClick={() => closeChildrenEditor('explicit')}>Close</button></div></div>{searchable && <label className="inspector-relation-editor-search">Search Touchpoints<input type="search" value={childrenEditor.query} onChange={event => setChildrenEditor({ ...childrenEditor, query: event.target.value })}/></label>}<h6>Current children</h6>{candidateModel.currentChildren.filter(item => !query || item.title.toLocaleLowerCase().includes(query)).map(item => row(item, true))}<h6>Available standalone branches</h6>{filter(candidateModel.standaloneBranches).map(item => row(item.touchpoint, false, item.childCount))}<h6>Available standalone leaves</h6>{filter(candidateModel.standaloneLeaves).map(item => row(item.touchpoint, false))}{childrenEditor.error && <p role="alert">{childrenEditor.error}</p>}</div>;
+    };
     return <section className="touchpoint-business-structure" aria-label="Business structure">
       <div className="business-structure-primary">
         <div className="business-structure-regions">
@@ -1935,13 +2011,13 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 </div>
                 {businessInlineEdit.error && <p className="error-message" role="alert">{businessInlineEdit.error}</p>}
               </div>;
-            })() : <button data-touchpoint-editor-affordance type="button" className={`business-structure-edit-value${structure.container ? '' : ' business-structure-edit-empty'}`} onClick={() => { closeRelationEditor('switch-editor'); if (!closeClientScopeEditor('switch-editor')) return; setBusinessInlineEdit({ property: 'located-in', query: structure.container?.title ?? '' }); }} aria-label={`Edit Located in${structure.container ? `, ${structure.container.title}` : ''}`}><span>{structure.container?.title ?? 'Add location'}</span><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button>}</div>
+            })() : <button data-touchpoint-editor-affordance type="button" className={`business-structure-edit-value${structure.container ? '' : ' business-structure-edit-empty'}`} onClick={() => { closeRelationEditor('switch-editor'); closeChildrenEditor('switch-editor'); if (!closeClientScopeEditor('switch-editor')) return; setBusinessInlineEdit({ property: 'located-in', query: structure.container?.title ?? '' }); }} aria-label={`Edit Located in${structure.container ? `, ${structure.container.title}` : ''}`}><span>{structure.container?.title ?? 'Add location'}</span><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button>}</div>
             <div className="business-structure-property business-structure-url" role="group" aria-label="Web address property"><h5>URL</h5>{businessInlineEdit?.property === 'url' ? <div className="business-structure-editor"><input autoFocus aria-label="Edit web address" value={businessInlineEdit.value} onChange={event => setBusinessInlineEdit({ property: 'url', value: event.target.value })} onBlur={event => commitInlineUrl(event.currentTarget.value)} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); commitInlineUrl(event.currentTarget.value); } else if (event.key === 'Escape') { event.preventDefault(); setBusinessInlineEdit(null); } }} />{businessInlineEdit.error && <p className="error-message" role="alert">{businessInlineEdit.error}</p>}</div> : (() => {
               const storedUrl = structure.touchpoint.url;
               const destination = safeUrl(storedUrl);
               return <div className="business-structure-editable-value">
                 {destination ? <a className="business-structure-external-link" href={destination} target="_blank" rel="noreferrer">{storedUrl}</a> : <span className={storedUrl ? undefined : 'business-structure-edit-empty'}>{storedUrl ?? 'Add URL'}</span>}
-                <button data-touchpoint-editor-affordance type="button" className="business-structure-edit-relations" onClick={() => { closeRelationEditor('switch-editor'); if (!closeClientScopeEditor('switch-editor')) return; setBusinessInlineEdit({ property: 'url', value: storedUrl ?? '' }); }} aria-label={`Edit web address${storedUrl ? `, ${storedUrl}` : ''}`}><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button>
+                <button data-touchpoint-editor-affordance type="button" className="business-structure-edit-relations" onClick={() => { closeRelationEditor('switch-editor'); closeChildrenEditor('switch-editor'); if (!closeClientScopeEditor('switch-editor')) return; setBusinessInlineEdit({ property: 'url', value: storedUrl ?? '' }); }} aria-label={`Edit web address${storedUrl ? `, ${storedUrl}` : ''}`}><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button>
               </div>;
             })()}</div>
           </section>
@@ -1966,7 +2042,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 <button ref={parentPickerButtonRef} data-touchpoint-editor-affordance type="button" className="business-structure-edit-relations" aria-label="Edit parent Touchpoint" onClick={openParentEditor}><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button>
               </div>}
             </div>
-            <div className="business-structure-property" role="group" aria-label="Children property"><h5>Children</h5>{navigationList(structure.children)}</div>
+            <div className="business-structure-property" role="group" aria-label="Children property"><h5>Children</h5>{childrenEditor ? renderChildrenEditor() : <div className="business-structure-parent-value">{navigationList(structure.children)}<button ref={childrenEditorButtonRef} data-touchpoint-editor-affordance type="button" className="business-structure-edit-relations" aria-label="Edit Children" onClick={openChildrenEditor}><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button></div>}</div>
           </section>
         </div>
       </div>
