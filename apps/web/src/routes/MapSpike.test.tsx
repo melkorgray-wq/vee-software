@@ -1835,6 +1835,26 @@ describe('searchable Touchpoint connection picker', () => {
     expect(inspector.queryByRole('region', { name: 'Connected' })).not.toBeInTheDocument();
   });
 
+  it('keeps seeded Job and Desired Outcome titles as separate read-state navigation buttons', async () => {
+    let document = touchpointInspectorDocument();
+    let id = 0;
+    document = applyTouchpointIntentDraft(document, { touchpointId: 'touch', draft: { jobLeaves: [{ jobId: 'job', semanticLeafId: 'do-a', desiredOutcomeId: 'do-a', contributorOfferIds: ['offer-a'] }], financialLeaves: [], pendingJobLeafIds: [], pendingFinancialLeafIds: [] }, newId: () => `read-navigation-${++id}` });
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(document);
+    const scope = inspector.getByRole('region', { name: 'Client scope' });
+
+    const job = within(scope).getByRole('button', { name: 'Make progress' });
+    const outcome = within(scope).getByRole('button', { name: 'Finish faster' });
+    expect(job).toHaveAttribute('type', 'button');
+    expect(outcome).toHaveAttribute('type', 'button');
+    expect(within(scope).queryByRole('checkbox')).not.toBeInTheDocument();
+
+    await user.click(job);
+    expect(inspector.getByRole('heading', { name: 'Make progress' })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    await user.click(within(inspector.getByRole('region', { name: 'Client scope' })).getByRole('button', { name: 'Finish faster' }));
+    expect(inspector.getByRole('heading', { name: 'Finish faster' })).toBeInTheDocument();
+  });
+
   it('searches by title and uses a temporary kind shortcut without a permanent select', async () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector();
     expect(inspector.queryByText('Reduce errors')).not.toBeInTheDocument();
@@ -1843,12 +1863,12 @@ describe('searchable Touchpoint connection picker', () => {
     expect(inspector.queryByLabelText('Entity kind')).not.toBeInTheDocument();
     await user.type(search, 'Core Functional Job');
     await user.click(inspector.getByRole('button', { name: 'Browse Core Functional Job' }));
-    expect(inspector.getByRole('button', { name: /Finish faster/ })).toBeInTheDocument();
-    expect(inspector.getByRole('button', { name: /Reduce errors/ })).toBeInTheDocument();
+    expect(inspector.getByRole('checkbox', { name: /Finish faster/ })).toBeInTheDocument();
+    expect(inspector.getByRole('checkbox', { name: /Reduce errors/ })).toBeInTheDocument();
     await user.click(inspector.getByRole('button', { name: /Back to results/ }));
     await user.clear(search); await user.type(search, 'errors');
-    expect(inspector.queryByRole('button', { name: /Finish faster/ })).not.toBeInTheDocument();
-    expect(inspector.getByRole('button', { name: /Reduce errors/ })).toBeInTheDocument();
+    expect(inspector.queryByRole('checkbox', { name: /Finish faster/ })).not.toBeInTheDocument();
+    expect(inspector.getByRole('checkbox', { name: /Reduce errors/ })).toBeInTheDocument();
   });
 
   it('omits contributor attribution for an unchecked discovery result', async () => {
@@ -2021,20 +2041,25 @@ describe('searchable Touchpoint connection picker', () => {
     expect(window.__VEE_DEV__!.dump().relationships).not.toContainEqual(expect.objectContaining({ id: 'mitigates-delay' }));
   });
 
-  it('navigates from a discovery title without toggling its adjacent checkbox or durable membership', async () => {
-    const document = touchpointInspectorDocument();
-    document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
-    document.offerJobSelections.push({ id: 'offer-selection', offerId: 'offer-a', productJobIntentId: 'intent' });
-    document.touchpointJobSelections.push({ id: 'touch-selection', touchpointId: 'touch', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] });
-    const user = userEvent.setup(); const inspector = renderTouchpointInspector(document);
+  it('uses the visible editing title as the checkbox surface without navigating', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector();
     await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
     await user.type(inspector.getByRole('searchbox', { name: 'Search Client intent' }), 'Finish faster');
-    const before = window.__VEE_DEV__!.dump();
+    const discovery = within(inspector.getByRole('region', { name: 'Find Client intent' }));
+    const checkbox = discovery.getByRole('checkbox', { name: 'Finish faster' });
+    const title = discovery.getByText('Finish faster', { selector: '.intent-selection-title' });
 
-    await user.click(within(inspector.getByRole('region', { name: 'Find Client intent' })).getByRole('button', { name: 'Finish faster' }));
+    expect(discovery.queryByRole('button', { name: 'Finish faster' })).not.toBeInTheDocument();
+    await user.click(title);
 
-    expect(inspector.getByRole('heading', { name: 'Finish faster' })).toBeInTheDocument();
-    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    expect(checkbox).toBeChecked();
+    expect(window.__VEE_DEV__!.dump().touchpointJobSelections).toEqual([expect.objectContaining({ addressedDesiredOutcomeIds: ['do-a'] })]);
+    expect(inspector.getByRole('heading', { name: 'Checkout' })).toBeInTheDocument();
+
+    await user.click(checkbox);
+    expect(checkbox).not.toBeChecked();
+    expect(window.__VEE_DEV__!.dump().touchpointJobSelections).toEqual([expect.objectContaining({ addressedDesiredOutcomeIds: [] })]);
+    expect(inspector.getByRole('heading', { name: 'Checkout' })).toBeInTheDocument();
   });
 
   it('selecting a DO commits its owner-aware relation under Client scope', async () => {
@@ -2043,7 +2068,7 @@ describe('searchable Touchpoint connection picker', () => {
     await user.type(inspector.getByRole('searchbox', { name: 'Search Client intent' }), 'Finish faster');
     await user.click(inspector.getByRole('checkbox', { name: 'Finish faster' }));
     await user.click(within(inspector.getByRole('region', { name: 'Client scope' })).getByRole('button', { name: 'Offer · Subscription' }));
-    expect(within(inspector.getByRole('region', { name: 'Client scope' })).getAllByRole('button', { name: 'Make progress' })).not.toHaveLength(0);
+    expect(within(inspector.getByRole('region', { name: 'Client scope' })).getAllByRole('checkbox', { name: 'Make progress' })).not.toHaveLength(0);
     for (const checkbox of within(inspector.getByRole('region', { name: 'Client scope' })).getAllByRole('checkbox', { name: 'Finish faster' })) expect(checkbox).toBeChecked();
     expect(inspector.queryByRole('region', { name: 'Connected' })).not.toBeInTheDocument();
     expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
@@ -2118,7 +2143,7 @@ describe('searchable Touchpoint connection picker', () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(); await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
     await user.type(inspector.getByRole('searchbox', { name: 'Search Client intent' }), 'Make progress');
     const discovery = inspector.getByRole('region', { name: 'Find Client intent' });
-    expect(within(discovery).getAllByRole('button', { name: 'Make progress' })).toHaveLength(1);
+    expect(within(discovery).queryByRole('button', { name: 'Make progress' })).not.toBeInTheDocument();
     const job = within(discovery).getByRole('checkbox', { name: 'Make progress' });
     await user.click(job);
     expect(job).toBeChecked();
@@ -2130,10 +2155,10 @@ describe('searchable Touchpoint connection picker', () => {
   it('selecting one DO activates its parent visually without selecting its sibling', async () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(); await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
     await user.type(inspector.getByRole('searchbox', { name: 'Search Client intent' }), 'Make progress');
-    const selected = inspector.getByRole('checkbox', { name: 'Finish faster' }); expect(inspector.getByRole('button', { name: 'Reduce errors' })).toBeInTheDocument(); await user.click(selected);
+    const selected = inspector.getByRole('checkbox', { name: 'Finish faster' }); expect(inspector.getByRole('checkbox', { name: 'Reduce errors' })).toBeInTheDocument(); await user.click(selected);
     const scope = inspector.getByRole('region', { name: 'Client scope' });
     await user.click(within(scope).getByRole('button', { name: 'Offer · Subscription' }));
-    expect(within(scope).getAllByRole('button', { name: 'Make progress' })).not.toHaveLength(0);
+    expect(within(scope).getAllByRole('checkbox', { name: 'Make progress' })).not.toHaveLength(0);
     const durable = scope.querySelector<HTMLElement>('.intent-source-list')!;
     expect(within(durable).getByRole('checkbox', { name: 'Finish faster' })).toBeChecked();
     expect(within(durable).queryByRole('checkbox', { name: 'Reduce errors' })).not.toBeInTheDocument();
