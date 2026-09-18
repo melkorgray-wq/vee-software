@@ -410,6 +410,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [localRemoval, setLocalRemoval] = useState<{ plans: TouchpointIntentPathPlan[]; mitigationRelationshipIds: string[]; cancelFocusId: string; commitFocusIds: string[] } | null>(null);
   const pendingLocalFocusIdsRef = useRef<string[]>([]);
   const connectionPickerButtonRef = useRef<HTMLButtonElement>(null);
+  const clientScopeEditorRef = useRef<HTMLElement>(null);
   const [offerIntentSectionIds, setOfferIntentSectionIds] = useState<Record<string, string[]>>({});
   const [offerSelectionMemory, setOfferSelectionMemory] = useState<Record<string, string[]>>({});
   const [productIntentSectionIds, setProductIntentSectionIds] = useState<string[]>([]);
@@ -581,15 +582,28 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setParentPicker(null);
     if (reason === 'explicit' || reason === 'commit') requestAnimationFrame(() => focusTarget?.current?.focus());
   }
+  type ClientScopeEditorCloseReason = 'explicit' | 'pointer' | 'switch-editor';
+  function closeClientScopeEditor(reason: ClientScopeEditorCloseReason) {
+    if (localRemoval) return false;
+    setConnectionPicker(null);
+    setExpandedClientSources({});
+    if (reason === 'explicit') requestAnimationFrame(() => connectionPickerButtonRef.current?.focus());
+    return true;
+  }
+  function cancelLocalRemoval() {
+    if (!localRemoval) return;
+    pendingLocalFocusIdsRef.current = [localRemoval.cancelFocusId];
+    setLocalRemoval(null);
+  }
   function openOffersEditor() {
     closeRelationEditor('switch-editor');
-    setConnectionPicker(null);
+    if (!closeClientScopeEditor('switch-editor')) return;
     setBusinessInlineEdit(null);
     setOffersPicker({ query: '' });
   }
   function openParentEditor() {
     closeRelationEditor('switch-editor');
-    setConnectionPicker(null);
+    if (!closeClientScopeEditor('switch-editor')) return;
     setBusinessInlineEdit(null);
     setParentPicker({ query: '' });
   }
@@ -612,6 +626,27 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       globalThis.document.removeEventListener('keydown', dismissOnEscape);
     };
   }, [offersPicker, parentPicker, productConfirmation]);
+  useEffect(() => {
+    if (!connectionPicker) return;
+    const dismissOnPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (localRemoval || !(target instanceof globalThis.Node) || clientScopeEditorRef.current?.contains(target)) return;
+      closeClientScopeEditor('pointer');
+    };
+    globalThis.document.addEventListener('pointerdown', dismissOnPointerDown);
+    return () => globalThis.document.removeEventListener('pointerdown', dismissOnPointerDown);
+  }, [connectionPicker, localRemoval]);
+  useEffect(() => {
+    if (!localRemoval) return;
+    const cancelOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      cancelLocalRemoval();
+    };
+    globalThis.document.addEventListener('keydown', cancelOnEscape);
+    return () => globalThis.document.removeEventListener('keydown', cancelOnEscape);
+  }, [localRemoval]);
   function draftFor(entity: Entity, source = document): EditDraft {
     const result = draft(entity.kind);
     result.title = entity.title;
@@ -1505,10 +1540,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       .filter(source => source.jobGroups.length || source.financialLeaves.length);
     const discovery = connectionPicker ? globalIntentDiscovery(document, { ...connectionPicker, touchpointId: selected.id }) : { jobGroups: [], directLeaves: [], titleMatches: { jobGroups: [], directLeaves: [] }, kindShortcutMatches: [] };
     const jobIdForLeaf = (leaf: UpstreamLeaf) => leaf.kind === 'desired-outcome' ? leaf.owningJobId : leaf.kind === 'job' ? leaf.semanticId : undefined;
-    const closePicker = () => {
-      setConnectionPicker(null);
-      requestAnimationFrame(() => connectionPickerButtonRef.current?.focus());
-    };
     const finishLocal = (nextDocument: MapDocument, focusIds: string[] = []) => {
       const next = reconsiderPlacementAfterRelationCommit(documentRef.current, nextDocument, VIEW_ID, selected.id);
       pendingLocalFocusIdsRef.current = focusIds;
@@ -1590,8 +1621,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       } catch (error) { publishError(error instanceof Error ? error.message : 'Client scope could not be changed.'); }
     };
     const editing = Boolean(connectionPicker);
-    const exitEdit = () => { setLocalRemoval(null); setExpandedClientSources({}); closePicker(); };
-    const resetTransientSearch = () => setConnectionPicker({ mode: 'upstream', query: '', kind: undefined, contributorOfferIds: [], ancestorContributingOfferIds: {} });
     const backFromResolver = () => {
       const focusId = connectionPicker?.target?.leaf.checkboxId;
       if (focusId) globalThis.document.getElementById(focusId)?.focus();
@@ -1638,8 +1667,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       </div>;
     };
     const renderDiscoveryMatches = (matches: typeof discovery.titleMatches) => <div className="global-intent-results">{matches.jobGroups.map(group => renderJobGroup(group))}{matches.directLeaves.map(leaf => <div className="intent-discovery-leaf" key={leaf.checkboxId}><small>{KIND_LABELS[leaf.entity.kind]}</small>{renderSelectableRow(leaf, { showContributorPaths: true })}</div>)}</div>;
-    return <section className={`touchpoint-client-scope${editing ? ' is-editing' : ''}`} aria-labelledby="touchpoint-client-scope-heading" onKeyDown={event => { if (event.key !== 'Escape' || !connectionPicker) return; event.preventDefault(); event.stopPropagation(); if (['current-contributor-choice', 'ancestor-contributor-choice', 'invalid'].includes(connectionPicker.mode)) backFromResolver(); else if (connectionPicker.mode !== 'upstream' || connectionPicker.query || connectionPicker.kind) resetTransientSearch(); else exitEdit(); }}>
-      <div className="touchpoint-client-scope-heading"><h4 id="touchpoint-client-scope-heading">Client scope</h4><button ref={connectionPickerButtonRef} data-touchpoint-editor-affordance type="button" className={editing ? 'inspector-secondary-action' : 'business-structure-edit-value'} aria-label={editing ? 'Close Client scope authoring' : 'Edit Client scope'} disabled={!offers.length} onClick={() => { if (editing) exitEdit(); else { setOffersPicker(null); setParentPicker(null); setBusinessInlineEdit(null); setConnectionPicker({ mode: 'upstream', query: '', kind: undefined, contributorOfferIds: [], ancestorContributingOfferIds: {} }); } }}>{editing ? 'Close' : <span className="business-structure-edit-affordance" aria-hidden="true">✎</span>}</button></div>
+    return <section ref={clientScopeEditorRef} className={`touchpoint-client-scope${editing ? ' is-editing' : ''}`} aria-labelledby="touchpoint-client-scope-heading" onKeyDown={event => { if (event.key !== 'Escape' || !connectionPicker || localRemoval) return; event.preventDefault(); event.stopPropagation(); if (['current-contributor-choice', 'ancestor-contributor-choice', 'invalid'].includes(connectionPicker.mode)) backFromResolver(); else closeClientScopeEditor('explicit'); }}>
+      <div className="touchpoint-client-scope-heading"><h4 id="touchpoint-client-scope-heading">Client scope</h4><button ref={connectionPickerButtonRef} data-touchpoint-editor-affordance type="button" className={editing ? 'inspector-secondary-action' : 'business-structure-edit-value'} aria-label={editing ? 'Close Client scope authoring' : 'Edit Client scope'} disabled={!offers.length} onClick={() => { if (editing) closeClientScopeEditor('explicit'); else { closeRelationEditor('switch-editor'); setBusinessInlineEdit(null); setConnectionPicker({ mode: 'upstream', query: '', kind: undefined, contributorOfferIds: [], ancestorContributingOfferIds: {} }); } }}>{editing ? 'Close' : <span className="business-structure-edit-affordance" aria-hidden="true">✎</span>}</button></div>
       {!editing && (scope.jobGroups.length || scope.financialLeaves.length) ? <div className="touchpoint-client-scope-content">
         {scope.jobGroups.map(group => <div className={`touchpoint-client-job ${group.desiredOutcomes.length ? 'has-outcomes' : 'direct-job'}`} key={group.job.id}>
           <small>{KIND_LABELS[group.job.kind]}</small>
@@ -1649,7 +1678,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         {scope.financialLeaves.map(leaf => <div className="touchpoint-client-financial" key={leaf.semanticLeafId}><small>{KIND_LABELS[leaf.entity.kind]}</small><button type="button" onClick={() => navigateInspector(leaf.entity.id)}>{leaf.entity.title}</button></div>)}
       </div> : !editing && <p className="touchpoint-client-scope-empty">No Client-side connections yet.</p>}
       {connectionPicker && <div className="touchpoint-client-scope-content inline-intent-editor">
-        <section className="global-intent-discovery" aria-label="Find Client intent"><label>Search Client intent<input type="search" value={connectionPicker.query} onChange={event => setConnectionPicker({ ...connectionPicker, mode: event.target.value ? 'global-search' : 'upstream', query: event.target.value, kind: undefined })} /></label>
+        <section className="global-intent-discovery" aria-label="Find Client intent"><label>Search Client intent<input autoFocus type="search" value={connectionPicker.query} onChange={event => setConnectionPicker({ ...connectionPicker, mode: event.target.value ? 'global-search' : 'upstream', query: event.target.value, kind: undefined })} /></label>
           {connectionPicker.kind ? <><div className="kind-shortcut-heading"><button type="button" className="text-action" onClick={() => setConnectionPicker({ ...connectionPicker, kind: undefined })}>Back to results for “{connectionPicker.query}”</button><strong>{KIND_LABELS[connectionPicker.kind]}</strong></div>{renderDiscoveryMatches({ jobGroups: discovery.jobGroups, directLeaves: discovery.directLeaves })}</> : connectionPicker.query && <><div className="kind-shortcut-results" aria-label="Kind shortcuts">{discovery.kindShortcutMatches.map(shortcut => <button type="button" key={shortcut.kind} onClick={() => setConnectionPicker({ ...connectionPicker, mode: 'global-search', kind: shortcut.kind })}>Browse {shortcut.label}</button>)}</div>{renderDiscoveryMatches(discovery.titleMatches)}</>}
         </section>
         <div className="intent-source-list">{sources.map(source => {
@@ -1658,7 +1687,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
           return <section className="intent-source-disclosure" key={`${source.sourceKind}:${source.source.id}`}><button type="button" className="intent-source-toggle" aria-expanded={expanded} aria-controls={disclosureId} onClick={() => setExpandedClientSources(current => ({ ...current, [disclosureId]: !expanded }))}><span aria-hidden="true">{expanded ? '▾' : '▸'}</span>{source.sourceKind === 'parent' ? 'Parent' : 'Offer'} · {source.source.title}</button>{expanded && <div id={disclosureId} className="intent-source-dendrite">{source.jobGroups.map(group => renderJobGroup(group, { provenance: source.sourceKind === 'parent' }))}{source.financialLeaves.map(leaf => <div className="touchpoint-client-financial" key={leaf.checkboxId}><small>{KIND_LABELS[leaf.entity.kind]}</small>{renderSelectableRow(leaf, { provenance: source.sourceKind === 'parent', showContributorPaths: source.sourceKind === 'parent' })}</div>)}</div>}</section>;
         })}{!sources.length && <p className="touchpoint-client-scope-empty">No upstream Client intent available.</p>}</div>
       </div>}
-      {localRemoval && <div role="dialog" aria-modal="true" aria-labelledby="local-removal-heading" className="confirmation-dialog"><h4 id="local-removal-heading">Remove this local Client path?</h4><p>This also removes {localRemoval.mitigationRelationshipIds.length} dependent mitigation record(s).</p>{localRemoval.mitigationRelationshipIds.map(id => <p key={id}><strong>{id}</strong></p>)}<div className="choice-row"><button type="button" className="danger" onClick={() => { const pending = localRemoval; setLocalRemoval(null); finishLocal(pending.plans.reduce((next, plan) => commitTouchpointIntentPathPlan(next, plan), documentRef.current), pending.commitFocusIds); }}>Remove</button><button type="button" onClick={() => { pendingLocalFocusIdsRef.current = [localRemoval.cancelFocusId]; setLocalRemoval(null); }}>Cancel</button></div></div>}
+      {localRemoval && <div role="dialog" aria-modal="true" aria-labelledby="local-removal-heading" className="confirmation-dialog" onKeyDown={event => { if (event.key !== 'Escape') return; event.preventDefault(); event.stopPropagation(); cancelLocalRemoval(); }}><h4 id="local-removal-heading">Remove this local Client path?</h4><p>This also removes {localRemoval.mitigationRelationshipIds.length} dependent mitigation record(s).</p>{localRemoval.mitigationRelationshipIds.map(id => <p key={id}><strong>{id}</strong></p>)}<div className="choice-row"><button type="button" className="danger" onClick={() => { const pending = localRemoval; setLocalRemoval(null); finishLocal(pending.plans.reduce((next, plan) => commitTouchpointIntentPathPlan(next, plan), documentRef.current), pending.commitFocusIds); }}>Remove</button><button type="button" onClick={cancelLocalRemoval}>Cancel</button></div></div>}
     </section>;
   }
   function semanticParentField(d: EditDraft, setter: (d: EditDraft) => void) {
@@ -1906,13 +1935,13 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 </div>
                 {businessInlineEdit.error && <p className="error-message" role="alert">{businessInlineEdit.error}</p>}
               </div>;
-            })() : <button data-touchpoint-editor-affordance type="button" className={`business-structure-edit-value${structure.container ? '' : ' business-structure-edit-empty'}`} onClick={() => { setOffersPicker(null); setParentPicker(null); setConnectionPicker(null); setBusinessInlineEdit({ property: 'located-in', query: structure.container?.title ?? '' }); }} aria-label={`Edit Located in${structure.container ? `, ${structure.container.title}` : ''}`}><span>{structure.container?.title ?? 'Add location'}</span><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button>}</div>
+            })() : <button data-touchpoint-editor-affordance type="button" className={`business-structure-edit-value${structure.container ? '' : ' business-structure-edit-empty'}`} onClick={() => { closeRelationEditor('switch-editor'); if (!closeClientScopeEditor('switch-editor')) return; setBusinessInlineEdit({ property: 'located-in', query: structure.container?.title ?? '' }); }} aria-label={`Edit Located in${structure.container ? `, ${structure.container.title}` : ''}`}><span>{structure.container?.title ?? 'Add location'}</span><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button>}</div>
             <div className="business-structure-property business-structure-url" role="group" aria-label="Web address property"><h5>URL</h5>{businessInlineEdit?.property === 'url' ? <div className="business-structure-editor"><input autoFocus aria-label="Edit web address" value={businessInlineEdit.value} onChange={event => setBusinessInlineEdit({ property: 'url', value: event.target.value })} onBlur={event => commitInlineUrl(event.currentTarget.value)} onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); commitInlineUrl(event.currentTarget.value); } else if (event.key === 'Escape') { event.preventDefault(); setBusinessInlineEdit(null); } }} />{businessInlineEdit.error && <p className="error-message" role="alert">{businessInlineEdit.error}</p>}</div> : (() => {
               const storedUrl = structure.touchpoint.url;
               const destination = safeUrl(storedUrl);
               return <div className="business-structure-editable-value">
                 {destination ? <a className="business-structure-external-link" href={destination} target="_blank" rel="noreferrer">{storedUrl}</a> : <span className={storedUrl ? undefined : 'business-structure-edit-empty'}>{storedUrl ?? 'Add URL'}</span>}
-                <button data-touchpoint-editor-affordance type="button" className="business-structure-edit-relations" onClick={() => { setOffersPicker(null); setParentPicker(null); setConnectionPicker(null); setBusinessInlineEdit({ property: 'url', value: storedUrl ?? '' }); }} aria-label={`Edit web address${storedUrl ? `, ${storedUrl}` : ''}`}><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button>
+                <button data-touchpoint-editor-affordance type="button" className="business-structure-edit-relations" onClick={() => { closeRelationEditor('switch-editor'); if (!closeClientScopeEditor('switch-editor')) return; setBusinessInlineEdit({ property: 'url', value: storedUrl ?? '' }); }} aria-label={`Edit web address${storedUrl ? `, ${storedUrl}` : ''}`}><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button>
               </div>;
             })()}</div>
           </section>
