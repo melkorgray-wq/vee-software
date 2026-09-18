@@ -325,6 +325,11 @@ describe('Touchpoint Business structure Inspector', () => {
     );
     return document;
   }
+  function oneOfferChildrenDocument() {
+    const document = structureDocument();
+    document.relationships = document.relationships.filter(relation => !(relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === 'touch' && relation.offerId === 'offer-b'));
+    return document;
+  }
 
   it('Touchpoint Inspector renders Business structure before the remaining legacy fields', () => {
     const inspector = renderTouchpointInspector(structureDocument());
@@ -485,8 +490,8 @@ describe('Touchpoint Business structure Inspector', () => {
 
   it('Offers, Located in, and URL expose one edit affordance each', () => {
     const structure = within(renderTouchpointInspector(structureDocument()).getByRole('region', { name: 'Business structure' }));
-    expect(structure.getAllByRole('button', { name: /^Edit / })).toHaveLength(4);
-    expect(structure.getAllByText('✎')).toHaveLength(4);
+    expect(structure.getAllByRole('button', { name: /^Edit / })).toHaveLength(5);
+    expect(structure.getAllByText('✎')).toHaveLength(5);
     for (const name of ['Subscription', 'Consulting', 'Front Page', 'FAQ']) {
       expect(structure.getAllByRole('button', { name }).every(button => !button.querySelector('.business-structure-edit-affordance'))).toBe(true);
     }
@@ -670,6 +675,94 @@ describe('Touchpoint Business structure Inspector', () => {
     }
     await user.click(within(children).getByRole('button', { name: 'Footer CTA' }));
     expect(inspector.getByRole('heading', { name: 'Footer CTA' })).toBeInTheDocument();
+  });
+
+  it.each(['Reassign…', 'Reassign all…'] as const)('keeps %s Search visible while its query reduces a large Parent candidate set', async action => {
+    const user = userEvent.setup(); const document = structureDocument();
+    for (let index = 0; index < RELATION_EDITOR_SEARCH_THRESHOLD; index += 1) {
+      document.entities.push({ id: `reassign-parent-${index}`, kind: 'touchpoint', title: index === 0 ? 'Needle Parent' : `Extra Parent ${index}` });
+      document.placements.push({ viewId: 'spike-view', entityId: `reassign-parent-${index}`, x: 1700 + index * 140, y: 0 });
+    }
+    const inspector = renderTouchpointInspector(document);
+    const children = within(inspector.getByRole('group', { name: 'Children property' }));
+    await user.click(children.getByRole('button', { name: 'Edit Children' }));
+    await user.click(children.getByRole('button', { name: action }));
+    const editor = within(children.getByLabelText('Reassign children'));
+    const search = editor.getByRole('searchbox', { name: 'Search Touchpoints' });
+    await user.type(search, 'Needle');
+    expect(editor.getByRole('searchbox', { name: 'Search Touchpoints' })).toBe(search);
+    expect(search).toHaveFocus();
+    expect(editor.getAllByRole('radio')).toHaveLength(1);
+    expect(editor.getByRole('radio', { name: 'Needle Parent' })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['Reassign…', 'Back'], ['Reassign…', 'Escape'], ['Reassign all…', 'Back'], ['Reassign all…', 'Escape'],
+  ] as const)('%s contributor resolution uses %s to return to Parent selection', async (action, exit) => {
+    const user = userEvent.setup(); const document = structureDocument();
+    document.relationships.push(
+      { id: 'child-offer', kind: 'offer_presented_at_touchpoint', offerId: 'offer-a', touchpointId: 'child' },
+      { id: 'other-second-offer', kind: 'offer_presented_at_touchpoint', offerId: 'offer-b', touchpointId: 'other' },
+    );
+    document.productJobIntents = [{ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: [] }];
+    document.offerJobSelections = [{ id: 'offer-job', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] }];
+    document.touchpointJobSelections = [{ id: 'child-job', touchpointId: 'child', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] }];
+    const inspector = renderTouchpointInspector(document);
+    const children = within(inspector.getByRole('group', { name: 'Children property' }));
+    await user.click(children.getByRole('button', { name: 'Edit Children' }));
+    await user.click(children.getByRole('button', { name: action }));
+    await user.click(within(children.getByLabelText('Reassign children')).getByRole('radio', { name: 'About' }));
+    const resolver = within(children.getByLabelText('Children contributor resolver'));
+    if (exit === 'Back') await user.click(resolver.getByRole('button', { name: 'Back' }));
+    else await user.keyboard('{Escape}');
+    const restored = within(children.getByLabelText('Reassign children'));
+    expect(restored.getByText('Choose new parent')).toBeInTheDocument();
+    expect(restored.getByRole('radio', { name: 'About' })).toBeInTheDocument();
+    expect(children.queryByLabelText('Children contributor resolver')).not.toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump().relationships).toContainEqual(expect.objectContaining({ kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'touch', childTouchpointId: 'child' }));
+  });
+
+  it.each(['Back', 'Escape', 'outside'] as const)('%s abandons a non-blank one-Offer child draft without creating an entity', async exit => {
+    const user = userEvent.setup(); const document = oneOfferChildrenDocument(); const initialEntityIds = document.entities.map(entity => entity.id);
+    const inspector = renderTouchpointInspector(document); const children = within(inspector.getByRole('group', { name: 'Children property' }));
+    await user.click(children.getByRole('button', { name: 'Edit Children' }));
+    await user.click(children.getByRole('button', { name: 'Create child' }));
+    await user.type(children.getByRole('textbox', { name: 'Title' }), 'Discarded child');
+    if (exit === 'Back') await user.click(within(children.getByLabelText('Create child')).getByRole('button', { name: 'Back' }));
+    else if (exit === 'Escape') await user.keyboard('{Escape}');
+    else await user.click(inspector.getByRole('heading', { name: 'Placement' }));
+    expect(window.__VEE_DEV__!.dump().entities.map(entity => entity.id)).toEqual(initialEntityIds);
+    expect(window.__VEE_DEV__!.dump().entities.some(entity => entity.title === 'Discarded child')).toBe(false);
+    expect(children.queryByLabelText('Create child')).not.toBeInTheDocument();
+    if (exit === 'outside') expect(children.queryByLabelText('Children editor')).not.toBeInTheDocument();
+    else expect(children.getByLabelText('Children editor')).toBeInTheDocument();
+  });
+
+  it('naturally completing a one-Offer title still auto-creates exactly one child', async () => {
+    const user = userEvent.setup(); const document = oneOfferChildrenDocument();
+    const inspector = renderTouchpointInspector(document); const children = within(inspector.getByRole('group', { name: 'Children property' }));
+    await user.click(children.getByRole('button', { name: 'Edit Children' }));
+    await user.click(children.getByRole('button', { name: 'Create child' }));
+    const title = children.getByRole('textbox', { name: 'Title' }); await user.type(title, 'Committed child'); fireEvent.blur(title);
+    const committed = window.__VEE_DEV__!.dump(); const created = committed.entities.filter(entity => entity.title === 'Committed child');
+    expect(created).toHaveLength(1);
+    expect(created[0]).toMatchObject({ kind: 'touchpoint' });
+    expect(committed.relationships).toContainEqual(expect.objectContaining({ kind: 'offer_presented_at_touchpoint', offerId: 'offer-a', touchpointId: created[0]!.id }));
+    expect(committed.relationships).toContainEqual(expect.objectContaining({ kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'touch', childTouchpointId: created[0]!.id }));
+    expect(committed.placements).toContainEqual(expect.objectContaining({ viewId: 'spike-view', entityId: created[0]!.id }));
+    expect(children.getByLabelText('Children editor')).toBeInTheDocument();
+    expect(children.getByRole('checkbox', { name: 'Committed child' })).toBeChecked();
+  });
+
+  it('choosing the final missing Offer auto-creates a titled child without a completion button', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument()); const children = within(inspector.getByRole('group', { name: 'Children property' }));
+    await user.click(children.getByRole('button', { name: 'Edit Children' })); await user.click(children.getByRole('button', { name: 'Create child' }));
+    await user.type(children.getByRole('textbox', { name: 'Title' }), 'Offer-completed child');
+    await user.click(children.getByRole('radio', { name: 'Consulting' }));
+    const committed = window.__VEE_DEV__!.dump(); const created = committed.entities.filter(entity => entity.title === 'Offer-completed child');
+    expect(created).toHaveLength(1);
+    expect(committed.relationships).toContainEqual(expect.objectContaining({ kind: 'offer_presented_at_touchpoint', offerId: 'offer-b', touchpointId: created[0]!.id }));
+    for (const name of ['Create', 'Save', 'Apply', 'Done']) expect(children.queryByRole('button', { name })).not.toBeInTheDocument();
   });
 
   it('URL Enter commits immediately without a generic Apply', async () => {

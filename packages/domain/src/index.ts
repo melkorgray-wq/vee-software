@@ -778,13 +778,15 @@ export function addEntity(document: MapDocument, input: AddEntityInput): MapDocu
   return { ...document, entities: [...document.entities, entity], relationships: [...document.relationships, ...added], placements: [...document.placements, { viewId: input.viewId, entityId: entity.id, x: input.x, y: input.y }] };
 }
 
-function createsCycle(document: MapDocument, parentId: string, childId: string): boolean {
+export function isTouchpointDescendant(document: MapDocument, ancestorId: string, candidateId: string): boolean {
   const children = new Map<string, string[]>();
   for (const r of document.relationships) if (r.kind === 'touchpoint_contains_touchpoint') children.set(r.parentTouchpointId, [...(children.get(r.parentTouchpointId) ?? []), r.childTouchpointId]);
-  const pending = [childId]; const seen = new Set<string>();
-  while (pending.length) { const id = pending.pop()!; if (id === parentId) return true; if (!seen.has(id)) { seen.add(id); pending.push(...(children.get(id) ?? [])); } }
+  const pending = [...(children.get(ancestorId) ?? [])]; const seen = new Set<string>();
+  while (pending.length) { const id = pending.pop()!; if (id === candidateId) return true; if (!seen.has(id)) { seen.add(id); pending.push(...(children.get(id) ?? [])); } }
   return false;
 }
+
+function createsCycle(document: MapDocument, parentId: string, childId: string): boolean { return parentId === childId || isTouchpointDescendant(document, childId, parentId); }
 
 /** Commits the optional structural parent without rewriting the Touchpoint or unrelated records. */
 export function commitTouchpointParent(document: MapDocument, input: { touchpointId: string; parentTouchpointId: string; relationshipId?: string }): MapDocument {
@@ -802,6 +804,89 @@ export function commitTouchpointParent(document: MapDocument, input: { touchpoin
   assertRelationshipIds(document, [relationshipId], current ? [current.id] : []);
   if (createsCycle({ ...document, relationships }, input.parentTouchpointId, input.touchpointId)) throw new DomainError('structural_cycle', 'Touchpoint containment cannot form a cycle.');
   return { ...document, relationships: [...relationships, { id: relationshipId, kind: 'touchpoint_contains_touchpoint', parentTouchpointId: input.parentTouchpointId, childTouchpointId: input.touchpointId }] };
+}
+
+export type TouchpointStructuralCommand =
+  | { kind: 'attach'; childTouchpointIds: [string]; targetParentTouchpointId: string }
+  | { kind: 'reassign'; childTouchpointIds: string[]; targetParentTouchpointId: string }
+  | { kind: 'detach'; childTouchpointIds: string[]; targetParentTouchpointId?: undefined };
+export type TouchpointStructuralPlanResult =
+  | { status: 'complete'; document: MapDocument; affectedAncestorTouchpointIds: string[] }
+  | { status: 'unresolved'; reason: 'ancestor_contributor_required'; obligationKey: string; touchpointId: string; sourceTouchpointId: string; candidateOfferIds: string[] }
+  | { status: 'invalid'; reason: 'no_ancestor_contributor_path' | 'structural_cycle' | 'already_parented' | 'current_parent'; touchpointId: string; obligationKey?: string };
+
+type StructuralObligation =
+  | { kind: 'job'; sourceTouchpointId: string; offerId: string; jobId: string; addressedDesiredOutcomeIds: string[] }
+  | { kind: 'financial'; sourceTouchpointId: string; offerId: string; financialDesiredOutcomeId: string };
+
+/** Plans one atomic containment edit and all additive semantic ancestry consequences. */
+export function planTouchpointStructuralChange(document: MapDocument, input: {
+  command: TouchpointStructuralCommand;
+  ancestorContributorChoices?: Record<string, string>;
+  newId: () => string;
+}): TouchpointStructuralPlanResult {
+  const moved = input.command.childTouchpointIds;
+  if (!moved.length) throw new DomainError('missing_moved_touchpoint', 'Choose at least one moved Touchpoint.');
+  unique(moved, 'duplicate_moved_touchpoint');
+  moved.forEach(id => entityOfKind(document, id, 'touchpoint', 'Moved Touchpoint'));
+  // Validate the complete source graph before deriving a batch snapshot.
+  document.entities.filter(entity => entity.kind === 'touchpoint').forEach(entity => resolveTouchpointStructuralAncestry(document, entity.id));
+  const currentParents = new Map(moved.map(id => [id, document.relationships.find((relation): relation is Extract<Relationship, { kind: 'touchpoint_contains_touchpoint' }> => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === id)]));
+  if (input.command.kind === 'attach' && currentParents.get(moved[0]!) ) return { status: 'invalid', reason: 'already_parented', touchpointId: moved[0]! };
+  const target = input.command.targetParentTouchpointId;
+  if (target) {
+    entityOfKind(document, target, 'touchpoint', 'Target Parent Touchpoint');
+    for (const id of moved) {
+      if (currentParents.get(id)?.parentTouchpointId === target) return { status: 'invalid', reason: 'current_parent', touchpointId: id };
+      if (createsCycle(document, target, id)) return { status: 'invalid', reason: 'structural_cycle', touchpointId: id };
+    }
+  }
+  let provisional = document;
+  for (const id of moved) provisional = commitTouchpointParent(provisional, { touchpointId: id, parentTouchpointId: target ?? '', relationshipId: input.newId() });
+  if (!target) return { status: 'complete', document: provisional, affectedAncestorTouchpointIds: [] };
+
+  const subtreeIds: string[] = [];
+  const visit = (id: string, path: Set<string>) => {
+    if (path.has(id)) throw new DomainError('structural_cycle', 'Touchpoint containment cannot form a cycle.');
+    subtreeIds.push(id);
+    const nextPath = new Set(path).add(id);
+    document.relationships.filter((relation): relation is Extract<Relationship, { kind: 'touchpoint_contains_touchpoint' }> => relation.kind === 'touchpoint_contains_touchpoint' && relation.parentTouchpointId === id)
+      .map(relation => relation.childTouchpointId).sort().forEach(childId => visit(childId, nextPath));
+  };
+  [...moved].sort().forEach(id => visit(id, new Set()));
+  const obligations: StructuralObligation[] = [];
+  for (const sourceTouchpointId of subtreeIds) {
+    for (const selection of document.touchpointJobSelections.filter(item => item.touchpointId === sourceTouchpointId).sort((a, b) => a.id.localeCompare(b.id))) {
+      const intent = document.productJobIntents.find(item => item.id === selection.productJobIntentId);
+      if (intent) obligations.push({ kind: 'job', sourceTouchpointId, offerId: selection.offerId, jobId: intent.jobId, addressedDesiredOutcomeIds: [...selection.addressedDesiredOutcomeIds].sort() });
+    }
+    for (const selection of document.touchpointFinancialSelections.filter(item => item.touchpointId === sourceTouchpointId).sort((a, b) => a.id.localeCompare(b.id))) obligations.push({ kind: 'financial', sourceTouchpointId, offerId: selection.offerId, financialDesiredOutcomeId: selection.financialDesiredOutcomeId });
+  }
+  const deduped = [...new Map(obligations.map(obligation => [obligation.kind === 'job' ? `j:${obligation.sourceTouchpointId}:${obligation.offerId}:${obligation.jobId}:${obligation.addressedDesiredOutcomeIds.join(',')}` : `f:${obligation.sourceTouchpointId}:${obligation.offerId}:${obligation.financialDesiredOutcomeId}`, obligation])).values()];
+  const originalSelectionKeys = new Set([...document.touchpointJobSelections.map(item => `j:${item.touchpointId}:${document.productJobIntents.find(intent => intent.id === item.productJobIntentId)?.jobId}:${item.addressedDesiredOutcomeIds.join(',')}`), ...document.touchpointFinancialSelections.map(item => `f:${item.touchpointId}:${item.financialDesiredOutcomeId}`)]);
+  let next = provisional;
+  for (const obligation of deduped) {
+    const semantic = obligation.kind === 'job' ? `${obligation.jobId}:${obligation.addressedDesiredOutcomeIds.join(',')}` : obligation.financialDesiredOutcomeId;
+    const choices: Record<string, string> = {};
+    for (const ancestorId of resolveTouchpointStructuralAncestry(next, obligation.sourceTouchpointId)) {
+      const key = `${obligation.kind}:${obligation.sourceTouchpointId}:${semantic}:${ancestorId}`;
+      if (input.ancestorContributorChoices?.[key]) choices[ancestorId] = input.ancestorContributorChoices[key]!;
+    }
+    const result = obligation.kind === 'job'
+      ? authorTouchpointIntentBottomUp(next, { touchpointId: obligation.sourceTouchpointId, contributingOfferIds: [obligation.offerId], ancestorContributingOfferIds: choices, jobId: obligation.jobId, addressedDesiredOutcomeIds: obligation.addressedDesiredOutcomeIds, newId: input.newId })
+      : authorTouchpointIntentBottomUp(next, { touchpointId: obligation.sourceTouchpointId, contributingOfferIds: [obligation.offerId], ancestorContributingOfferIds: choices, financialDesiredOutcomeId: obligation.financialDesiredOutcomeId, newId: input.newId });
+    if (result.status !== 'complete') {
+      const obligationKey = `${obligation.kind}:${obligation.sourceTouchpointId}:${semantic}:${result.touchpointId}`;
+      return result.status === 'unresolved'
+        ? { ...result, obligationKey, sourceTouchpointId: obligation.sourceTouchpointId }
+        : { ...result, obligationKey };
+    }
+    next = result.document;
+  }
+  const affected = new Set<string>();
+  next.touchpointJobSelections.forEach(item => { const key = `j:${item.touchpointId}:${next.productJobIntents.find(intent => intent.id === item.productJobIntentId)?.jobId}:${item.addressedDesiredOutcomeIds.join(',')}`; if (!originalSelectionKeys.has(key) && !subtreeIds.includes(item.touchpointId)) affected.add(item.touchpointId); });
+  next.touchpointFinancialSelections.forEach(item => { if (!originalSelectionKeys.has(`f:${item.touchpointId}:${item.financialDesiredOutcomeId}`) && !subtreeIds.includes(item.touchpointId)) affected.add(item.touchpointId); });
+  return { status: 'complete', document: next, affectedAncestorTouchpointIds: [...affected].sort() };
 }
 export type UpdateEntityInput = { entityId: string; title: string; locatedInId?: string; url?: string; linkedProductId?: string; linkedOfferIds?: string[]; relationshipIds?: string[]; parentTouchpointId?: string; parentEntityId?: string; parentRelationshipId?: string };
 export function updateEntity(document: MapDocument, input: UpdateEntityInput): MapDocument {

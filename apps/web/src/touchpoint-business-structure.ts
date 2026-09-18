@@ -1,4 +1,4 @@
-import type { Entity, MapDocument, TouchpointContainer } from '@vee/domain';
+import { isTouchpointDescendant, type Entity, type MapDocument, type TouchpointContainer } from '@vee/domain';
 
 type Product = Extract<Entity, { kind: 'product' }>;
 type Offer = Extract<Entity, { kind: 'offer' }>;
@@ -19,6 +19,28 @@ export interface TouchpointBusinessStructure {
   children: Touchpoint[];
   otherTouchpointsByOffer: { offer: Offer; touchpoints: Touchpoint[] }[];
   otherTouchpointsInContainer: Touchpoint[];
+}
+
+export interface TouchpointChildrenCandidates {
+  currentChildren: Touchpoint[];
+  standaloneBranches: { touchpoint: Touchpoint; childCount: number }[];
+  standaloneLeaves: { touchpoint: Touchpoint; childCount: number }[];
+}
+
+export function deriveTouchpointChildrenCandidates(document: MapDocument, parentTouchpointId: string): TouchpointChildrenCandidates {
+  const touchpoints = document.entities.filter((entity): entity is Touchpoint => entity.kind === 'touchpoint');
+  const parentByChild = new Map(document.relationships.flatMap(relation => relation.kind === 'touchpoint_contains_touchpoint' ? [[relation.childTouchpointId, relation.parentTouchpointId] as const] : []));
+  const childCount = (id: string) => document.relationships.filter(relation => relation.kind === 'touchpoint_contains_touchpoint' && relation.parentTouchpointId === id).length;
+  const currentChildren = touchpoints.filter(touchpoint => parentByChild.get(touchpoint.id) === parentTouchpointId).sort(byTitleThenId);
+  const available = touchpoints.filter(touchpoint => touchpoint.id !== parentTouchpointId && !parentByChild.has(touchpoint.id) && !isTouchpointDescendant(document, touchpoint.id, parentTouchpointId))
+    .map(touchpoint => ({ touchpoint, childCount: childCount(touchpoint.id) })).sort((left, right) => byTitleThenId(left.touchpoint, right.touchpoint));
+  return { currentChildren, standaloneBranches: available.filter(item => item.childCount > 0), standaloneLeaves: available.filter(item => item.childCount === 0) };
+}
+
+export function deriveTouchpointReassignTargets(document: MapDocument, movedTouchpointIds: string[], currentParentId: string): Touchpoint[] {
+  return document.entities.filter((entity): entity is Touchpoint => entity.kind === 'touchpoint')
+    .filter(entity => entity.id !== currentParentId && !movedTouchpointIds.includes(entity.id) && movedTouchpointIds.every(id => !isTouchpointDescendant(document, id, entity.id)))
+    .sort(byTitleThenId);
 }
 
 const byTitleThenId = <T extends { title: string; id: string }>(left: T, right: T) =>
