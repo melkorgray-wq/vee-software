@@ -1614,8 +1614,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       const contributorCount = contributorOfferIds.length;
       return <div className="intent-path-row" key={leaf.checkboxId}>
         <div className={`intent-checkbox${leaf.available ? '' : ' unavailable'}`}>
-          <input id={leaf.checkboxId} aria-label={leaf.entity.title} type="checkbox" disabled={!leaf.available} checked={leaf.checked} onChange={event => toggleLeaf(leaf, event.target.checked)} />
-          <button type="button" onClick={() => navigateInspector(leaf.entity.id)}>{leaf.entity.title}</button>
+          <label className="intent-selection-surface">
+            <input id={leaf.checkboxId} type="checkbox" disabled={!leaf.available} checked={leaf.checked} onChange={event => toggleLeaf(leaf, event.target.checked)} />
+            <span className="intent-selection-title">{leaf.entity.title}</span>
+          </label>
           {options?.provenance && <small>Parent provenance{leaf.provenanceOfferIds?.length ? ` · ${leaf.provenanceOfferIds.map(id => entityTitle(document, id)).join(', ')}` : ''}</small>}
           {!leaf.available && <small>No valid Child contributor path</small>}
         </div>
