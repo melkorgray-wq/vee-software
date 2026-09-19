@@ -95,10 +95,14 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .touchpoint-client-scope.is-editing .touchpoint-client-scope-heading { justify-content: space-between; }
 .touchpoint-client-scope-heading > h4 { margin: 0; color: rgba(255,255,255,.72); font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; }
 .touchpoint-client-scope-heading > .inspector-secondary-action { flex: 0 0 auto; padding: .1rem .25rem; }
-.inspector-property-heading-action { display: inline-flex; width: fit-content; max-width: 100%; min-width: 0; margin: 0; padding: .08rem .12rem; border: 0; border-radius: .15rem; background: transparent; color: inherit; font: inherit; line-height: inherit; letter-spacing: inherit; text-align: left; text-transform: inherit; overflow-wrap: anywhere; }
+.inspector-property-heading-action { position: relative; display: inline-flex; width: fit-content; max-width: 100%; min-width: 0; margin: 0; padding: .08rem .12rem; border: 0; border-radius: .15rem; background: transparent; color: inherit; font: inherit; line-height: inherit; letter-spacing: inherit; text-align: left; text-transform: inherit; overflow-wrap: anywhere; }
+.inspector-property-heading-action:not(:disabled) { cursor: pointer; }
 .inspector-property-heading-action:not(:disabled):hover { background: var(--surface-3); box-shadow: inset 0 -1px var(--color-accent); }
 .inspector-property-heading-action:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; box-shadow: inset 0 -1px var(--color-accent); }
 .inspector-property-heading-action:disabled { background: transparent; box-shadow: none; cursor: not-allowed; opacity: .5; }
+.inspector-property-heading-hint { position: absolute; z-index: 2; top: calc(100% + .3rem); left: 0; visibility: hidden; opacity: 0; padding: .18rem .35rem; border: 1px solid var(--border-subtle); border-radius: .2rem; background: var(--surface-solid-2); color: var(--color-foreground); font-size: .7rem; font-weight: 400; line-height: 1.2; letter-spacing: normal; text-transform: none; white-space: nowrap; pointer-events: none; }
+.inspector-property-heading-action:not(:disabled):hover > .inspector-property-heading-hint,
+.inspector-property-heading-action:not(:disabled):focus-visible > .inspector-property-heading-hint { visibility: visible; opacity: 1; }
 .inspector-secondary-action { border: 1px solid var(--border-soft); border-radius: .25rem; background: rgba(255,255,255,.06); color: rgba(255,255,255,.9); font-size: .75rem; line-height: 1.2; }
 .inspector-secondary-action:hover { background: rgba(255,255,255,.12); }
 .inspector-secondary-action:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }

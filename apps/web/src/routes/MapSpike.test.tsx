@@ -397,7 +397,7 @@ describe('Touchpoint Business structure Inspector', () => {
     for (const label of ['Offers', 'Located in', 'URL']) expect(within(placement).getByRole('heading', { name: label })).toBeInTheDocument();
     for (const label of ['Parent', 'Children']) expect(within(containment).getByRole('heading', { name: label })).toBeInTheDocument();
     const offers = within(within(placement).getByRole('group', { name: 'Offers property' }));
-    expect(offers.getAllByRole('button').map(button => button.textContent)).toEqual(['Offers', 'Consulting', 'Subscription']);
+    expect(offers.getAllByRole('button').map(button => button.firstChild?.textContent)).toEqual(['Offers', 'Consulting', 'Subscription']);
     expect(offers.getAllByRole('button', { name: 'Edit linked Offers' })).toHaveLength(1);
     expect(within(placement).getByRole('button', { name: 'Edit Located in, Website' })).toBeInTheDocument();
     expect(within(containment).getByRole('button', { name: 'Front Page' })).toBeInTheDocument();
@@ -502,6 +502,28 @@ describe('Touchpoint Business structure Inspector', () => {
     }
     for (const name of ['Subscription', 'Consulting', 'Front Page', 'FAQ']) {
       expect(structure.getAllByRole('button', { name }).every(button => !button.querySelector('.business-structure-edit-affordance'))).toBe(true);
+    }
+  });
+
+  it('uses one non-interactive edit hint in every read-state heading action', () => {
+    const inspector = renderTouchpointInspector(structureDocument());
+    const actions = [
+      inspector.getByRole('button', { name: 'Edit linked Offers' }),
+      inspector.getByRole('button', { name: 'Edit Children' }),
+      inspector.getByRole('button', { name: 'Edit Client scope' }),
+    ];
+
+    expect(inspector.queryByRole('button', { name: 'Click to edit' })).not.toBeInTheDocument();
+    for (const action of actions) {
+      expect(action).toHaveClass('inspector-property-heading-action');
+      expect(action).not.toHaveTextContent('✎');
+      expect(action).not.toHaveAccessibleName('Click to edit');
+      const hints = action.querySelectorAll('.inspector-property-heading-hint');
+      expect(hints).toHaveLength(1);
+      expect(hints[0]).toHaveTextContent('Click to edit');
+      expect(hints[0]).toHaveAttribute('aria-hidden', 'true');
+      expect(hints[0]).not.toHaveAttribute('role');
+      expect(hints[0]).not.toHaveAttribute('tabindex');
     }
   });
 
