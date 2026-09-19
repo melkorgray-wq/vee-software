@@ -240,6 +240,8 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .business-structure-edit-relations:focus-visible { outline-color: var(--color-primary); }
 .business-structure-parent-value { display: flex; align-items: baseline; gap: .35rem; min-width: 0; }
 .business-structure-parent-value .business-structure-links { min-width: 0; }
+.business-structure-property-heading { display: inline-flex; align-items: baseline; justify-content: flex-start; gap: .35rem; width: fit-content; max-width: 100%; }
+.business-structure-property-heading h5 { min-width: 0; }
 .inspector-relation-editor { display: grid; gap: .45rem; min-width: 0; padding: .45rem; border: 1px solid var(--border-subtle); border-radius: .4rem; background: var(--surface-1); }
 .inspector-relation-editor-header { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
 .inspector-relation-editor-header strong { font-size: .78rem; }
@@ -258,6 +260,11 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .inspector-relation-row > input:checked + .inspector-relation-indicator { border-color: var(--color-primary); background: var(--color-primary); box-shadow: inset 0 0 0 .18rem var(--surface-solid-1); }
 .children-relation-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .35rem; }
 .children-relation-row small { display: block; color: rgba(255,255,255,.58); font-size: .7rem; }
+.children-editor-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+.children-editor-heading { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; min-width: 0; }
+.children-current-heading { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .5rem; }
+.children-current-actions { display: inline-flex; flex-wrap: nowrap; align-items: center; gap: .35rem; }
+.children-current-heading h6 { margin-right: 0; }
 .inspector-relation-editor h6 { margin: .3rem 0 0; color: rgba(255,255,255,.65); font-size: .7rem; letter-spacing: .04em; text-transform: uppercase; }
 .touchpoint-resistance { display: grid; gap: .45rem; padding: .8rem; border: 1px solid var(--border-subtle); border-radius: .4rem; background: var(--surface-1); }
 .touchpoint-resistance h4, .touchpoint-resistance p { margin: 0; }
