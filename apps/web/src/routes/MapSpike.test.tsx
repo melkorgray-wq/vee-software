@@ -397,7 +397,7 @@ describe('Touchpoint Business structure Inspector', () => {
     for (const label of ['Offers', 'Located in', 'URL']) expect(within(placement).getByRole('heading', { name: label })).toBeInTheDocument();
     for (const label of ['Parent', 'Children']) expect(within(containment).getByRole('heading', { name: label })).toBeInTheDocument();
     const offers = within(within(placement).getByRole('group', { name: 'Offers property' }));
-    expect(offers.getAllByRole('button').map(button => button.textContent)).toEqual(['Consulting', 'Subscription', '✎']);
+    expect(offers.getAllByRole('button').map(button => button.textContent)).toEqual(['Offers', 'Consulting', 'Subscription']);
     expect(offers.getAllByRole('button', { name: 'Edit linked Offers' })).toHaveLength(1);
     expect(within(placement).getByRole('button', { name: 'Edit Located in, Website' })).toBeInTheDocument();
     expect(within(containment).getByRole('button', { name: 'Front Page' })).toBeInTheDocument();
@@ -488,10 +488,18 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(structure.getByRole('textbox', { name: 'Edit web address' })).toHaveValue('https://example.com/checkout');
   });
 
-  it('Offers, Located in, and URL expose one edit affordance each', () => {
+  it('uses heading actions for Offers and Children while preserving the other pencil affordances', () => {
     const structure = within(renderTouchpointInspector(structureDocument()).getByRole('region', { name: 'Business structure' }));
     expect(structure.getAllByRole('button', { name: /^Edit / })).toHaveLength(5);
-    expect(structure.getAllByText('✎')).toHaveLength(5);
+    expect(structure.getAllByText('✎')).toHaveLength(3);
+    for (const [property, heading, action] of [['Offers', 'Offers', 'Edit linked Offers'], ['Children', 'Children', 'Edit Children']] as const) {
+      const group = structure.getByRole('group', { name: `${property} property` });
+      const semanticHeading = within(group).getByRole('heading', { name: heading });
+      const headingButton = within(group).getByRole('button', { name: action });
+      expect(semanticHeading).toContainElement(headingButton);
+      expect(headingButton).toHaveClass('inspector-property-heading-action');
+      expect(headingButton).not.toHaveTextContent('✎');
+    }
     for (const name of ['Subscription', 'Consulting', 'Front Page', 'FAQ']) {
       expect(structure.getAllByRole('button', { name }).every(button => !button.querySelector('.business-structure-edit-affordance'))).toBe(true);
     }
@@ -502,15 +510,35 @@ describe('Touchpoint Business structure Inspector', () => {
     const inspector = renderTouchpointInspector(structureDocument());
     const offers = within(inspector.getByRole('group', { name: 'Offers property' }));
     const edit = offers.getByRole('button', { name: 'Edit linked Offers' });
-    expect(edit).toHaveTextContent('✎');
-    expect(edit).not.toHaveTextContent('Edit linked Offers');
-    expect(edit.querySelector('.business-structure-edit-affordance')).toHaveAttribute('aria-hidden', 'true');
+    expect(edit).toHaveTextContent('Offers');
+    expect(edit).not.toHaveTextContent('✎');
+    expect(edit).toHaveClass('inspector-property-heading-action');
 
     await user.click(edit);
     expect(offers.queryByRole('searchbox', { name: 'Search Offers' })).not.toBeInTheDocument();
     expect(offers.getByRole('checkbox', { name: 'Subscription' })).toHaveFocus();
     await user.click(offers.getByRole('button', { name: 'Close' }));
     await vi.waitFor(() => expect(offers.getByRole('button', { name: 'Edit linked Offers' })).toHaveFocus());
+  });
+
+  it('keeps Offer navigation outside the Offers heading action', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
+    const offers = inspector.getByRole('group', { name: 'Offers property' });
+    const headingAction = within(offers).getByRole('button', { name: 'Edit linked Offers' });
+    const subscription = within(offers).getByRole('button', { name: 'Subscription' });
+    expect(headingAction).not.toContainElement(subscription);
+    await user.click(subscription);
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+    expect(inspector.queryByLabelText('Linked Offers editor')).not.toBeInTheDocument();
+  });
+
+  it('returns focus to the remounted Offers heading action after Escape', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
+    const offers = within(inspector.getByRole('group', { name: 'Offers property' }));
+    await user.click(offers.getByRole('button', { name: 'Edit linked Offers' }));
+    await user.keyboard('{Escape}');
+    await vi.waitFor(() => expect(offers.getByRole('button', { name: 'Edit linked Offers' })).toHaveFocus());
+    expect(offers.queryByLabelText('Linked Offers editor')).not.toBeInTheDocument();
   });
 
   it('preserves an immediate Offer commit across pointer dismissal without completion actions', async () => {
@@ -577,13 +605,17 @@ describe('Touchpoint Business structure Inspector', () => {
     for (const name of ['Apply', 'Save', 'Done', 'Cancel']) expect(within(offers.getByLabelText('Linked Offers editor')).queryByRole('button', { name })).not.toBeInTheDocument();
   });
 
-  it('keeps the empty Offers marker beside one pencil affordance', () => {
+  it('uses the same Offers heading control with the empty value projection', () => {
     const document = structureDocument();
     document.relationships = document.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint' || relation.touchpointId !== 'touch');
     const offers = within(renderTouchpointInspector(document).getByRole('group', { name: 'Offers property' }));
     expect(offers.getByLabelText('None')).toHaveTextContent('—');
     expect(offers.getAllByRole('button', { name: 'Edit linked Offers' })).toHaveLength(1);
-    expect(offers.getAllByText('✎')).toHaveLength(1);
+    const heading = offers.getByRole('heading', { name: 'Offers' });
+    const action = offers.getByRole('button', { name: 'Edit linked Offers' });
+    expect(heading).toContainElement(action);
+    expect(action).not.toHaveTextContent('✎');
+    expect(action).not.toContainElement(offers.getByLabelText('None'));
   });
 
   it('authors Parent immediately while keeping navigation, descendants, and focus behavior separate', async () => {
@@ -669,9 +701,8 @@ describe('Touchpoint Business structure Inspector', () => {
     }
     const inspector = renderTouchpointInspector(document);
     const children = within(inspector.getByRole('region', { name: 'Containment' })).getByRole('group', { name: 'Children property' });
-    const heading = children.querySelector<HTMLElement>('.children-property-heading')!;
+    const heading = within(children).getByRole('heading', { name: 'Children' });
     const navigation = children.querySelector<HTMLElement>('.business-structure-links')!;
-    expect(within(heading).getByRole('heading', { name: 'Children' })).toBeInTheDocument();
     expect(within(heading).getByRole('button', { name: 'Edit Children' })).toBeInTheDocument();
     expect(heading).not.toContainElement(navigation);
     expect(navigation.parentElement).toBe(children);
@@ -682,6 +713,7 @@ describe('Touchpoint Business structure Inspector', () => {
     }
     await user.click(within(children).getByRole('button', { name: 'Footer CTA' }));
     expect(inspector.getByRole('heading', { name: 'Footer CTA' })).toBeInTheDocument();
+    expect(inspector.queryByLabelText('Children editor')).not.toBeInTheDocument();
   });
 
   it('groups main Children editor actions by editor and current-set hierarchy', async () => {
@@ -716,12 +748,33 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(branches.compareDocumentPosition(leaves) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it.each(['Close', 'Escape'] as const)('%s restores focus to the remounted Children heading action', async exit => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
+    const children = within(inspector.getByRole('group', { name: 'Children property' }));
+    await user.click(children.getByRole('button', { name: 'Edit Children' }));
+    if (exit === 'Close') await user.click(children.getByRole('button', { name: 'Close' }));
+    else await user.keyboard('{Escape}');
+    await vi.waitFor(() => expect(children.getByRole('button', { name: 'Edit Children' })).toHaveFocus());
+    expect(children.queryByLabelText('Children editor')).not.toBeInTheDocument();
+  });
+
+  it('switches from Children to Offers without restoring focus to the old heading action', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
+    const offers = within(inspector.getByRole('group', { name: 'Offers property' }));
+    const children = within(inspector.getByRole('group', { name: 'Children property' }));
+    await user.click(children.getByRole('button', { name: 'Edit Children' }));
+    await user.click(offers.getByRole('button', { name: 'Edit linked Offers' }));
+    expect(children.queryByLabelText('Children editor')).not.toBeInTheDocument();
+    expect(offers.getByLabelText('Linked Offers editor')).toBeInTheDocument();
+    expect(offers.getAllByRole('checkbox')[0]).toHaveFocus();
+    expect(children.getByRole('button', { name: 'Edit Children' })).not.toHaveFocus();
+  });
+
   it('keeps creation, dismissal, and available candidates when the current Children set is empty', async () => {
     const user = userEvent.setup(); const document = structureDocument();
     document.relationships = document.relationships.filter(relation => relation.kind !== 'touchpoint_contains_touchpoint' || relation.parentTouchpointId !== 'touch');
     const inspector = renderTouchpointInspector(document); const childrenGroup = inspector.getByRole('group', { name: 'Children property' }); const children = within(childrenGroup);
-    const readHeading = childrenGroup.querySelector<HTMLElement>('.children-property-heading')!;
-    expect(within(readHeading).getByRole('heading', { name: 'Children' })).toBeInTheDocument();
+    const readHeading = children.getByRole('heading', { name: 'Children' });
     expect(within(readHeading).getByRole('button', { name: 'Edit Children' })).toBeInTheDocument();
     expect(readHeading).not.toContainElement(childrenGroup.querySelector('.business-structure-empty'));
     await user.click(children.getByRole('button', { name: 'Edit Children' }));
@@ -1848,16 +1901,18 @@ describe('searchable Touchpoint connection picker', () => {
     expect(scope).toHaveTextContent('Parent provenance · Parent provenance');
     expect(document.relationships.some(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.offerId === 'parent-offer' && relation.touchpointId === 'touch')).toBe(false);
   });
-  it('keeps the Client scope pencil immediately after its heading', () => {
+  it('places the Client scope action inside its semantic heading', () => {
     const inspector = renderTouchpointInspector();
     const scope = inspector.getByRole('region', { name: 'Client scope' });
     const heading = within(scope).getByRole('heading', { name: 'Client scope' });
-    const pencil = within(scope).getByRole('button', { name: 'Edit Client scope' });
+    const action = within(scope).getByRole('button', { name: 'Edit Client scope' });
     const headingRow = heading.closest('.touchpoint-client-scope-heading');
 
     expect(headingRow).toContainElement(heading);
-    expect(headingRow).toContainElement(pencil);
-    expect(heading.nextElementSibling).toBe(pencil);
+    expect(heading).toContainElement(action);
+    expect(action).toHaveTextContent('Client scope');
+    expect(action).not.toHaveTextContent('✎');
+    expect(action).toHaveClass('inspector-property-heading-action');
   });
 
   it('keeps Client scope authoring as discovery followed by semantic source disclosures', async () => {
@@ -1892,11 +1947,12 @@ describe('searchable Touchpoint connection picker', () => {
   it('uses a dismiss control without presenting Client scope as a completion step', async () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector();
     const scope = inspector.getByRole('region', { name: 'Client scope' });
-    const pencil = within(scope).getByRole('button', { name: 'Edit Client scope' });
-    expect(pencil).toHaveTextContent('✎');
-    expect(pencil).not.toHaveAttribute('aria-pressed');
+    const headingAction = within(scope).getByRole('button', { name: 'Edit Client scope' });
+    expect(headingAction).toHaveTextContent('Client scope');
+    expect(headingAction).not.toHaveTextContent('✎');
+    expect(headingAction).not.toHaveAttribute('aria-pressed');
 
-    await user.click(pencil);
+    await user.click(headingAction);
 
     const close = within(scope).getByRole('button', { name: 'Close Client scope authoring' });
     expect(close).toHaveTextContent('Close');
@@ -1921,7 +1977,7 @@ describe('searchable Touchpoint connection picker', () => {
     expect(window.__VEE_DEV__!.dump()).toEqual(committed);
     expect(within(scope).queryByRole('searchbox', { name: 'Search Client intent' })).not.toBeInTheDocument();
     expect(within(scope).getByRole('button', { name: 'Finish faster' })).toBeInTheDocument();
-    expect(within(scope).getByRole('button', { name: 'Edit Client scope' })).toHaveTextContent('✎');
+    expect(within(scope).getByRole('button', { name: 'Edit Client scope' })).toHaveTextContent('Client scope');
     expect(within(scope).getByRole('button', { name: 'Edit Client scope' })).toHaveFocus();
     expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
     expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
@@ -2005,12 +2061,13 @@ describe('searchable Touchpoint connection picker', () => {
     expect(within(scope).getByRole('button', { name: 'Close Client scope authoring' })).toBeInTheDocument();
   });
 
-  it('uses the same accessible pencil affordance for empty, populated, and unavailable Client scope', () => {
+  it('uses the same accessible heading action for empty, populated, and unavailable Client scope', () => {
     const emptyInspector = renderTouchpointInspector();
     let scope = emptyInspector.getByRole('region', { name: 'Client scope' });
-    let pencil = within(scope).getByRole('button', { name: 'Edit Client scope' });
-    expect(pencil).toHaveTextContent('✎');
-    expect(pencil.querySelector('.business-structure-edit-affordance')).toHaveAttribute('aria-hidden', 'true');
+    let headingAction = within(scope).getByRole('button', { name: 'Edit Client scope' });
+    expect(headingAction).toHaveTextContent('Client scope');
+    expect(headingAction).not.toHaveTextContent('✎');
+    expect(within(scope).getByRole('heading', { name: 'Client scope' })).toContainElement(headingAction);
     expect(within(scope).queryByText('Add connection')).not.toBeInTheDocument();
     cleanup();
 
@@ -2024,16 +2081,15 @@ describe('searchable Touchpoint connection picker', () => {
     const unavailable = touchpointInspectorDocument();
     unavailable.relationships = unavailable.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint');
     scope = renderTouchpointInspector(unavailable).getByRole('region', { name: 'Client scope' });
-    pencil = within(scope).getByRole('button', { name: 'Edit Client scope' });
-    expect(pencil).toBeDisabled();
+    headingAction = within(scope).getByRole('button', { name: 'Edit Client scope' });
+    expect(headingAction).toBeDisabled();
     expect(within(scope).getByRole('heading', { name: 'Client scope' })).toHaveAccessibleName('Client scope');
   });
 
-  it('opens the same Client scope section and Escape restores focus to the pencil', async () => {
+  it('opens the same Client scope section and Escape restores focus to the remounted heading action', async () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector();
     const scope = inspector.getByRole('region', { name: 'Client scope' });
-    const pencil = within(scope).getByRole('button', { name: 'Edit Client scope' });
-    await user.click(pencil);
+    await user.click(within(scope).getByRole('button', { name: 'Edit Client scope' }));
     expect(within(scope).getByRole('button', { name: 'Close Client scope authoring' })).toBeInTheDocument();
     expect(within(scope).queryByText('Upstream Client intent')).not.toBeInTheDocument();
     const search = within(scope).getByRole('searchbox', { name: 'Search Client intent' });
@@ -2044,7 +2100,7 @@ describe('searchable Touchpoint connection picker', () => {
     await act(() => new Promise(resolve => requestAnimationFrame(resolve)));
     expect(window.__VEE_DEV__!.dump()).toEqual(beforeEscape);
     expect(within(scope).queryByRole('button', { name: 'Close Client scope authoring' })).not.toBeInTheDocument();
-    expect(pencil).toHaveFocus();
+    expect(within(scope).getByRole('button', { name: 'Edit Client scope' })).toHaveFocus();
     expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
     expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
   });
@@ -2076,10 +2132,13 @@ describe('searchable Touchpoint connection picker', () => {
     const outcome = within(scope).getByRole('button', { name: 'Finish faster' });
     expect(job).toHaveAttribute('type', 'button');
     expect(outcome).toHaveAttribute('type', 'button');
+    expect(within(scope).getByRole('heading', { name: 'Client scope' })).not.toContainElement(job);
+    expect(within(scope).getByRole('heading', { name: 'Client scope' })).not.toContainElement(outcome);
     expect(within(scope).queryByRole('checkbox')).not.toBeInTheDocument();
 
     await user.click(job);
     expect(inspector.getByRole('heading', { name: 'Make progress' })).toBeInTheDocument();
+    expect(inspector.queryByRole('searchbox', { name: 'Search Client intent' })).not.toBeInTheDocument();
     await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
     await user.click(within(inspector.getByRole('region', { name: 'Client scope' })).getByRole('button', { name: 'Finish faster' }));
     expect(inspector.getByRole('heading', { name: 'Finish faster' })).toBeInTheDocument();
