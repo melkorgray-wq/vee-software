@@ -3043,6 +3043,38 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
     expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
   });
 
+  it('starts an independent Inspector history after returning to Map and changing selection', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector();
+    await user.click(within(inspector.getByRole('group', { name: 'Offers property' })).getByRole('button', { name: 'Subscription' }));
+    await user.click(inspector.getByRole('button', { name: 'Orbit' }));
+    expect(inspector.getByRole('heading', { name: 'Orbit' })).toBeInTheDocument();
+
+    await openMap(user);
+    await user.click(screen.getByRole('button', { name: 'Subscription' }));
+    await openInspector(user);
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Inspector Back' })).toBeDisabled();
+    expect(inspector.getByRole('button', { name: 'Inspector Forward' })).toBeDisabled();
+
+    await user.click(inspector.getByRole('button', { name: 'Orbit' }));
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Inspector Back' })).toBeDisabled();
+  });
+
+  it('re-entering Inspector with the same selected entity creates a fresh one-entry history', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector();
+    await user.click(within(inspector.getByRole('group', { name: 'Offers property' })).getByRole('button', { name: 'Subscription' }));
+    await openMap(user);
+    await openInspector(user);
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Inspector Back' })).toBeDisabled();
+    expect(inspector.getByRole('button', { name: 'Inspector Forward' })).toBeDisabled();
+    await user.click(inspector.getByRole('button', { name: 'Orbit' }));
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+  });
+
   it('history controls expose exact accessible names', () => {
     const inspector = renderTouchpointInspector();
     expect(inspector.getByRole('button', { name: 'Inspector Back' })).toBeDisabled();
