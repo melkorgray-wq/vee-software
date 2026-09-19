@@ -2331,6 +2331,40 @@ describe('searchable Touchpoint connection picker', () => {
     expect(within(scope).getByRole('button', { name: 'Core Functional Job, 1' })).toHaveAttribute('aria-expanded', 'false');
   });
 
+  it('packs measured Client scope panels while preserving disclosure identity, focus, and logical order', async () => {
+    const observers: { callback: ResizeObserverCallback; observed: Set<Element> }[] = [];
+    class ControllableResizeObserver implements ResizeObserver {
+      readonly observed = new Set<Element>();
+      constructor(readonly callback: ResizeObserverCallback) { observers.push(this); }
+      observe(target: Element) { this.observed.add(target); }
+      unobserve(target: Element) { this.observed.delete(target); }
+      disconnect() { this.observed.clear(); }
+    }
+    vi.stubGlobal('ResizeObserver', ControllableResizeObserver);
+    const user = userEvent.setup();
+    const inspector = renderTouchpointInspector(multiKindClientScopeDocument());
+    const groups = inspector.getByRole('region', { name: 'Client scope' }).querySelector<HTMLElement>('.client-scope-view-groups')!;
+    groups.getBoundingClientRect = () => ({ width: 960, height: 0, x: 0, y: 0, top: 0, right: 960, bottom: 0, left: 0, toJSON: () => ({}) });
+    const panels = [...groups.querySelectorAll<HTMLElement>('.client-scope-view-panel')];
+    panels.forEach(panel => { panel.getBoundingClientRect = () => ({ width: 288, height: panel.querySelector('[aria-expanded="true"]') ? 140 : 40, x: 0, y: 0, top: 0, right: 288, bottom: 40, left: 0, toJSON: () => ({}) }); });
+    act(() => observers.forEach(observer => observer.callback([], observer as unknown as ResizeObserver)));
+
+    expect(groups).toHaveClass('is-packed');
+    expect(panels).toHaveLength(4);
+    expect(new Set(panels.map(panel => panel.dataset.clientScopePanelId)).size).toBe(4);
+    const disclosure = within(groups).getByRole('button', { name: 'Related Job, 1' });
+    disclosure.focus();
+    await user.click(disclosure);
+    act(() => observers.forEach(observer => observer.callback([], observer as unknown as ResizeObserver)));
+
+    expect(disclosure).toHaveFocus();
+    expect(within(groups).getByRole('button', { name: 'Related Job, 1' })).toBe(disclosure);
+    expect([...groups.querySelectorAll('.client-scope-view-disclosure')].map(button => button.getAttribute('aria-label'))).toEqual([
+      'Related Job, 1', 'Core Functional Job, 1', 'Emotional Job, 1', 'Financial Desired Outcome, 1',
+    ]);
+    expect(groups.querySelectorAll('[data-client-scope-panel-id="client-kind:related_job"]')).toHaveLength(1);
+  });
+
   it('groups read-only Client scope by kind with independent prioritized disclosures and preserved navigation state', async () => {
     const user = userEvent.setup();
     const inspector = renderTouchpointInspector(multiKindClientScopeDocument());

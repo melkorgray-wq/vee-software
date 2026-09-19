@@ -18,6 +18,7 @@ import { Link } from '../router';
 import { commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, globalIntentDiscovery, touchpointClientScope, touchpointUpstreamSources, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft, type UpstreamLeaf } from './touchpoint-edit';
 import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
 import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets, initialCompactOverviewExpandedGroupIds } from '../touchpoint-business-structure';
+import { useClientScopePackedLayout } from '../client-scope-packed-layout';
 
 const VIEW_ID = 'spike-view';
 export const RELATION_EDITOR_SEARCH_THRESHOLD = 7;
@@ -299,6 +300,17 @@ function InlineTitleEditor({ title, onCommit, onCancel, className = 'inline-node
     />
   );
 }
+function ClientScopePackedGroups({ panelIds, children }: { panelIds: readonly string[]; children: React.ReactElement<{ className?: string; style?: CSSProperties }>[] }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const packedLayout = useClientScopePackedLayout(containerRef, panelIds);
+  return <div ref={containerRef} className={`client-scope-view-groups${packedLayout.packed ? ' is-packed' : ''}`} style={packedLayout.containerStyle}>
+    {children.map((child, index) => {
+      const id = panelIds[index]!;
+      return <section {...child.props} key={id} data-client-scope-panel-id={id} className={child.props.className} style={packedLayout.panelStyle(id)} />;
+    })}
+  </div>;
+}
+
 export function MapNode({ data }: { data: MapNodeData }) {
   const url = safeUrl(data.url);
   const nodeContentRef = useRef<HTMLDivElement>(null);
@@ -1750,7 +1762,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const renderDiscoveryMatches = (matches: typeof discovery.titleMatches) => <div className="global-intent-results">{matches.jobGroups.map(group => renderJobGroup(group))}{matches.directLeaves.map(leaf => <div className="intent-discovery-leaf" key={leaf.checkboxId}><small>{KIND_LABELS[leaf.entity.kind]}</small>{renderSelectableRow(leaf, { showContributorPaths: true })}</div>)}</div>;
     return <section ref={clientScopeEditorRef} className={`touchpoint-client-scope${editing ? ' is-editing' : ''}`} aria-labelledby="touchpoint-client-scope-heading" onKeyDown={event => { if (event.key !== 'Escape' || !connectionPicker || localRemoval) return; event.preventDefault(); event.stopPropagation(); if (['current-contributor-choice', 'ancestor-contributor-choice', 'invalid'].includes(connectionPicker.mode)) backFromResolver(); else closeClientScopeEditor('explicit'); }}>
       <div className="touchpoint-client-scope-heading">{editing ? <><h4 id="touchpoint-client-scope-heading">Client scope</h4><button type="button" className="inspector-secondary-action" aria-label="Close Client scope authoring" onClick={() => closeClientScopeEditor('explicit')}>Close</button></> : <h4 id="touchpoint-client-scope-heading" aria-label="Client scope"><button ref={connectionPickerButtonRef} data-touchpoint-editor-affordance type="button" className="inspector-property-heading-action" aria-label="Edit Client scope" disabled={!offers.length} onClick={() => { closeRelationEditor('switch-editor'); closeChildrenEditor('switch-editor'); setBusinessInlineEdit(null); setConnectionPicker({ mode: 'upstream', query: '', kind: undefined, contributorOfferIds: [], ancestorContributingOfferIds: {} }); }}>Client scope<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h4>}</div>
-      {!editing && clientScopePanels.length ? <div className="client-scope-view-groups">
+      {!editing && clientScopePanels.length ? <ClientScopePackedGroups panelIds={clientScopePanels.map(panel => panel.id)}>
         {clientScopePanels.map(panel => {
           const expanded = isClientScopePanelExpanded(panel);
           const contentId = `client-scope-${encodeURIComponent(selected.id)}-${panel.kind}`;
@@ -1769,7 +1781,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             </div>}
           </section>;
         })}
-      </div> : !editing && <p className="touchpoint-client-scope-empty">No Client-side connections yet.</p>}
+      </ClientScopePackedGroups> : !editing && <p className="touchpoint-client-scope-empty">No Client-side connections yet.</p>}
       {connectionPicker && <div className="touchpoint-client-scope-content inline-intent-editor">
         <section className="global-intent-discovery" aria-label="Find Client intent"><label>Search Client intent<input autoFocus type="search" value={connectionPicker.query} onChange={event => setConnectionPicker({ ...connectionPicker, mode: event.target.value ? 'global-search' : 'upstream', query: event.target.value, kind: undefined })} /></label>
           {connectionPicker.kind ? <><div className="kind-shortcut-heading"><button type="button" className="text-action" onClick={() => setConnectionPicker({ ...connectionPicker, kind: undefined })}>Back to results for “{connectionPicker.query}”</button><strong>{KIND_LABELS[connectionPicker.kind]}</strong></div>{renderDiscoveryMatches({ jobGroups: discovery.jobGroups, directLeaves: discovery.directLeaves })}</> : connectionPicker.query && <><div className="kind-shortcut-results" aria-label="Kind shortcuts">{discovery.kindShortcutMatches.map(shortcut => <button type="button" key={shortcut.kind} onClick={() => setConnectionPicker({ ...connectionPicker, mode: 'global-search', kind: shortcut.kind })}>Browse {shortcut.label}</button>)}</div>{renderDiscoveryMatches(discovery.titleMatches)}</>}
