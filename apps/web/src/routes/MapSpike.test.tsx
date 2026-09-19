@@ -669,12 +669,70 @@ describe('Touchpoint Business structure Inspector', () => {
     }
     const inspector = renderTouchpointInspector(document);
     const children = within(inspector.getByRole('region', { name: 'Containment' })).getByRole('group', { name: 'Children property' });
+    const heading = children.querySelector<HTMLElement>('.children-property-heading')!;
+    const navigation = children.querySelector<HTMLElement>('.business-structure-links')!;
+    expect(within(heading).getByRole('heading', { name: 'Children' })).toBeInTheDocument();
+    expect(within(heading).getByRole('button', { name: 'Edit Children' })).toBeInTheDocument();
+    expect(heading).not.toContainElement(navigation);
+    expect(navigation.parentElement).toBe(children);
     for (const title of ['FAQ', 'Footer CTA', 'Form', 'Hero', 'Pricing', 'Reviews']) {
       const control = within(children).getByRole('button', { name: title });
       expect(control.querySelector('.business-structure-edit-affordance')).not.toBeInTheDocument();
+      expect(heading).not.toContainElement(control);
     }
     await user.click(within(children).getByRole('button', { name: 'Footer CTA' }));
     expect(inspector.getByRole('heading', { name: 'Footer CTA' })).toBeInTheDocument();
+  });
+
+  it('groups main Children editor actions by editor and current-set hierarchy', async () => {
+    const user = userEvent.setup(); const document = structureDocument();
+    for (let index = 0; index < RELATION_EDITOR_SEARCH_THRESHOLD; index += 1) {
+      document.entities.push({ id: `available-child-${index}`, kind: 'touchpoint', title: `Available child with a wrapping-capable title ${index}` });
+      document.placements.push({ viewId: 'spike-view', entityId: `available-child-${index}`, x: 1700 + index * 140, y: 0 });
+    }
+    const inspector = renderTouchpointInspector(document); const children = within(inspector.getByRole('group', { name: 'Children property' }));
+    await user.click(children.getByRole('button', { name: 'Edit Children' }));
+    const editor = children.getByLabelText('Children editor');
+    const header = editor.querySelector<HTMLElement>('.children-editor-header')!;
+    const currentHeading = editor.querySelector<HTMLElement>('.children-current-heading')!;
+    expect(within(header).getByText('Children')).toBeInTheDocument();
+    expect(within(header).getByRole('button', { name: 'Create child' })).toBeInTheDocument();
+    expect(within(header).getByRole('button', { name: 'Close' })).toHaveClass('inspector-secondary-action');
+    expect(within(header).queryByRole('button', { name: 'Reassign all…' })).not.toBeInTheDocument();
+    expect(within(header).queryByRole('button', { name: 'Detach all' })).not.toBeInTheDocument();
+    expect(within(currentHeading).getByRole('heading', { name: 'Current children' })).toBeInTheDocument();
+    expect(within(currentHeading).getByRole('button', { name: 'Reassign all…' })).toHaveClass('inspector-secondary-action');
+    expect(within(currentHeading).getByRole('button', { name: 'Detach all' })).toHaveClass('inspector-secondary-action');
+    const currentRow = within(editor).getByRole('checkbox', { name: 'FAQ' }).closest<HTMLElement>('.children-relation-row')!;
+    expect(within(currentRow).getByRole('checkbox', { name: 'FAQ' })).toBeChecked();
+    expect(within(currentRow).getByRole('button', { name: 'Reassign…' })).toBeInTheDocument();
+    const search = within(editor).getByRole('searchbox', { name: 'Search Touchpoints' });
+    const branches = within(editor).getByRole('heading', { name: 'Available standalone branches' });
+    const leaves = within(editor).getByRole('heading', { name: 'Available standalone leaves' });
+    expect(header.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(search.compareDocumentPosition(currentHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(currentHeading.compareDocumentPosition(currentRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(currentRow.compareDocumentPosition(branches) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(branches.compareDocumentPosition(leaves) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('keeps creation, dismissal, and available candidates when the current Children set is empty', async () => {
+    const user = userEvent.setup(); const document = structureDocument();
+    document.relationships = document.relationships.filter(relation => relation.kind !== 'touchpoint_contains_touchpoint' || relation.parentTouchpointId !== 'touch');
+    const inspector = renderTouchpointInspector(document); const childrenGroup = inspector.getByRole('group', { name: 'Children property' }); const children = within(childrenGroup);
+    const readHeading = childrenGroup.querySelector<HTMLElement>('.children-property-heading')!;
+    expect(within(readHeading).getByRole('heading', { name: 'Children' })).toBeInTheDocument();
+    expect(within(readHeading).getByRole('button', { name: 'Edit Children' })).toBeInTheDocument();
+    expect(readHeading).not.toContainElement(childrenGroup.querySelector('.business-structure-empty'));
+    await user.click(children.getByRole('button', { name: 'Edit Children' }));
+    const editor = within(children.getByLabelText('Children editor'));
+    expect(editor.getByRole('button', { name: 'Create child' })).toBeInTheDocument();
+    expect(editor.getByRole('button', { name: 'Close' })).toHaveClass('inspector-secondary-action');
+    expect(editor.queryByRole('button', { name: 'Reassign all…' })).not.toBeInTheDocument();
+    expect(editor.queryByRole('button', { name: 'Detach all' })).not.toBeInTheDocument();
+    expect(editor.getByRole('heading', { name: 'Available standalone branches' })).toBeInTheDocument();
+    expect(editor.getByRole('heading', { name: 'Available standalone leaves' })).toBeInTheDocument();
+    expect(editor.getByRole('checkbox', { name: 'FAQ' })).not.toBeChecked();
   });
 
   it.each(['Reassign…', 'Reassign all…'] as const)('keeps %s Search visible while its query reduces a large Parent candidate set', async action => {
