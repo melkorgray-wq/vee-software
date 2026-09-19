@@ -330,6 +330,28 @@ describe('Touchpoint Business structure Inspector', () => {
     document.relationships = document.relationships.filter(relation => !(relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === 'touch' && relation.offerId === 'offer-b'));
     return document;
   }
+  function neighborhoodDocument(counts: number[], duplicateFirstTouchpoint = false) {
+    const document = touchpointInspectorDocument();
+    document.entities = document.entities.filter(entity => entity.kind !== 'offer' || entity.id === 'offer-a');
+    document.relationships = document.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint' && relation.kind !== 'product_packaged_as_offer');
+    counts.forEach((count, groupIndex) => {
+      const offerId = groupIndex === 0 ? 'offer-a' : `offer-${groupIndex}`;
+      if (groupIndex > 0) {
+        document.entities.push({ id: offerId, kind: 'offer', title: `Offer ${groupIndex + 1}` });
+        document.placements.push({ viewId: 'spike-view', entityId: offerId, x: 900 + groupIndex * 140, y: 140 });
+      }
+      document.relationships.push({ id: `selected-${offerId}`, kind: 'offer_presented_at_touchpoint', offerId, touchpointId: 'touch' });
+      for (let itemIndex = 0; itemIndex < count; itemIndex += 1) {
+        const touchpointId = duplicateFirstTouchpoint && itemIndex === 0 ? 'shared-neighbor' : `neighbor-${groupIndex}-${itemIndex}`;
+        if (!document.entities.some(entity => entity.id === touchpointId)) {
+          document.entities.push({ id: touchpointId, kind: 'touchpoint', title: duplicateFirstTouchpoint && itemIndex === 0 ? 'Shared neighbor' : `Neighbor ${groupIndex + 1}.${itemIndex + 1}` });
+          document.placements.push({ viewId: 'spike-view', entityId: touchpointId, x: 900 + groupIndex * 140, y: 300 + itemIndex * 140 });
+        }
+        document.relationships.push({ id: `related-${groupIndex}-${itemIndex}`, kind: 'offer_presented_at_touchpoint', offerId, touchpointId });
+      }
+    });
+    return document;
+  }
 
   it('Touchpoint Inspector renders Business structure before the remaining legacy fields', () => {
     const inspector = renderTouchpointInspector(structureDocument());
@@ -431,24 +453,27 @@ describe('Touchpoint Business structure Inspector', () => {
       !(relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId !== 'touch'),
     );
     const structure = within(renderTouchpointInspector(document).getByRole('region', { name: 'Business structure' }));
-    expect(structure.getAllByText('—').length).toBeGreaterThanOrEqual(3);
+    expect(structure.getAllByText('—').length).toBeGreaterThanOrEqual(1);
     expect(structure.getByRole('button', { name: 'Add location' })).toBeInTheDocument();
     expect(structure.getByRole('button', { name: 'Add URL' })).toBeInTheDocument();
     expect(structure.queryByText('Not specified')).not.toBeInTheDocument();
     expect(structure.queryByText('None')).not.toBeInTheDocument();
     expect(structure.getByText('Derived')).toBeInTheDocument();
-    expect(within(structure.getByRole('group', { name: 'Other Touchpoints for Subscription' })).getByLabelText('None')).toHaveTextContent('—');
-    expect(within(structure.getByRole('group', { name: 'Other Touchpoints for Consulting' })).getByLabelText('None')).toHaveTextContent('—');
+    expect(within(structure.getByRole('group', { name: 'Other Touchpoints for Subscription' })).getByRole('button')).toHaveAccessibleName('Other Touchpoints for Subscription, 0 Touchpoints');
+    expect(within(structure.getByRole('group', { name: 'Other Touchpoints for Consulting' })).getByRole('button')).toHaveAccessibleName('Other Touchpoints for Consulting, 0 Touchpoints');
     expect(structure.queryByText(/^More in /)).not.toBeInTheDocument();
   });
 
   it('Product Offer parent child and derived Touchpoint controls navigate through existing Inspector navigation', async () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
-    for (const [name, heading] of [['Orbit', 'Orbit'], ['Subscription', 'Subscription'], ['Front Page', 'Front Page'], ['FAQ', 'FAQ'], ['About', 'About']] as const) {
+    for (const [name, heading] of [['Orbit', 'Orbit'], ['Subscription', 'Subscription'], ['Front Page', 'Front Page'], ['FAQ', 'FAQ']] as const) {
       await user.click(inspector.getAllByRole('button', { name })[0]!);
       expect(inspector.getByRole('heading', { name: heading })).toBeInTheDocument();
       await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
     }
+    await user.click(inspector.getByRole('button', { name: 'Other Touchpoints for Subscription, 1 Touchpoints' }));
+    await user.click(inspector.getByRole('button', { name: 'About' }));
+    expect(inspector.getByRole('heading', { name: 'About' })).toBeInTheDocument();
   });
 
   it('Located in is displayed as container information, not fake Entity navigation', () => {
@@ -966,7 +991,7 @@ describe('Touchpoint Business structure Inspector', () => {
     await user.click(region().getByRole('button', { name: 'Edit Located in' }));
     expect(inspector.getByRole('combobox', { name: 'Edit Located in' })).toHaveValue('Website');
     await user.clear(inspector.getByRole('combobox', { name: 'Edit Located in' })); await user.type(inspector.getByRole('combobox', { name: 'Edit Located in' }), 'Mobile'); await user.click(inspector.getByRole('option', { name: 'Mobile app' }));
-    expect(region().getByRole('button', { name: /Mobile app/ })).toBeInTheDocument();
+    expect(region().getByRole('button', { name: 'Edit Located in, Mobile app' })).toBeInTheDocument();
     await user.click(region().getByRole('button', { name: 'Edit Located in' })); await user.clear(inspector.getByRole('combobox', { name: 'Edit Located in' })); await user.type(inspector.getByRole('combobox', { name: 'Edit Located in' }), 'WebSi{Enter}');
     expect(inspector.queryByRole('combobox', { name: 'Edit Located in' })).not.toBeInTheDocument(); expect(region().getByRole('button', { name: 'Edit Located in, WebSi' })).toBeInTheDocument();
     await user.click(region().getByRole('button', { name: 'Edit Located in' })); await user.clear(inspector.getByRole('combobox', { name: 'Edit Located in' })); await user.type(inspector.getByRole('combobox', { name: 'Edit Located in' }), '  website  ');
@@ -975,8 +1000,8 @@ describe('Touchpoint Business structure Inspector', () => {
     await user.click(region().getByRole('button', { name: 'Edit Located in' })); await user.clear(inspector.getByRole('combobox', { name: 'Edit Located in' })); await user.keyboard('{Enter}');
     expect(inspector.getByRole('combobox', { name: 'Edit Located in' })).toHaveValue(''); expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
     await user.type(inspector.getByRole('combobox', { name: 'Edit Located in' }), 'Landing pages'); await user.click(inspector.getByRole('option', { name: 'Create "Landing pages"' }));
-    expect(region().getByRole('button', { name: /Landing pages/ })).toBeInTheDocument();
-    await user.click(region().getByRole('button', { name: 'Edit Located in' })); await user.keyboard('{Escape}'); expect(region().getByRole('button', { name: /Landing pages/ })).toBeInTheDocument();
+    expect(region().getByRole('button', { name: 'Edit Located in, Landing pages' })).toBeInTheDocument();
+    await user.click(region().getByRole('button', { name: 'Edit Located in' })); await user.keyboard('{Escape}'); expect(region().getByRole('button', { name: 'Edit Located in, Landing pages' })).toBeInTheDocument();
     await vi.waitFor(() => expect(region().getByRole('button', { name: 'Edit Located in' })).toHaveFocus());
     await user.click(region().getByRole('button', { name: 'Edit Located in' })); await user.click(inspector.getByRole('option', { name: 'Clear location' })); expect(region().getByRole('button', { name: 'Add location' })).toBeInTheDocument();
   });
@@ -998,14 +1023,18 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(region.getByRole('button', { name: 'Edit web address' })).not.toHaveFocus();
   });
 
-  it('derived neighborhood is visibly distinguished from direct structure', () => {
+  it('derived neighborhood is visibly distinguished from direct structure', async () => {
+    const user = userEvent.setup();
     const structure = renderTouchpointInspector(structureDocument()).getByRole('region', { name: 'Business structure' });
     expect(within(structure).getByText('Derived').closest('.business-structure-derived')).toBeInTheDocument();
     const subscription = within(structure).getByRole('group', { name: 'Other Touchpoints for Subscription' });
     const consulting = within(structure).getByRole('group', { name: 'Other Touchpoints for Consulting' });
     const container = within(structure).getByRole('group', { name: 'More in Website' });
+    await user.click(within(subscription).getByRole('button', { name: 'Other Touchpoints for Subscription, 1 Touchpoints' }));
+    await user.click(within(consulting).getByRole('button', { name: 'Other Touchpoints for Consulting, 0 Touchpoints' }));
+    await user.click(within(container).getByRole('button', { name: 'More in Website, 2 Touchpoints' }));
     expect(within(subscription).getByRole('button', { name: 'About' })).toBeInTheDocument();
-    expect(within(consulting).getByLabelText('None')).toHaveTextContent('—');
+    expect(within(consulting).getByText('No related Touchpoints')).toBeInTheDocument();
     expect(within(container).getByRole('button', { name: 'About' })).toBeInTheDocument();
     expect(subscription).not.toBe(container);
   });
@@ -1014,10 +1043,55 @@ describe('Touchpoint Business structure Inspector', () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
     for (const groupName of ['Other Touchpoints for Subscription', 'More in Website']) {
       const structure = inspector.getByRole('region', { name: 'Business structure' });
-      await user.click(within(within(structure).getByRole('group', { name: groupName })).getByRole('button', { name: 'About' }));
+      const group = within(structure).getByRole('group', { name: groupName });
+      await user.click(within(group).getByRole('button', { name: new RegExp(`${groupName},`) }));
+      await user.click(within(group).getByRole('button', { name: 'About' }));
       expect(inspector.getByRole('heading', { name: 'About' })).toBeInTheDocument();
       await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
     }
+  });
+
+  it('applies initial density per group and preserves duplicate Touchpoints across two basis panels', () => {
+    let inspector = renderTouchpointInspector(neighborhoodDocument([4]));
+    expect(inspector.getByRole('button', { name: 'Other Touchpoints for Subscription, 4 Touchpoints' })).toHaveAttribute('aria-expanded', 'true');
+    cleanup();
+
+    inspector = renderTouchpointInspector(neighborhoodDocument([2, 4], true));
+    const disclosures = inspector.getAllByRole('button', { name: /Touchpoints$/ });
+    expect(disclosures).toHaveLength(2);
+    expect(disclosures.every(button => button.getAttribute('aria-expanded') === 'true')).toBe(true);
+    expect(inspector.getAllByRole('button', { name: 'Shared neighbor' })).toHaveLength(2);
+    cleanup();
+
+    inspector = renderTouchpointInspector(neighborhoodDocument([1, 1, 1]));
+    expect(inspector.getAllByRole('button', { name: /Touchpoints$/ }).every(button => button.getAttribute('aria-expanded') === 'false')).toBe(true);
+    expect(inspector.queryByRole('button', { name: 'Neighbor 1.1' })).not.toBeInTheDocument();
+  });
+
+  it('keeps disclosure choices independent and orders expanded then collapsed groups stably', async () => {
+    const user = userEvent.setup(); const inspector = renderTouchpointInspector(neighborhoodDocument([1, 1, 1]));
+    const neighborhood = inspector.getByText('Neighborhood').closest<HTMLElement>('.business-structure-derived')!;
+    const first = inspector.getByRole('button', { name: 'Other Touchpoints for Subscription, 1 Touchpoints' });
+    const second = inspector.getByRole('button', { name: 'Other Touchpoints for Offer 2, 1 Touchpoints' });
+    const third = inspector.getByRole('button', { name: 'Other Touchpoints for Offer 3, 1 Touchpoints' });
+    expect(document.getElementById(first.getAttribute('aria-controls')!)).toHaveAttribute('hidden');
+    expect(inspector.queryByRole('button', { name: 'Neighbor 1.1' })).not.toBeInTheDocument();
+    second.focus(); await user.keyboard('{Enter}');
+    expect(second).toHaveFocus();
+    expect(second).toHaveAttribute('aria-expanded', 'true');
+    expect(first).toHaveAttribute('aria-expanded', 'false');
+    expect([...neighborhood.querySelectorAll<HTMLElement>('.derived-neighborhood-slice')].map(panel => panel.getAttribute('aria-label'))).toEqual([
+      'Other Touchpoints for Offer 2', 'Other Touchpoints for Offer 3', 'Other Touchpoints for Subscription',
+    ]);
+    await user.click(third);
+    expect(second).toHaveAttribute('aria-expanded', 'true');
+    expect(third).toHaveAttribute('aria-expanded', 'true');
+    await user.click(second);
+    expect(second).toHaveAttribute('aria-expanded', 'false');
+    expect(third).toHaveAttribute('aria-expanded', 'true');
+    expect([...neighborhood.querySelectorAll<HTMLElement>('.derived-neighborhood-slice')].map(panel => panel.getAttribute('aria-label'))).toEqual([
+      'Other Touchpoints for Offer 3', 'Other Touchpoints for Offer 2', 'Other Touchpoints for Subscription',
+    ]);
   });
 
   it('exposes URL only through the canonical Placement editor', async () => {

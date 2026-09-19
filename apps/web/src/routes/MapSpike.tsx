@@ -17,7 +17,7 @@ import { enterMoveMode, inactiveMoveMode, moveInMode, moveVectorForKey, type Mov
 import { Link } from '../router';
 import { commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, globalIntentDiscovery, touchpointClientScope, touchpointUpstreamSources, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft, type UpstreamLeaf } from './touchpoint-edit';
 import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
-import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets } from '../touchpoint-business-structure';
+import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets, initialNeighborhoodExpandedGroupIds } from '../touchpoint-business-structure';
 
 const VIEW_ID = 'spike-view';
 export const RELATION_EDITOR_SEARCH_THRESHOLD = 7;
@@ -420,6 +420,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [businessInlineEdit, setBusinessInlineEdit] = useState<{ property: 'url'; value: string; error?: string } | { property: 'located-in'; query: string; error?: string } | null>(null);
   const [productExpanded, setProductExpanded] = useState<Record<string, boolean>>({});
   const [offerExpanded, setOfferExpanded] = useState<Record<string, boolean>>({});
+  const [neighborhoodExpanded, setNeighborhoodExpanded] = useState<Record<string, Record<string, boolean>>>({});
   const [connectionPicker, setConnectionPicker] = useState<ClientScopeEditor | null>(null);
   const [expandedClientSources, setExpandedClientSources] = useState<Record<string, boolean>>({});
   const [localRemoval, setLocalRemoval] = useState<{ plans: TouchpointIntentPathPlan[]; mitigationRelationshipIds: string[]; cancelFocusId: string; commitFocusIds: string[] } | null>(null);
@@ -505,6 +506,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setProductInlineTitle('');
     setProductExpanded({});
     setOfferExpanded({});
+    setNeighborhoodExpanded({});
     setOfferIntentSectionIds({});
     setOfferSelectionMemory({});
     setProductIntentSectionIds([]);
@@ -1950,6 +1952,35 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const navigationList = (entities: { id: string; title: string }[]) => entities.length
       ? <ul className="business-structure-links">{entities.map(entity => <li key={entity.id}><button type="button" onClick={() => navigateInspector(entity.id)}>{entity.title}</button></li>)}</ul>
       : <p className="business-structure-empty" aria-label="None">—</p>;
+    const neighborhoodGroups = [
+      ...structure.otherTouchpointsByOffer.map((group) => ({
+        id: `offer:${group.offer.id}`,
+        basisKind: 'offer' as const,
+        basisId: group.offer.id,
+        label: `Other Touchpoints for ${group.offer.title}`,
+        touchpoints: group.touchpoints,
+        count: group.touchpoints.length,
+      })),
+      ...(structure.container ? [{
+        id: `container:${structure.container.id}`,
+        basisKind: 'container' as const,
+        basisId: structure.container.id,
+        label: `More in ${structure.container.title}`,
+        touchpoints: structure.otherTouchpointsInContainer,
+        count: structure.otherTouchpointsInContainer.length,
+      }] : []),
+    ];
+    const storedExpansion = neighborhoodExpanded[structure.touchpoint.id];
+    const initialExpansion = initialNeighborhoodExpandedGroupIds(neighborhoodGroups);
+    const isGroupExpanded = (groupId: string) => storedExpansion?.[groupId] ?? (storedExpansion ? false : initialExpansion.has(groupId));
+    const orderedNeighborhoodGroups = [...neighborhoodGroups].sort((left, right) =>
+      Number(isGroupExpanded(right.id)) - Number(isGroupExpanded(left.id)),
+    );
+    const toggleNeighborhoodGroup = (groupId: string) => setNeighborhoodExpanded((current) => {
+      const existing = current[structure.touchpoint.id];
+      const snapshot = existing ?? Object.fromEntries(neighborhoodGroups.map((group) => [group.id, initialExpansion.has(group.id)]));
+      return { ...current, [structure.touchpoint.id]: { ...snapshot, [groupId]: !(snapshot[groupId] ?? false) } };
+    });
     const runChildrenCommand = (command: TouchpointStructuralCommand, choices: Record<string, string> = {}, returnMode: 'list' | 'reassign-one' | 'reassign-all' = 'list') => {
       try {
         const result = planTouchpointStructuralChange(documentRef.current, { command, ancestorContributorChoices: choices, newId: () => crypto.randomUUID() });
@@ -2081,10 +2112,20 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       <div className="business-structure-derived">
         <div className="derived-heading"><h5>Neighborhood</h5><span>Derived</span></div>
         <div className="derived-neighborhood-slices">
-          {structure.otherTouchpointsByOffer.map(group => <div className="business-structure-property derived-neighborhood-slice" role="group" aria-label={`Other Touchpoints for ${group.offer.title}`} key={group.offer.id}>
-            <h5>Other Touchpoints for {group.offer.title}</h5>{navigationList(group.touchpoints)}
-          </div>)}
-          {structure.container && <div className="business-structure-property derived-neighborhood-slice" role="group" aria-label={`More in ${structure.container.title}`}><h5>More in {structure.container.title}</h5>{navigationList(structure.otherTouchpointsInContainer)}</div>}
+          {orderedNeighborhoodGroups.map(group => {
+            const expanded = isGroupExpanded(group.id);
+            const contentId = `neighborhood-${encodeURIComponent(structure.touchpoint.id)}-${encodeURIComponent(group.id)}`;
+            return <div className="business-structure-property derived-neighborhood-slice" role="group" aria-label={group.label} data-basis-kind={group.basisKind} data-basis-id={group.basisId} key={group.id}>
+              <button type="button" className="derived-neighborhood-disclosure" aria-expanded={expanded} aria-controls={contentId} aria-label={`${group.label}, ${group.count} Touchpoints`} onClick={() => toggleNeighborhoodGroup(group.id)}>
+                <span className="derived-neighborhood-chevron" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+                <span className="derived-neighborhood-label">{group.label}</span>
+                <span className="derived-neighborhood-count">{group.count}</span>
+              </button>
+              <div className="derived-neighborhood-content" id={contentId} hidden={!expanded}>
+                {expanded && (group.touchpoints.length ? navigationList(group.touchpoints) : <p className="business-structure-empty">No related Touchpoints</p>)}
+              </div>
+            </div>;
+          })}
         </div>
       </div>
     </section>;
