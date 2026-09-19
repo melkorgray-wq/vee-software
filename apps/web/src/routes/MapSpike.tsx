@@ -1708,7 +1708,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     };
     const renderDiscoveryMatches = (matches: typeof discovery.titleMatches) => <div className="global-intent-results">{matches.jobGroups.map(group => renderJobGroup(group))}{matches.directLeaves.map(leaf => <div className="intent-discovery-leaf" key={leaf.checkboxId}><small>{KIND_LABELS[leaf.entity.kind]}</small>{renderSelectableRow(leaf, { showContributorPaths: true })}</div>)}</div>;
     return <section ref={clientScopeEditorRef} className={`touchpoint-client-scope${editing ? ' is-editing' : ''}`} aria-labelledby="touchpoint-client-scope-heading" onKeyDown={event => { if (event.key !== 'Escape' || !connectionPicker || localRemoval) return; event.preventDefault(); event.stopPropagation(); if (['current-contributor-choice', 'ancestor-contributor-choice', 'invalid'].includes(connectionPicker.mode)) backFromResolver(); else closeClientScopeEditor('explicit'); }}>
-      <div className="touchpoint-client-scope-heading"><h4 id="touchpoint-client-scope-heading">Client scope</h4><button ref={connectionPickerButtonRef} data-touchpoint-editor-affordance type="button" className={editing ? 'inspector-secondary-action' : 'business-structure-edit-value'} aria-label={editing ? 'Close Client scope authoring' : 'Edit Client scope'} disabled={!offers.length} onClick={() => { if (editing) closeClientScopeEditor('explicit'); else { closeRelationEditor('switch-editor'); closeChildrenEditor('switch-editor'); setBusinessInlineEdit(null); setConnectionPicker({ mode: 'upstream', query: '', kind: undefined, contributorOfferIds: [], ancestorContributingOfferIds: {} }); } }}>{editing ? 'Close' : <span className="business-structure-edit-affordance" aria-hidden="true">✎</span>}</button></div>
+      <div className="touchpoint-client-scope-heading">{editing ? <><h4 id="touchpoint-client-scope-heading">Client scope</h4><button type="button" className="inspector-secondary-action" aria-label="Close Client scope authoring" onClick={() => closeClientScopeEditor('explicit')}>Close</button></> : <h4 id="touchpoint-client-scope-heading" aria-label="Client scope"><button ref={connectionPickerButtonRef} data-touchpoint-editor-affordance type="button" className="inspector-property-heading-action" aria-label="Edit Client scope" disabled={!offers.length} onClick={() => { closeRelationEditor('switch-editor'); closeChildrenEditor('switch-editor'); setBusinessInlineEdit(null); setConnectionPicker({ mode: 'upstream', query: '', kind: undefined, contributorOfferIds: [], ancestorContributingOfferIds: {} }); }}>Client scope</button></h4>}</div>
       {!editing && (scope.jobGroups.length || scope.financialLeaves.length) ? <div className="touchpoint-client-scope-content">
         {scope.jobGroups.map(group => <div className={`touchpoint-client-job ${group.desiredOutcomes.length ? 'has-outcomes' : 'direct-job'}`} key={group.job.id}>
           <small>{KIND_LABELS[group.job.kind]}</small>
@@ -1999,7 +1999,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         <div className="business-structure-regions">
           <section className="business-structure-region business-structure-placement" aria-labelledby="business-placement-heading">
             <h5 id="business-placement-heading">Placement</h5>
-            <div className="business-structure-property" role="group" aria-label="Offers property"><h5>Offers</h5>
+            <div className="business-structure-property" role="group" aria-label="Offers property">
               {offersPicker ? (() => {
                 const query = offersPicker.query.trim().toLocaleLowerCase();
                 const allOffers = document.entities.filter(entity => entity.kind === 'offer');
@@ -2013,7 +2013,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                     {offers.length ? offers.map((offer, index) => <label className="inspector-relation-row inspector-relation-row-checkbox" key={offer.id}><input autoFocus={!searchable && index === 0} type="checkbox" checked={linked.has(offer.id)} onChange={event => requestLinkedOffersCommit(event.target.checked ? [...linked, offer.id] : [...linked].filter(id => id !== offer.id), event.currentTarget)} /><span className="inspector-relation-indicator" aria-hidden="true" /><span>{offer.title}</span></label>) : <p>No matching Offers.</p>}
                   </div>
                 </div>;
-              })() : <div className="business-structure-offers-value">{navigationList(structure.offers)}<button ref={offersPickerButtonRef} data-touchpoint-editor-affordance type="button" className="business-structure-edit-relations" aria-label="Edit linked Offers" onClick={openOffersEditor}><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button></div>}
+              })() : <><h5 aria-label="Offers"><button ref={offersPickerButtonRef} data-touchpoint-editor-affordance type="button" className="inspector-property-heading-action" aria-label="Edit linked Offers" onClick={openOffersEditor}>Offers</button></h5>{navigationList(structure.offers)}</>}
             </div>
             <div className="business-structure-property" role="group" aria-label="Located in property"><h5>Located in</h5>{businessInlineEdit?.property === 'located-in' ? (() => {
               const trimmedQuery = businessInlineEdit.query.trim();
@@ -2064,7 +2064,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 <button ref={parentPickerButtonRef} data-touchpoint-editor-affordance type="button" className="business-structure-edit-relations" aria-label="Edit parent Touchpoint" onClick={openParentEditor}><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button>
               </div>}
             </div>
-            <div className="business-structure-property" role="group" aria-label="Children property">{childrenEditor ? renderChildrenEditor() : <><div className="business-structure-property-heading children-property-heading"><h5>Children</h5><button ref={childrenEditorButtonRef} data-touchpoint-editor-affordance type="button" className="business-structure-edit-relations" aria-label="Edit Children" onClick={openChildrenEditor}><span className="business-structure-edit-affordance" aria-hidden="true">✎</span></button></div>{navigationList(structure.children)}</>}</div>
+            <div className="business-structure-property" role="group" aria-label="Children property">{childrenEditor ? renderChildrenEditor() : <><h5 aria-label="Children"><button ref={childrenEditorButtonRef} data-touchpoint-editor-affordance type="button" className="inspector-property-heading-action" aria-label="Edit Children" onClick={openChildrenEditor}>Children</button></h5>{navigationList(structure.children)}</>}</div>
           </section>
         </div>
       </div>

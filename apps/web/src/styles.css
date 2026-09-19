@@ -94,7 +94,11 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .touchpoint-client-scope-heading { display: flex; align-items: center; justify-content: flex-start; gap: .3rem; padding-bottom: .35rem; border-bottom: 1px solid var(--border-subtle); }
 .touchpoint-client-scope.is-editing .touchpoint-client-scope-heading { justify-content: space-between; }
 .touchpoint-client-scope-heading > h4 { margin: 0; color: rgba(255,255,255,.72); font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; }
-.touchpoint-client-scope-heading > button { flex: 0 0 auto; padding: .1rem .25rem; }
+.touchpoint-client-scope-heading > .inspector-secondary-action { flex: 0 0 auto; padding: .1rem .25rem; }
+.inspector-property-heading-action { display: inline-flex; width: fit-content; max-width: 100%; min-width: 0; margin: 0; padding: .08rem .12rem; border: 0; border-radius: .15rem; background: transparent; color: inherit; font: inherit; line-height: inherit; letter-spacing: inherit; text-align: left; text-transform: inherit; overflow-wrap: anywhere; }
+.inspector-property-heading-action:not(:disabled):hover { background: var(--surface-3); box-shadow: inset 0 -1px var(--color-accent); }
+.inspector-property-heading-action:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; box-shadow: inset 0 -1px var(--color-accent); }
+.inspector-property-heading-action:disabled { background: transparent; box-shadow: none; cursor: not-allowed; opacity: .5; }
 .inspector-secondary-action { border: 1px solid var(--border-soft); border-radius: .25rem; background: rgba(255,255,255,.06); color: rgba(255,255,255,.9); font-size: .75rem; line-height: 1.2; }
 .inspector-secondary-action:hover { background: rgba(255,255,255,.12); }
 .inspector-secondary-action:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
@@ -234,14 +238,11 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .confirmation-dialog h2 { font-size: 1.3rem; }
 .impact-list p { display: grid; gap: .25rem; padding-bottom: .7rem; border-bottom: 1px solid var(--border-subtle); }
 .impact-list span::before { content: '→ '; color: var(--color-accent); }
-.business-structure-offers-value { display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem .35rem; min-width: 0; }
 .business-structure-edit-relations { display: inline-flex; flex: 0 0 auto; align-items: baseline; justify-content: center; padding: .1rem .2rem; border: 0; background: transparent; font-size: .78rem; line-height: 1; }
 .business-structure-edit-relations:hover, .business-structure-edit-relations:focus-visible { background: rgba(255,255,255,.08); outline: 1px solid var(--border-soft); }
 .business-structure-edit-relations:focus-visible { outline-color: var(--color-primary); }
 .business-structure-parent-value { display: flex; align-items: baseline; gap: .35rem; min-width: 0; }
 .business-structure-parent-value .business-structure-links { min-width: 0; }
-.business-structure-property-heading { display: inline-flex; align-items: baseline; justify-content: flex-start; gap: .35rem; width: fit-content; max-width: 100%; }
-.business-structure-property-heading h5 { min-width: 0; }
 .inspector-relation-editor { display: grid; gap: .45rem; min-width: 0; padding: .45rem; border: 1px solid var(--border-subtle); border-radius: .4rem; background: var(--surface-1); }
 .inspector-relation-editor-header { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
 .inspector-relation-editor-header strong { font-size: .78rem; }
