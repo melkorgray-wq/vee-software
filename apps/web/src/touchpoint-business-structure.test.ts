@@ -1,6 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import type { MapDocument } from '@vee/domain';
-import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets } from './touchpoint-business-structure';
+import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets, initialNeighborhoodExpandedGroupIds } from './touchpoint-business-structure';
+
+describe('initial Neighborhood presentation density', () => {
+  const expandedFor = (counts: number[]) => [...initialNeighborhoodExpandedGroupIds(counts.map((count, index) => ({ id: `group-${index}`, count })))];
+
+  it.each([
+    [[], []],
+    [[0], ['group-0']],
+    [[1], ['group-0']],
+    [[4], ['group-0']],
+    [[5], []],
+    [[2, 4], ['group-0', 'group-1']],
+    [[3, 4], []],
+    [[1, 1, 1], []],
+    [[3, 3], ['group-0', 'group-1']],
+  ])('chooses initial expansion for counts %j', (counts, expected) => {
+    expect(expandedFor(counts)).toEqual(expected);
+  });
+});
 
 function fixture(): MapDocument {
   return {
