@@ -2346,7 +2346,10 @@ describe('searchable Touchpoint connection picker', () => {
     const groups = inspector.getByRole('region', { name: 'Client scope' }).querySelector<HTMLElement>('.client-scope-view-groups')!;
     groups.getBoundingClientRect = () => ({ width: 960, height: 0, x: 0, y: 0, top: 0, right: 960, bottom: 0, left: 0, toJSON: () => ({}) });
     const panels = [...groups.querySelectorAll<HTMLElement>('.client-scope-view-panel')];
-    panels.forEach(panel => { panel.getBoundingClientRect = () => ({ width: 288, height: panel.querySelector('[aria-expanded="true"]') ? 140 : 40, x: 0, y: 0, top: 0, right: 288, bottom: 40, left: 0, toJSON: () => ({}) }); });
+    panels.forEach(panel => { panel.getBoundingClientRect = () => {
+      const height = panel.querySelector('[aria-expanded="true"]') ? 140 : panel.dataset.clientScopePanelId === 'client-kind:core_functional_job' ? 80 : 40;
+      return { width: 288, height, x: 0, y: 0, top: 0, right: 288, bottom: height, left: 0, toJSON: () => ({}) };
+    }; });
     act(() => observers.forEach(observer => observer.callback([], observer as unknown as ResizeObserver)));
 
     expect(groups).toHaveClass('is-packed');
@@ -2363,6 +2366,29 @@ describe('searchable Touchpoint connection picker', () => {
       'Related Job, 1', 'Core Functional Job, 1', 'Emotional Job, 1', 'Financial Desired Outcome, 1',
     ]);
     expect(groups.querySelectorAll('[data-client-scope-panel-id="client-kind:related_job"]')).toHaveLength(1);
+
+    const relatedPanel = disclosure.closest<HTMLElement>('.client-scope-view-panel')!;
+    const compactedPanel = groups.querySelector<HTMLElement>('[data-client-scope-panel-id="client-kind:financial_desired_outcome"]')!;
+    const coordinates = (panel: HTMLElement): [number, number] => {
+      const match = panel.style.transform.match(/translate\(([-\d.]+)px, ([-\d.]+)px\)/)!;
+      return [Number(match[1]), Number(match[2])];
+    };
+    expect(coordinates(relatedPanel)).toEqual([0, 0]);
+    expect(coordinates(compactedPanel)[0]).toBeGreaterThan(0);
+    expect(coordinates(compactedPanel)[1]).toBeGreaterThan(40);
+    expect(Number.parseFloat(groups.style.height)).toBeGreaterThanOrEqual(140);
+
+    groups.getBoundingClientRect = () => ({ width: 280, height: 190, x: 0, y: 0, top: 0, right: 280, bottom: 190, left: 0, toJSON: () => ({}) });
+    act(() => observers.forEach(observer => observer.callback([], observer as unknown as ResizeObserver)));
+
+    const narrowPanels = [...groups.querySelectorAll<HTMLElement>('.client-scope-view-panel')];
+    const narrowCoordinates = narrowPanels.map(coordinates);
+    expect(narrowCoordinates.every(([x]) => x === 0)).toBe(true);
+    expect(narrowCoordinates.map(([, y]) => y)).toEqual([...narrowCoordinates.map(([, y]) => y)].sort((left, right) => left - right));
+    expect(narrowPanels.every(panel => Number.parseFloat(panel.style.width) <= 280)).toBe(true);
+    expect(Number.parseFloat(groups.style.height)).toBeGreaterThan(narrowCoordinates.at(-1)![1]);
+    expect(disclosure).toHaveFocus();
+    expect(within(groups).getByRole('button', { name: 'Related Job, 1' })).toBe(disclosure);
   });
 
   it('groups read-only Client scope by kind with independent prioritized disclosures and preserved navigation state', async () => {

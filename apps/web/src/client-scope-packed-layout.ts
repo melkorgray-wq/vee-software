@@ -13,7 +13,13 @@ type PackedPanelLayoutInput = {
 };
 
 export function calculatePackedPanelLayout({ containerWidth, minPanelWidth, maxPanelWidth, gap, panelIds, measuredHeights }: PackedPanelLayoutInput): PackedPanelLayout | null {
-  if (!Number.isFinite(containerWidth) || containerWidth <= 0 || minPanelWidth <= 0 || maxPanelWidth < minPanelWidth || gap < 0 || panelIds.length === 0) return null;
+  if (
+    !Number.isFinite(containerWidth) || containerWidth <= 0
+    || !Number.isFinite(minPanelWidth) || minPanelWidth <= 0
+    || !Number.isFinite(maxPanelWidth) || maxPanelWidth < minPanelWidth
+    || !Number.isFinite(gap) || gap < 0
+    || panelIds.length === 0
+  ) return null;
   if (panelIds.some(id => { const height = measuredHeights[id]; return height === undefined || !Number.isFinite(height) || height <= 0; })) return null;
 
   const fittingColumns = Math.max(1, Math.floor((containerWidth + gap) / (minPanelWidth + gap)));
