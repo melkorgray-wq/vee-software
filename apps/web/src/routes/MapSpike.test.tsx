@@ -68,6 +68,35 @@ function touchpointInspectorDocument(twoOffers = false): MapDocument {
   };
 }
 
+function multiKindClientScopeDocument(): MapDocument {
+  const document = touchpointInspectorDocument();
+  document.entities.push(
+    { id: 'related', kind: 'related_job', title: 'Coordinate delivery' },
+    { id: 'related-do', kind: 'desired_outcome', title: 'Avoid handoff delays' },
+    { id: 'emotional', kind: 'emotional_job', title: 'Feel confident' },
+  );
+  document.placements.push(
+    { viewId: 'spike-view', entityId: 'related', x: 1120, y: 0 },
+    { viewId: 'spike-view', entityId: 'related-do', x: 1260, y: 0 },
+    { viewId: 'spike-view', entityId: 'emotional', x: 1400, y: 0 },
+  );
+  document.relationships.push({ id: 'related-owns', kind: 'job_has_desired_outcome', jobId: 'related', desiredOutcomeId: 'related-do' });
+  document.productJobIntents = [
+    { id: 'core-intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a', 'do-b'] },
+    { id: 'related-intent', productId: 'product', jobId: 'related', addressedDesiredOutcomeIds: ['related-do'] },
+    { id: 'emotional-intent', productId: 'product', jobId: 'emotional', addressedDesiredOutcomeIds: [] },
+  ];
+  document.offerJobSelections = document.productJobIntents.map((intent, index) => ({ id: `offer-selection-${index}`, offerId: 'offer-a', productJobIntentId: intent.id }));
+  document.touchpointJobSelections = [
+    { id: 'core-path', touchpointId: 'touch', offerId: 'offer-a', productJobIntentId: 'core-intent', addressedDesiredOutcomeIds: ['do-a', 'do-b'] },
+    { id: 'related-path', touchpointId: 'touch', offerId: 'offer-a', productJobIntentId: 'related-intent', addressedDesiredOutcomeIds: ['related-do'] },
+    { id: 'emotional-path', touchpointId: 'touch', offerId: 'offer-a', productJobIntentId: 'emotional-intent', addressedDesiredOutcomeIds: [] },
+  ];
+  document.offerFinancialIntents = [{ id: 'financial-intent', offerId: 'offer-a', financialDesiredOutcomeId: 'fdo' }];
+  document.touchpointFinancialSelections = [{ id: 'financial-path', touchpointId: 'touch', offerId: 'offer-a', offerFinancialIntentId: 'financial-intent', financialDesiredOutcomeId: 'fdo' }];
+  return document;
+}
+
 function emptyCardinalSectorDocument(): MapDocument {
   const entities: MapDocument['entities'] = [
     { id: 'fp', kind: 'touchpoint', title: 'FP' },
@@ -2092,9 +2121,10 @@ describe('searchable Touchpoint connection picker', () => {
 
     expect(window.__VEE_DEV__!.dump()).toEqual(committed);
     expect(within(scope).queryByRole('searchbox', { name: 'Search Client intent' })).not.toBeInTheDocument();
+    expect(within(scope).getByRole('button', { name: 'Edit Client scope' })).toHaveFocus();
+    await user.click(within(scope).getByRole('button', { name: 'Core Functional Job, 1' }));
     expect(within(scope).getByRole('button', { name: 'Finish faster' })).toBeInTheDocument();
     expect(within(scope).getByRole('button', { name: 'Edit Client scope' })).toHaveTextContent('Client scope');
-    expect(within(scope).getByRole('button', { name: 'Edit Client scope' })).toHaveFocus();
     expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
     expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
   });
@@ -2221,7 +2251,7 @@ describe('searchable Touchpoint connection picker', () => {
     expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
   });
 
-  it('places durable Client scope after Neighborhood and before authoring controls with an owner-nested DO', () => {
+  it('places durable Client scope after Neighborhood and before authoring controls with an owner-nested DO', async () => {
     let document = touchpointInspectorDocument();
     let id = 0;
     document = applyTouchpointIntentDraft(document, { touchpointId: 'touch', draft: { jobLeaves: [{ jobId: 'job', semanticLeafId: 'do-a', desiredOutcomeId: 'do-a', contributorOfferIds: ['offer-a'] }], financialLeaves: [], pendingJobLeafIds: [], pendingFinancialLeafIds: [] }, newId: () => `seed-client-scope-${++id}` });
@@ -2232,6 +2262,7 @@ describe('searchable Touchpoint connection picker', () => {
     expect(neighborhood.compareDocumentPosition(scope) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(scope).toContainElement(addConnection);
     expect(inspector.queryByRole('button', { name: 'Select all current Offer intent' })).not.toBeInTheDocument();
+    fireEvent.click(within(scope).getByRole('button', { name: 'Core Functional Job, 1' }));
     const jobGroup = within(scope).getByRole('button', { name: 'Make progress' }).closest<HTMLElement>('.touchpoint-client-job')!;
     expect(within(jobGroup).getByRole('button', { name: 'Finish faster' })).toBeInTheDocument();
     expect(inspector.queryByRole('region', { name: 'Connected' })).not.toBeInTheDocument();
@@ -2243,6 +2274,7 @@ describe('searchable Touchpoint connection picker', () => {
     document = applyTouchpointIntentDraft(document, { touchpointId: 'touch', draft: { jobLeaves: [{ jobId: 'job', semanticLeafId: 'do-a', desiredOutcomeId: 'do-a', contributorOfferIds: ['offer-a'] }], financialLeaves: [], pendingJobLeafIds: [], pendingFinancialLeafIds: [] }, newId: () => `read-navigation-${++id}` });
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(document);
     const scope = inspector.getByRole('region', { name: 'Client scope' });
+    await user.click(within(scope).getByRole('button', { name: 'Core Functional Job, 1' }));
 
     const job = within(scope).getByRole('button', { name: 'Make progress' });
     const outcome = within(scope).getByRole('button', { name: 'Finish faster' });
@@ -2258,6 +2290,75 @@ describe('searchable Touchpoint connection picker', () => {
     await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
     await user.click(within(inspector.getByRole('region', { name: 'Client scope' })).getByRole('button', { name: 'Finish faster' }));
     expect(inspector.getByRole('heading', { name: 'Finish faster' })).toBeInTheDocument();
+  });
+
+  it('groups read-only Client scope by kind with independent prioritized disclosures and preserved navigation state', async () => {
+    const user = userEvent.setup();
+    const inspector = renderTouchpointInspector(multiKindClientScopeDocument());
+    const scope = inspector.getByRole('region', { name: 'Client scope' });
+    const groups = scope.querySelector<HTMLElement>('.client-scope-view-groups')!;
+    const panelNames = () => [...groups.querySelectorAll<HTMLButtonElement>('.client-scope-view-disclosure')].map(button => button.getAttribute('aria-label'));
+
+    expect(panelNames()).toEqual(['Core Functional Job, 1', 'Related Job, 1', 'Emotional Job, 1', 'Financial Desired Outcome, 1']);
+    for (const button of within(groups).getAllByRole('button')) expect(button).toHaveAttribute('aria-expanded', 'false');
+    expect(within(scope).queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(within(scope).queryByRole('searchbox', { name: 'Search Client intent' })).not.toBeInTheDocument();
+    expect(within(scope).queryByText('Finish faster')).not.toBeInTheDocument();
+
+    const relatedDisclosure = within(groups).getByRole('button', { name: 'Related Job, 1' });
+    await user.click(relatedDisclosure);
+    expect(panelNames()).toEqual(['Related Job, 1', 'Core Functional Job, 1', 'Emotional Job, 1', 'Financial Desired Outcome, 1']);
+    expect(relatedDisclosure).toHaveFocus();
+    expect(within(groups).getByRole('button', { name: 'Coordinate delivery' })).toBeInTheDocument();
+    expect(within(groups).getByRole('button', { name: 'Avoid handoff delays' })).toBeInTheDocument();
+
+    const coreDisclosure = within(groups).getByRole('button', { name: 'Core Functional Job, 1' });
+    await user.click(coreDisclosure);
+    expect(panelNames()).toEqual(['Core Functional Job, 1', 'Related Job, 1', 'Emotional Job, 1', 'Financial Desired Outcome, 1']);
+    expect(coreDisclosure).toHaveFocus();
+    expect(relatedDisclosure).toHaveAttribute('aria-expanded', 'true');
+    expect(within(groups).getByRole('button', { name: 'Make progress' })).toBeInTheDocument();
+    expect(within(groups).getByRole('button', { name: 'Finish faster' })).toBeInTheDocument();
+    expect(within(groups).getByRole('button', { name: 'Reduce errors' })).toBeInTheDocument();
+
+    const financialDisclosure = within(groups).getByRole('button', { name: 'Financial Desired Outcome, 1' });
+    await user.click(financialDisclosure);
+    expect(financialDisclosure).toHaveAttribute('aria-expanded', 'true');
+    expect(coreDisclosure).toHaveAttribute('aria-expanded', 'true');
+    expect(within(groups).getByRole('button', { name: 'Stay affordable' })).toBeInTheDocument();
+    await user.click(relatedDisclosure);
+    expect(coreDisclosure).toHaveAttribute('aria-expanded', 'true');
+    expect(financialDisclosure).toHaveAttribute('aria-expanded', 'true');
+
+    await user.click(within(groups).getByRole('button', { name: 'Make progress' }));
+    expect(inspector.getByRole('heading', { name: 'Make progress' })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    const restoredScope = inspector.getByRole('region', { name: 'Client scope' });
+    expect(within(restoredScope).getByRole('button', { name: 'Core Functional Job, 1' })).toHaveAttribute('aria-expanded', 'true');
+    expect(within(restoredScope).getByRole('button', { name: 'Financial Desired Outcome, 1' })).toHaveAttribute('aria-expanded', 'true');
+    await user.click(within(restoredScope).getByRole('button', { name: 'Stay affordable' }));
+    expect(inspector.getByRole('heading', { name: 'Stay affordable' })).toBeInTheDocument();
+  });
+
+  it('restores read disclosures after authoring and keeps Resistance outside the panel grid', async () => {
+    const user = userEvent.setup();
+    const inspector = renderTouchpointInspector(multiKindClientScopeDocument());
+    let scope = inspector.getByRole('region', { name: 'Client scope' });
+    await user.click(within(scope).getByRole('button', { name: 'Core Functional Job, 1' }));
+    await user.click(within(scope).getByRole('button', { name: 'Financial Desired Outcome, 1' }));
+    await user.click(within(scope).getByRole('button', { name: 'Edit Client scope' }));
+    expect(scope.querySelector('.client-scope-view-groups')).not.toBeInTheDocument();
+    await user.type(within(scope).getByRole('searchbox', { name: 'Search Client intent' }), 'Feel confident');
+    await user.click(within(scope).getByRole('checkbox', { name: 'Feel confident' }));
+    await user.click(within(scope).getByRole('button', { name: 'Close Client scope authoring' }));
+
+    scope = inspector.getByRole('region', { name: 'Client scope' });
+    expect(within(scope).queryByRole('button', { name: 'Emotional Job, 1' })).not.toBeInTheDocument();
+    expect(within(scope).getByRole('button', { name: 'Core Functional Job, 1' })).toHaveAttribute('aria-expanded', 'true');
+    expect(within(scope).getByRole('button', { name: 'Financial Desired Outcome, 1' })).toHaveAttribute('aria-expanded', 'true');
+    const resistance = inspector.getByRole('region', { name: 'Resistance' });
+    expect(scope.compareDocumentPosition(resistance) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(scope.querySelector('.client-scope-view-groups')).not.toContainElement(resistance);
   });
 
   it('searches by title and uses a temporary kind shortcut without a permanent select', async () => {
