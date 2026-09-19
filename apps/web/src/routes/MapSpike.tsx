@@ -17,7 +17,7 @@ import { enterMoveMode, inactiveMoveMode, moveInMode, moveVectorForKey, type Mov
 import { Link } from '../router';
 import { commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, globalIntentDiscovery, touchpointClientScope, touchpointUpstreamSources, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft, type UpstreamLeaf } from './touchpoint-edit';
 import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
-import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets, initialNeighborhoodExpandedGroupIds } from '../touchpoint-business-structure';
+import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets, initialCompactOverviewExpandedGroupIds } from '../touchpoint-business-structure';
 
 const VIEW_ID = 'spike-view';
 export const RELATION_EDITOR_SEARCH_THRESHOLD = 7;
@@ -1685,15 +1685,23 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       | { kind: Exclude<ClientScopePanelKind, 'financial_desired_outcome'>; jobGroups: typeof scope.jobGroups }
       | { kind: 'financial_desired_outcome'; financialLeaves: typeof scope.financialLeaves }
     );
-    const clientScopePanels: ClientScopePanel[] = (editing ? [] : CLIENT_SCOPE_KIND_ORDER.flatMap<ClientScopePanel>(kind => {
+    const renderedClientScopePanels: ClientScopePanel[] = editing ? [] : CLIENT_SCOPE_KIND_ORDER.flatMap<ClientScopePanel>(kind => {
       if (kind === 'financial_desired_outcome') return scope.financialLeaves.length ? [{ id: `client-kind:${kind}`, kind, count: scope.financialLeaves.length, financialLeaves: scope.financialLeaves }] : [];
       const jobGroups = scope.jobGroups.filter(group => group.job.kind === kind);
       return jobGroups.length ? [{ id: `client-kind:${kind}`, kind, count: jobGroups.length, jobGroups }] : [];
-    })).sort((left, right) => Number(Boolean(expandedClientScopePanels[selected.id]?.[right.kind])) - Number(Boolean(expandedClientScopePanels[selected.id]?.[left.kind])));
-    const toggleClientScopePanel = (kind: ClientScopePanelKind) => setExpandedClientScopePanels(current => ({
-      ...current,
-      [selected.id]: { ...current[selected.id], [kind]: !current[selected.id]?.[kind] },
-    }));
+    });
+    const initialClientScopeExpansion = initialCompactOverviewExpandedGroupIds(renderedClientScopePanels);
+    const storedClientScopeExpansion = expandedClientScopePanels[selected.id];
+    const isClientScopePanelExpanded = (panel: ClientScopePanel) =>
+      storedClientScopeExpansion?.[panel.kind] ?? (storedClientScopeExpansion ? false : initialClientScopeExpansion.has(panel.id));
+    const clientScopePanels = [...renderedClientScopePanels].sort((left, right) =>
+      Number(isClientScopePanelExpanded(right)) - Number(isClientScopePanelExpanded(left)),
+    );
+    const toggleClientScopePanel = (kind: ClientScopePanelKind) => setExpandedClientScopePanels(current => {
+      const existing = current[selected.id];
+      const snapshot = existing ?? Object.fromEntries(renderedClientScopePanels.map(panel => [panel.kind, initialClientScopeExpansion.has(panel.id)]));
+      return { ...current, [selected.id]: { ...snapshot, [kind]: !(snapshot[kind] ?? false) } };
+    });
     const backFromResolver = () => {
       const focusId = connectionPicker?.target?.leaf.checkboxId;
       if (focusId) globalThis.document.getElementById(focusId)?.focus();
@@ -1744,7 +1752,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       <div className="touchpoint-client-scope-heading">{editing ? <><h4 id="touchpoint-client-scope-heading">Client scope</h4><button type="button" className="inspector-secondary-action" aria-label="Close Client scope authoring" onClick={() => closeClientScopeEditor('explicit')}>Close</button></> : <h4 id="touchpoint-client-scope-heading" aria-label="Client scope"><button ref={connectionPickerButtonRef} data-touchpoint-editor-affordance type="button" className="inspector-property-heading-action" aria-label="Edit Client scope" disabled={!offers.length} onClick={() => { closeRelationEditor('switch-editor'); closeChildrenEditor('switch-editor'); setBusinessInlineEdit(null); setConnectionPicker({ mode: 'upstream', query: '', kind: undefined, contributorOfferIds: [], ancestorContributingOfferIds: {} }); }}>Client scope<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h4>}</div>
       {!editing && clientScopePanels.length ? <div className="client-scope-view-groups">
         {clientScopePanels.map(panel => {
-          const expanded = Boolean(expandedClientScopePanels[selected.id]?.[panel.kind]);
+          const expanded = isClientScopePanelExpanded(panel);
           const contentId = `client-scope-${encodeURIComponent(selected.id)}-${panel.kind}`;
           return <section className="client-scope-view-panel" key={panel.id}>
             <button type="button" className="client-scope-view-disclosure" aria-expanded={expanded} aria-controls={contentId} aria-label={`${KIND_LABELS[panel.kind]}, ${panel.count}`} onClick={() => toggleClientScopePanel(panel.kind)}>
@@ -2000,7 +2008,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       }] : []),
     ];
     const storedExpansion = neighborhoodExpanded[structure.touchpoint.id];
-    const initialExpansion = initialNeighborhoodExpandedGroupIds(neighborhoodGroups);
+    const initialExpansion = initialCompactOverviewExpandedGroupIds(neighborhoodGroups);
     const isGroupExpanded = (groupId: string) => storedExpansion?.[groupId] ?? (storedExpansion ? false : initialExpansion.has(groupId));
     const orderedNeighborhoodGroups = [...neighborhoodGroups].sort((left, right) =>
       Number(isGroupExpanded(right.id)) - Number(isGroupExpanded(left.id)),

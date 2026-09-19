@@ -27,8 +27,8 @@ export interface TouchpointChildrenCandidates {
   standaloneLeaves: { touchpoint: Touchpoint; childCount: number }[];
 }
 
-/** Presentation helper for the initial density of transient Neighborhood disclosures. */
-export function initialNeighborhoodExpandedGroupIds(
+/** Presentation helper for the initial density of compact overview disclosures. */
+export function initialCompactOverviewExpandedGroupIds(
   groups: readonly { id: string; count: number }[],
 ): Set<string> {
   if (groups.length === 1 && groups[0]!.count <= 4) return new Set([groups[0]!.id]);

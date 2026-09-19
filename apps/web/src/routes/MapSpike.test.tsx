@@ -2122,7 +2122,7 @@ describe('searchable Touchpoint connection picker', () => {
     expect(window.__VEE_DEV__!.dump()).toEqual(committed);
     expect(within(scope).queryByRole('searchbox', { name: 'Search Client intent' })).not.toBeInTheDocument();
     expect(within(scope).getByRole('button', { name: 'Edit Client scope' })).toHaveFocus();
-    await user.click(within(scope).getByRole('button', { name: 'Core Functional Job, 1' }));
+    expect(within(scope).getByRole('button', { name: 'Core Functional Job, 1' })).toHaveAttribute('aria-expanded', 'true');
     expect(within(scope).getByRole('button', { name: 'Finish faster' })).toBeInTheDocument();
     expect(within(scope).getByRole('button', { name: 'Edit Client scope' })).toHaveTextContent('Client scope');
     expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
@@ -2262,7 +2262,7 @@ describe('searchable Touchpoint connection picker', () => {
     expect(neighborhood.compareDocumentPosition(scope) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(scope).toContainElement(addConnection);
     expect(inspector.queryByRole('button', { name: 'Select all current Offer intent' })).not.toBeInTheDocument();
-    fireEvent.click(within(scope).getByRole('button', { name: 'Core Functional Job, 1' }));
+    expect(within(scope).getByRole('button', { name: 'Core Functional Job, 1' })).toHaveAttribute('aria-expanded', 'true');
     const jobGroup = within(scope).getByRole('button', { name: 'Make progress' }).closest<HTMLElement>('.touchpoint-client-job')!;
     expect(within(jobGroup).getByRole('button', { name: 'Finish faster' })).toBeInTheDocument();
     expect(inspector.queryByRole('region', { name: 'Connected' })).not.toBeInTheDocument();
@@ -2274,7 +2274,7 @@ describe('searchable Touchpoint connection picker', () => {
     document = applyTouchpointIntentDraft(document, { touchpointId: 'touch', draft: { jobLeaves: [{ jobId: 'job', semanticLeafId: 'do-a', desiredOutcomeId: 'do-a', contributorOfferIds: ['offer-a'] }], financialLeaves: [], pendingJobLeafIds: [], pendingFinancialLeafIds: [] }, newId: () => `read-navigation-${++id}` });
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(document);
     const scope = inspector.getByRole('region', { name: 'Client scope' });
-    await user.click(within(scope).getByRole('button', { name: 'Core Functional Job, 1' }));
+    expect(within(scope).getByRole('button', { name: 'Core Functional Job, 1' })).toHaveAttribute('aria-expanded', 'true');
 
     const job = within(scope).getByRole('button', { name: 'Make progress' });
     const outcome = within(scope).getByRole('button', { name: 'Finish faster' });
@@ -2290,6 +2290,45 @@ describe('searchable Touchpoint connection picker', () => {
     await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
     await user.click(within(inspector.getByRole('region', { name: 'Client scope' })).getByRole('button', { name: 'Finish faster' }));
     expect(inspector.getByRole('heading', { name: 'Finish faster' })).toBeInTheDocument();
+  });
+
+  it('applies compact initial disclosure density to one, two, and three Client scope kinds', () => {
+    let oneKind = touchpointInspectorDocument();
+    let id = 0;
+    oneKind = applyTouchpointIntentDraft(oneKind, { touchpointId: 'touch', draft: { jobLeaves: [{ jobId: 'job', semanticLeafId: 'do-a', desiredOutcomeId: 'do-a', contributorOfferIds: ['offer-a'] }], financialLeaves: [], pendingJobLeafIds: [], pendingFinancialLeafIds: [] }, newId: () => `density-one-${++id}` });
+    let scope = renderTouchpointInspector(oneKind).getByRole('region', { name: 'Client scope' });
+    expect(within(scope).getByRole('button', { name: 'Core Functional Job, 1' })).toHaveAttribute('aria-expanded', 'true');
+    expect(within(scope).getByRole('button', { name: 'Make progress' })).toBeInTheDocument();
+    cleanup();
+
+    const twoKinds = multiKindClientScopeDocument();
+    twoKinds.touchpointJobSelections = twoKinds.touchpointJobSelections.filter(selection => selection.id !== 'emotional-path');
+    twoKinds.touchpointFinancialSelections = [];
+    scope = renderTouchpointInspector(twoKinds).getByRole('region', { name: 'Client scope' });
+    expect(within(scope).getByRole('button', { name: 'Core Functional Job, 1' })).toHaveAttribute('aria-expanded', 'true');
+    expect(within(scope).getByRole('button', { name: 'Related Job, 1' })).toHaveAttribute('aria-expanded', 'true');
+    cleanup();
+
+    const threeKinds = multiKindClientScopeDocument();
+    threeKinds.touchpointFinancialSelections = [];
+    scope = renderTouchpointInspector(threeKinds).getByRole('region', { name: 'Client scope' });
+    expect(within(scope).getAllByRole('button', { name: /, 1$/ }).every(button => button.getAttribute('aria-expanded') === 'false')).toBe(true);
+  });
+
+  it('snapshots an initially expanded Client scope choice through authoring mode', async () => {
+    let document = touchpointInspectorDocument();
+    let id = 0;
+    document = applyTouchpointIntentDraft(document, { touchpointId: 'touch', draft: { jobLeaves: [{ jobId: 'job', semanticLeafId: 'do-a', desiredOutcomeId: 'do-a', contributorOfferIds: ['offer-a'] }], financialLeaves: [], pendingJobLeafIds: [], pendingFinancialLeafIds: [] }, newId: () => `snapshot-${++id}` });
+    const user = userEvent.setup();
+    const inspector = renderTouchpointInspector(document);
+    const scope = inspector.getByRole('region', { name: 'Client scope' });
+    const disclosure = within(scope).getByRole('button', { name: 'Core Functional Job, 1' });
+    expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+    await user.click(disclosure);
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    await user.click(within(scope).getByRole('button', { name: 'Edit Client scope' }));
+    await user.click(within(scope).getByRole('button', { name: 'Close Client scope authoring' }));
+    expect(within(scope).getByRole('button', { name: 'Core Functional Job, 1' })).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('groups read-only Client scope by kind with independent prioritized disclosures and preserved navigation state', async () => {

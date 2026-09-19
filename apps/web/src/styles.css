@@ -116,7 +116,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .inspector-secondary-action:hover { background: rgba(255,255,255,.12); }
 .inspector-secondary-action:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .touchpoint-client-scope-content { display: grid; gap: .75rem; min-width: 0; }
-.client-scope-view-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); align-items: start; gap: .65rem; min-width: 0; }
+.client-scope-view-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 24rem)); justify-content: start; align-items: start; gap: .65rem; min-width: 0; }
 .client-scope-view-panel { min-width: 0; padding: .35rem; border: 1px solid var(--border-subtle); border-radius: .4rem; background: rgba(255,255,255,.025); }
 .client-scope-view-disclosure { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .4rem; width: 100%; padding: .35rem; border: 0; border-radius: .25rem; background: transparent; color: rgba(255,255,255,.82); text-align: left; }
 .client-scope-view-disclosure:hover { background: rgba(255,255,255,.055); }
