@@ -55,4 +55,27 @@ describe('calculatePackedPanelLayout', () => {
     expect(Math.max(...result.placements.map(panel => panel.x + panel.width))).toBeLessThanOrEqual(500);
     expect(result.height).toBe(135);
   });
+
+  it('changes column count at the usable-width boundary without overflowing', () => {
+    const belowBoundary = layout(369, ['a', 'b', 'c'], [40, 40, 40])!;
+    const atBoundary = layout(370, ['a', 'b', 'c'], [40, 40, 40])!;
+
+    expect(belowBoundary.columnCount).toBe(1);
+    expect(atBoundary.columnCount).toBe(2);
+    expect(Math.max(...atBoundary.placements.map(panel => panel.x + panel.width))).toBe(370);
+  });
+
+  it('returns identical placements for identical measured inputs', () => {
+    const first = layout(590, ['tall', 'short-a', 'short-b', 'last'], [200, 40, 40, 70]);
+    const second = layout(590, ['tall', 'short-a', 'short-b', 'last'], [200, 40, 40, 70]);
+
+    expect(second).toEqual(first);
+  });
+
+  it('rejects invalid geometry instead of activating a partial packed layout', () => {
+    expect(layout(Number.NaN, ['a'], [40])).toBeNull();
+    expect(layout(500, ['a'], [0])).toBeNull();
+    expect(layout(500, ['a', 'b'], [40])).toBeNull();
+    expect(layout(500, ['a'], [40], Number.NaN)).toBeNull();
+  });
 });
