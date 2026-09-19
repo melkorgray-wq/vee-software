@@ -1,6 +1,7 @@
 export type InspectorHistory = { entries: string[]; index: number };
 
 export type InspectorHistoryAction =
+  | { type: 'start'; entityId: string | null }
   | { type: 'push'; entityId: string }
   | { type: 'replace'; history: InspectorHistory };
 
@@ -8,6 +9,7 @@ export const emptyInspectorHistory = (): InspectorHistory => ({ entries: [], ind
 
 /** Owns transient Inspector traversal independently from the shared workspace selection. */
 export function inspectorHistoryReducer(history: InspectorHistory, action: InspectorHistoryAction): InspectorHistory {
+  if (action.type === 'start') return action.entityId === null ? emptyInspectorHistory() : { entries: [action.entityId], index: 0 };
   if (action.type === 'replace') return action.history;
   if (history.entries[history.index] === action.entityId) return history;
   return {
