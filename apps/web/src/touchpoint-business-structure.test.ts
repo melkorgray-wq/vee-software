@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { MapDocument } from '@vee/domain';
-import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets, initialNeighborhoodExpandedGroupIds } from './touchpoint-business-structure';
+import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets, initialCompactOverviewExpandedGroupIds } from './touchpoint-business-structure';
 
-describe('initial Neighborhood presentation density', () => {
-  const expandedFor = (counts: number[]) => [...initialNeighborhoodExpandedGroupIds(counts.map((count, index) => ({ id: `group-${index}`, count })))];
+describe('initial compact overview presentation density', () => {
+  const expandedFor = (counts: number[]) => [...initialCompactOverviewExpandedGroupIds(counts.map((count, index) => ({ id: `group-${index}`, count })))];
 
   it.each([
     [[], []],
