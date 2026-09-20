@@ -1205,15 +1205,21 @@ describe('Offer Inspector derived neighborhood', () => {
     const document = offerNeighborhoodDocument();
     const snapshot = structuredClone(document);
     let inspector = await inspectOffer(user, document);
-    const neighborhood = within(inspector.getByRole('region', { name: 'Offer neighborhood' }));
+    const neighborhoodRegion = inspector.getByRole('region', { name: 'Offer neighborhood' });
+    const neighborhood = within(neighborhoodRegion);
+    expect(neighborhoodRegion).toHaveClass('offer-neighborhood', 'business-structure-derived');
     expect(neighborhood.getByText('Derived')).toBeInTheDocument();
     const disclosure = neighborhood.getByRole('button', { name: 'Other Offers for Orbit, 2 Offers' });
     expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    expect(disclosure).toHaveAttribute('aria-controls', 'offer-neighborhood-offer-a');
+    expect(within(disclosure).getByText('2')).toHaveClass('derived-neighborhood-count');
+    expect(neighborhoodRegion.querySelector('#offer-neighborhood-offer-a')).toHaveAttribute('hidden');
     expect(neighborhood.queryByRole('button', { name: 'Advisory' })).not.toBeInTheDocument();
 
     disclosure.focus();
     await user.keyboard('{Enter}');
     expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+    expect(neighborhoodRegion.querySelector('#offer-neighborhood-offer-a')).not.toHaveAttribute('hidden');
     expect(neighborhood.getAllByRole('listitem').map(item => item.textContent)).toEqual(['Advisory', 'Consulting']);
     expect(neighborhood.getAllByRole('button', { name: 'Advisory' })).toHaveLength(1);
     expect(neighborhood.queryByRole('button', { name: 'Subscription' })).not.toBeInTheDocument();
@@ -1228,6 +1234,14 @@ describe('Offer Inspector derived neighborhood', () => {
     inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
     expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
     expect(within(inspector.getByRole('region', { name: 'Offer neighborhood' })).getByRole('button', { name: 'Other Offers for Orbit, 2 Offers' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('does not apply the Offer-specific modifier to a Touchpoint neighborhood', async () => {
+    const inspector = renderTouchpointInspector();
+    const neighborhood = within(inspector.getByRole('region', { name: 'Business structure' }))
+      .getByText('Neighborhood').closest<HTMLElement>('.business-structure-derived');
+    expect(neighborhood).toBeInTheDocument();
+    expect(neighborhood).not.toHaveClass('offer-neighborhood');
   });
 
   it('keeps a resolved zero-sibling group but omits neighborhoods for missing or invalid Product links', async () => {
