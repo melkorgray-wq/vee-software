@@ -2233,7 +2233,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const expanded = offerNeighborhoodExpanded[selected.id] ?? false;
     const label = `Other Offers for ${product.title}`;
     const contentId = `offer-neighborhood-${encodeURIComponent(selected.id)}`;
-    return <section className="business-structure-derived" aria-label="Offer neighborhood">
+    return <section className="business-structure-derived offer-neighborhood" aria-label="Offer neighborhood">
       <div className="derived-heading"><h5>Neighborhood</h5><span>Derived</span></div>
       <div className="derived-neighborhood-slices">
         <div className="business-structure-property derived-neighborhood-slice" role="group" aria-label={label}>
