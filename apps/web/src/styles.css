@@ -296,3 +296,15 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .inspector label.touchpoint-resistance-mitigation:focus-within { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .inspector label.touchpoint-resistance-mitigation > input[type="checkbox"] { flex: 0 0 auto; width: auto; min-width: auto; height: auto; margin: 0; padding: 0; }
 .touchpoint-resistance-empty { color: rgba(255,255,255,.62); font-size: .84rem; }
+.offer-document { display: grid; gap: 0; }
+.offer-document-section { display: grid; gap: .55rem; padding: 1rem 0; border-top: 1px solid var(--border-subtle); }
+.offer-document-section h4, .offer-legacy-editor h4 { margin: 0; color: rgba(255,255,255,.72); font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; }
+.offer-document-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.offer-document-empty { margin: 0; color: rgba(255,255,255,.58); font-style: italic; }
+.offer-intent-tree { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 22rem)); gap: .65rem; }
+.offer-intent-job { display: grid; justify-items: start; gap: .2rem; padding: .65rem; border: 1px solid var(--border-subtle); border-radius: .4rem; background: rgba(255,255,255,.025); }
+.offer-intent-job > small { color: rgba(255,255,255,.58); }
+.offer-intent-job > ul { position: relative; display: grid; gap: .25rem; width: 100%; margin: .25rem 0 0 .4rem; padding: .15rem 0 .15rem 1.2rem; list-style: none; }
+.offer-intent-job > ul::before { position: absolute; inset: 0 auto 0 .25rem; border-left: 1px solid var(--border-soft); content: ''; }
+.offer-legacy-editor { display: grid; gap: 1rem; padding: 1rem; border: 1px solid var(--border-subtle); border-radius: .4rem; }
+.derived-label { color: rgba(255,255,255,.52); font-size: .7rem; letter-spacing: .04em; text-transform: uppercase; }

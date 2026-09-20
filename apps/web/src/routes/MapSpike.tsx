@@ -18,6 +18,7 @@ import { Link } from '../router';
 import { commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, globalIntentDiscovery, touchpointClientScope, touchpointUpstreamSources, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft, type UpstreamLeaf } from './touchpoint-edit';
 import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
 import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets, initialCompactOverviewExpandedGroupIds } from '../touchpoint-business-structure';
+import { deriveOfferBusinessStructure } from '../offer-business-structure';
 import { useClientScopePackedLayout } from '../client-scope-packed-layout';
 
 const VIEW_ID = 'spike-view';
@@ -436,6 +437,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [businessInlineEdit, setBusinessInlineEdit] = useState<{ property: 'url'; value: string; error?: string } | { property: 'located-in'; query: string; error?: string } | null>(null);
   const [productExpanded, setProductExpanded] = useState<Record<string, boolean>>({});
   const [offerExpanded, setOfferExpanded] = useState<Record<string, boolean>>({});
+  const [offerLegacyEditorOpen, setOfferLegacyEditorOpen] = useState(false);
   const [neighborhoodExpanded, setNeighborhoodExpanded] = useState<Record<string, Record<string, boolean>>>({});
   const [connectionPicker, setConnectionPicker] = useState<ClientScopeEditor | null>(null);
   const [expandedClientSources, setExpandedClientSources] = useState<Record<string, boolean>>({});
@@ -490,6 +492,9 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const selected = document.entities.find((e) => e.id === selectedId);
   const touchpointBusinessStructure = selected?.kind === 'touchpoint'
     ? deriveTouchpointBusinessStructure(document, selected.id)
+    : undefined;
+  const offerBusinessStructure = selected?.kind === 'offer'
+    ? deriveOfferBusinessStructure(document, selected.id)
     : undefined;
   const inspectorDirty = Boolean(selected && editDraft && (() => { const baseline = draftFor(selected); return JSON.stringify({ ...editDraft, touchpointIntent: undefined }) !== JSON.stringify({ ...baseline, touchpointIntent: undefined }) || Boolean(editDraft.touchpointIntent && baseline.touchpointIntent && !equalTouchpointIntentDraft(editDraft.touchpointIntent, baseline.touchpointIntent)); })());
 
@@ -849,6 +854,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     publishSuccess('Parent Touchpoint updated.');
   }
   function resetProductSession(entity: Entity | undefined, source = document) {
+    setOfferLegacyEditorOpen(false);
     setProductExpanded({});
     rememberedProductOutcomesRef.current = {};
     setRememberedProductOutcomes({});
@@ -1560,7 +1566,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       const impacts = resistanceImpactForOffer(document, entity.id);
       return (
         <section aria-label="Resistance affecting this Offer">
-          <h4>Resistance affecting this Offer</h4>
+          <div className="offer-document-heading"><h4>Resistance affecting this Offer</h4><span className="derived-label">Derived · read-only</span></div>
           {impacts.length ? (
             impacts.map((impact) => (
               <div key={impact.repulsor.id}>
@@ -2025,6 +2031,29 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     } else return;
     event.preventDefault();
     items[target]?.focus();
+  }
+  function offerDocumentSections() {
+    const structure = offerBusinessStructure;
+    if (!structure) return null;
+    const entityLink = (entity: { id: string; title: string }) => <button type="button" className="inspector-entity-navigation" onClick={() => navigateInspector(entity.id)}>{entity.title}</button>;
+    return <div className="offer-document">
+      <section className="offer-document-section" aria-labelledby="offer-product-heading">
+        <div className="offer-document-heading"><h4 id="offer-product-heading">Linked Product</h4><button type="button" className="inspector-secondary-action" aria-label="Edit Linked Product" onClick={() => setOfferLegacyEditorOpen(true)}>Edit</button></div>
+        {structure.product ? entityLink(structure.product) : <p className="offer-document-empty">No linked Product.</p>}
+      </section>
+      <section className="offer-document-section" aria-labelledby="offer-touchpoints-heading">
+        <h4 id="offer-touchpoints-heading">Connected Touchpoints</h4>
+        {structure.touchpoints.length ? <ul className="business-structure-links">{structure.touchpoints.map(touchpoint => <li key={touchpoint.id}>{entityLink(touchpoint)}</li>)}</ul> : <p className="offer-document-empty">This Offer is not presented at any Touchpoints yet.</p>}
+      </section>
+      <section className="offer-document-section" aria-labelledby="offer-client-intent-heading">
+        <div className="offer-document-heading"><h4 id="offer-client-intent-heading">Client intent</h4><button type="button" className="inspector-secondary-action" aria-label="Edit Client intent" onClick={() => setOfferLegacyEditorOpen(true)}>Edit</button></div>
+        {structure.clientIntent.length ? <div className="offer-intent-tree">{structure.clientIntent.map(({ job, desiredOutcomes }) => <div className="offer-intent-job" key={job.id}>{entityLink(job)}<small>{KIND_LABELS[job.kind]}</small>{desiredOutcomes.length ? <ul>{desiredOutcomes.map(outcome => <li key={outcome.id}>{entityLink(outcome)}</li>)}</ul> : <p className="offer-document-empty">No Desired Outcomes selected.</p>}</div>)}</div> : <p className="offer-document-empty">No Client intent selected.</p>}
+      </section>
+      <section className="offer-document-section" aria-labelledby="offer-financial-intent-heading">
+        <div className="offer-document-heading"><h4 id="offer-financial-intent-heading">Financial intent</h4><button type="button" className="inspector-secondary-action" aria-label="Edit Financial intent" onClick={() => setOfferLegacyEditorOpen(true)}>Edit</button></div>
+        {structure.financialIntent.length ? <ul className="business-structure-links">{structure.financialIntent.map(outcome => <li key={outcome.id}>{entityLink(outcome)}</li>)}</ul> : <p className="offer-document-empty">No Financial Desired Outcomes selected.</p>}
+      </section>
+    </div>;
   }
   function touchpointBusinessStructureSection() {
     const structure = touchpointBusinessStructure;
@@ -2669,45 +2698,20 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               {touchpointBusinessStructureSection()}
               {touchpointClientScopeSection()}
               {touchpointResistanceSection()}
-              {selected.kind === 'offer' && (
-                <div className="connected-field">
-                <label>
-                  Linked Product
-                  <select
-                    value={editDraft.linkedProductId}
-                    onChange={(e) => {
-                      const linkedProductId = e.target.value;
-                      const memory = { ...offerSelectionMemory, [editDraft.linkedProductId]: editDraft.selectedIntentIds };
-                      setOfferSelectionMemory(memory);
-                      setOfferIntentSectionIds(current => current[linkedProductId] ? current : { ...current, [linkedProductId]: [] });
-                      setEditDraft({
-                        ...editDraft,
-                        linkedProductId,
-                        selectedIntentIds: memory[linkedProductId] ?? [],
-                      });
-                    }}
-                  >
-                    {document.entities
-                      .filter((e) => e.kind === 'product')
-                      .map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.title}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                {document.entities.find(entity => entity.id === editDraft.linkedProductId) && <button type="button" className="connected-title" onClick={() => navigateInspector(editDraft.linkedProductId)}>{entityTitle(document, editDraft.linkedProductId)}</button>}
-                </div>
-              )}
+              {selected.kind === 'offer' && !offerLegacyEditorOpen && offerDocumentSections()}
+              {selected.kind === 'offer' && offerLegacyEditorOpen && <section className="offer-legacy-editor" aria-label="Edit Offer structure">
+                <div className="offer-document-heading"><h4>Edit Offer structure</h4><button type="button" className="inspector-secondary-action" onClick={() => setOfferLegacyEditorOpen(false)}>Close editor</button></div>
+                <div className="connected-field"><label>Linked Product<select value={editDraft.linkedProductId} onChange={(e) => { const linkedProductId = e.target.value; const memory = { ...offerSelectionMemory, [editDraft.linkedProductId]: editDraft.selectedIntentIds }; setOfferSelectionMemory(memory); setOfferIntentSectionIds(current => current[linkedProductId] ? current : { ...current, [linkedProductId]: [] }); setEditDraft({ ...editDraft, linkedProductId, selectedIntentIds: memory[linkedProductId] ?? [] }); }}>{document.entities.filter((e) => e.kind === 'product').map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}</select></label></div>
+                {offerIntentFields(editDraft, setEditDraft)}
+              </section>}
               {productIntentFields(editDraft, setEditDraft)}
-              {offerIntentFields(editDraft, setEditDraft)}
               {resistanceImpactFields(selected)}
               {semanticParentField(editDraft, setEditDraft)}
               {contextualJobFields(editDraft, setEditDraft)}
               {repulsorTargetsField(editDraft, setEditDraft)}
               {touchFields(editDraft, setEditDraft, true, false)}
               {selected.kind === 'touchpoint' && touchpointIntentFields()}
-              {selected.kind !== 'touchpoint' && connectionPicker === null && <div className={`apply-footer ${inspectorDirty ? 'dirty' : ''}`}>
+              {selected.kind !== 'touchpoint' && (selected.kind !== 'offer' || offerLegacyEditorOpen) && connectionPicker === null && <div className={`apply-footer ${inspectorDirty ? 'dirty' : ''}`}>
                 {inspectorDirty && <span>Unsaved changes</span>}
                 <button className="primary" disabled={!inspectorDirty || Boolean(editDraft.touchpointIntent && validateTouchpointIntentDraft(editDraft.touchpointIntent, editDraft.linkedOfferIds))}>Apply changes</button>
               </div>}

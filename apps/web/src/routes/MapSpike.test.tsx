@@ -152,6 +152,39 @@ function resistanceDocument(): MapDocument {
   return document;
 }
 
+describe('Offer document Inspector', () => {
+  it('reads committed Business structure before progressively disclosing the legacy editor', async () => {
+    const user = userEvent.setup(); const document = touchpointInspectorDocument();
+    document.productJobIntents = [{ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a', 'do-b'] }];
+    document.offerJobSelections = [{ id: 'selection', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-b'] }];
+    document.offerFinancialIntents = [{ id: 'financial', offerId: 'offer-a', financialDesiredOutcomeId: 'fdo' }];
+    render(<MapSpike initialDocument={document} />); await user.click(screen.getByRole('button', { name: 'Subscription' })); const inspector = await openInspector(user);
+    expect(inspector.getByRole('heading', { name: 'Linked Product' })).toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Orbit' })).toHaveClass('inspector-entity-navigation');
+    expect(inspector.getByRole('heading', { name: 'Connected Touchpoints' })).toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Checkout' })).toHaveClass('inspector-entity-navigation');
+    expect(inspector.getByRole('button', { name: 'Make progress' })).toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Reduce errors' })).toBeInTheDocument();
+    expect(inspector.queryByRole('button', { name: 'Finish faster' })).not.toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Stay affordable' })).toBeInTheDocument();
+    expect(inspector.getByText('Derived · read-only')).toBeInTheDocument();
+    expect(inspector.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
+    expect(inspector.getByRole('region', { name: 'Edit Offer structure' })).toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeInTheDocument();
+  });
+
+  it('shows useful empty states for optional Offer scope', async () => {
+    const user = userEvent.setup(); const document = touchpointInspectorDocument();
+    document.relationships = document.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint');
+    render(<MapSpike initialDocument={document} />); await user.click(screen.getByRole('button', { name: 'Subscription' })); const inspector = await openInspector(user);
+    expect(inspector.getByText('This Offer is not presented at any Touchpoints yet.')).toBeInTheDocument();
+    expect(inspector.getByText('No Client intent selected.')).toBeInTheDocument();
+    expect(inspector.getByText('No Financial Desired Outcomes selected.')).toBeInTheDocument();
+  });
+});
+
 describe('Touchpoint Resistance section', () => {
   afterEach(cleanup);
 
@@ -1887,7 +1920,7 @@ describe('map-first authoring interactions', () => {
     const initialEdgeCount = document.querySelectorAll('[data-edge-type="mapEdge"]').length; await user.type(offer.getByLabelText('Title'), 'Cancelled'); expect(screen.queryByRole('button', { name: 'Cancelled' })).not.toBeInTheDocument(); expect(document.querySelectorAll('[data-edge-type="mapEdge"]')).toHaveLength(initialEdgeCount); await user.click(offer.getByRole('button', { name: 'Cancel' })); expect(screen.queryByRole('button', { name: 'Cancelled' })).not.toBeInTheDocument(); expect(document.querySelectorAll('[data-edge-type="mapEdge"]')).toHaveLength(initialEdgeCount);
     fireEvent.keyDown(window, { key: 'Tab' }); await user.click(screen.getByRole('menuitem', { name: 'Offer' })); offer = contextualEditor('Add Offer'); await user.type(offer.getByLabelText('Title'), 'Subscription'); await user.click(offer.getByRole('button', { name: 'Create' }));
     expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true'); expect(screen.getByRole('button', { name: 'Subscription' })).toBeInTheDocument(); expect(document.querySelectorAll('[data-edge-type="mapEdge"]')).toHaveLength(initialEdgeCount + 1);
-    const offerInspector = await openInspector(user); expect(offerInspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument(); const offerJobs = offerInspector.getByRole('group', { name: 'Client intent' }); const jobSelection = within(offerJobs).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ }); expect(jobSelection).not.toBeChecked();
+    const offerInspector = await openInspector(user); expect(offerInspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument(); await user.click(offerInspector.getByRole('button', { name: 'Edit Client intent' })); const offerJobs = offerInspector.getByRole('group', { name: 'Client intent' }); const jobSelection = within(offerJobs).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ }); expect(jobSelection).not.toBeChecked();
     await user.click(within(offerJobs).getByRole('button', { name: 'Expand Make progress' })); expect(jobSelection).not.toBeChecked(); expect(within(offerJobs).getByRole('checkbox', { name: 'Finish faster' })).not.toBeChecked();
     const financial = offerInspector.getByRole('group', { name: 'Financial intent' }); expect(within(financial).getByRole('checkbox', { name: /^Stay affordable\s*Financial Desired Outcome$/ })).not.toBeChecked(); expect(offerInspector.getByRole('button', { name: 'Apply changes' })).toBeInTheDocument();
   });
