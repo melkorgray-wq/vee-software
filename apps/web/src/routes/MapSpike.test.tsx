@@ -68,6 +68,26 @@ function touchpointInspectorDocument(twoOffers = false): MapDocument {
   };
 }
 
+function offerNeighborhoodDocument(): MapDocument {
+  const document = touchpointInspectorDocument(true);
+  document.entities.push(
+    { id: 'offer-c', kind: 'offer', title: 'Advisory' },
+    { id: 'product-other', kind: 'product', title: 'Other Product' },
+    { id: 'offer-other', kind: 'offer', title: 'Unrelated Offer' },
+  );
+  document.relationships.push(
+    { id: 'packages-c', kind: 'product_packaged_as_offer', productId: 'product', offerId: 'offer-c' },
+    { id: 'packages-c-duplicate', kind: 'product_packaged_as_offer', productId: 'product', offerId: 'offer-c' },
+    { id: 'packages-other', kind: 'product_packaged_as_offer', productId: 'product-other', offerId: 'offer-other' },
+  );
+  document.placements.push(
+    { viewId: 'spike-view', entityId: 'offer-c', x: 1120, y: 0 },
+    { viewId: 'spike-view', entityId: 'product-other', x: 1260, y: 0 },
+    { viewId: 'spike-view', entityId: 'offer-other', x: 1400, y: 0 },
+  );
+  return document;
+}
+
 function multiKindClientScopeDocument(): MapDocument {
   const document = touchpointInspectorDocument();
   document.entities.push(
@@ -1170,6 +1190,86 @@ describe('Touchpoint Business structure Inspector', () => {
       vi.unstubAllGlobals();
       vi.useRealTimers();
     }
+  });
+});
+
+describe('Offer Inspector derived neighborhood', () => {
+  async function inspectOffer(user: ReturnType<typeof userEvent.setup>, document: MapDocument, offer = 'Subscription') {
+    render(<MapSpike initialDocument={document} />);
+    await user.click(screen.getByRole('button', { name: offer }));
+    return openInspector(user);
+  }
+
+  it('derives, deduplicates, sorts, expands, and navigates siblings from the committed Product link', async () => {
+    const user = userEvent.setup();
+    const document = offerNeighborhoodDocument();
+    const snapshot = structuredClone(document);
+    let inspector = await inspectOffer(user, document);
+    const neighborhood = within(inspector.getByRole('region', { name: 'Offer neighborhood' }));
+    expect(neighborhood.getByText('Derived')).toBeInTheDocument();
+    const disclosure = neighborhood.getByRole('button', { name: 'Other Offers for Orbit, 2 Offers' });
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    expect(neighborhood.queryByRole('button', { name: 'Advisory' })).not.toBeInTheDocument();
+
+    disclosure.focus();
+    await user.keyboard('{Enter}');
+    expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+    expect(neighborhood.getAllByRole('listitem').map(item => item.textContent)).toEqual(['Advisory', 'Consulting']);
+    expect(neighborhood.getAllByRole('button', { name: 'Advisory' })).toHaveLength(1);
+    expect(neighborhood.queryByRole('button', { name: 'Subscription' })).not.toBeInTheDocument();
+    expect(neighborhood.queryByRole('button', { name: 'Unrelated Offer' })).not.toBeInTheDocument();
+    expect(document).toEqual(snapshot);
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+
+    await user.click(neighborhood.getByRole('button', { name: 'Advisory' }));
+    expect(inspector.getByRole('heading', { name: 'Advisory' })).toBeInTheDocument();
+    expect(within(inspector.getByRole('region', { name: 'Offer neighborhood' })).getByRole('button', { name: 'Other Offers for Orbit, 2 Offers' })).toHaveAttribute('aria-expanded', 'false');
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+    expect(within(inspector.getByRole('region', { name: 'Offer neighborhood' })).getByRole('button', { name: 'Other Offers for Orbit, 2 Offers' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('keeps a resolved zero-sibling group but omits neighborhoods for missing or invalid Product links', async () => {
+    const user = userEvent.setup();
+    const zero = touchpointInspectorDocument();
+    let inspector = await inspectOffer(user, zero);
+    const disclosure = within(inspector.getByRole('region', { name: 'Offer neighborhood' })).getByRole('button', { name: 'Other Offers for Orbit, 0 Offers' });
+    await user.click(disclosure);
+    expect(inspector.getByText('No other Offers')).toBeInTheDocument();
+
+    cleanup();
+    const missing = touchpointInspectorDocument();
+    missing.relationships = missing.relationships.filter(relation => relation.kind !== 'product_packaged_as_offer');
+    inspector = await inspectOffer(user, missing);
+    expect(inspector.queryByRole('region', { name: 'Offer neighborhood' })).not.toBeInTheDocument();
+
+    cleanup();
+    const invalid = touchpointInspectorDocument();
+    const packaging = invalid.relationships.find(relation => relation.kind === 'product_packaged_as_offer');
+    if (packaging?.kind === 'product_packaged_as_offer') packaging.productId = 'job';
+    inspector = await inspectOffer(user, invalid);
+    expect(inspector.queryByRole('region', { name: 'Offer neighborhood' })).not.toBeInTheDocument();
+  });
+
+  it('retains linked-Product draft editing and its dirty navigation guard', async () => {
+    const user = userEvent.setup();
+    const document = offerNeighborhoodDocument();
+    let inspector = await inspectOffer(user, document);
+    await user.selectOptions(inspector.getByLabelText('Linked Product'), 'product-other');
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
+    const neighborhood = within(inspector.getByRole('region', { name: 'Offer neighborhood' }));
+    expect(neighborhood.getByRole('button', { name: 'Other Offers for Orbit, 2 Offers' })).toBeInTheDocument();
+    await user.click(neighborhood.getByRole('button', { name: 'Other Offers for Orbit, 2 Offers' }));
+    await user.click(neighborhood.getByRole('button', { name: 'Advisory' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Discard/ }));
+    inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
+    expect(inspector.getByRole('heading', { name: 'Advisory' })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+    expect(inspector.getByLabelText('Linked Product')).toHaveValue('product');
   });
 });
 
