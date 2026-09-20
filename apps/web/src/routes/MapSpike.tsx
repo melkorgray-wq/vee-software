@@ -412,6 +412,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const moveModeRef = useRef(moveMode);
   moveModeRef.current = moveMode;
   const [inspectorHistory, dispatchInspectorHistory] = useReducer(inspectorHistoryReducer, undefined, emptyInspectorHistory);
+  const inspectorHistoryRef = useRef(inspectorHistory);
+  inspectorHistoryRef.current = inspectorHistory;
   const [activeWorkspaceView, setActiveWorkspaceView] = useState<WorkspaceView>('map');
   const activeWorkspaceViewRef = useRef(activeWorkspaceView);
   activeWorkspaceViewRef.current = activeWorkspaceView;
@@ -894,16 +896,22 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setEditDraft(entity ? draftFor(entity, documentRef.current) : null);
     resetProductSession(entity, documentRef.current);
   }
-  function select(id: string | null) {
+  function selectFromMap(id: string | null, continuation?: () => void) {
     if (id === selectedRef.current) {
       if (relationsModeRef.current.state !== 'inactive') setRelationsMode(inactiveRelationsMode());
+      continuation?.();
       return;
     }
+    const pending = () => {
+      performSelect(id);
+      dispatchInspectorHistory({ type: 'start', entityId: id });
+      continuation?.();
+    };
     if (guardsDirtySession(selected)) {
-      setProductConfirmation({ mode: 'dirty', pending: () => performSelect(id), returnFocus: globalThis.document.activeElement as HTMLElement | null });
+      setProductConfirmation({ mode: 'dirty', pending, returnFocus: globalThis.document.activeElement as HTMLElement | null });
       return;
     }
-    performSelect(id);
+    pending();
   }
   function performInspectorNavigation(id: string, history = inspectorHistory, push = true) {
     if (!documentRef.current.entities.some(entity => entity.id === id)) return;
@@ -938,7 +946,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   function startInlineTitleEdit(id: string) {
     const entity = documentRef.current.entities.find((candidate) => candidate.id === id);
     if (!entity) return;
-    select(id);
+    selectFromMap(id);
     setInlineEdit({ entityId: id, title: entity.title });
   }
   function finishInlineTitleEdit(commitTitle: string | false): boolean {
@@ -1132,7 +1140,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       { id: 'sibling', label: 'Add sibling', action: () => startSibling(entity.id) },
       { id: 'duplicate', label: 'Duplicate', action: () => duplicate(entity.id) },
     ] });
-    const entityCommands: EntityContextCommand[] = [{ id: 'inspector', label: 'Open in Entity Inspector', action: () => { select(entity.id); activateWorkspaceView('inspector', entity.id); } }];
+    const entityCommands: EntityContextCommand[] = [{ id: 'inspector', label: 'Open in Entity Inspector', action: () => selectFromMap(entity.id, () => activateWorkspaceView('inspector', entity.id)) }];
     const url = entity.kind === 'touchpoint' ? safeUrl(entity.url) : undefined;
     if (url) entityCommands.push({ id: 'open-link', label: 'Open link', href: url, action: () => undefined });
     groups.push({ id: 'entity', heading: 'Entity', commands: entityCommands });
@@ -1218,6 +1226,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       setDocument(next);
       setSelectedId(id);
       selectedRef.current = id;
+      dispatchInspectorHistory({ type: 'start', entityId: id });
       const created = next.entities.find((e) => e.id === id)!;
       setEditDraft(draftFor(created, next));
       setQuick(null);
@@ -1282,6 +1291,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       setDocument(next);
       setSelectedId(targetId);
       selectedRef.current = targetId;
+      dispatchInspectorHistory({ type: 'start', entityId: targetId });
       setEditDraft(draftFor(next.entities.find((entity) => entity.id === targetId)!, next));
       setMode('idle');
       activateWorkspaceView('inspector', targetId);
@@ -1316,6 +1326,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       const created = next.entities.find((e) => e.id === entityId)!;
       setDocument(next);
       setSelectedId(entityId);
+      selectedRef.current = entityId;
+      dispatchInspectorHistory({ type: 'start', entityId });
       setEditDraft(draftFor(created, next));
       setMenu(null);
       publishSuccess('Element duplicated.');
@@ -1354,9 +1366,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         if (relationTarget && activeWorkspaceViewRef.current === 'map') {
           event.preventDefault();
           setRelationsMode(inactiveRelationsMode());
-          performSelect(relationTarget);
-          activateWorkspaceView('inspector');
-          requestAnimationFrame(() => globalThis.document.getElementById('inspector-workspace-tab')?.focus());
+          selectFromMap(relationTarget, () => {
+            activateWorkspaceView('inspector');
+            requestAnimationFrame(() => globalThis.document.getElementById('inspector-workspace-tab')?.focus());
+          });
           return;
         }
         const shortcutState: WorkspaceShortcutState = productConfirmation?.mode === 'impact'
@@ -1395,7 +1408,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         const result = reduceRelationsMode(relationMode, { type });
         setRelationsMode(result.mode);
         if (result.followedTargetId) {
-          performSelect(result.followedTargetId);
+          selectFromMap(result.followedTargetId);
           requestAnimationFrame(() => revealEntities(documentRef.current, [result.followedTargetId!]));
         }
       } else if (!modifier && !event.altKey && relationMode.state === 'inactive' && selectedRef.current && activeWorkspaceViewRef.current === 'map' && spatialDirectionForKey(event)) {
@@ -1414,7 +1427,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         const current = centers.find(candidate => candidate.id === selectedRef.current);
         const target = current && nearestSpatialCandidate(current, centers, spatialDirectionForKey(event)!);
         if (target) {
-          performSelect(target.id);
+          selectFromMap(target.id);
           requestAnimationFrame(() => {
             revealEntities(documentRef.current, [target.id]);
             const escaped = CSS.escape(target.id);
@@ -1458,9 +1471,9 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setMoveMode(inactiveMoveMode());
     setActiveWorkspaceView(view);
     activeWorkspaceViewRef.current = view;
-    dispatchInspectorHistory(view === 'inspector'
-      ? { type: 'start', entityId: inspectorRootId }
-      : { type: 'replace', history: emptyInspectorHistory() });
+    if (view === 'inspector' && inspectorHistoryRef.current.entries.length === 0 && inspectorRootId !== null) {
+      dispatchInspectorHistory({ type: 'start', entityId: inspectorRootId });
+    }
     if (view === 'map' && pendingInspectorRevealRef.current) {
       const ids = pendingInspectorRevealRef.current;
       pendingInspectorRevealRef.current = null;
@@ -1485,6 +1498,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setCreateDraft(draft());
     resetProductSession(undefined);
     // Creation is an Inspector-owned empty draft, not an entity-history session.
+    dispatchInspectorHistory({ type: 'start', entityId: null });
     performWorkspaceTransition('inspector', null);
   }
   function startRootCreation() {
@@ -2312,7 +2326,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               flowRef.current = instance;
             }}
             onPaneClick={() => {
-              select(null);
+              selectFromMap(null);
               setMenu(null);
             }}
             onPaneContextMenu={(e) => {
@@ -2331,7 +2345,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               });
             }}
             onNodeClick={(_, node) => {
-              if (!node.data.satellite || node.data.satellite.child) { if (!node.data.satellite) select(node.id); return; }
+              if (!node.data.satellite || node.data.satellite.child) { if (!node.data.satellite) selectFromMap(node.id); return; }
               const ownerId = node.id.split(':')[1];
               if (!ownerId) return;
               const groups = relationGroupsForEntity(documentRef.current, ownerId);
@@ -2344,8 +2358,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               event.preventDefault();
               event.stopPropagation();
               if (node.data.satellite) return;
-              select(node.id);
-              activateWorkspaceView('inspector', node.id);
+              selectFromMap(node.id, () => activateWorkspaceView('inspector', node.id));
             }}
             onNodeContextMenu={(e, node) => {
               e.preventDefault();
@@ -2353,7 +2366,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               const client = { x: e.clientX, y: e.clientY };
               const panel = panelRef.current;
               if (!panel) return;
-              if (selectedRef.current !== node.id) select(node.id);
+              if (selectedRef.current !== node.id) selectFromMap(node.id);
               setMenu({
                 type: 'node',
                 invocation: 'pointer',
