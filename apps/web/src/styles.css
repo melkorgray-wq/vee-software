@@ -84,6 +84,8 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .offer-neighborhood .derived-neighborhood-slices { width: 100%; min-width: 0; grid-template-columns: minmax(0, 1fr); }
 .offer-neighborhood .derived-neighborhood-slice,
 .offer-neighborhood .derived-neighborhood-disclosure { max-width: 100%; min-width: 0; }
+.offer-neighborhood--multiple { width: 100%; }
+.offer-neighborhood--multiple .derived-neighborhood-slices { grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 25.5rem)); justify-content: start; align-items: start; gap: .65rem; min-width: 0; }
 .derived-heading { display: flex; grid-column: 1 / -1; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .1rem; }
 .derived-heading > h5 { color: rgba(255,255,255,.56); font-weight: 500; letter-spacing: .075em; }
 .derived-heading span { padding: .18rem .4rem; border: 1px solid var(--border-subtle); border-radius: 999px; color: rgba(255,255,255,.58); font-size: .68rem; letter-spacing: .05em; text-transform: uppercase; }
