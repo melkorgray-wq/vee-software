@@ -62,7 +62,7 @@ A read-only derived block is not an editable authored relation. No `Apply`, `Sav
 
 ## Derived Neighborhood and Resistance
 
-- Neighborhood is a read-only derived projection from committed data. Each group names its actual provenance/ground; count unique neighbors within that ground. The same neighbor may appear under distinct grounds. Disclosure is independent and navigation opens an entity Inspector; it does not author neighbor-to-neighbor relationships.
+- Neighborhood is a read-only derived projection from committed data. Each group names its actual provenance/ground; count unique neighbors within that ground. The same neighbor may appear under distinct grounds. Shared `NeighborhoodGroups` in `MapSpike.tsx` owns disclosure, count, rendering, ordering, navigation presentation and packed layout for both Offer and Touchpoint; the entity owners supply their own derived grounds and transient expansion state. Disclosure is independent and navigation opens an entity Inspector; it does not author neighbor-to-neighbor relationships.
 - Touchpoint Resistance is derived relevance, separate from optional authored local `Mitigated here`. Product/Offer do not copy that checkbox. Their current derived impact and future broader intent-based exposure must not be silently conflated.
 
 ## Regression and evolution
