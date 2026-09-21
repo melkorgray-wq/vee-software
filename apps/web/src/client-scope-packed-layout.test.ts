@@ -49,6 +49,13 @@ describe('calculatePackedPanelLayout', () => {
     expect(Math.max(...result!.placements.map(panel => panel.x + panel.width))).toBeLessThanOrEqual(150);
   });
 
+  it('fits at least three compact 20rem-or-smaller columns at 1152px', () => {
+    const result = layout(1152, Array.from({ length: 14 }, (_, index) => `panel-${index}`), Array(14).fill(60), 224, 320, 10.4)!;
+    expect(result.columnCount).toBeGreaterThanOrEqual(3);
+    expect(result.panelWidth).toBeLessThanOrEqual(320);
+    expect(Math.max(...result.placements.map(panel => panel.x + panel.width))).toBeLessThanOrEqual(1152);
+  });
+
   it('fits every column within the container and derives the tallest column height', () => {
     const result = layout(500, ['a', 'b', 'c'], [100, 50, 75])!;
     expect(result.columnCount).toBe(2);
@@ -70,6 +77,31 @@ describe('calculatePackedPanelLayout', () => {
     const second = layout(590, ['tall', 'short-a', 'short-b', 'last'], [200, 40, 40, 70]);
 
     expect(second).toEqual(first);
+  });
+
+  it('produces deterministic shortest-column placements for reordered panel IDs', () => {
+    const first = layout(590, ['a', 'b', 'c', 'd'], [180, 40, 90, 70]);
+    const reordered = layout(590, ['c', 'a', 'd', 'b'], [90, 180, 70, 40]);
+    expect(reordered?.placements.map(({ id, x, y }) => ({ id, x, y }))).toEqual([
+      { id: 'c', x: 0, y: 0 }, { id: 'a', x: 200, y: 0 }, { id: 'd', x: 400, y: 0 }, { id: 'b', x: 400, y: 80 },
+    ]);
+    expect(layout(590, ['c', 'a', 'd', 'b'], [90, 180, 70, 40])).toEqual(reordered);
+    expect(first).not.toEqual(reordered);
+  });
+
+  it('never overlaps placements and sets height to the lowest card boundary', () => {
+    const heights = { a: 180, b: 65, c: 140, d: 120, e: 45 };
+    const result = calculatePackedPanelLayout({ containerWidth: 590, minPanelWidth: 180, maxPanelWidth: 220, gap: 10, panelIds: Object.keys(heights), measuredHeights: heights })!;
+    for (let leftIndex = 0; leftIndex < result.placements.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < result.placements.length; rightIndex += 1) {
+        const left = result.placements[leftIndex]!; const right = result.placements[rightIndex]!;
+        const separated = left.x + left.width <= right.x || right.x + right.width <= left.x
+          || left.y + heights[left.id as keyof typeof heights] <= right.y
+          || right.y + heights[right.id as keyof typeof heights] <= left.y;
+        expect(separated).toBe(true);
+      }
+    }
+    expect(result.height).toBe(Math.max(...result.placements.map(panel => panel.y + heights[panel.id as keyof typeof heights])));
   });
 
   it('rejects invalid geometry instead of activating a partial packed layout', () => {

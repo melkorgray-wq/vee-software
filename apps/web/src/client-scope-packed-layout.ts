@@ -12,6 +12,14 @@ type PackedPanelLayoutInput = {
   measuredHeights: Readonly<Record<string, number>>;
 };
 
+type PackedPanelLayoutOptions = {
+  panelSelector: string;
+  panelIdAttribute: string;
+  minPanelWidthRem: number;
+  maxPanelWidthRem: number;
+  gapRem: number;
+};
+
 export function calculatePackedPanelLayout({ containerWidth, minPanelWidth, maxPanelWidth, gap, panelIds, measuredHeights }: PackedPanelLayoutInput): PackedPanelLayout | null {
   if (
     !Number.isFinite(containerWidth) || containerWidth <= 0
@@ -54,7 +62,7 @@ const pixelsForRootRem = (container: HTMLElement, rem: number) => {
   return rem * (Number.isFinite(rootFontSize) ? rootFontSize : 16);
 };
 
-export function useClientScopePackedLayout(containerRef: RefObject<HTMLDivElement | null>, panelIds: readonly string[]) {
+export function usePackedPanelLayout(containerRef: RefObject<HTMLDivElement | null>, panelIds: readonly string[], options: PackedPanelLayoutOptions) {
   const [layout, setLayout] = useState<PackedPanelLayout | null>(null);
   const layoutRef = useRef<PackedPanelLayout | null>(null);
   const panelIdentity = panelIds.join('\u0000');
@@ -67,13 +75,13 @@ export function useClientScopePackedLayout(containerRef: RefObject<HTMLDivElemen
       return;
     }
     const calculate = () => {
-      const panels = Array.from(container.querySelectorAll<HTMLElement>(':scope > .client-scope-view-panel'));
-      const measuredHeights = Object.fromEntries(panels.map(panel => [panel.dataset.clientScopePanelId ?? '', panel.getBoundingClientRect().height]));
+      const panels = Array.from(container.querySelectorAll<HTMLElement>(options.panelSelector));
+      const measuredHeights = Object.fromEntries(panels.map(panel => [panel.getAttribute(options.panelIdAttribute) ?? '', panel.getBoundingClientRect().height]));
       const next = panels.length === panelIds.length ? calculatePackedPanelLayout({
         containerWidth: container.getBoundingClientRect().width,
-        minPanelWidth: pixelsForRootRem(container, 18),
-        maxPanelWidth: pixelsForRootRem(container, 22),
-        gap: pixelsForRootRem(container, .65),
+        minPanelWidth: pixelsForRootRem(container, options.minPanelWidthRem),
+        maxPanelWidth: pixelsForRootRem(container, options.maxPanelWidthRem),
+        gap: pixelsForRootRem(container, options.gapRem),
         panelIds,
         measuredHeights,
       }) : null;
@@ -85,9 +93,9 @@ export function useClientScopePackedLayout(containerRef: RefObject<HTMLDivElemen
     calculate();
     const observer = new ResizeObserver(calculate);
     observer.observe(container);
-    container.querySelectorAll<HTMLElement>(':scope > .client-scope-view-panel').forEach(panel => observer.observe(panel));
+    container.querySelectorAll<HTMLElement>(options.panelSelector).forEach(panel => observer.observe(panel));
     return () => observer.disconnect();
-  }, [containerRef, panelIdentity]);
+  }, [containerRef, panelIdentity, options.gapRem, options.maxPanelWidthRem, options.minPanelWidthRem, options.panelIdAttribute, options.panelSelector]);
 
   const placements = new Map(layout?.placements.map(placement => [placement.id, placement]));
   return {
@@ -98,4 +106,14 @@ export function useClientScopePackedLayout(containerRef: RefObject<HTMLDivElemen
       return placement ? { width: `${placement.width}px`, transform: `translate(${placement.x}px, ${placement.y}px)` } : undefined;
     },
   };
+}
+
+export function useClientScopePackedLayout(containerRef: RefObject<HTMLDivElement | null>, panelIds: readonly string[]) {
+  return usePackedPanelLayout(containerRef, panelIds, {
+    panelSelector: ':scope > .client-scope-view-panel',
+    panelIdAttribute: 'data-client-scope-panel-id',
+    minPanelWidthRem: 18,
+    maxPanelWidthRem: 22,
+    gapRem: .65,
+  });
 }

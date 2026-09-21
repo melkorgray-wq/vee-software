@@ -27,17 +27,6 @@ export interface TouchpointChildrenCandidates {
   standaloneLeaves: { touchpoint: Touchpoint; childCount: number }[];
 }
 
-/** Presentation helper for the initial density of compact overview disclosures. */
-export function initialCompactOverviewExpandedGroupIds(
-  groups: readonly { id: string; count: number }[],
-): Set<string> {
-  if (groups.length === 1 && groups[0]!.count <= 4) return new Set([groups[0]!.id]);
-  if (groups.length === 2 && groups.every((group) => group.count <= 4) && groups[0]!.count + groups[1]!.count <= 6) {
-    return new Set(groups.map((group) => group.id));
-  }
-  return new Set();
-}
-
 export function deriveTouchpointChildrenCandidates(document: MapDocument, parentTouchpointId: string): TouchpointChildrenCandidates {
   const touchpoints = document.entities.filter((entity): entity is Touchpoint => entity.kind === 'touchpoint');
   const parentByChild = new Map(document.relationships.flatMap(relation => relation.kind === 'touchpoint_contains_touchpoint' ? [[relation.childTouchpointId, relation.parentTouchpointId] as const] : []));
