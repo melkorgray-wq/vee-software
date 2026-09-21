@@ -2261,7 +2261,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       ...current,
       [selected.id]: { ...current[selected.id], [groupId]: !(current[selected.id]?.[groupId] ?? false) },
     }));
-    return <section className="business-structure-derived offer-neighborhood" aria-label="Offer neighborhood">
+    const hasMultipleGroups = groups.length > 1;
+    return <section className={`business-structure-derived offer-neighborhood${hasMultipleGroups ? ' offer-neighborhood--multiple' : ''}`} aria-label="Offer neighborhood">
       <div className="derived-heading"><h5>Neighborhood</h5><span>Derived</span></div>
       <div className="derived-neighborhood-slices">
         {groups.map(group => {

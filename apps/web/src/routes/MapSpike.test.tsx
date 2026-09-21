@@ -1241,7 +1241,7 @@ describe('Offer Inspector derived neighborhood', () => {
     let inspector = await inspectOffer(user, document);
     const neighborhoodRegion = inspector.getByRole('region', { name: 'Offer neighborhood' });
     const neighborhood = within(neighborhoodRegion);
-    expect(neighborhoodRegion).toHaveClass('offer-neighborhood', 'business-structure-derived');
+    expect(neighborhoodRegion).toHaveClass('offer-neighborhood', 'business-structure-derived', 'offer-neighborhood--multiple');
     expect(neighborhood.getByText('Derived')).toBeInTheDocument();
     const disclosure = neighborhood.getByRole('button', { name: 'Other Offers for Orbit, 2 Offers' });
     expect(disclosure).toHaveAttribute('aria-expanded', 'false');
@@ -1276,12 +1276,15 @@ describe('Offer Inspector derived neighborhood', () => {
       .getByText('Neighborhood').closest<HTMLElement>('.business-structure-derived');
     expect(neighborhood).toBeInTheDocument();
     expect(neighborhood).not.toHaveClass('offer-neighborhood');
+    expect(neighborhood).not.toHaveClass('offer-neighborhood--multiple');
   });
 
   it('keeps a resolved zero-sibling group and derives co-presentation without a valid Product link', async () => {
     const user = userEvent.setup();
     const zero = touchpointInspectorDocument();
     let inspector = await inspectOffer(user, zero);
+    expect(inspector.getByRole('region', { name: 'Offer neighborhood' })).toHaveClass('offer-neighborhood', 'business-structure-derived');
+    expect(inspector.getByRole('region', { name: 'Offer neighborhood' })).not.toHaveClass('offer-neighborhood--multiple');
     const disclosure = within(inspector.getByRole('region', { name: 'Offer neighborhood' })).getByRole('button', { name: 'Other Offers for Orbit, 0 Offers' });
     await user.click(disclosure);
     expect(inspector.getByText('No other Offers')).toBeInTheDocument();
@@ -1306,6 +1309,7 @@ describe('Offer Inspector derived neighborhood', () => {
     const snapshot = structuredClone(document);
     const inspector = await inspectOffer(user, document);
     const region = inspector.getByRole('region', { name: 'Offer neighborhood' });
+    expect(region).toHaveClass('offer-neighborhood', 'business-structure-derived', 'offer-neighborhood--multiple');
     const groups = [...region.querySelectorAll<HTMLElement>('.derived-neighborhood-slice')];
     expect(groups.map(group => group.getAttribute('aria-label'))).toEqual([
       'Other Offers for Orbit',
@@ -1314,6 +1318,15 @@ describe('Offer Inspector derived neighborhood', () => {
       'Other Offers on Checkout',
     ]);
     expect(groups.map(group => group.dataset.basisId)).toEqual(['product', 'touch-a', 'touch-a-2', 'touch']);
+    const disclosures = groups.map(group => within(group).getByRole('button', { name: /Offers$/ }));
+    expect(disclosures.map(disclosure => disclosure.getAttribute('aria-controls'))).toEqual([
+      'offer-neighborhood-offer-a-product%3Aproduct',
+      'offer-neighborhood-offer-a-touchpoint%3Atouch-a',
+      'offer-neighborhood-offer-a-touchpoint%3Atouch-a-2',
+      'offer-neighborhood-offer-a-touchpoint%3Atouch',
+    ]);
+    expect(new Set(disclosures.map(disclosure => disclosure.getAttribute('aria-controls'))).size).toBe(disclosures.length);
+    expect(disclosures.map(disclosure => disclosure.getAttribute('aria-expanded'))).toEqual(['false', 'false', 'false', 'false']);
     expect(within(region).queryByRole('button', { name: /Empty room/ })).not.toBeInTheDocument();
     expect(within(region).queryByRole('button', { name: /Parent room/ })).not.toBeInTheDocument();
 
