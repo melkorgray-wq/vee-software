@@ -437,7 +437,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [productExpanded, setProductExpanded] = useState<Record<string, boolean>>({});
   const [offerExpanded, setOfferExpanded] = useState<Record<string, boolean>>({});
   const [neighborhoodExpanded, setNeighborhoodExpanded] = useState<Record<string, Record<string, boolean>>>({});
-  const [offerNeighborhoodExpanded, setOfferNeighborhoodExpanded] = useState<Record<string, boolean>>({});
+  const [offerNeighborhoodExpanded, setOfferNeighborhoodExpanded] = useState<Record<string, Record<string, boolean>>>({});
   const [connectionPicker, setConnectionPicker] = useState<ClientScopeEditor | null>(null);
   const [expandedClientSources, setExpandedClientSources] = useState<Record<string, boolean>>({});
   const [expandedClientScopePanels, setExpandedClientScopePanels] = useState<Record<string, Partial<Record<ClientScopePanelKind, boolean>>>>({});
@@ -2214,40 +2214,72 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   }
   function offerNeighborhoodSection() {
     if (selected?.kind !== 'offer') return null;
-    const packaging = document.relationships.find((relation): relation is Extract<Relationship, { kind: 'product_packaged_as_offer' }> =>
-      relation.kind === 'product_packaged_as_offer' && relation.offerId === selected.id,
-    );
-    if (!packaging) return null;
-    const product = document.entities.find((entity): entity is Extract<Entity, { kind: 'product' }> =>
-      entity.id === packaging.productId && entity.kind === 'product',
-    );
-    if (!product) return null;
-    const siblingIds = new Set(document.relationships.flatMap(relation =>
-      relation.kind === 'product_packaged_as_offer' && relation.productId === product.id && relation.offerId !== selected.id
-        ? [relation.offerId]
-        : [],
-    ));
-    const siblings = document.entities
-      .filter((entity): entity is Extract<Entity, { kind: 'offer' }> => entity.kind === 'offer' && siblingIds.has(entity.id))
-      .sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
-    const expanded = offerNeighborhoodExpanded[selected.id] ?? false;
-    const label = `Other Offers for ${product.title}`;
-    const contentId = `offer-neighborhood-${encodeURIComponent(selected.id)}`;
+    type OfferEntity = Extract<Entity, { kind: 'offer' }>;
+    type OfferNeighborhoodGroup = { id: string; label: string; offers: OfferEntity[]; basisKind?: 'product' | 'touchpoint'; basisId?: string };
+    const entitiesById = new Map(document.entities.map(entity => [entity.id, entity]));
+    const offerSort = (left: OfferEntity, right: OfferEntity) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id);
+    const groups: OfferNeighborhoodGroup[] = [];
+
+    const product = document.relationships.flatMap(relation => {
+      if (relation.kind !== 'product_packaged_as_offer' || relation.offerId !== selected.id) return [];
+      const candidate = entitiesById.get(relation.productId);
+      return candidate?.kind === 'product' ? [candidate] : [];
+    })[0];
+    if (product) {
+      const siblingIds = new Set(document.relationships.flatMap(relation =>
+        relation.kind === 'product_packaged_as_offer' && relation.productId === product.id && relation.offerId !== selected.id
+          ? [relation.offerId]
+          : [],
+      ));
+      const offers = [...siblingIds].flatMap(id => {
+        const entity = entitiesById.get(id);
+        return entity?.kind === 'offer' ? [entity] : [];
+      }).sort(offerSort);
+      groups.push({ id: `product:${product.id}`, label: `Other Offers for ${product.title}`, offers, basisKind: 'product', basisId: product.id });
+    }
+
+    const touchpoints = [...new Set(document.relationships.flatMap(relation =>
+      relation.kind === 'offer_presented_at_touchpoint' && relation.offerId === selected.id ? [relation.touchpointId] : [],
+    ))].flatMap(id => {
+      const entity = entitiesById.get(id);
+      return entity?.kind === 'touchpoint' ? [entity] : [];
+    }).sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
+    for (const touchpoint of touchpoints) {
+      const neighborIds = new Set(document.relationships.flatMap(relation =>
+        relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === touchpoint.id && relation.offerId !== selected.id
+          ? [relation.offerId]
+          : [],
+      ));
+      const offers = [...neighborIds].flatMap(id => {
+        const entity = entitiesById.get(id);
+        return entity?.kind === 'offer' ? [entity] : [];
+      }).sort(offerSort);
+      if (offers.length) groups.push({ id: `touchpoint:${touchpoint.id}`, label: `Other Offers on ${touchpoint.title}`, offers, basisKind: 'touchpoint', basisId: touchpoint.id });
+    }
+    if (!groups.length) return null;
+    const toggleGroup = (groupId: string) => setOfferNeighborhoodExpanded(current => ({
+      ...current,
+      [selected.id]: { ...current[selected.id], [groupId]: !(current[selected.id]?.[groupId] ?? false) },
+    }));
     return <section className="business-structure-derived offer-neighborhood" aria-label="Offer neighborhood">
       <div className="derived-heading"><h5>Neighborhood</h5><span>Derived</span></div>
       <div className="derived-neighborhood-slices">
-        <div className="business-structure-property derived-neighborhood-slice" role="group" aria-label={label}>
-          <button type="button" className="derived-neighborhood-disclosure" aria-expanded={expanded} aria-controls={contentId} aria-label={`${label}, ${siblings.length} Offers`} onClick={() => setOfferNeighborhoodExpanded(current => ({ ...current, [selected.id]: !expanded }))}>
-            <span className="derived-neighborhood-chevron" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
-            <span className="derived-neighborhood-label">{label}</span>
-            <span className="derived-neighborhood-count">{siblings.length}</span>
-          </button>
-          <div className="derived-neighborhood-content" id={contentId} hidden={!expanded}>
-            {expanded && (siblings.length
-              ? <ul className="business-structure-links">{siblings.map(sibling => <li key={sibling.id}><button type="button" onClick={() => navigateInspector(sibling.id)}>{sibling.title}</button></li>)}</ul>
-              : <p className="business-structure-empty">No other Offers</p>)}
-          </div>
-        </div>
+        {groups.map(group => {
+          const expanded = offerNeighborhoodExpanded[selected.id]?.[group.id] ?? false;
+          const contentId = `offer-neighborhood-${encodeURIComponent(selected.id)}-${encodeURIComponent(group.id)}`;
+          return <div className="business-structure-property derived-neighborhood-slice" role="group" aria-label={group.label} data-basis-kind={group.basisKind} data-basis-id={group.basisId} key={group.id}>
+            <button type="button" className="derived-neighborhood-disclosure" aria-expanded={expanded} aria-controls={contentId} aria-label={`${group.label}, ${group.offers.length} Offers`} onClick={() => toggleGroup(group.id)}>
+              <span className="derived-neighborhood-chevron" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+              <span className="derived-neighborhood-label">{group.label}</span>
+              <span className="derived-neighborhood-count">{group.offers.length}</span>
+            </button>
+            <div className="derived-neighborhood-content" id={contentId} hidden={!expanded}>
+              {expanded && (group.offers.length
+                ? <ul className="business-structure-links">{group.offers.map(offer => <li key={offer.id}><button type="button" onClick={() => navigateInspector(offer.id)}>{offer.title}</button></li>)}</ul>
+                : <p className="business-structure-empty">No other Offers</p>)}
+            </div>
+          </div>;
+        })}
       </div>
     </section>;
   }
