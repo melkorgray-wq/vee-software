@@ -17,8 +17,9 @@ import { enterMoveMode, inactiveMoveMode, moveInMode, moveVectorForKey, type Mov
 import { Link } from '../router';
 import { commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, globalIntentDiscovery, touchpointClientScope, touchpointUpstreamSources, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft, type UpstreamLeaf } from './touchpoint-edit';
 import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
-import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets, initialCompactOverviewExpandedGroupIds } from '../touchpoint-business-structure';
-import { useClientScopePackedLayout } from '../client-scope-packed-layout';
+import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets } from '../touchpoint-business-structure';
+import { initialCompactOverviewExpandedGroupIds } from '../compact-overview-presentation';
+import { useClientScopePackedLayout, usePackedPanelLayout } from '../client-scope-packed-layout';
 
 const VIEW_ID = 'spike-view';
 export const RELATION_EDITOR_SEARCH_THRESHOLD = 7;
@@ -309,6 +310,61 @@ function ClientScopePackedGroups({ panelIds, children }: { panelIds: readonly st
       return <section {...child.props} key={id} data-client-scope-panel-id={id} className={child.props.className} style={packedLayout.panelStyle(id)} />;
     })}
   </div>;
+}
+
+type NeighborhoodPresentationGroup = {
+  id: string;
+  label: string;
+  count: number;
+  linkedEntities: { id: string; title: string }[];
+  basisKind: string;
+  basisId: string;
+};
+
+function NeighborhoodGroups({ groups, entityNoun, inspectedOwnerId, expansionSnapshot, onToggle, emptyStateText, onNavigate, className = '', ariaLabel, contentIdPrefix }: {
+  groups: readonly NeighborhoodPresentationGroup[];
+  entityNoun: 'Offers' | 'Touchpoints';
+  inspectedOwnerId: string;
+  expansionSnapshot: Readonly<Record<string, boolean>> | undefined;
+  onToggle: (groupId: string) => void;
+  emptyStateText: string;
+  onNavigate: (entityId: string) => void;
+  className?: string;
+  ariaLabel: string;
+  contentIdPrefix: string;
+}) {
+  const initialExpansion = initialCompactOverviewExpandedGroupIds(groups);
+  const isExpanded = (groupId: string) => expansionSnapshot?.[groupId] ?? (expansionSnapshot ? false : initialExpansion.has(groupId));
+  const orderedGroups = [...groups].sort((left, right) => Number(isExpanded(right.id)) - Number(isExpanded(left.id)));
+  const containerRef = useRef<HTMLDivElement>(null);
+  const packedLayout = usePackedPanelLayout(containerRef, orderedGroups.map(group => group.id), {
+    panelSelector: ':scope > .derived-neighborhood-slice',
+    panelIdAttribute: 'data-packed-panel-id',
+    minPanelWidthRem: 14,
+    maxPanelWidthRem: 20,
+    gapRem: .65,
+  });
+  return <section className={`business-structure-derived neighborhood-groups ${className}`.trim()} aria-label={ariaLabel}>
+    <div className="derived-heading"><h5>Neighborhood</h5><span>Derived</span></div>
+    <div ref={containerRef} className={`derived-neighborhood-slices${packedLayout.packed ? ' is-packed' : ''}`} style={packedLayout.containerStyle}>
+      {orderedGroups.map(group => {
+        const expanded = isExpanded(group.id);
+        const contentId = `${contentIdPrefix}-${encodeURIComponent(inspectedOwnerId)}-${encodeURIComponent(group.id)}`;
+        return <div className="business-structure-property derived-neighborhood-slice" role="group" aria-label={group.label} data-basis-kind={group.basisKind} data-basis-id={group.basisId} data-packed-panel-id={group.id} style={packedLayout.panelStyle(group.id)} key={group.id}>
+          <button type="button" className="derived-neighborhood-disclosure" aria-expanded={expanded} aria-controls={contentId} aria-label={`${group.label}, ${group.count} ${entityNoun}`} onClick={() => onToggle(group.id)}>
+            <span className="derived-neighborhood-chevron" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+            <span className="derived-neighborhood-label">{group.label}</span>
+            <span className="derived-neighborhood-count">{group.count}</span>
+          </button>
+          <div className="derived-neighborhood-content" id={contentId} hidden={!expanded}>
+            {expanded && (group.linkedEntities.length
+              ? <ul className="business-structure-links">{group.linkedEntities.map(entity => <li key={entity.id}><button type="button" onClick={() => onNavigate(entity.id)}>{entity.title}</button></li>)}</ul>
+              : <p className="business-structure-empty">{emptyStateText}</p>)}
+          </div>
+        </div>;
+      })}
+    </div>
+  </section>;
 }
 
 export function MapNode({ data }: { data: MapNodeData }) {
@@ -2040,7 +2096,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         basisKind: 'offer' as const,
         basisId: group.offer.id,
         label: `Other Touchpoints for ${group.offer.title}`,
-        touchpoints: group.touchpoints,
+        linkedEntities: group.touchpoints,
         count: group.touchpoints.length,
       })),
       ...(structure.container ? [{
@@ -2048,16 +2104,12 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         basisKind: 'container' as const,
         basisId: structure.container.id,
         label: `More in ${structure.container.title}`,
-        touchpoints: structure.otherTouchpointsInContainer,
+        linkedEntities: structure.otherTouchpointsInContainer,
         count: structure.otherTouchpointsInContainer.length,
       }] : []),
     ];
     const storedExpansion = neighborhoodExpanded[structure.touchpoint.id];
     const initialExpansion = initialCompactOverviewExpandedGroupIds(neighborhoodGroups);
-    const isGroupExpanded = (groupId: string) => storedExpansion?.[groupId] ?? (storedExpansion ? false : initialExpansion.has(groupId));
-    const orderedNeighborhoodGroups = [...neighborhoodGroups].sort((left, right) =>
-      Number(isGroupExpanded(right.id)) - Number(isGroupExpanded(left.id)),
-    );
     const toggleNeighborhoodGroup = (groupId: string) => setNeighborhoodExpanded((current) => {
       const existing = current[structure.touchpoint.id];
       const snapshot = existing ?? Object.fromEntries(neighborhoodGroups.map((group) => [group.id, initialExpansion.has(group.id)]));
@@ -2191,31 +2243,13 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
           </section>
         </div>
       </div>
-      <div className="business-structure-derived">
-        <div className="derived-heading"><h5>Neighborhood</h5><span>Derived</span></div>
-        <div className="derived-neighborhood-slices">
-          {orderedNeighborhoodGroups.map(group => {
-            const expanded = isGroupExpanded(group.id);
-            const contentId = `neighborhood-${encodeURIComponent(structure.touchpoint.id)}-${encodeURIComponent(group.id)}`;
-            return <div className="business-structure-property derived-neighborhood-slice" role="group" aria-label={group.label} data-basis-kind={group.basisKind} data-basis-id={group.basisId} key={group.id}>
-              <button type="button" className="derived-neighborhood-disclosure" aria-expanded={expanded} aria-controls={contentId} aria-label={`${group.label}, ${group.count} Touchpoints`} onClick={() => toggleNeighborhoodGroup(group.id)}>
-                <span className="derived-neighborhood-chevron" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
-                <span className="derived-neighborhood-label">{group.label}</span>
-                <span className="derived-neighborhood-count">{group.count}</span>
-              </button>
-              <div className="derived-neighborhood-content" id={contentId} hidden={!expanded}>
-                {expanded && (group.touchpoints.length ? navigationList(group.touchpoints) : <p className="business-structure-empty">No related Touchpoints</p>)}
-              </div>
-            </div>;
-          })}
-        </div>
-      </div>
+      <NeighborhoodGroups groups={neighborhoodGroups} entityNoun="Touchpoints" inspectedOwnerId={structure.touchpoint.id} expansionSnapshot={storedExpansion} onToggle={toggleNeighborhoodGroup} emptyStateText="No related Touchpoints" onNavigate={navigateInspector} ariaLabel="Touchpoint neighborhood" contentIdPrefix="neighborhood" />
     </section>;
   }
   function offerNeighborhoodSection() {
     if (selected?.kind !== 'offer') return null;
     type OfferEntity = Extract<Entity, { kind: 'offer' }>;
-    type OfferNeighborhoodGroup = { id: string; label: string; offers: OfferEntity[]; basisKind?: 'product' | 'touchpoint'; basisId?: string };
+    type OfferNeighborhoodGroup = { id: string; label: string; offers: OfferEntity[]; basisKind: 'product' | 'touchpoint'; basisId: string };
     const entitiesById = new Map(document.entities.map(entity => [entity.id, entity]));
     const offerSort = (left: OfferEntity, right: OfferEntity) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id);
     const groups: OfferNeighborhoodGroup[] = [];
@@ -2257,32 +2291,15 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       if (offers.length) groups.push({ id: `touchpoint:${touchpoint.id}`, label: `Other Offers on ${touchpoint.title}`, offers, basisKind: 'touchpoint', basisId: touchpoint.id });
     }
     if (!groups.length) return null;
-    const toggleGroup = (groupId: string) => setOfferNeighborhoodExpanded(current => ({
-      ...current,
-      [selected.id]: { ...current[selected.id], [groupId]: !(current[selected.id]?.[groupId] ?? false) },
-    }));
-    const hasMultipleGroups = groups.length > 1;
-    return <section className={`business-structure-derived offer-neighborhood${hasMultipleGroups ? ' offer-neighborhood--multiple' : ''}`} aria-label="Offer neighborhood">
-      <div className="derived-heading"><h5>Neighborhood</h5><span>Derived</span></div>
-      <div className="derived-neighborhood-slices">
-        {groups.map(group => {
-          const expanded = offerNeighborhoodExpanded[selected.id]?.[group.id] ?? false;
-          const contentId = `offer-neighborhood-${encodeURIComponent(selected.id)}-${encodeURIComponent(group.id)}`;
-          return <div className="business-structure-property derived-neighborhood-slice" role="group" aria-label={group.label} data-basis-kind={group.basisKind} data-basis-id={group.basisId} key={group.id}>
-            <button type="button" className="derived-neighborhood-disclosure" aria-expanded={expanded} aria-controls={contentId} aria-label={`${group.label}, ${group.offers.length} Offers`} onClick={() => toggleGroup(group.id)}>
-              <span className="derived-neighborhood-chevron" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
-              <span className="derived-neighborhood-label">{group.label}</span>
-              <span className="derived-neighborhood-count">{group.offers.length}</span>
-            </button>
-            <div className="derived-neighborhood-content" id={contentId} hidden={!expanded}>
-              {expanded && (group.offers.length
-                ? <ul className="business-structure-links">{group.offers.map(offer => <li key={offer.id}><button type="button" onClick={() => navigateInspector(offer.id)}>{offer.title}</button></li>)}</ul>
-                : <p className="business-structure-empty">No other Offers</p>)}
-            </div>
-          </div>;
-        })}
-      </div>
-    </section>;
+    const presentationGroups = groups.map(group => ({ id: group.id, label: group.label, count: group.offers.length, linkedEntities: group.offers, basisKind: group.basisKind, basisId: group.basisId }));
+    const storedExpansion = offerNeighborhoodExpanded[selected.id];
+    const initialExpansion = initialCompactOverviewExpandedGroupIds(presentationGroups);
+    const toggleGroup = (groupId: string) => setOfferNeighborhoodExpanded(current => {
+      const existing = current[selected.id];
+      const snapshot = existing ?? Object.fromEntries(presentationGroups.map(group => [group.id, initialExpansion.has(group.id)]));
+      return { ...current, [selected.id]: { ...snapshot, [groupId]: !(snapshot[groupId] ?? false) } };
+    });
+    return <NeighborhoodGroups groups={presentationGroups} entityNoun="Offers" inspectedOwnerId={selected.id} expansionSnapshot={storedExpansion} onToggle={toggleGroup} emptyStateText="No other Offers" onNavigate={navigateInspector} className="offer-neighborhood" ariaLabel="Offer neighborhood" contentIdPrefix="offer-neighborhood" />;
   }
   function touchpointResistanceSection() {
     if (selected?.kind !== 'touchpoint') return null;

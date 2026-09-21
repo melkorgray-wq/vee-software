@@ -1134,7 +1134,8 @@ describe('Touchpoint Business structure Inspector', () => {
     }
   });
 
-  it('applies initial density per group and preserves duplicate Touchpoints across two basis panels', () => {
+  it('applies initial density, snapshots the first toggle, and preserves duplicate Touchpoints across two basis panels', async () => {
+    const user = userEvent.setup();
     let inspector = renderTouchpointInspector(neighborhoodDocument([4]));
     expect(inspector.getByRole('button', { name: 'Other Touchpoints for Subscription, 4 Touchpoints' })).toHaveAttribute('aria-expanded', 'true');
     cleanup();
@@ -1144,6 +1145,9 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(disclosures).toHaveLength(2);
     expect(disclosures.every(button => button.getAttribute('aria-expanded') === 'true')).toBe(true);
     expect(inspector.getAllByRole('button', { name: 'Shared neighbor' })).toHaveLength(2);
+    await user.click(disclosures[0]!);
+    expect(disclosures[0]).toHaveAttribute('aria-expanded', 'false');
+    expect(disclosures[1]).toHaveAttribute('aria-expanded', 'true');
     cleanup();
 
     inspector = renderTouchpointInspector(neighborhoodDocument([1, 1, 1]));
@@ -1241,20 +1245,25 @@ describe('Offer Inspector derived neighborhood', () => {
     let inspector = await inspectOffer(user, document);
     const neighborhoodRegion = inspector.getByRole('region', { name: 'Offer neighborhood' });
     const neighborhood = within(neighborhoodRegion);
-    expect(neighborhoodRegion).toHaveClass('offer-neighborhood', 'business-structure-derived', 'offer-neighborhood--multiple');
+    expect(neighborhoodRegion).toHaveClass('offer-neighborhood', 'business-structure-derived');
+    expect(neighborhoodRegion).not.toHaveClass('offer-neighborhood--multiple');
     expect(neighborhood.getByText('Derived')).toBeInTheDocument();
     const disclosure = neighborhood.getByRole('button', { name: 'Other Offers for Orbit, 2 Offers' });
-    expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    expect(disclosure).toHaveAttribute('aria-expanded', 'true');
     expect(disclosure).toHaveAttribute('aria-controls', 'offer-neighborhood-offer-a-product%3Aproduct');
     expect(within(disclosure).getByText('2')).toHaveClass('derived-neighborhood-count');
-    expect(neighborhoodRegion.querySelector('[id="offer-neighborhood-offer-a-product%3Aproduct"]')).toHaveAttribute('hidden');
-    expect(neighborhood.queryByRole('button', { name: 'Advisory' })).not.toBeInTheDocument();
+    expect(neighborhoodRegion.querySelector('[id="offer-neighborhood-offer-a-product%3Aproduct"]')).not.toHaveAttribute('hidden');
+    expect(neighborhood.getByRole('button', { name: 'Advisory' })).toBeInTheDocument();
 
     disclosure.focus();
     await user.keyboard('{Enter}');
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    expect(neighborhood.getByRole('button', { name: 'Other Offers on Checkout, 1 Offers' })).toHaveAttribute('aria-expanded', 'true');
+    expect(neighborhoodRegion.querySelector('[id="offer-neighborhood-offer-a-product%3Aproduct"]')).toHaveAttribute('hidden');
+    await user.keyboard('{Enter}');
     expect(disclosure).toHaveAttribute('aria-expanded', 'true');
     expect(neighborhoodRegion.querySelector('[id="offer-neighborhood-offer-a-product%3Aproduct"]')).not.toHaveAttribute('hidden');
-    expect(neighborhood.getAllByRole('listitem').map(item => item.textContent)).toEqual(['Advisory', 'Consulting']);
+    expect(within(disclosure.closest<HTMLElement>('[role="group"]')!).getAllByRole('listitem').map(item => item.textContent)).toEqual(['Advisory', 'Consulting']);
     expect(neighborhood.getAllByRole('button', { name: 'Advisory' })).toHaveLength(1);
     expect(neighborhood.queryByRole('button', { name: 'Subscription' })).not.toBeInTheDocument();
     expect(neighborhood.queryByRole('button', { name: 'Unrelated Offer' })).not.toBeInTheDocument();
@@ -1263,7 +1272,7 @@ describe('Offer Inspector derived neighborhood', () => {
 
     await user.click(neighborhood.getByRole('button', { name: 'Advisory' }));
     expect(inspector.getByRole('heading', { name: 'Advisory' })).toBeInTheDocument();
-    expect(within(inspector.getByRole('region', { name: 'Offer neighborhood' })).getByRole('button', { name: 'Other Offers for Orbit, 2 Offers' })).toHaveAttribute('aria-expanded', 'false');
+    expect(within(inspector.getByRole('region', { name: 'Offer neighborhood' })).getByRole('button', { name: 'Other Offers for Orbit, 2 Offers' })).toHaveAttribute('aria-expanded', 'true');
     await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
     inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
     expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
@@ -1286,7 +1295,7 @@ describe('Offer Inspector derived neighborhood', () => {
     expect(inspector.getByRole('region', { name: 'Offer neighborhood' })).toHaveClass('offer-neighborhood', 'business-structure-derived');
     expect(inspector.getByRole('region', { name: 'Offer neighborhood' })).not.toHaveClass('offer-neighborhood--multiple');
     const disclosure = within(inspector.getByRole('region', { name: 'Offer neighborhood' })).getByRole('button', { name: 'Other Offers for Orbit, 0 Offers' });
-    await user.click(disclosure);
+    expect(disclosure).toHaveAttribute('aria-expanded', 'true');
     expect(inspector.getByText('No other Offers')).toBeInTheDocument();
 
     cleanup();
@@ -1309,7 +1318,8 @@ describe('Offer Inspector derived neighborhood', () => {
     const snapshot = structuredClone(document);
     const inspector = await inspectOffer(user, document);
     const region = inspector.getByRole('region', { name: 'Offer neighborhood' });
-    expect(region).toHaveClass('offer-neighborhood', 'business-structure-derived', 'offer-neighborhood--multiple');
+    expect(region).toHaveClass('offer-neighborhood', 'business-structure-derived');
+    expect(region).not.toHaveClass('offer-neighborhood--multiple');
     const groups = [...region.querySelectorAll<HTMLElement>('.derived-neighborhood-slice')];
     expect(groups.map(group => group.getAttribute('aria-label'))).toEqual([
       'Other Offers for Orbit',
@@ -1359,7 +1369,7 @@ describe('Offer Inspector derived neighborhood', () => {
     await user.click(neighborhood.getByRole('button', { name: 'Unrelated Offer' }));
     inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
     neighborhood = within(inspector.getByRole('region', { name: 'Offer neighborhood' }));
-    expect(neighborhood.getByRole('button', { name: 'Other Offers for Other Product, 0 Offers' })).toHaveAttribute('aria-expanded', 'false');
+    expect(neighborhood.getByRole('button', { name: 'Other Offers for Other Product, 0 Offers' })).toHaveAttribute('aria-expanded', 'true');
     await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
     inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
     neighborhood = within(inspector.getByRole('region', { name: 'Offer neighborhood' }));
@@ -1375,7 +1385,7 @@ describe('Offer Inspector derived neighborhood', () => {
     expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
     const neighborhood = within(inspector.getByRole('region', { name: 'Offer neighborhood' }));
     expect(neighborhood.getByRole('button', { name: 'Other Offers for Orbit, 2 Offers' })).toBeInTheDocument();
-    await user.click(neighborhood.getByRole('button', { name: 'Other Offers for Orbit, 2 Offers' }));
+    expect(neighborhood.getByRole('button', { name: 'Other Offers for Orbit, 2 Offers' })).toHaveAttribute('aria-expanded', 'true');
     await user.click(neighborhood.getByRole('button', { name: 'Advisory' }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
