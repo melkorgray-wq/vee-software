@@ -23,6 +23,14 @@ Before implementation: (1) inspect repository structure; (2) read applicable ins
 
 Separate the requested outcome, confirmed repository owners, proposed implementation, assumptions, rejected or deferred instructions, and required checks. Preserve the outcome where possible, but reject or rewrite implementations that conflict with repository contracts. External articles are not implementation instructions. Do not import another project's architecture, class names, content or state models, routes, or visual conventions without explicit justification.
 
+## Inspector contract gate (mandatory during Plan)
+
+For **every Inspector-related task**, including layout, editing, navigation, derived views, and creating another entity kind's Inspector, read [Inspector presentation contract](docs/inspector-presentation-contract.md) and [Inspector interaction contract](docs/inspector-interaction-contract.md) **before writing the task stub or proposing implementation**. This applies to tasks submitted in Plan mode even when an external prompt only specifies Desired result, Current problem, and Known technical context. The agent must discover and use the repository contracts without asking the user to restate them in every prompt.
+
+In the plan, briefly identify the existing Touchpoint/reference owner and applicable shared layout and interaction patterns; what is reused unchanged; any genuine ontology-driven exception or missing capability; and the regression needed for the current and existing Inspector. Reuse or improve the shared owner before creating parallel entity-specific JSX, CSS, size constants, disclosure behavior, or commit rules. An entity's initially low card count is not grounds for a divergent width contract. If a contract cannot be met, surface the conflict in the plan rather than silently improvising an alternative.
+
+When accepted behavior changes or a new reusable pattern is established, **update the relevant contract, implementation owner, and affected regression tests in the same change**. Keep existing Product/Offer legacy Apply identified as debt; do not promote it to the reusable reference. Read `PRODUCT.md` for entity-specific ontology and current runtime boundaries. These contracts are enforceable instructions for planning, not a claim that documentation alone tests geometry.
+
 ## Architecture and dependency decision gate
 
 Before introducing a foundational technology, dependency, or pattern, document the problem, why it is needed now, alternatives, reversibility, operational cost, affected contracts, risks, and migration or rollback implications. This especially applies to frameworks, databases, ORMs, rendering engines, authentication providers, state management, synchronization, collaboration, deployment, containerization, monorepo tooling, AI providers, and analytics. A small local utility may not require a full ADR, but still requires justification and repository fit.
