@@ -10,7 +10,7 @@ type MockNode = { id: string; position: { x: number; y: number }; selected?: boo
 type MockEdge = { id: string; source: string; target: string; type?: string; markerEnd?: { type: string }; label?: string };
 const { setViewportSpy } = vi.hoisted(() => ({ setViewportSpy: vi.fn(() => Promise.resolve(true)) }));
 vi.mock('@xyflow/react', () => ({
-  ReactFlow: ({ nodes, edges, edgeTypes, nodeTypes, tabIndex, disableKeyboardA11y, onInit, onNodeClick, onNodeDoubleClick, onNodeContextMenu, onPaneClick, onPaneContextMenu }: { nodes: MockNode[]; edges: MockEdge[]; edgeTypes?: Record<string, unknown>; nodeTypes?: Record<string, (props: { data: MockNode['data'] }) => ReactNode>; tabIndex?: number; disableKeyboardA11y?: boolean; onInit: (instance: object) => void; onNodeClick: (event: object, node: MockNode) => void; onNodeDoubleClick: (event: { preventDefault(): void; stopPropagation(): void }, node: MockNode) => void; onNodeContextMenu: (event: MouseEvent, node: MockNode) => void; onPaneClick: () => void; onPaneContextMenu: (event: MouseEvent) => void }) => { useEffect(() => onInit({ screenToFlowPosition: ({ x, y }: { x: number; y: number }) => ({ x: x - 10, y: y - 20 }), flowToScreenPosition: ({ x, y }: { x: number, y: number }) => ({ x: x + 10, y: y + 20 }), getViewport: () => ({ x: 0, y: 0, zoom: 1 }), setViewport: setViewportSpy }), [onInit]); const NodeComponent = nodeTypes?.mapNode; const geometry = (edge: MockEdge) => { const source = nodes.find(node => node.id === edge.source)!; const target = nodes.find(node => node.id === edge.target)!; return `${source.position.x},${source.position.y}:${target.position.x},${target.position.y}`; }; return <div aria-label="Map canvas" data-edge-types={Object.keys(edgeTypes ?? {}).join(',')} data-disable-keyboard-a11y={String(Boolean(disableKeyboardA11y))} tabIndex={tabIndex} onContextMenu={onPaneContextMenu}><button onClick={onPaneClick}>Clear selection</button>{nodes.map(node => <div key={node.id}><button aria-label={node.data.title} data-node-id={node.id} data-node-class={node.className} data-selected={String(Boolean(node.selected))} data-x={node.position.x} data-y={node.position.y} onClick={() => onNodeClick({}, node)} onDoubleClick={event => onNodeDoubleClick(event, node)} onContextMenu={e => { e.stopPropagation(); onNodeContextMenu(e, node); }}>{NodeComponent ? <NodeComponent data={node.data} /> : node.data.title}</button>{!NodeComponent && <span>{node.data.kindLabel}</span>}</div>)}{edges.map(edge => <span key={edge.id} data-source={edge.source} data-target={edge.target} data-geometry={geometry(edge)} data-marker={edge.markerEnd?.type} data-edge-type={edge.type} data-edge-class={(edge as MockEdge & { className?: string }).className}>{edge.label}</span>)}</div>; },
+  ReactFlow: ({ nodes, edges, edgeTypes, nodeTypes, tabIndex, disableKeyboardA11y, onInit, onNodeClick, onNodeDoubleClick, onNodeContextMenu, onPaneClick, onPaneContextMenu }: { nodes: MockNode[]; edges: MockEdge[]; edgeTypes?: Record<string, unknown>; nodeTypes?: Record<string, (props: { data: MockNode['data'] }) => ReactNode>; tabIndex?: number; disableKeyboardA11y?: boolean; onInit: (instance: object) => void; onNodeClick: (event: object, node: MockNode) => void; onNodeDoubleClick: (event: { preventDefault(): void; stopPropagation(): void }, node: MockNode) => void; onNodeContextMenu: (event: MouseEvent, node: MockNode) => void; onPaneClick: () => void; onPaneContextMenu: (event: MouseEvent) => void }) => { useEffect(() => onInit({ screenToFlowPosition: ({ x, y }: { x: number; y: number }) => ({ x: x - 10, y: y - 20 }), flowToScreenPosition: ({ x, y }: { x: number, y: number }) => ({ x: x + 10, y: y + 20 }), getViewport: () => ({ x: 0, y: 0, zoom: 1 }), setViewport: setViewportSpy }), [onInit]); const NodeComponent = nodeTypes?.mapNode; const geometry = (edge: MockEdge) => { const source = nodes.find(node => node.id === edge.source); const target = nodes.find(node => node.id === edge.target); return source && target ? `${source.position.x},${source.position.y}:${target.position.x},${target.position.y}` : 'dangling'; }; return <div aria-label="Map canvas" data-edge-types={Object.keys(edgeTypes ?? {}).join(',')} data-disable-keyboard-a11y={String(Boolean(disableKeyboardA11y))} tabIndex={tabIndex} onContextMenu={onPaneContextMenu}><button onClick={onPaneClick}>Clear selection</button>{nodes.map(node => <div key={node.id}><button aria-label={node.data.title} data-node-id={node.id} data-node-class={node.className} data-selected={String(Boolean(node.selected))} data-x={node.position.x} data-y={node.position.y} onClick={() => onNodeClick({}, node)} onDoubleClick={event => onNodeDoubleClick(event, node)} onContextMenu={e => { e.stopPropagation(); onNodeContextMenu(e, node); }}>{NodeComponent ? <NodeComponent data={node.data} /> : node.data.title}</button>{!NodeComponent && <span>{node.data.kindLabel}</span>}</div>)}{edges.map(edge => <span key={edge.id} data-source={edge.source} data-target={edge.target} data-geometry={geometry(edge)} data-marker={edge.markerEnd?.type} data-edge-type={edge.type} data-edge-class={(edge as MockEdge & { className?: string }).className}>{edge.label}</span>)}</div>; },
   BaseEdge: () => null, useInternalNode: () => undefined, useStore: () => [], Background: () => null, Controls: () => null, Handle: () => null, MarkerType: { ArrowClosed: 'arrowclosed' }, Position: { Left: 'left', Right: 'right' },
 }));
 vi.mock('../router', () => ({ Link: ({ children }: { children: ReactNode }) => <a href="/">{children}</a> }));
@@ -84,6 +84,40 @@ function offerNeighborhoodDocument(): MapDocument {
     { viewId: 'spike-view', entityId: 'offer-c', x: 1120, y: 0 },
     { viewId: 'spike-view', entityId: 'product-other', x: 1260, y: 0 },
     { viewId: 'spike-view', entityId: 'offer-other', x: 1400, y: 0 },
+  );
+  return document;
+}
+
+function coPresentedOfferNeighborhoodDocument(): MapDocument {
+  const document = offerNeighborhoodDocument();
+  const addedEntities: MapDocument['entities'] = [
+    { id: 'touch-a', kind: 'touchpoint', title: 'Alpha room' },
+    { id: 'touch-a-2', kind: 'touchpoint', title: 'Alpha room' },
+    { id: 'touch-empty', kind: 'touchpoint', title: 'Empty room' },
+    { id: 'touch-parent', kind: 'touchpoint', title: 'Parent room' },
+    { id: 'offer-shared', kind: 'offer', title: 'Shared Offer' },
+    { id: 'offer-first-b', kind: 'offer', title: 'First Offer' },
+    { id: 'offer-first-a', kind: 'offer', title: 'First Offer' },
+  ];
+  document.entities.push(...addedEntities);
+  document.placements.push(...addedEntities.map((entity, index) => ({ viewId: 'spike-view', entityId: entity.id, x: 1540 + index * 140, y: 0 })));
+  document.relationships.push(
+    { id: 'selected-a', kind: 'offer_presented_at_touchpoint', offerId: 'offer-a', touchpointId: 'touch-a' },
+    { id: 'selected-a-duplicate', kind: 'offer_presented_at_touchpoint', offerId: 'offer-a', touchpointId: 'touch-a' },
+    { id: 'selected-a-2', kind: 'offer_presented_at_touchpoint', offerId: 'offer-a', touchpointId: 'touch-a-2' },
+    { id: 'selected-empty', kind: 'offer_presented_at_touchpoint', offerId: 'offer-a', touchpointId: 'touch-empty' },
+    { id: 'shared-a', kind: 'offer_presented_at_touchpoint', offerId: 'offer-shared', touchpointId: 'touch-a' },
+    { id: 'shared-a-duplicate', kind: 'offer_presented_at_touchpoint', offerId: 'offer-shared', touchpointId: 'touch-a' },
+    { id: 'shared-a-2', kind: 'offer_presented_at_touchpoint', offerId: 'offer-shared', touchpointId: 'touch-a-2' },
+    { id: 'other-product-a', kind: 'offer_presented_at_touchpoint', offerId: 'offer-other', touchpointId: 'touch-a' },
+    { id: 'first-b-a', kind: 'offer_presented_at_touchpoint', offerId: 'offer-first-b', touchpointId: 'touch-a' },
+    { id: 'first-a-a', kind: 'offer_presented_at_touchpoint', offerId: 'offer-first-a', touchpointId: 'touch-a' },
+    { id: 'dangling-offer', kind: 'offer_presented_at_touchpoint', offerId: 'missing-offer', touchpointId: 'touch-a' },
+    { id: 'wrong-offer', kind: 'offer_presented_at_touchpoint', offerId: 'job', touchpointId: 'touch-a' },
+    { id: 'dangling-touchpoint', kind: 'offer_presented_at_touchpoint', offerId: 'offer-a', touchpointId: 'missing-touchpoint' },
+    { id: 'wrong-touchpoint', kind: 'offer_presented_at_touchpoint', offerId: 'offer-a', touchpointId: 'job' },
+    { id: 'contains-only', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'touch-a', childTouchpointId: 'touch-parent' },
+    { id: 'parent-neighbor', kind: 'offer_presented_at_touchpoint', offerId: 'offer-c', touchpointId: 'touch-parent' },
   );
   return document;
 }
@@ -1211,15 +1245,15 @@ describe('Offer Inspector derived neighborhood', () => {
     expect(neighborhood.getByText('Derived')).toBeInTheDocument();
     const disclosure = neighborhood.getByRole('button', { name: 'Other Offers for Orbit, 2 Offers' });
     expect(disclosure).toHaveAttribute('aria-expanded', 'false');
-    expect(disclosure).toHaveAttribute('aria-controls', 'offer-neighborhood-offer-a');
+    expect(disclosure).toHaveAttribute('aria-controls', 'offer-neighborhood-offer-a-product%3Aproduct');
     expect(within(disclosure).getByText('2')).toHaveClass('derived-neighborhood-count');
-    expect(neighborhoodRegion.querySelector('#offer-neighborhood-offer-a')).toHaveAttribute('hidden');
+    expect(neighborhoodRegion.querySelector('[id="offer-neighborhood-offer-a-product%3Aproduct"]')).toHaveAttribute('hidden');
     expect(neighborhood.queryByRole('button', { name: 'Advisory' })).not.toBeInTheDocument();
 
     disclosure.focus();
     await user.keyboard('{Enter}');
     expect(disclosure).toHaveAttribute('aria-expanded', 'true');
-    expect(neighborhoodRegion.querySelector('#offer-neighborhood-offer-a')).not.toHaveAttribute('hidden');
+    expect(neighborhoodRegion.querySelector('[id="offer-neighborhood-offer-a-product%3Aproduct"]')).not.toHaveAttribute('hidden');
     expect(neighborhood.getAllByRole('listitem').map(item => item.textContent)).toEqual(['Advisory', 'Consulting']);
     expect(neighborhood.getAllByRole('button', { name: 'Advisory' })).toHaveLength(1);
     expect(neighborhood.queryByRole('button', { name: 'Subscription' })).not.toBeInTheDocument();
@@ -1244,7 +1278,7 @@ describe('Offer Inspector derived neighborhood', () => {
     expect(neighborhood).not.toHaveClass('offer-neighborhood');
   });
 
-  it('keeps a resolved zero-sibling group but omits neighborhoods for missing or invalid Product links', async () => {
+  it('keeps a resolved zero-sibling group and derives co-presentation without a valid Product link', async () => {
     const user = userEvent.setup();
     const zero = touchpointInspectorDocument();
     let inspector = await inspectOffer(user, zero);
@@ -1253,17 +1287,71 @@ describe('Offer Inspector derived neighborhood', () => {
     expect(inspector.getByText('No other Offers')).toBeInTheDocument();
 
     cleanup();
-    const missing = touchpointInspectorDocument();
+    const missing = touchpointInspectorDocument(true);
     missing.relationships = missing.relationships.filter(relation => relation.kind !== 'product_packaged_as_offer');
     inspector = await inspectOffer(user, missing);
-    expect(inspector.queryByRole('region', { name: 'Offer neighborhood' })).not.toBeInTheDocument();
+    expect(within(inspector.getByRole('region', { name: 'Offer neighborhood' })).getByRole('button', { name: 'Other Offers on Checkout, 1 Offers' })).toBeInTheDocument();
 
     cleanup();
-    const invalid = touchpointInspectorDocument();
+    const invalid = touchpointInspectorDocument(true);
     const packaging = invalid.relationships.find(relation => relation.kind === 'product_packaged_as_offer');
     if (packaging?.kind === 'product_packaged_as_offer') packaging.productId = 'job';
     inspector = await inspectOffer(user, invalid);
-    expect(inspector.queryByRole('region', { name: 'Offer neighborhood' })).not.toBeInTheDocument();
+    expect(within(inspector.getByRole('region', { name: 'Offer neighborhood' })).getByRole('button', { name: 'Other Offers on Checkout, 1 Offers' })).toBeInTheDocument();
+  });
+
+  it('derives exact Touchpoint groups with valid unique endpoints and deterministic ordering', async () => {
+    const user = userEvent.setup();
+    const document = coPresentedOfferNeighborhoodDocument();
+    const snapshot = structuredClone(document);
+    const inspector = await inspectOffer(user, document);
+    const region = inspector.getByRole('region', { name: 'Offer neighborhood' });
+    const groups = [...region.querySelectorAll<HTMLElement>('.derived-neighborhood-slice')];
+    expect(groups.map(group => group.getAttribute('aria-label'))).toEqual([
+      'Other Offers for Orbit',
+      'Other Offers on Alpha room',
+      'Other Offers on Alpha room',
+      'Other Offers on Checkout',
+    ]);
+    expect(groups.map(group => group.dataset.basisId)).toEqual(['product', 'touch-a', 'touch-a-2', 'touch']);
+    expect(within(region).queryByRole('button', { name: /Empty room/ })).not.toBeInTheDocument();
+    expect(within(region).queryByRole('button', { name: /Parent room/ })).not.toBeInTheDocument();
+
+    const alpha = within(groups[1]!);
+    const alphaDisclosure = alpha.getByRole('button', { name: 'Other Offers on Alpha room, 4 Offers' });
+    await user.click(alphaDisclosure);
+    expect(alpha.getAllByRole('listitem').map(item => item.textContent)).toEqual(['First Offer', 'First Offer', 'Shared Offer', 'Unrelated Offer']);
+    expect(alpha.getAllByRole('listitem').slice(0, 2).map(item => item.querySelector('button')?.textContent)).toEqual(['First Offer', 'First Offer']);
+    expect(alpha.queryByRole('button', { name: 'Subscription' })).not.toBeInTheDocument();
+    expect(alpha.getAllByRole('button', { name: 'Shared Offer' })).toHaveLength(1);
+    expect(within(groups[2]!).getByRole('button', { name: 'Other Offers on Alpha room, 1 Offers' })).toHaveAttribute('aria-expanded', 'false');
+    await user.click(within(groups[2]!).getByRole('button', { name: 'Other Offers on Alpha room, 1 Offers' }));
+    expect(within(groups[2]!).getByRole('button', { name: 'Shared Offer' })).toBeInTheDocument();
+    expect(alphaDisclosure).toHaveAttribute('aria-expanded', 'true');
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+    expect(document).toEqual(snapshot);
+  });
+
+  it('isolates group expansion by inspected Offer and restores it through Inspector Back', async () => {
+    const user = userEvent.setup();
+    const document = coPresentedOfferNeighborhoodDocument();
+    let inspector = await inspectOffer(user, document);
+    let neighborhood = within(inspector.getByRole('region', { name: 'Offer neighborhood' }));
+    const productDisclosure = neighborhood.getByRole('button', { name: 'Other Offers for Orbit, 2 Offers' });
+    const touchDisclosure = neighborhood.getByRole('button', { name: 'Other Offers on Alpha room, 4 Offers' });
+    await user.click(productDisclosure);
+    expect(touchDisclosure).toHaveAttribute('aria-expanded', 'false');
+    await user.click(productDisclosure);
+    await user.click(touchDisclosure);
+    await user.click(neighborhood.getByRole('button', { name: 'Unrelated Offer' }));
+    inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
+    neighborhood = within(inspector.getByRole('region', { name: 'Offer neighborhood' }));
+    expect(neighborhood.getByRole('button', { name: 'Other Offers for Other Product, 0 Offers' })).toHaveAttribute('aria-expanded', 'false');
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
+    neighborhood = within(inspector.getByRole('region', { name: 'Offer neighborhood' }));
+    expect(neighborhood.getByRole('button', { name: 'Other Offers for Orbit, 2 Offers' })).toHaveAttribute('aria-expanded', 'false');
+    expect(neighborhood.getByRole('button', { name: 'Other Offers on Alpha room, 4 Offers' })).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('retains linked-Product draft editing and its dirty navigation guard', async () => {
