@@ -19,9 +19,9 @@ For every new Inspector screen or section:
 | Pattern | Existing owner |
 | --- | --- |
 | Inspector page, header, section/links, shared control dimensions | `apps/web/src/styles.css` |
-| Business structure and Neighborhood JSX; Inspector navigation | `apps/web/src/routes/MapSpike.tsx` |
+| Business structure and shared `NeighborhoodGroups` JSX; Inspector navigation | `apps/web/src/routes/MapSpike.tsx` |
 | Touchpoint authored Business projection | `apps/web/src/touchpoint-business-structure.ts` |
-| Client Scope measured-height packing | `apps/web/src/client-scope-packed-layout.ts` and `ClientScopePackedGroups` in `MapSpike.tsx` |
+| Shared Neighborhood and Client Scope measured-height packing | `apps/web/src/client-scope-packed-layout.ts` (`usePackedPanelLayout`), plus `NeighborhoodGroups` and `ClientScopePackedGroups` in `MapSpike.tsx` |
 | Layout and UI regressions | `apps/web/src/client-scope-packed-layout.test.ts`, `apps/web/src/routes/MapSpike.test.tsx` |
 
 Reusing the appearance does **not** mean copying Touchpoint owner-specific domain logic.
@@ -38,13 +38,13 @@ Reusing the appearance does **not** mean copying Touchpoint owner-specific domai
 
 For a derived Neighborhood, reuse `.business-structure-derived`, `.derived-heading`, `.derived-neighborhood-slices`, `.derived-neighborhood-slice`, `.derived-neighborhood-disclosure`, `.derived-neighborhood-count`, and `.derived-neighborhood-content`.
 
-- The section uses available Inspector width. Each card remains compact. The Touchpoint grid reference is `repeat(auto-fit, minmax(min(100%, 14rem), 20rem))`, `justify-content: start`, `align-items: start`, and `gap: .65rem`. At document width 1152px, three 20rem cards and two .65rem gaps can fit.
+- The section uses available Inspector width. Each card remains compact. The CSS Grid **fallback** is `repeat(auto-fit, minmax(min(100%, 14rem), 20rem))`, `justify-content: start`, `align-items: start`, and `gap: .65rem`. `NeighborhoodGroups` now uses shared `usePackedPanelLayout` (14rem minimum, 20rem maximum, .65rem gap), measured card heights and stable IDs to place groups compactly when ResizeObserver is available. At document width 1152px, three 20rem cards and two .65rem gaps can fit. The hook sets the container height and positions each measured card; preserve a readable CSS fallback.
 - Current card padding: `.35rem`; border: `1px`; radius: `.4rem`. Disclosure uses `auto minmax(0, 1fr) auto` with padding `.3rem .35rem`. Count has `min-width: 1.45rem`, `font-size: .68rem`. These are shared implementation values, not independent per-entity tokens.
 - Preserve label wrapping, `min-width: 0`, a focus-visible affordance, independent disclosure, counts with defined units, and link navigation. A neighbor may appear under different grounds but is deduplicated within one ground.
 - At `max-width: 30rem`, the shared fallback is a single column. Test single, two, and many groups, long labels, collapsed and expanded states, and narrow widths.
-- Do not copy the former Offer-only `25.5rem` section cap or larger `20rem–25.5rem` grid tracks into new sections. These were a local response to one Product group and prevented three-column layout after further grounds were added. Inspect the current branch because the parallel Offer layout PR may already be replacing them.
+- Do not restore the former Offer-only `25.5rem` section cap or larger `20rem–25.5rem` grid tracks. They prevented three-column layout when multiple grounds were added. The shared `NeighborhoodGroups` reference now owns the common compact presentation for both Offer and Touchpoint.
 
-**Important implementation distinction:** Touchpoint Neighborhood currently uses ordinary CSS Grid, which can leave space below shorter cards in a row. Touchpoint **Client Scope** uses measured-height packing. Do not claim Neighborhood already has masonry packing. If independent compact packing for Neighborhood is accepted, evaluate reuse/extraction of the existing packed-layout owner with measured heights, stable IDs, ResizeObserver and tests. Do not invent a second packing algorithm.
+**Current implementation:** Both Touchpoint and Offer Neighborhood use `NeighborhoodGroups` and the generic `usePackedPanelLayout` for measured-height compact placement; Client Scope calls the same generic hook through `useClientScopePackedLayout`. CSS Grid remains the fallback. Do not introduce a second packing algorithm, restore per-kind neighborhood dimensions or replace stable group identity when extending the semantic grounds.
 
 ## Client Scope and other compact panels
 
