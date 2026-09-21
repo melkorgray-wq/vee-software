@@ -1,72 +1,108 @@
 # Inspector interaction contract
 
-Status: **Accepted reference for new Inspector work**. Grounded in the hardened Touchpoint Inspector, its tests, and `PRODUCT.md`. This is a reusable interaction contract, not a claim that all entity kinds implement it. See [presentation contract](./inspector-presentation-contract.md) for sizing and layout.
+Status: **Accepted reference for new Inspector work**. It is grounded in `PRODUCT.md`, the hardened Touchpoint Inspector, domain operations, and regression evidence. It does not claim that every Inspector implements the contract or that the proposed architecture is final.
 
-Read this file at **Plan / task-stub stage** before proposing Inspector navigation, editing, selection, derived disclosure, or transient-state behavior. Match owner-specific semantics to `PRODUCT.md` and the domain model.
+Read this file and the [Inspector presentation contract](./inspector-presentation-contract.md) during Plan/task-stub preparation. Authority runs from repository/product contracts and accepted decisions, through runtime behavior, then automated regression evidence; documentation is corrected when it disagrees. Old notes and screenshots are clues only. Product/Offer section-wide Apply is legacy debt, never the reusable reference.
 
-## Planning gate
+## Planning gate and audited owners
 
-For every affected action, identify:
+For each action identify: authored or derived owner; read/edit/incomplete/confirmation/error state; trigger; semantic completion and transaction boundary; navigation/focus owner; invalid/empty/destructive result; reusable reference handler; ontology-specific exception; and regression plus remaining manual check.
 
-| Question | Required answer in the task stub |
-| --- | --- |
-| Owner | Which entity owns the authored data or derived projection? |
-| State | Read, editing, unresolved, impact confirmation, failed, or complete? What is transient vs committed? |
-| Trigger | What exact gesture starts or completes the operation? |
-| Commit boundary | When does a complete, valid, unambiguous operation commit? |
-| Navigation/focus | Which action is edit vs entity link? Where does keyboard focus go on Close, Escape, switching editor and commit? |
-| Invalid/empty/destructive | What is visible, what is requested and what is left unchanged? |
-| Reuse | Which reference handler, UI pattern and tests apply; what ontology-specific deviation is justified? |
+The coverage inventory, including all Touchpoint sections, owners, CSS, derivations, tests and gaps, is maintained in the presentation contract’s [Audit coverage](./inspector-presentation-contract.md#audit-coverage). Interaction claims below were checked against `MapSpike.tsx`, `touchpoint-edit.ts`, `touchpoint-business-structure.ts`, `client-scope-packed-layout.ts`, `inspector-navigation.ts`, their named tests, and `packages/domain/src/index.ts`/`index.test.ts`.
 
-The reusable contract is evaluated **before implementation**, not added as a post-hoc checklist. Do not simply copy owner-specific Touchpoint commands into Offer or Product.
+## State glossary and ownership
 
-## Editable document and owner-level commits
+- **Committed `MapDocument`:** the in-memory authored entities, typed relations, intent selections, containers and placements. It is the only current durable-within-the-running-spike document state; there is no external persistence, save, sync, reload or undo guarantee.
+- **Local property editor state:** temporary query/value/mode/error state for Title, URL, Located in, Offers, Parent or Children. Its owner is the mounted Inspector surface in `MapSpike.tsx`.
+- **Incomplete semantic operation:** a draft or domain plan lacking a required outcome, contributor, parent, Offer, title, confirmation, or other unambiguous owner context. It is not a partial domain mutation.
+- **Transient disclosure state:** expanded Neighborhood/Client Scope group IDs keyed by stable owner/group identity. It changes presentation only.
+- **Selection:** the currently inspected entity/UI target. It is UI state, distinct from domain relationships.
+- **Inspector history:** `InspectorHistory` owned by `inspectorHistoryReducer`; it records transient selected-entity traversal.
+- **Map selection:** shared workspace/canvas selection. It may establish the Inspector root but is not Inspector history and is not a domain relation.
+- **Focus owner:** the active input, candidate row, heading action, dialog, menu or workspace control. Refs and close reasons in `MapSpike.tsx` coordinate restoration.
+- **Confirmation state:** pending exact destructive impact plus Cancel/Confirm; no mutation has occurred for that pending operation.
+- **Validation/error/status state:** recoverable local error or time-bounded operation feedback. It does not itself mutate the document.
+- **Measured presentation state:** `usePackedPanelLayout` output derived from container/panel measurements. It affects coordinates/height only and is neither selection nor authored data.
 
-Map and Inspector edit one `MapDocument`. The completed, valid, unambiguous, non-destructive local gesture triggers a single atomic domain operation. Transient editors, search queries, focus, selected UI tabs and expanded groups are not durable authored changes. Existing Product/Offer section-wide Apply is transitional runtime debt, **not** a reusable Inspector interaction.
+## State table
 
-| Event | Contract |
-| --- | --- |
-| Entity link | Navigate to that entity's Inspector through Inspector history, without entering edit mode. |
-| Editable property heading | On hover/focus disclose `Click to edit`; activate its embedded local editor, separately from the property's value link. |
-| Title Enter/blur | Commit a valid title once; Escape cancels the incomplete inline edit. |
-| Single-select relation | A complete valid radio choice commits and closes. Optional Clear is a separate explicit action; mandatory relations have no Clear. |
-| Multi-select relation | A complete valid checkbox row commits immediately; the editor may remain open for subsequent choices. |
-| Client semantic path | Commit when the full valid local path is known; request only genuinely missing parent/DO/contributor context, without guessing. |
-| Destructive operation | Show the exact dependent impact before committing; Cancel leaves committed data unchanged; Confirm commits that operation. |
-| Invalid, unresolved, cancelled, failed | Preserve committed document and unrelated state, display error or missing semantic choice. |
-| Close / Escape / outside | Dismiss transient editor without rolling back already committed operations. |
-| Nested Back | Return one level within the current editor; do not confuse with Inspector Back, browser history or future Undo. |
+| State | Owner | Entry trigger | Visible result | Commit effect | Dismissal behavior | Persistence / reload standing |
+| --- | --- | --- | --- | --- | --- | --- |
+| Committed document | `MapSpike.tsx` document state; `MapDocument` and domain commands | Successful complete domain transaction | Read projections update | Replaces document once for the action | Cannot be rolled back by Close/Escape/outside | In-memory spike only; no external persistence/reload promise |
+| Local property editor | Relevant `MapSpike.tsx` component state/ref | Activate editable heading/value | Embedded input/candidates/action controls | None until natural completion or complete selection | Cancel/Escape/outside discards unfinished local state; prior commits remain | Transient; remount/reload standing unspecified |
+| Incomplete semantic operation | Editor mode or domain plan result (`unresolved`) | Select a leaf/action without required semantic context | Resolver, missing-choice prompt, or recoverable error | None | Nested Back/Cancel/Escape abandons incomplete operation | Transient only |
+| Disclosure | owner-keyed expansion maps in `MapSpike.tsx` | Activate disclosure | Panel expands/collapses; expanded groups order first | None | Not an editor rollback; retained only as implemented for mounted/history owner | UI-only; no reload guarantee |
+| Selection | workspace route state | Map/entity-link/workspace action | Selected entity Inspector/Map styling | None by itself | Replaced by deliberate selection/navigation | UI-only |
+| Inspector history | `inspectorHistoryReducer` | Start, entity link, Back/Forward | Back/Forward availability and inspected target | None | Map round trip retains it when implemented and selection is unchanged | Session UI-only; invalid entities skipped |
+| Map selection | Map workspace owner | Canvas selection/reselection | Map target and Inspector root association | None | Reselection establishes a new history root | UI-only |
+| Focus | browser + mounted control refs | Keyboard/pointer entry, editor/dialog open | Visible focus on current owner | None | Explicit Close/Escape may restore; outside/switch deliberately does not steal focus | Never document state |
+| Confirmation | confirmation state/dialog in `MapSpike.tsx` | Owner reports destructive impact | Modal exact impact and Cancel/Confirm | Confirm performs one transaction; Cancel none | Escape/Cancel closes without mutation | Transient only |
+| Validation/error/status | local editor or global message state | Validation/domain failure or success | `role=alert`/`role=status` feedback | Failure none; status describes prior commit | Error remains recoverable; no silent retry | Transient; no sync/save meaning |
+| Measured presentation | `usePackedPanelLayout` | mount, panel/container resize/content change | Packed transforms and explicit container height, or Grid fallback | None | Recalculates or falls back; no authored effect | Recomputed, never persisted |
 
-A read-only derived block is not an editable authored relation. No `Apply`, `Save` or `Done` should be required to reaffirm an already completed gesture. An editor must never hide a dirty uncommitted form draft and present stale read-state as if it were current durable state.
+## Commit contract
 
-## Navigation, focus and hit areas
+Semantic completeness is the boundary: **one complete owner-level action → one domain transaction**.
 
-- Entity titles are navigation links; external URLs open outside the Inspector; heading actions edit. Label/checkbox rows in a picker are single selection hit areas, not mixed with a second navigation target.
-- Explicit Close and Escape return focus to the current mounted heading action when appropriate. Outside pointer and switching to a different editor must **not** steal focus by restoring it to an old owner. Keep keyboard interaction and visible focus after immediate commits.
-- Inspector Back/Forward uses transient selected-entity history. Map reselection establishes a new root; an Inspector → Map → Inspector round trip without selection change preserves history. Nested editor Back, browser Back and Undo are different mechanisms.
-- Reuse `RELATION_EDITOR_SEARCH_THRESHOLD = 7` as the current reference for optional searchable relation candidates unless a measured difference warrants another threshold.
+- Complete valid non-destructive relation/control actions commit immediately. Multi-select commits each toggle; single-select commits its complete choice and closes. Title and property text use natural completion (for example Enter/blur where implemented); Escape cancels the incomplete edit.
+- Incomplete, ambiguous, invalid, cancelled, or failed operations do not mutate `MapDocument`. Keep the editor recoverable and request only missing context; never infer ontology or contributor identity.
+- A destructive change follows impact derivation → exact review → explicit confirmation → one commit. Cancel leaves committed data unchanged. There is no silent retry.
+- Close, Escape and pointer-outside dismiss transient state. They are not rollback for already completed local commits. “Apply”, “Save”, “Done”, “saved”, or “synced” must not imply durability that the spike does not have.
+- Product/Offer whole-section Apply remains legacy behavior scheduled for replacement. Do not use it as an example for new work.
 
-## Business structure: shared gesture, owner-specific semantics
+The owner chain is `MapSpike.tsx` gesture/state → a focused helper in `touchpoint-edit.ts` where present → one framework-independent operation in `@vee/domain` → fresh read/derived projection. UI handlers must not synthesize direct edges that the domain owner does not authorize.
 
-- Touchpoint linked Offers: multi-select structural relations with review of downstream intent/mitigation impact. Parent: optional single-select, explicit Clear; Children attach/detach/reassign/create invoke dedicated structural commands and may need contributor resolution.
-- Offer linked Product: mandatory single relation; Touchpoint's optional `Clear parent` does not apply. A Product change can affect Offer and downstream Touchpoint intent. Connected Touchpoints are many-to-many inverse relations; Touchpoints are not a containment copy of Children. Preserve valid structural requirements and destructive review.
-- A reusable radio/checkbox editor does **not** authorize a new direct domain edge or a generic setter.
+## Navigation and focus
 
-## Client scope: read and edit
+- `navigateInspector()` pushes entity navigation through `inspectorHistoryReducer`; `traverseInspectorHistory()` skips missing entities. Inspector Back/Forward are distinct from browser history, future Undo, and nested editor Back.
+- Map reselection starts a history root. The implemented Inspector → Map → Inspector round trip preserves history when Map selection did not change. Linked entity titles navigate internally; safe URLs navigate externally.
+- Dirty/impact guards apply only where implemented (notably legacy Product/Offer draft navigation and pending impact confirmation). Do not claim a universal unsaved-changes guard for immediate-commit Touchpoint editors.
+- Opening an editor deliberately focuses its first relevant search/candidate/input. Explicit Close and Escape restore focus to the still-mounted/remounted heading action where appropriate. Pointer-outside dismissal and switching editors must not steal focus back from the new pointer/focus owner.
+- Candidate rows support native keyboard activation and one primary selection hit area. They must not contain competing entity navigation while local editing is active.
+- Escape is progressive: close the deepest resolver/confirmation/nested mode first, then its editor, then any outer transient surface. Nested Back returns one editor level; Inspector Back traverses entities.
 
-- Touchpoint read-state shows the nonempty canonical kinds CFJ, RJ, CCJ, EJ, SJ and FDO with independent disclosure and mini-dendrites. DO-bearing Job shows its selected DO; EJ/SJ have no ordinary DO; FDO is a separate independent leaf.
-- `initialCompactOverviewExpandedGroupIds()` provides current initial density for Touchpoint Neighborhood and Client Scope: one group with count ≤4 opens; two groups open if each count ≤4 and total ≤6; otherwise default collapsed. Preserve user-selected state and stable group identity. These exact thresholds are a reference, not automatic semantics for every possible future panel.
-- Expanded groups are ordered first in Touchpoint Neighborhood and Client Scope, while preserving stable links/identity and focus. Independent group expansion is transient, not a document commit.
-- Touchpoint Client scope editing is a state **within the persistent section**, not a nested whole-form editor. A single ontology-aware `Search Client intent` and compact upstream-source disclosures guide selection. For Child Touchpoint, the immediate Parent is the semantic source; the Child must author its own contributing Offer path.
-- For a DO-bearing CFJ/RJ/CCJ there is no direct Touchpoint path without an addressed DO. EJ/SJ may be direct Job paths; FDO is through Offer only, never Product. Use owner-specific domain operations for Offer/Client-side editing. A selected intent is not proof of realized outcomes.
+Current tests cover many focus transitions but do not prove every tab sequence, focus trap, screen reader announcement, external navigation, or browser geometry. Those remain manual browser/accessibility checks.
 
-## Derived Neighborhood and Resistance
+## Relation and structural editing
 
-- Neighborhood is a read-only derived projection from committed data. Each group names its actual provenance/ground; count unique neighbors within that ground. The same neighbor may appear under distinct grounds. Shared `NeighborhoodGroups` in `MapSpike.tsx` owns disclosure, count, rendering, ordering, navigation presentation and packed layout for both Offer and Touchpoint; the entity owners supply their own derived grounds and transient expansion state. Disclosure is independent and navigation opens an entity Inspector; it does not author neighbor-to-neighbor relationships.
-- Touchpoint Resistance is derived relevance, separate from optional authored local `Mitigated here`. Product/Offer do not copy that checkbox. Their current derived impact and future broader intent-based exposure must not be silently conflated.
+Portable interaction grammar:
 
-## Regression and evolution
+1. An editable property heading opens a local embedded editor, separate from value navigation.
+2. Multi-select stays open until explicit Close or dismissal; every complete toggle is already committed.
+3. Single-select closes after a complete selection. Optional Clear is an explicit local action, never a fake candidate; mandatory relations omit it.
+4. Search appears only for sufficient candidate space. `RELATION_EDITOR_SEARCH_THRESHOLD = 7` is the current reference, not universal ontology.
+5. Close preserves committed selections. Cancel/Escape may abandon only unfinished work.
+6. Reassignment/removal uses owner-aware impact planning and confirmation where destructive.
 
-The task stub identifies the applicable current tests and adds focused checks for gestures, commits, failed/cancelled operations, focus, keyboard, navigation and disclosure identity. Relevant reference coverage lives in `apps/web/src/routes/MapSpike.test.tsx`; domain commands belong in domain-level tests. `pnpm check` does not replace a real layout and interaction walkthrough.
+Touchpoint meaning is not portable: Offers are multi-select structural presentation relations; Parent is optional single-select; Children attach/detach/reassign/create use dedicated commands and may require ancestor contributor resolution. `deriveTouchpointChildrenCandidates`, `deriveTouchpointReassignTargets`, `commitTouchpointParent`, and `planTouchpointStructuralChange` own those semantics. A generic radio/checkbox does not authorize generic setters, direct edges, containment, or candidate eligibility.
 
-When an agreed shared behavior changes, update this contract, the shared owner (where appropriate), and affected tests in the same change. Document a genuine owner-specific exception and its rationale here or in the owning product contract. Do not create another Inspector-specific rule merely because the local JSX differs.
+## Client Scope and Resistance
+
+- Read disclosure is transient presentation; authoring changes intent. Global discovery (`globalIntentDiscovery`) differs from upstream sources (`touchpointUpstreamSources`). Selectable leaves and paths remain ontology-aware.
+- DO-bearing Core Functional, Related and Consumption Chain Jobs require ordinary Desired Outcome paths; Emotional/Social Jobs may route directly; Financial Desired Outcome routes through Offer. Contributor ambiguity produces a resolver/incomplete path, never a guessed contributor.
+- Client authoring uses progressive Escape and immediate owner-aware commits only after a complete path. The Child must author its own contributing Offer path; Parent context is not contributor identity.
+- Resistance relevance is derived by `relevantRepulsorsForTouchpoint`; mitigation is an authored `touchpoint_mitigates_repulsor` relation committed by `commitTouchpointMitigation`/`setTouchpointMitigations`. Never convert derived relevance automatically into mitigation, or treat mitigation as proof that resistance was resolved.
+
+These are Touchpoint ontology-specific exclusions. The reusable grammar is read disclosure versus authoring, provenance visibility, explicit incomplete/resolver state, progressive dismissal, owner-aware commits, and separation of derived from authored state.
+
+## Error and boundary behavior
+
+- Validation/domain failure preserves the committed document and unrelated UI state. Keep the editor open when recovery is possible and render actionable local error text.
+- `MapSpike.tsx` owns current `role="alert"`/`role="status"` messages; local editors own their field/resolver errors. Success timeout must not erase an error. No silent retry is permitted.
+- Empty means a valid absence and offers the appropriate authoring action. Invalid means the proposed operation failed validation. Unavailable means data/action cannot currently be resolved or selected. Do not collapse these into the same navigable-looking state.
+- Confirmation owns focus while active and blocks bypass routes; exact trapping/restoration remains a required browser check where automated evidence is incomplete.
+- Ambiguous ontology, missing contributors, or unresolved product rules remain incomplete/unresolved. The UI must not manufacture a semantic path.
+
+## Reuse boundary
+
+**Reuse:** document frame; semantic visual language; heading edit affordance; entity-link treatment; local embedded editors; semantic-completeness commits; dismissal/focus grammar; disclosure state model; adaptive/packed mechanisms; navigation/history; validation and confirmation boundaries.
+
+**Do not copy literally:** Product → Offer → Touchpoint structure; Offers, Located in, Parent or Children; Touchpoint containment/reassignment; six Client Scope kinds as universal sections; contributor propagation; Resistance relevance/mitigation; specific empty states, counts or labels; Touchpoint-specific eligibility and domain operations.
+
+A future Inspector first defines its ontology-owned properties, relationships, complete operations, destructive impacts and derived projections, then applies the common contracts.
+
+## Maintenance and evidence rule
+
+An accepted common-pattern change updates together: (1) the relevant contract, (2) the shared implementation owner, (3) regressions for the Touchpoint reference, and (4) regressions for other affected Inspector kinds. An entity-specific exception requires an ontology rationale. A low current card count is not grounds for a separate width/disclosure or state model.
+
+Screenshots do not establish interaction semantics or geometry. Combine browser walkthroughs with pure domain/layout regressions and DOM/accessibility-semantic tests. Label uncertainty as current implementation not yet accepted, browser-only observation, missing regression guard, unresolved product/ontology question, or legacy behavior scheduled for replacement. Do not infer persistence, reload, undo, finalized viewport support, finalized ontology, or accessibility guarantees from this contract.
