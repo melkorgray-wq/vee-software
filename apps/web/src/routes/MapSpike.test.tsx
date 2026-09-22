@@ -527,7 +527,7 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(renderTouchpointInspector(document).queryByLabelText('Business lineage')).not.toBeInTheDocument();
   });
 
-  it('uses compact markers for empty direct and derived Business structure values', () => {
+  it('keeps compact direct fields while omitting an entirely empty Neighborhood', () => {
     const document = structureDocument();
     const touch = document.entities.find(entity => entity.id === 'touch')!;
     Object.assign(touch, { locatedInId: undefined, url: undefined });
@@ -541,9 +541,8 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(structure.getByRole('button', { name: 'Add URL' })).toBeInTheDocument();
     expect(structure.queryByText('Not specified')).not.toBeInTheDocument();
     expect(structure.queryByText('None')).not.toBeInTheDocument();
-    expect(structure.getByText('Derived')).toBeInTheDocument();
-    expect(within(structure.getByRole('group', { name: 'Other Touchpoints for Subscription' })).getByRole('button')).toHaveAccessibleName('Other Touchpoints for Subscription, 0 Touchpoints');
-    expect(within(structure.getByRole('group', { name: 'Other Touchpoints for Consulting' })).getByRole('button')).toHaveAccessibleName('Other Touchpoints for Consulting, 0 Touchpoints');
+    expect(structure.queryByText('Neighborhood')).not.toBeInTheDocument();
+    expect(structure.queryByRole('region', { name: 'Touchpoint neighborhood' })).not.toBeInTheDocument();
     expect(structure.queryByText(/^More in /)).not.toBeInTheDocument();
   });
 
@@ -1106,20 +1105,24 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(region.getByRole('button', { name: 'Edit web address' })).not.toHaveFocus();
   });
 
-  it('derived neighborhood is visibly distinguished from direct structure', async () => {
-    const user = userEvent.setup();
-    const structure = renderTouchpointInspector(structureDocument()).getByRole('region', { name: 'Business structure' });
+  it('derived neighborhood is visibly distinguished from direct structure', () => {
+    const document = structureDocument();
+    const snapshot = structuredClone(document);
+    const structure = renderTouchpointInspector(document).getByRole('region', { name: 'Business structure' });
     expect(within(structure).getByText('Derived').closest('.business-structure-derived')).toBeInTheDocument();
     const subscription = within(structure).getByRole('group', { name: 'Other Touchpoints for Subscription' });
-    const consulting = within(structure).getByRole('group', { name: 'Other Touchpoints for Consulting' });
+    expect(within(structure).queryByRole('group', { name: 'Other Touchpoints for Consulting' })).not.toBeInTheDocument();
     const container = within(structure).getByRole('group', { name: 'More in Website' });
-    await user.click(within(subscription).getByRole('button', { name: 'Other Touchpoints for Subscription, 1 Touchpoints' }));
-    await user.click(within(consulting).getByRole('button', { name: 'Other Touchpoints for Consulting, 0 Touchpoints' }));
-    await user.click(within(container).getByRole('button', { name: 'More in Website, 2 Touchpoints' }));
+    expect(subscription).toHaveAttribute('data-basis-id', 'offer-a');
+    expect(subscription).toHaveAttribute('data-packed-panel-id', 'offer:offer-a');
+    expect(container).toHaveAttribute('data-basis-id', 'web');
+    expect(container).toHaveAttribute('data-packed-panel-id', 'container:web');
+    expect(within(subscription).getByRole('button', { name: 'Other Touchpoints for Subscription, 1 Touchpoints' })).toHaveAttribute('aria-expanded', 'true');
+    expect(within(container).getByRole('button', { name: 'More in Website, 2 Touchpoints' })).toHaveAttribute('aria-expanded', 'true');
     expect(within(subscription).getByRole('button', { name: 'About' })).toBeInTheDocument();
-    expect(within(consulting).getByText('No related Touchpoints')).toBeInTheDocument();
     expect(within(container).getByRole('button', { name: 'About' })).toBeInTheDocument();
     expect(subscription).not.toBe(container);
+    expect(document).toEqual(snapshot);
   });
 
   it('every derived neighborhood axis navigates through existing Inspector history', async () => {
@@ -1127,7 +1130,8 @@ describe('Touchpoint Business structure Inspector', () => {
     for (const groupName of ['Other Touchpoints for Subscription', 'More in Website']) {
       const structure = inspector.getByRole('region', { name: 'Business structure' });
       const group = within(structure).getByRole('group', { name: groupName });
-      await user.click(within(group).getByRole('button', { name: new RegExp(`${groupName},`) }));
+      const disclosure = within(group).getByRole('button', { name: new RegExp(`${groupName},`) });
+      if (disclosure.getAttribute('aria-expanded') !== 'true') await user.click(disclosure);
       await user.click(within(group).getByRole('button', { name: 'About' }));
       expect(inspector.getByRole('heading', { name: 'About' })).toBeInTheDocument();
       await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
@@ -1280,7 +1284,10 @@ describe('Offer Inspector derived neighborhood', () => {
   });
 
   it('does not apply the Offer-specific modifier to a Touchpoint neighborhood', async () => {
-    const inspector = renderTouchpointInspector();
+    const document = touchpointInspectorDocument();
+    document.entities.push({ id: 'neighbor', kind: 'touchpoint', title: 'Other checkout' });
+    document.relationships.push({ id: 'neighbor-link', kind: 'offer_presented_at_touchpoint', offerId: 'offer-a', touchpointId: 'neighbor' });
+    const inspector = renderTouchpointInspector(document);
     const neighborhood = within(inspector.getByRole('region', { name: 'Business structure' }))
       .getByText('Neighborhood').closest<HTMLElement>('.business-structure-derived');
     expect(neighborhood).toBeInTheDocument();
@@ -1288,28 +1295,30 @@ describe('Offer Inspector derived neighborhood', () => {
     expect(neighborhood).not.toHaveClass('offer-neighborhood--multiple');
   });
 
-  it('keeps a resolved zero-sibling group and derives co-presentation without a valid Product link', async () => {
+  it('omits an empty Product ground while preserving a nonempty shared-Touchpoint ground', async () => {
     const user = userEvent.setup();
-    const zero = touchpointInspectorDocument();
-    let inspector = await inspectOffer(user, zero);
-    expect(inspector.getByRole('region', { name: 'Offer neighborhood' })).toHaveClass('offer-neighborhood', 'business-structure-derived');
-    expect(inspector.getByRole('region', { name: 'Offer neighborhood' })).not.toHaveClass('offer-neighborhood--multiple');
-    const disclosure = within(inspector.getByRole('region', { name: 'Offer neighborhood' })).getByRole('button', { name: 'Other Offers for Orbit, 0 Offers' });
+    const document = touchpointInspectorDocument(true);
+    document.relationships = document.relationships.filter(relation => relation.id !== 'packages-b');
+    const snapshot = structuredClone(document);
+    const inspector = await inspectOffer(user, document);
+    const region = inspector.getByRole('region', { name: 'Offer neighborhood' });
+    expect(within(region).queryByRole('button', { name: /Other Offers for Orbit/ })).not.toBeInTheDocument();
+    const disclosure = within(region).getByRole('button', { name: 'Other Offers on Checkout, 1 Offers' });
+    expect(disclosure).toHaveAttribute('aria-controls', 'offer-neighborhood-offer-a-touchpoint%3Atouch');
     expect(disclosure).toHaveAttribute('aria-expanded', 'true');
-    expect(inspector.getByText('No other Offers')).toBeInTheDocument();
+    expect(disclosure.closest('[role="group"]')).toHaveAttribute('data-basis-id', 'touch');
+    await user.click(within(region).getByRole('button', { name: 'Consulting' }));
+    expect(inspector.getByRole('heading', { name: 'Consulting' })).toBeInTheDocument();
+    expect(document).toEqual(snapshot);
+  });
 
-    cleanup();
-    const missing = touchpointInspectorDocument(true);
-    missing.relationships = missing.relationships.filter(relation => relation.kind !== 'product_packaged_as_offer');
-    inspector = await inspectOffer(user, missing);
-    expect(within(inspector.getByRole('region', { name: 'Offer neighborhood' })).getByRole('button', { name: 'Other Offers on Checkout, 1 Offers' })).toBeInTheDocument();
-
-    cleanup();
-    const invalid = touchpointInspectorDocument(true);
-    const packaging = invalid.relationships.find(relation => relation.kind === 'product_packaged_as_offer');
-    if (packaging?.kind === 'product_packaged_as_offer') packaging.productId = 'job';
-    inspector = await inspectOffer(user, invalid);
-    expect(within(inspector.getByRole('region', { name: 'Offer neighborhood' })).getByRole('button', { name: 'Other Offers on Checkout, 1 Offers' })).toBeInTheDocument();
+  it('omits the Offer neighborhood region when every ground is empty', async () => {
+    const user = userEvent.setup();
+    const document = touchpointInspectorDocument();
+    const snapshot = structuredClone(document);
+    const inspector = await inspectOffer(user, document);
+    expect(inspector.queryByRole('region', { name: 'Offer neighborhood' })).not.toBeInTheDocument();
+    expect(document).toEqual(snapshot);
   });
 
   it('derives exact Touchpoint groups with valid unique endpoints and deterministic ordering', async () => {
@@ -1369,7 +1378,8 @@ describe('Offer Inspector derived neighborhood', () => {
     await user.click(neighborhood.getByRole('button', { name: 'Unrelated Offer' }));
     inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
     neighborhood = within(inspector.getByRole('region', { name: 'Offer neighborhood' }));
-    expect(neighborhood.getByRole('button', { name: 'Other Offers for Other Product, 0 Offers' })).toHaveAttribute('aria-expanded', 'true');
+    expect(neighborhood.queryByRole('button', { name: 'Other Offers for Other Product, 0 Offers' })).not.toBeInTheDocument();
+    expect(neighborhood.getByRole('button', { name: 'Other Offers on Alpha room, 4 Offers' })).toHaveAttribute('aria-expanded', 'true');
     await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
     inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
     neighborhood = within(inspector.getByRole('region', { name: 'Offer neighborhood' }));
@@ -2478,6 +2488,8 @@ describe('searchable Touchpoint connection picker', () => {
 
   it('places durable Client scope after Neighborhood and before authoring controls with an owner-nested DO', async () => {
     let document = touchpointInspectorDocument();
+    document.entities.push({ id: 'neighbor', kind: 'touchpoint', title: 'Other checkout' });
+    document.relationships.push({ id: 'neighbor-link', kind: 'offer_presented_at_touchpoint', offerId: 'offer-a', touchpointId: 'neighbor' });
     let id = 0;
     document = applyTouchpointIntentDraft(document, { touchpointId: 'touch', draft: { jobLeaves: [{ jobId: 'job', semanticLeafId: 'do-a', desiredOutcomeId: 'do-a', contributorOfferIds: ['offer-a'] }], financialLeaves: [], pendingJobLeafIds: [], pendingFinancialLeafIds: [] }, newId: () => `seed-client-scope-${++id}` });
     const inspector = renderTouchpointInspector(document);

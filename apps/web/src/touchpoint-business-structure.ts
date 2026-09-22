@@ -92,21 +92,26 @@ export function deriveTouchpointBusinessStructure(
     return child ? [child] : [];
   }).sort(byTitleThenId);
 
-  const otherTouchpointsByOffer = offers.map((offer) => ({
-    offer,
-    touchpoints: document.relationships.flatMap((relation) => {
+  const otherTouchpointsByOffer = offers.flatMap((offer) => {
+    const neighborIds = new Set(document.relationships.flatMap((relation) => {
       if (relation.kind !== 'offer_presented_at_touchpoint' || relation.offerId !== offer.id || relation.touchpointId === touchpoint.id) return [];
-      const other = directTouchpoint(relation.touchpointId);
+      return [relation.touchpointId];
+    }));
+    const touchpoints = [...neighborIds].flatMap((id) => {
+      const other = directTouchpoint(id);
       return other ? [other] : [];
-    }).sort(byTitleThenId),
-  }));
+    }).sort(byTitleThenId);
+    return touchpoints.length ? [{ offer, touchpoints }] : [];
+  });
   const container = touchpoint.locatedInId
     ? document.touchpointContainers.find((candidate) => candidate.id === touchpoint.locatedInId)
     : undefined;
   const otherTouchpointsInContainer = container
-    ? document.entities.filter((entity): entity is Touchpoint =>
-        entity.kind === 'touchpoint' && entity.id !== touchpoint.id && entity.locatedInId === container.id,
-      ).sort(byTitleThenId)
+    ? [...new Map(document.entities.flatMap((entity) =>
+        entity.kind === 'touchpoint' && entity.id !== touchpoint.id && entity.locatedInId === container.id
+          ? [[entity.id, entity] as const]
+          : [],
+      )).values()].sort(byTitleThenId)
     : [];
 
   return {
