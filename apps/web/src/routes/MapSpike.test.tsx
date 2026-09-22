@@ -267,6 +267,27 @@ function renderTouchpointInspector(document = touchpointInspectorDocument()) {
   return within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
 }
 
+function expectSharedNeighborhoodControls(region: HTMLElement, checkboxNames: string[]) {
+  const controls = within(region).getByLabelText('Neighborhood focus controls');
+  const types = within(controls).getByRole('group', { name: 'Ground types' });
+  const mode = within(controls).getByRole('group', { name: 'Focus mode' });
+  const secondary = controls.querySelector('.derived-neighborhood-secondary-controls');
+  const reset = within(controls).getByRole('button', { name: 'Reset ground type filters' });
+  const checkboxes = within(types).getAllByRole('checkbox');
+  const radios = within(mode).getAllByRole('radio');
+
+  expect(region.querySelectorAll(':scope > .derived-neighborhood-focus-controls')).toHaveLength(1);
+  expect(types.tagName).toBe('FIELDSET');
+  expect(mode.tagName).toBe('FIELDSET');
+  expect(checkboxes.map(checkbox => checkbox.getAttribute('type'))).toEqual(checkboxNames.map(() => 'checkbox'));
+  expect(checkboxes.map(checkbox => checkbox.parentElement?.textContent)).toEqual(checkboxNames);
+  expect(radios.map(radio => [radio.getAttribute('type'), radio.parentElement?.textContent])).toEqual([['radio', 'Dim'], ['radio', 'Hide']]);
+  expect(secondary).toContainElement(mode);
+  expect(secondary).toContainElement(reset);
+  expect(reset).toHaveAttribute('type', 'button');
+  expect([...controls.querySelectorAll('input, button')]).toEqual([...checkboxes, ...radios, reset]);
+}
+
 function resistanceDocument(): MapDocument {
   const document = touchpointInspectorDocument();
   document.entities.push(
@@ -1237,7 +1258,7 @@ describe('Touchpoint Business structure Inspector', () => {
     const offerPanel = neighborhood.getByRole('group', { name: 'Other Touchpoints for Subscription' });
     const containerPanel = neighborhood.getByRole('group', { name: 'More in Website' });
 
-    expect(within(types).getAllByRole('checkbox').map(input => input.parentElement?.textContent)).toEqual(['Offer', 'Located in']);
+    expectSharedNeighborhoodControls(region, ['Offer', 'Located in']);
     for (const checkbox of [offer, container]) {
       expect(checkbox.parentElement).toHaveClass('derived-neighborhood-type-chip');
       expect(checkbox.parentElement).toHaveProperty('tagName', 'LABEL');
@@ -1478,8 +1499,7 @@ describe('Offer Inspector derived neighborhood', () => {
     let inspector = await inspectOffer(user, document);
     const neighborhoodRegion = inspector.getByRole('region', { name: 'Offer neighborhood' });
     const neighborhood = within(neighborhoodRegion);
-    expect(neighborhoodRegion).toHaveClass('offer-neighborhood', 'business-structure-derived');
-    expect(neighborhoodRegion).not.toHaveClass('offer-neighborhood--multiple');
+    expect(neighborhoodRegion.className).toBe('business-structure-derived neighborhood-groups');
     expect(neighborhood.getByText('Derived')).toBeInTheDocument();
     const disclosure = neighborhood.getByRole('button', { name: 'Other Offers for Orbit, 2 Offers' });
     expect(disclosure).toHaveAttribute('aria-expanded', 'true');
@@ -1524,7 +1544,8 @@ describe('Offer Inspector derived neighborhood', () => {
     const ids = () => panels().map(panel => panel.dataset.packedPanelId);
     const fullIds = ['product:product', 'touchpoint:touch-a', 'touchpoint:touch-a-2', 'touchpoint:touch'];
 
-    expect(within(types).getAllByRole('checkbox').map(input => input.parentElement?.textContent)).toEqual(['Product', 'Touchpoint']);
+    expect(region.className).toBe('business-structure-derived neighborhood-groups');
+    expectSharedNeighborhoodControls(region, ['Product', 'Touchpoint']);
     for (const checkbox of [product, touchpoint]) {
       expect(checkbox).toHaveAttribute('type', 'checkbox');
       expect(checkbox.parentElement).toHaveClass('derived-neighborhood-type-chip');
@@ -1564,15 +1585,15 @@ describe('Offer Inspector derived neighborhood', () => {
     expect(region.querySelectorAll('.derived-neighborhood-slice')).toHaveLength(1);
   });
 
-  it('does not apply the Offer-specific modifier to a Touchpoint neighborhood', async () => {
+  it('uses only the shared root composition for a Touchpoint neighborhood', () => {
     const document = touchpointInspectorDocument();
     document.entities.push({ id: 'neighbor', kind: 'touchpoint', title: 'Other checkout' });
     document.relationships.push({ id: 'neighbor-link', kind: 'offer_presented_at_touchpoint', offerId: 'offer-a', touchpointId: 'neighbor' });
     const inspector = renderTouchpointInspector(document);
     const neighborhood = inspector.getByRole('region', { name: 'Touchpoint neighborhood' });
     expect(neighborhood).toBeInTheDocument();
-    expect(neighborhood).not.toHaveClass('offer-neighborhood');
-    expect(neighborhood).not.toHaveClass('offer-neighborhood--multiple');
+    expect(neighborhood.className).toBe('business-structure-derived neighborhood-groups');
+    expectSharedNeighborhoodControls(neighborhood, ['Offer']);
   });
 
   it('omits an empty Product ground while preserving a nonempty shared-Touchpoint ground', async () => {
@@ -1607,8 +1628,7 @@ describe('Offer Inspector derived neighborhood', () => {
     const snapshot = structuredClone(document);
     const inspector = await inspectOffer(user, document);
     const region = inspector.getByRole('region', { name: 'Offer neighborhood' });
-    expect(region).toHaveClass('offer-neighborhood', 'business-structure-derived');
-    expect(region).not.toHaveClass('offer-neighborhood--multiple');
+    expect(region.className).toBe('business-structure-derived neighborhood-groups');
     const groups = [...region.querySelectorAll<HTMLElement>('.derived-neighborhood-slice')];
     expect(groups.map(group => group.getAttribute('aria-label'))).toEqual([
       'Other Offers for Orbit',

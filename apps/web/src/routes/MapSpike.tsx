@@ -373,7 +373,7 @@ function SemanticNeighborhoodContent({ model, onNavigate }: { model: Neighborhoo
   </div>;
 }
 
-function NeighborhoodGroups({ groups, entityNoun, inspectedOwnerId, expansionSnapshot, onToggle, emptyStateText, onNavigate, className = '', ariaLabel, contentIdPrefix }: {
+function NeighborhoodGroups({ groups, entityNoun, inspectedOwnerId, expansionSnapshot, onToggle, emptyStateText, onNavigate, ariaLabel, contentIdPrefix }: {
   groups: readonly NeighborhoodPresentationGroup[];
   entityNoun: 'Offers' | 'Touchpoints';
   inspectedOwnerId: string;
@@ -381,7 +381,6 @@ function NeighborhoodGroups({ groups, entityNoun, inspectedOwnerId, expansionSna
   onToggle: (groupId: string) => void;
   emptyStateText: string;
   onNavigate: (entityId: string) => void;
-  className?: string;
   ariaLabel: string;
   contentIdPrefix: string;
 }) {
@@ -416,7 +415,7 @@ function NeighborhoodGroups({ groups, entityNoun, inspectedOwnerId, expansionSna
   const updateFocusState = (selected: Set<string>, mode: FocusMode = focusMode) => {
     setStoredFocusState({ ownerId: inspectedOwnerId, selectedGroundTypeIds: selected, focusMode: mode });
   };
-  return <section className={`business-structure-derived neighborhood-groups ${className}`.trim()} aria-label={ariaLabel}>
+  return <section className="business-structure-derived neighborhood-groups" aria-label={ariaLabel}>
     <div className="derived-heading"><h5>Neighborhood</h5><span>Derived</span></div>
     <div className="derived-neighborhood-focus-controls" aria-label="Neighborhood focus controls">
       <fieldset className="derived-neighborhood-type-overview">
@@ -431,12 +430,16 @@ function NeighborhoodGroups({ groups, entityNoun, inspectedOwnerId, expansionSna
           <span>{type.label}</span>
         </label>)}</div>
       </fieldset>
-      <fieldset className="derived-neighborhood-mode-controls">
-        <legend>Focus mode</legend>
-        <label><input type="radio" name={`${contentIdPrefix}-${inspectedOwnerId}-focus-mode`} value="dim" checked={focusMode === 'dim'} onChange={event => { event.currentTarget.focus(); updateFocusState(selectedGroundTypeIds, 'dim'); }} />Dim</label>
-        <label><input type="radio" name={`${contentIdPrefix}-${inspectedOwnerId}-focus-mode`} value="hide" checked={focusMode === 'hide'} onChange={event => { event.currentTarget.focus(); updateFocusState(selectedGroundTypeIds, 'hide'); }} />Hide</label>
-      </fieldset>
-      <button type="button" className="derived-neighborhood-reset" disabled={!hasSelection} onClick={event => { event.currentTarget.focus(); updateFocusState(new Set()); }}>Reset ground type filters</button>
+      <div className="derived-neighborhood-secondary-controls">
+        <fieldset className="derived-neighborhood-mode-controls">
+          <legend>Focus mode</legend>
+          <div className="derived-neighborhood-mode-options">
+            <label><input type="radio" name={`${contentIdPrefix}-${inspectedOwnerId}-focus-mode`} value="dim" checked={focusMode === 'dim'} onChange={event => { event.currentTarget.focus(); updateFocusState(selectedGroundTypeIds, 'dim'); }} />Dim</label>
+            <label><input type="radio" name={`${contentIdPrefix}-${inspectedOwnerId}-focus-mode`} value="hide" checked={focusMode === 'hide'} onChange={event => { event.currentTarget.focus(); updateFocusState(selectedGroundTypeIds, 'hide'); }} />Hide</label>
+          </div>
+        </fieldset>
+        <button type="button" className="derived-neighborhood-reset" disabled={!hasSelection} onClick={event => { event.currentTarget.focus(); updateFocusState(new Set()); }}>Reset ground type filters</button>
+      </div>
     </div>
     <div ref={containerRef} className={`derived-neighborhood-slices${packedLayout.packed ? ' is-packed' : ''}`} style={packedLayout.containerStyle}>
       {displayedGroups.map(group => {
@@ -2538,7 +2541,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       const snapshot = existing ?? Object.fromEntries(presentationGroups.map(group => [group.id, initialExpansion.has(group.id)]));
       return { ...current, [selected.id]: { ...snapshot, [groupId]: !(snapshot[groupId] ?? false) } };
     });
-    return <NeighborhoodGroups groups={presentationGroups} entityNoun="Offers" inspectedOwnerId={selected.id} expansionSnapshot={storedExpansion} onToggle={toggleGroup} emptyStateText="No other Offers" onNavigate={navigateInspector} className="offer-neighborhood" ariaLabel="Offer neighborhood" contentIdPrefix="offer-neighborhood" />;
+    return <NeighborhoodGroups groups={presentationGroups} entityNoun="Offers" inspectedOwnerId={selected.id} expansionSnapshot={storedExpansion} onToggle={toggleGroup} emptyStateText="No other Offers" onNavigate={navigateInspector} ariaLabel="Offer neighborhood" contentIdPrefix="offer-neighborhood" />;
   }
   function touchpointResistanceSection() {
     if (selected?.kind !== 'touchpoint') return null;
