@@ -111,6 +111,23 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .derived-neighborhood-content .business-structure-links { display: grid; grid-template-columns: minmax(0, 1fr); gap: .25rem; }
 .derived-neighborhood-content .business-structure-links > li { min-width: 0; }
 .derived-neighborhood-content .business-structure-links button { max-width: 100%; overflow-wrap: anywhere; text-align: left; }
+.offer-neighborhood-semantic-content, .offer-neighborhood-comparison, .offer-neighborhood-job-outcome-branch, .offer-neighborhood-outcome-category { display: grid; min-width: 0; }
+.offer-neighborhood-semantic-content { gap: .6rem; }
+.offer-neighborhood-basis { display: grid; justify-items: start; gap: .15rem; min-width: 0; }
+.offer-neighborhood-basis > span, .offer-neighborhood-category-label { color: rgba(255,255,255,.58); font-size: .68rem; line-height: 1.25; }
+.offer-neighborhood-basis button, .offer-neighborhood-neighbor button, .offer-neighborhood-outcome-category button { max-width: 100%; padding: .15rem 0; border: 0; background: transparent; color: var(--color-accent); text-align: left; text-decoration: underline; text-underline-offset: .18em; overflow-wrap: anywhere; }
+.offer-neighborhood-basis button:focus-visible, .offer-neighborhood-neighbor button:focus-visible, .offer-neighborhood-outcome-category button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.offer-neighborhood-explanation { margin: 0; color: rgba(255,255,255,.66); font-size: .7rem; line-height: 1.4; overflow-wrap: anywhere; }
+.offer-neighborhood-comparison { gap: .3rem; padding-top: .5rem; border-top: 1px dashed var(--border-subtle); }
+.offer-neighborhood-neighbor { min-width: 0; font-weight: 600; }
+.offer-neighborhood-job-outcome-branch { position: relative; gap: .45rem; margin-left: .4rem; padding: .15rem 0 .15rem 1.2rem; }
+.offer-neighborhood-job-outcome-branch::before { position: absolute; inset: 0 auto 0 .25rem; border-left: 1px solid var(--border-soft); content: ''; }
+.offer-neighborhood-outcome-category { position: relative; gap: .15rem; }
+.offer-neighborhood-outcome-category::before { position: absolute; top: .65rem; left: -1rem; width: .65rem; border-top: 1px solid var(--border-soft); content: ''; }
+.offer-neighborhood-outcome-category ul { display: flex; flex-wrap: wrap; gap: .15rem .5rem; min-width: 0; margin: 0; padding: 0; list-style: none; }
+.offer-neighborhood-outcome-category li { min-width: 0; max-width: 100%; }
+.offer-neighborhood-empty { color: rgba(255,255,255,.52); font-size: .72rem; font-style: italic; }
+.offer-neighborhood-neighbors { min-width: 0; }
 .connected-field { display: grid; gap: .5rem; }
 .connected-choice { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
 .connected-choice > label.checkbox { flex: 1; }

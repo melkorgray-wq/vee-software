@@ -20,6 +20,7 @@ import { commitSemanticOperation, semanticCommitState } from './semantic-commit-
 import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets } from '../touchpoint-business-structure';
 import { initialCompactOverviewExpandedGroupIds } from '../compact-overview-presentation';
 import { useClientScopePackedLayout, usePackedPanelLayout } from '../client-scope-packed-layout';
+import { deriveOfferClientIntentNeighborhood, type OfferClientIntentGround, type OfferClientIntentJobComparison, type OfferClientIntentGroundTypeId } from '../offer-client-intent-neighborhood';
 
 const VIEW_ID = 'spike-view';
 export const RELATION_EDITOR_SEARCH_THRESHOLD = 7;
@@ -321,6 +322,7 @@ type NeighborhoodPresentationGroup = {
   linkedEntities: { id: string; title: string }[];
   basisKind: string;
   basisId: string;
+  renderExpandedContent?: (onNavigate: (entityId: string) => void) => React.ReactNode;
 };
 
 function NeighborhoodGroups({ groups, entityNoun, inspectedOwnerId, expansionSnapshot, onToggle, emptyStateText, onNavigate, className = '', ariaLabel, contentIdPrefix }: {
@@ -400,7 +402,7 @@ function NeighborhoodGroups({ groups, entityNoun, inspectedOwnerId, expansionSna
             <span className="derived-neighborhood-count">{group.count}</span>
           </button>
           <div className="derived-neighborhood-content" id={contentId} hidden={!expanded}>
-            {expanded && (group.linkedEntities.length
+            {expanded && (group.renderExpandedContent ? group.renderExpandedContent(onNavigate) : group.linkedEntities.length
               ? <ul className="business-structure-links">{group.linkedEntities.map(entity => <li key={entity.id}><button type="button" onClick={() => onNavigate(entity.id)}>{entity.title}</button></li>)}</ul>
               : <p className="business-structure-empty">{emptyStateText}</p>)}
           </div>
@@ -2337,8 +2339,63 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       }).sort(offerSort);
       if (offers.length) groups.push({ id: `touchpoint:${touchpoint.id}`, label: `Other Offers on ${touchpoint.title}`, groundTypeId: 'touchpoint', groundTypeLabel: 'Touchpoint', offers, basisKind: 'touchpoint', basisId: touchpoint.id });
     }
-    if (!groups.length) return null;
-    const presentationGroups = groups.map(group => ({ id: group.id, label: group.label, groundTypeId: group.groundTypeId, groundTypeLabel: group.groundTypeLabel, count: group.offers.length, linkedEntities: group.offers, basisKind: group.basisKind, basisId: group.basisId }));
+    const semanticTypeLabels: Record<OfferClientIntentGroundTypeId, string> = {
+      core_functional_job: 'Core Functional Job',
+      related_job: 'Related Job',
+      consumption_chain_job: 'Consumption Chain Job',
+      emotional_job: 'Emotional Job',
+      social_job: 'Social Job',
+      financial_desired_outcome: 'Financial Desired Outcome',
+    };
+    const semanticProjection = deriveOfferClientIntentNeighborhood(document, selected.id);
+    const resolveProjectionEntity = (id: string) => {
+      const entity = entitiesById.get(id);
+      if (!entity) throw new Error(`Offer Client-intent Neighborhood projection references missing entity ${id}`);
+      return entity;
+    };
+    const entityLink = (id: string, onNavigate: (entityId: string) => void) => {
+      const entity = resolveProjectionEntity(id);
+      return <button type="button" onClick={() => onNavigate(entity.id)}>{entity.title}</button>;
+    };
+    const outcomeCategory = (label: string, ids: readonly string[], onNavigate: (entityId: string) => void) => <div className="offer-neighborhood-outcome-category">
+      <span className="offer-neighborhood-category-label">{label}</span>
+      {ids.length ? <ul>{ids.map(id => <li key={id}>{entityLink(id, onNavigate)}</li>)}</ul> : <span className="offer-neighborhood-empty">None</span>}
+    </div>;
+    const neighborComparison = (comparison: OfferClientIntentJobComparison, onNavigate: (entityId: string) => void) => {
+      const neighbor = resolveProjectionEntity(comparison.offerId);
+      return <section className="offer-neighborhood-comparison" key={comparison.offerId} aria-label={`Desired Outcome comparison with ${neighbor.title}`}>
+        <div className="offer-neighborhood-neighbor">{entityLink(neighbor.id, onNavigate)}</div>
+        <div className="offer-neighborhood-job-outcome-branch">
+          {outcomeCategory('Shared selected outcomes', comparison.commonDesiredOutcomeIds, onNavigate)}
+          {outcomeCategory(`Only ${selected.title}`, comparison.inspectedOnlyDesiredOutcomeIds, onNavigate)}
+          {outcomeCategory(`Only ${neighbor.title}`, comparison.neighborOnlyDesiredOutcomeIds, onNavigate)}
+        </div>
+      </section>;
+    };
+    const renderSemanticContent = (ground: OfferClientIntentGround, onNavigate: (entityId: string) => void) => <div className="offer-neighborhood-semantic-content">
+      <div className="offer-neighborhood-basis"><span>{ground.basisKind === 'job' ? 'Job basis' : 'Financial Desired Outcome'}</span>{entityLink(ground.basisId, onNavigate)}</div>
+      {ground.basisKind === 'job' && ['core_functional_job', 'related_job', 'consumption_chain_job'].includes(ground.jobKind)
+        ? <><p className="offer-neighborhood-explanation">This ground exists because these Offers select the same Job. Outcome rows compare only their local Offer subsets.</p>{ground.neighborComparisons.map(comparison => neighborComparison(comparison, onNavigate))}</>
+        : <ul className="business-structure-links offer-neighborhood-neighbors">{ground.neighborOfferIds.map(id => <li key={id}>{entityLink(id, onNavigate)}</li>)}</ul>}
+    </div>;
+    const structuralGroups: NeighborhoodPresentationGroup[] = groups.map(group => ({ id: group.id, label: group.label, groundTypeId: group.groundTypeId, groundTypeLabel: group.groundTypeLabel, count: group.offers.length, linkedEntities: group.offers, basisKind: group.basisKind, basisId: group.basisId }));
+    const semanticGroups: NeighborhoodPresentationGroup[] = (semanticProjection?.grounds ?? []).map(ground => ({
+      id: ground.id,
+      label: resolveProjectionEntity(ground.basisId).title,
+      groundTypeId: ground.groundTypeId,
+      groundTypeLabel: semanticTypeLabels[ground.groundTypeId],
+      count: ground.count,
+      linkedEntities: ground.neighborOfferIds.map(id => {
+        const entity = resolveProjectionEntity(id);
+        if (entity.kind !== 'offer') throw new Error(`Offer Client-intent Neighborhood projection endpoint ${id} is not an Offer`);
+        return entity;
+      }),
+      basisKind: ground.basisKind,
+      basisId: ground.basisId,
+      renderExpandedContent: (onNavigate) => renderSemanticContent(ground, onNavigate),
+    }));
+    const presentationGroups = [...structuralGroups, ...semanticGroups];
+    if (!presentationGroups.length) return null;
     const storedExpansion = offerNeighborhoodExpanded[selected.id];
     const initialExpansion = initialCompactOverviewExpandedGroupIds(presentationGroups);
     const toggleGroup = (groupId: string) => setOfferNeighborhoodExpanded(current => {
