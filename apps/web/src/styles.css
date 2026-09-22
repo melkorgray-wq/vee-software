@@ -78,9 +78,8 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .business-structure-editor { min-width: 0; }
 .business-structure-editor > input { width: 100%; margin: -.25rem 0; padding: .25rem .4rem; }
 .business-structure-editor .error-message { margin-top: .35rem; }
-.business-structure-derived { display: grid; gap: .55rem; padding: .65rem 0 0; border-top: 1px dashed var(--border-subtle); }
-.offer-neighborhood { min-width: 0; margin: 0; padding: .65rem 0 0; border: 0; border-top: 1px dashed var(--border-subtle); background: transparent; }
-.offer-neighborhood h5 { margin: 0; color: rgba(255,255,255,.62); font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; }
+.business-structure-derived.neighborhood-groups { display: grid; gap: .55rem; min-width: 0; margin: 0; padding: .65rem 0 0; border: 0; border-top: 1px dashed var(--border-subtle); border-radius: 0; background: transparent; box-shadow: none; }
+.business-structure-derived.neighborhood-groups h5 { margin: 0; color: rgba(255,255,255,.62); font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; }
 .offer-neighborhood .derived-neighborhood-disclosure { min-width: 0; }
 .derived-heading { display: flex; grid-column: 1 / -1; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .1rem; }
 .derived-heading > h5 { color: rgba(255,255,255,.56); font-weight: 500; letter-spacing: .075em; }
@@ -90,8 +89,14 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .derived-neighborhood-focus-controls legend { padding: 0 .2rem; color: rgba(255,255,255,.58); font-size: .68rem; letter-spacing: .04em; }
 .derived-neighborhood-type-overview { flex: 1 1 14rem; }
 .derived-neighborhood-type-options { display: flex; flex: 1 1 auto; flex-wrap: wrap; gap: .3rem .75rem; min-width: 0; }
-.derived-neighborhood-focus-controls label { display: inline-flex; align-items: flex-start; gap: .3rem; min-width: 0; color: rgba(255,255,255,.78); font-size: .74rem; line-height: 1.3; overflow-wrap: anywhere; }
+.derived-neighborhood-mode-controls label { display: inline-flex; align-items: flex-start; gap: .3rem; min-width: 0; color: rgba(255,255,255,.78); font-size: .74rem; line-height: 1.3; overflow-wrap: anywhere; }
 .derived-neighborhood-focus-controls input { flex: 0 0 auto; margin: .08rem 0 0; accent-color: var(--color-primary); }
+.derived-neighborhood-type-chip { display: inline-flex; flex-direction: row; align-items: center; gap: .3rem; min-width: 0; max-width: 100%; padding: .2rem .4rem; border: 1px solid var(--border-subtle); border-radius: .35rem; background: rgba(255,255,255,.025); color: rgba(255,255,255,.78); font-size: .74rem; line-height: 1.3; cursor: pointer; }
+.derived-neighborhood-type-chip > input { margin: 0; }
+.derived-neighborhood-type-chip > span { min-width: 0; overflow-wrap: anywhere; }
+.derived-neighborhood-type-chip:hover { border-color: var(--border-soft); background: rgba(255,255,255,.055); }
+.derived-neighborhood-type-chip:has(input:checked) { border-color: rgba(123,199,255,.5); background: rgba(123,199,255,.09); }
+.derived-neighborhood-type-chip:has(input:focus-visible) { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .derived-neighborhood-focus-controls input:focus-visible, .derived-neighborhood-reset:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .derived-neighborhood-reset { flex: 0 1 auto; min-width: 0; padding: .3rem .5rem; border: 1px solid var(--border-subtle); border-radius: .35rem; background: rgba(255,255,255,.035); color: rgba(255,255,255,.78); font-size: .72rem; white-space: normal; overflow-wrap: anywhere; }
 .derived-neighborhood-reset:disabled { opacity: .42; }
