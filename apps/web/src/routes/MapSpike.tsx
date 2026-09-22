@@ -421,7 +421,7 @@ function NeighborhoodGroups({ groups, entityNoun, inspectedOwnerId, expansionSna
     <div className="derived-neighborhood-focus-controls" aria-label="Neighborhood focus controls">
       <fieldset className="derived-neighborhood-type-overview">
         <legend>Ground types</legend>
-        <div className="derived-neighborhood-type-options">{availableTypes.map(type => <label key={type.id}>
+        <div className="derived-neighborhood-type-options">{availableTypes.map(type => <label className="derived-neighborhood-type-chip" key={type.id}>
           <input type="checkbox" checked={selectedGroundTypeIds.has(type.id)} onChange={event => {
             event.currentTarget.focus();
             const next = new Set(selectedGroundTypeIds);
@@ -2344,7 +2344,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         {childrenEditor.error && <p role="alert">{childrenEditor.error}</p>}
       </div>;
     };
-    return <section className="touchpoint-business-structure" aria-label="Business structure">
+    return <>
+      <section className="touchpoint-business-structure" aria-label="Business structure">
       <div className="business-structure-primary">
         <div className="business-structure-regions">
           <section className="business-structure-region business-structure-placement" aria-labelledby="business-placement-heading">
@@ -2414,8 +2415,9 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
           </section>
         </div>
       </div>
+      </section>
       {neighborhoodGroups.length > 0 && <NeighborhoodGroups groups={neighborhoodGroups} entityNoun="Touchpoints" inspectedOwnerId={structure.touchpoint.id} expansionSnapshot={storedExpansion} onToggle={toggleNeighborhoodGroup} emptyStateText="No related Touchpoints" onNavigate={navigateInspector} ariaLabel="Touchpoint neighborhood" contentIdPrefix="neighborhood" />}
-    </section>;
+    </>;
   }
   function offerNeighborhoodSection() {
     if (selected?.kind !== 'offer') return null;
