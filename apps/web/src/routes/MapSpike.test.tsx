@@ -1125,6 +1125,77 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(document).toEqual(snapshot);
   });
 
+  it('focuses Touchpoint grounds by explicit type metadata without changing cards, disclosure, links, or owner state', async () => {
+    const user = userEvent.setup();
+    const inspector = renderTouchpointInspector(structureDocument());
+    const region = within(inspector.getByRole('region', { name: 'Business structure' })).getByRole('region', { name: 'Touchpoint neighborhood' });
+    const neighborhood = within(region);
+    const types = neighborhood.getByRole('group', { name: 'Ground types' });
+    const offer = within(types).getByRole('checkbox', { name: 'Offer' });
+    const container = within(types).getByRole('checkbox', { name: 'Located in' });
+    const dim = neighborhood.getByRole('radio', { name: 'Dim' });
+    const hide = neighborhood.getByRole('radio', { name: 'Hide' });
+    const reset = neighborhood.getByRole('button', { name: 'Reset ground type filters' });
+    const panelIds = () => [...region.querySelectorAll<HTMLElement>('.derived-neighborhood-slice')].map(panel => panel.dataset.packedPanelId);
+    const offerPanel = neighborhood.getByRole('group', { name: 'Other Touchpoints for Subscription' });
+    const containerPanel = neighborhood.getByRole('group', { name: 'More in Website' });
+
+    expect(within(types).getAllByRole('checkbox').map(input => input.parentElement?.textContent)).toEqual(['Offer', 'Located in']);
+    expect(offer).not.toBeChecked(); expect(container).not.toBeChecked(); expect(dim).toBeChecked(); expect(reset).toBeDisabled();
+    expect(panelIds()).toEqual(['offer:offer-a', 'container:web']);
+    expect(offerPanel).toHaveAttribute('data-ground-type-id', 'offer');
+    expect(containerPanel).toHaveAttribute('data-ground-type-id', 'container');
+
+    await user.click(offer);
+    expect(offerPanel).not.toHaveClass('is-dimmed');
+    expect(containerPanel).toHaveClass('is-dimmed');
+    expect(panelIds()).toEqual(['offer:offer-a', 'container:web']);
+    const dimmedLink = within(containerPanel).getByRole('button', { name: 'About' });
+    dimmedLink.focus(); expect(dimmedLink).toHaveFocus(); await user.keyboard('{Tab}');
+    expect(document.activeElement).not.toBe(document.body);
+
+    await user.click(container);
+    expect(offerPanel).not.toHaveClass('is-dimmed'); expect(containerPanel).not.toHaveClass('is-dimmed');
+    await user.click(container);
+    const containerDisclosure = within(containerPanel).getByRole('button', { name: 'More in Website, 2 Touchpoints' });
+    await user.click(containerDisclosure);
+    expect(containerDisclosure).toHaveAttribute('aria-expanded', 'false');
+    containerDisclosure.focus();
+    fireEvent.click(hide);
+    expect(hide).toHaveFocus();
+    expect(panelIds()).toEqual(['offer:offer-a']);
+    expect(region.querySelector('[data-packed-panel-id="container:web"]')).not.toBeInTheDocument();
+
+    await user.click(dim);
+    expect(panelIds()).toEqual(['offer:offer-a', 'container:web']);
+    expect(within(neighborhood.getByRole('group', { name: 'More in Website' })).getByRole('button', { name: 'More in Website, 2 Touchpoints' })).toHaveAttribute('aria-expanded', 'false');
+    await user.click(reset);
+    expect(reset).toBeDisabled(); expect(offer).not.toBeChecked(); expect(panelIds()).toEqual(['offer:offer-a', 'container:web']);
+
+    await user.click(offer);
+    await user.click(hide);
+    await user.click(within(neighborhood.getByRole('group', { name: 'Other Touchpoints for Subscription' })).getByRole('button', { name: 'About' }));
+    const nextNeighborhood = within(inspector.getByRole('region', { name: 'Business structure' })).getByRole('region', { name: 'Touchpoint neighborhood' });
+    expect(within(nextNeighborhood).getByRole('radio', { name: 'Dim' })).toBeChecked();
+    expect(within(nextNeighborhood).getAllByRole('checkbox').every(input => !(input as HTMLInputElement).checked)).toBe(true);
+  });
+
+  it('keeps a dimmed neighbor link keyboard-operable and resets focus state after its Inspector navigation', async () => {
+    const user = userEvent.setup();
+    const inspector = renderTouchpointInspector(structureDocument());
+    const region = within(inspector.getByRole('region', { name: 'Business structure' })).getByRole('region', { name: 'Touchpoint neighborhood' });
+    await user.click(within(region).getByRole('checkbox', { name: 'Offer' }));
+    const dimmedPanel = within(region).getByRole('group', { name: 'More in Website' });
+    const link = within(dimmedPanel).getByRole('button', { name: 'About' });
+    expect(dimmedPanel).toHaveClass('is-dimmed');
+    link.focus();
+    await user.keyboard('{Enter}');
+    expect(inspector.getByRole('heading', { name: 'About' })).toBeInTheDocument();
+    const nextRegion = within(inspector.getByRole('region', { name: 'Business structure' })).getByRole('region', { name: 'Touchpoint neighborhood' });
+    expect(within(nextRegion).getByRole('radio', { name: 'Dim' })).toBeChecked();
+    expect(within(nextRegion).getAllByRole('checkbox').every(input => !(input as HTMLInputElement).checked)).toBe(true);
+  });
+
   it('every derived neighborhood axis navigates through existing Inspector history', async () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
     for (const groupName of ['Other Touchpoints for Subscription', 'More in Website']) {
@@ -1281,6 +1352,50 @@ describe('Offer Inspector derived neighborhood', () => {
     inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
     expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
     expect(within(inspector.getByRole('region', { name: 'Offer neighborhood' })).getByRole('button', { name: 'Other Offers for Orbit, 2 Offers' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('exposes only nonempty Offer ground types and applies OR Dim/Hide focus with stable concrete grounds', async () => {
+    const user = userEvent.setup();
+    const inspector = await inspectOffer(user, coPresentedOfferNeighborhoodDocument());
+    const region = inspector.getByRole('region', { name: 'Offer neighborhood' });
+    const neighborhood = within(region);
+    const types = neighborhood.getByRole('group', { name: 'Ground types' });
+    const product = within(types).getByRole('checkbox', { name: 'Product' });
+    const touchpoint = within(types).getByRole('checkbox', { name: 'Touchpoint' });
+    const panels = () => [...region.querySelectorAll<HTMLElement>('.derived-neighborhood-slice')];
+    const ids = () => panels().map(panel => panel.dataset.packedPanelId);
+    const fullIds = ['product:product', 'touchpoint:touch-a', 'touchpoint:touch-a-2', 'touchpoint:touch'];
+
+    expect(within(types).getAllByRole('checkbox').map(input => input.parentElement?.textContent)).toEqual(['Product', 'Touchpoint']);
+    expect(neighborhood.queryByRole('checkbox', { name: 'Offer' })).not.toBeInTheDocument();
+    expect(ids()).toEqual(fullIds);
+    expect(panels().map(panel => panel.dataset.groundTypeId)).toEqual(['product', 'touchpoint', 'touchpoint', 'touchpoint']);
+
+    await user.click(product);
+    expect(panels().filter(panel => panel.classList.contains('is-dimmed')).map(panel => panel.dataset.packedPanelId)).toEqual(fullIds.slice(1));
+    await user.click(touchpoint);
+    expect(panels().some(panel => panel.classList.contains('is-dimmed'))).toBe(false);
+    await user.click(product);
+    await user.click(neighborhood.getByRole('radio', { name: 'Hide' }));
+    expect(ids()).toEqual(fullIds.slice(1));
+    await user.click(neighborhood.getByRole('radio', { name: 'Dim' }));
+    expect(ids()).toEqual(fullIds);
+    expect(panels()[0]).toHaveClass('is-dimmed');
+    await user.click(neighborhood.getByRole('button', { name: 'Reset ground type filters' }));
+    expect(ids()).toEqual(fullIds);
+    expect(panels().some(panel => panel.classList.contains('is-dimmed'))).toBe(false);
+  });
+
+  it('keeps a single available type control when the only concrete Offer ground is nonempty', async () => {
+    const user = userEvent.setup();
+    const document = touchpointInspectorDocument(true);
+    document.relationships = document.relationships.filter(relation => relation.id !== 'packages-b');
+    const inspector = await inspectOffer(user, document);
+    const region = inspector.getByRole('region', { name: 'Offer neighborhood' });
+    const types = within(region).getByRole('group', { name: 'Ground types' });
+    expect(within(types).getAllByRole('checkbox')).toHaveLength(1);
+    expect(within(types).getByRole('checkbox', { name: 'Touchpoint' })).toBeInTheDocument();
+    expect(region.querySelectorAll('.derived-neighborhood-slice')).toHaveLength(1);
   });
 
   it('does not apply the Offer-specific modifier to a Touchpoint neighborhood', async () => {
