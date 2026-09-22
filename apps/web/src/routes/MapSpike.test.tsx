@@ -1525,14 +1525,19 @@ describe('Offer Inspector derived neighborhood', () => {
     const fullIds = ['product:product', 'touchpoint:touch-a', 'touchpoint:touch-a-2', 'touchpoint:touch'];
 
     expect(within(types).getAllByRole('checkbox').map(input => input.parentElement?.textContent)).toEqual(['Product', 'Touchpoint']);
-    expect(product.parentElement).toHaveClass('derived-neighborhood-type-chip');
-    expect(touchpoint.parentElement).toHaveClass('derived-neighborhood-type-chip');
+    for (const checkbox of [product, touchpoint]) {
+      expect(checkbox).toHaveAttribute('type', 'checkbox');
+      expect(checkbox.parentElement).toHaveClass('derived-neighborhood-type-chip');
+      expect(checkbox.parentElement).toHaveProperty('tagName', 'LABEL');
+      expect(checkbox.parentElement?.querySelectorAll('label')).toHaveLength(0);
+      expect(checkbox.parentElement?.querySelectorAll('input')).toHaveLength(1);
+    }
     expect(region.parentElement?.tagName).toBe('FORM');
     expect(neighborhood.queryByRole('checkbox', { name: 'Offer' })).not.toBeInTheDocument();
     expect(ids()).toEqual(fullIds);
     expect(panels().map(panel => panel.dataset.groundTypeId)).toEqual(['product', 'touchpoint', 'touchpoint', 'touchpoint']);
 
-    await user.click(product);
+    await user.click(within(product.parentElement!).getByText('Product'));
     expect(panels().filter(panel => panel.classList.contains('is-dimmed')).map(panel => panel.dataset.packedPanelId)).toEqual(fullIds.slice(1));
     await user.click(touchpoint);
     expect(panels().some(panel => panel.classList.contains('is-dimmed'))).toBe(false);
