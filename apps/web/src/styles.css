@@ -91,12 +91,12 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .derived-neighborhood-type-options { display: flex; flex: 1 1 auto; flex-wrap: wrap; gap: .3rem .75rem; min-width: 0; }
 .derived-neighborhood-mode-controls label { display: inline-flex; align-items: flex-start; gap: .3rem; min-width: 0; color: rgba(255,255,255,.78); font-size: .74rem; line-height: 1.3; overflow-wrap: anywhere; }
 .derived-neighborhood-focus-controls input { flex: 0 0 auto; margin: .08rem 0 0; accent-color: var(--color-primary); }
-.derived-neighborhood-type-chip { display: inline-flex; flex-direction: row; align-items: center; gap: .3rem; min-width: 0; max-width: 100%; padding: .2rem .4rem; border: 1px solid var(--border-subtle); border-radius: .35rem; background: rgba(255,255,255,.025); color: rgba(255,255,255,.78); font-size: .74rem; line-height: 1.3; cursor: pointer; }
-.derived-neighborhood-type-chip > input { margin: 0; }
-.derived-neighborhood-type-chip > span { min-width: 0; overflow-wrap: anywhere; }
-.derived-neighborhood-type-chip:hover { border-color: var(--border-soft); background: rgba(255,255,255,.055); }
-.derived-neighborhood-type-chip:has(input:checked) { border-color: rgba(123,199,255,.5); background: rgba(123,199,255,.09); }
-.derived-neighborhood-type-chip:has(input:focus-visible) { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.inspector label.derived-neighborhood-type-chip { display: inline-flex; flex: 0 1 auto; flex-direction: row; align-items: center; justify-content: flex-start; gap: .3rem; width: fit-content; max-width: 100%; min-width: 0; padding: .2rem .4rem; border: 1px solid var(--border-subtle); border-radius: .35rem; background: rgba(255,255,255,.025); color: rgba(255,255,255,.78); font-size: .74rem; font-weight: 400; line-height: 1.3; cursor: pointer; }
+.inspector label.derived-neighborhood-type-chip > input[type="checkbox"] { flex: 0 0 auto; width: auto; min-width: auto; height: auto; margin: 0; padding: 0; background: initial; box-sizing: content-box; appearance: auto; accent-color: var(--color-primary); }
+.inspector label.derived-neighborhood-type-chip > span { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.inspector label.derived-neighborhood-type-chip:hover { border-color: var(--border-soft); background: rgba(255,255,255,.055); }
+.inspector label.derived-neighborhood-type-chip:has(> input:checked) { border-color: rgba(123,199,255,.5); background: rgba(123,199,255,.09); }
+.inspector label.derived-neighborhood-type-chip:has(> input:focus-visible) { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .derived-neighborhood-focus-controls input:focus-visible, .derived-neighborhood-reset:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .derived-neighborhood-reset { flex: 0 1 auto; min-width: 0; padding: .3rem .5rem; border: 1px solid var(--border-subtle); border-radius: .35rem; background: rgba(255,255,255,.035); color: rgba(255,255,255,.78); font-size: .72rem; white-space: normal; overflow-wrap: anywhere; }
 .derived-neighborhood-reset:disabled { opacity: .42; }
@@ -117,13 +117,13 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .derived-neighborhood-content .business-structure-links > li { min-width: 0; }
 .derived-neighborhood-content .business-structure-links button { max-width: 100%; overflow-wrap: anywhere; text-align: left; }
 .semantic-neighborhood-content, .semantic-neighborhood-neighbor-block, .semantic-neighborhood-job-outcome-branch, .semantic-neighborhood-comparison-category { display: grid; min-width: 0; }
-.semantic-neighborhood-content { gap: .6rem; }
+.semantic-neighborhood-content { align-content: start; gap: .6rem; }
 .semantic-neighborhood-basis { display: grid; justify-items: start; gap: .15rem; min-width: 0; }
 .semantic-neighborhood-basis > span, .semantic-neighborhood-category-label { color: rgba(255,255,255,.58); font-size: .68rem; line-height: 1.25; }
 .semantic-neighborhood-basis button, .semantic-neighborhood-neighbor button, .semantic-neighborhood-comparison-category button, .semantic-neighborhood-provenance button { max-width: 100%; padding: .15rem 0; border: 0; background: transparent; color: var(--color-accent); text-align: left; text-decoration: underline; text-underline-offset: .18em; overflow-wrap: anywhere; }
 .semantic-neighborhood-basis button:focus-visible, .semantic-neighborhood-neighbor button:focus-visible, .semantic-neighborhood-comparison-category button:focus-visible, .semantic-neighborhood-provenance button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .semantic-neighborhood-explanation { margin: 0; color: rgba(255,255,255,.66); font-size: .7rem; line-height: 1.4; overflow-wrap: anywhere; }
-.semantic-neighborhood-neighbor-block { gap: .3rem; padding-top: .5rem; border-top: 1px dashed var(--border-subtle); }
+.inspector section.semantic-neighborhood-neighbor-block { align-content: start; gap: .3rem; margin: 0; padding: .5rem 0 0; border: 0; border-top: 1px dashed var(--border-subtle); border-radius: 0; background: transparent; box-shadow: none; }
 .semantic-neighborhood-neighbor { min-width: 0; font-weight: 600; }
 .semantic-neighborhood-job-outcome-branch { position: relative; gap: .45rem; margin-left: .4rem; padding: .15rem 0 .15rem 1.2rem; }
 .semantic-neighborhood-job-outcome-branch::before { position: absolute; inset: 0 auto 0 .25rem; border-left: 1px solid var(--border-soft); content: ''; }
