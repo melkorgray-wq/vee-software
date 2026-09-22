@@ -122,6 +122,52 @@ function coPresentedOfferNeighborhoodDocument(): MapDocument {
   return document;
 }
 
+function semanticOfferNeighborhoodDocument(): MapDocument {
+  const document = coPresentedOfferNeighborhoodDocument();
+  document.entities.push(
+    { id: 'rj', kind: 'related_job', title: 'Coordinate launch' },
+    { id: 'ccj', kind: 'consumption_chain_job', title: 'Adopt service' },
+    { id: 'ej', kind: 'emotional_job', title: 'Feel assured' },
+    { id: 'sj', kind: 'social_job', title: 'Signal expertise' },
+    { id: 'do-common', kind: 'desired_outcome', title: 'Reduce delay' },
+    { id: 'do-inspected', kind: 'desired_outcome', title: 'Reduce effort' },
+    { id: 'do-neighbor', kind: 'desired_outcome', title: 'Increase clarity' },
+  );
+  document.relationships.push(
+    { id: 'job-common', kind: 'job_has_desired_outcome', jobId: 'job', desiredOutcomeId: 'do-common' },
+    { id: 'job-inspected', kind: 'job_has_desired_outcome', jobId: 'job', desiredOutcomeId: 'do-inspected' },
+    { id: 'job-neighbor', kind: 'job_has_desired_outcome', jobId: 'job', desiredOutcomeId: 'do-neighbor' },
+    { id: 'rj-outcome', kind: 'job_has_desired_outcome', jobId: 'rj', desiredOutcomeId: 'do-a' },
+  );
+  const kinds = [
+    ['cfj', 'job'], ['rj', 'rj'], ['ccj', 'ccj'], ['ej', 'ej'], ['sj', 'sj'],
+  ] as const;
+  for (const [prefix, jobId] of kinds) {
+    document.productJobIntents.push(
+      { id: `${prefix}-intent-a`, productId: 'product', jobId, addressedDesiredOutcomeIds: [] },
+      { id: `${prefix}-intent-b`, productId: 'product-other', jobId, addressedDesiredOutcomeIds: [] },
+    );
+  }
+  document.offerJobSelections.push(
+    { id: 'cfj-a', offerId: 'offer-a', productJobIntentId: 'cfj-intent-a', addressedDesiredOutcomeIds: ['do-common', 'do-inspected'] },
+    { id: 'cfj-b', offerId: 'offer-b', productJobIntentId: 'cfj-intent-b', addressedDesiredOutcomeIds: ['do-common', 'do-neighbor'] },
+    { id: 'cfj-c', offerId: 'offer-c', productJobIntentId: 'cfj-intent-b', addressedDesiredOutcomeIds: ['do-neighbor'] },
+    { id: 'rj-a', offerId: 'offer-a', productJobIntentId: 'rj-intent-a', addressedDesiredOutcomeIds: ['do-a'] },
+    { id: 'rj-b', offerId: 'offer-b', productJobIntentId: 'rj-intent-b', addressedDesiredOutcomeIds: ['do-a'] },
+    { id: 'ccj-a', offerId: 'offer-a', productJobIntentId: 'ccj-intent-a', addressedDesiredOutcomeIds: [] },
+    { id: 'ccj-b', offerId: 'offer-b', productJobIntentId: 'ccj-intent-b', addressedDesiredOutcomeIds: [] },
+    { id: 'ej-a', offerId: 'offer-a', productJobIntentId: 'ej-intent-a' },
+    { id: 'ej-b', offerId: 'offer-b', productJobIntentId: 'ej-intent-b' },
+    { id: 'sj-a', offerId: 'offer-a', productJobIntentId: 'sj-intent-a' },
+    { id: 'sj-b', offerId: 'offer-b', productJobIntentId: 'sj-intent-b' },
+  );
+  document.offerFinancialIntents.push(
+    { id: 'fdo-a', offerId: 'offer-a', financialDesiredOutcomeId: 'fdo' },
+    { id: 'fdo-b', offerId: 'offer-b', financialDesiredOutcomeId: 'fdo' },
+  );
+  return document;
+}
+
 function multiKindClientScopeDocument(): MapDocument {
   const document = touchpointInspectorDocument();
   document.entities.push(
@@ -1500,6 +1546,116 @@ describe('Offer Inspector derived neighborhood', () => {
     neighborhood = within(inspector.getByRole('region', { name: 'Offer neighborhood' }));
     expect(neighborhood.getByRole('button', { name: 'Other Offers for Orbit, 2 Offers' })).toHaveAttribute('aria-expanded', 'false');
     expect(neighborhood.getByRole('button', { name: 'Other Offers on Alpha room, 4 Offers' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('integrates all canonical semantic grounds after structural grounds with stable projection identity and counts', async () => {
+    const user = userEvent.setup();
+    const document = semanticOfferNeighborhoodDocument();
+    const snapshot = structuredClone(document);
+    const inspector = await inspectOffer(user, document);
+    const region = inspector.getByRole('region', { name: 'Offer neighborhood' });
+    const panels = [...region.querySelectorAll<HTMLElement>('.derived-neighborhood-slice')];
+    expect(panels.map(panel => panel.dataset.packedPanelId)).toEqual([
+      'product:product', 'touchpoint:touch-a', 'touchpoint:touch-a-2', 'touchpoint:touch',
+      'client-intent:core_functional_job:job', 'client-intent:related_job:rj',
+      'client-intent:consumption_chain_job:ccj', 'client-intent:emotional_job:ej',
+      'client-intent:social_job:sj', 'client-intent:financial_desired_outcome:fdo',
+    ]);
+    expect(panels.slice(4).map(panel => panel.getAttribute('aria-label'))).toEqual([
+      'Make progress', 'Coordinate launch', 'Adopt service', 'Feel assured', 'Signal expertise', 'Stay affordable',
+    ]);
+    expect(panels[4]).toHaveAttribute('data-basis-kind', 'job');
+    expect(panels[9]).toHaveAttribute('data-basis-kind', 'financial_desired_outcome');
+    const types = within(region).getByRole('group', { name: 'Ground types' });
+    expect(within(types).getAllByRole('checkbox').map(input => input.parentElement?.textContent)).toEqual([
+      'Product', 'Touchpoint', 'Core Functional Job', 'Related Job', 'Consumption Chain Job',
+      'Emotional Job', 'Social Job', 'Financial Desired Outcome',
+    ]);
+    const cfjDisclosure = within(panels[4]!).getByRole('button', { name: 'Make progress, 2 Offers' });
+    expect(cfjDisclosure).toHaveAttribute('aria-controls', 'offer-neighborhood-offer-a-client-intent%3Acore_functional_job%3Ajob');
+    expect(within(cfjDisclosure).getByText('2')).toBeInTheDocument();
+    await user.click(cfjDisclosure);
+    expect(within(panels[4]!).getAllByText('Shared selected outcomes')).toHaveLength(2);
+    await user.click(cfjDisclosure);
+    expect(cfjDisclosure).toHaveAttribute('aria-expanded', 'false');
+    expect(within(panels[4]!).queryByText('Shared selected outcomes')).not.toBeInTheDocument();
+    await user.click(cfjDisclosure);
+    expect(within(panels[4]!).getAllByText('Shared selected outcomes')).toHaveLength(2);
+    expect(document).toEqual(snapshot);
+  });
+
+  it('renders projection-owned per-neighbor outcome comparisons and keeps non-DO semantic kinds distinct', async () => {
+    const user = userEvent.setup();
+    const document = semanticOfferNeighborhoodDocument();
+    const snapshot = structuredClone(document);
+    const inspector = await inspectOffer(user, document);
+    const region = inspector.getByRole('region', { name: 'Offer neighborhood' });
+    const panel = (id: string) => region.querySelector<HTMLElement>(`[data-packed-panel-id="${id}"]`)!;
+
+    const cfj = panel('client-intent:core_functional_job:job');
+    await user.click(within(cfj).getByRole('button', { name: 'Make progress, 2 Offers' }));
+    expect(within(cfj).getByText(/ground exists because these Offers select the same Job/)).toBeInTheDocument();
+    const consulting = within(cfj).getByRole('region', { name: 'Desired Outcome comparison with Consulting' });
+    expect(within(consulting).getByText('Shared selected outcomes').parentElement).toHaveTextContent('Reduce delay');
+    expect(within(consulting).getByText('Only Subscription').parentElement).toHaveTextContent('Reduce effort');
+    expect(within(consulting).getByText('Only Consulting').parentElement).toHaveTextContent('Increase clarity');
+    const advisory = within(cfj).getByRole('region', { name: 'Desired Outcome comparison with Advisory' });
+    expect(within(advisory).getByText('Shared selected outcomes').parentElement).toHaveTextContent('None');
+    expect(within(advisory).getByText('Only Subscription').parentElement).toHaveTextContent('Reduce delayReduce effort');
+    expect(within(advisory).getByText('Only Advisory').parentElement).toHaveTextContent('Increase clarity');
+
+    for (const id of ['client-intent:related_job:rj', 'client-intent:consumption_chain_job:ccj']) {
+      const current = panel(id);
+      await user.click(within(current).getByRole('button', { name: /Offers$/ }));
+    }
+    const identical = within(panel('client-intent:related_job:rj')).getByRole('region', { name: 'Desired Outcome comparison with Consulting' });
+    expect(within(identical).getByText('Shared selected outcomes').parentElement).toHaveTextContent('Finish faster');
+    expect(within(identical).getAllByText('None')).toHaveLength(2);
+    const empty = within(panel('client-intent:consumption_chain_job:ccj')).getByRole('region', { name: 'Desired Outcome comparison with Consulting' });
+    expect(within(empty).getAllByText('None')).toHaveLength(3);
+
+    for (const id of ['client-intent:emotional_job:ej', 'client-intent:social_job:sj', 'client-intent:financial_desired_outcome:fdo']) {
+      const current = panel(id);
+      await user.click(within(current).getByRole('button', { name: /Offers$/ }));
+      expect(current.querySelector('.offer-neighborhood-job-outcome-branch')).not.toBeInTheDocument();
+      expect(within(current).queryByText('Shared selected outcomes')).not.toBeInTheDocument();
+    }
+    expect(within(panel('client-intent:financial_desired_outcome:fdo')).getByText('Financial Desired Outcome')).toBeInTheDocument();
+    expect(document).toEqual(snapshot);
+  });
+
+  it('preserves rich disclosure through OR Dim/Hide/Reset and navigates basis and neighbor through Inspector history', async () => {
+    const user = userEvent.setup();
+    const document = semanticOfferNeighborhoodDocument();
+    const snapshot = structuredClone(document);
+    const inspector = await inspectOffer(user, document);
+    let region = inspector.getByRole('region', { name: 'Offer neighborhood' });
+    const types = within(region).getByRole('group', { name: 'Ground types' });
+    const product = within(types).getByRole('checkbox', { name: 'Product' });
+    const core = within(types).getByRole('checkbox', { name: 'Core Functional Job' });
+    const cfj = region.querySelector<HTMLElement>('[data-packed-panel-id="client-intent:core_functional_job:job"]')!;
+    const disclosure = within(cfj).getByRole('button', { name: 'Make progress, 2 Offers' });
+    await user.click(disclosure);
+    await user.click(product);
+    await user.click(core);
+    expect(region.querySelectorAll('.is-dimmed')).toHaveLength(8);
+    await user.click(within(region).getByRole('radio', { name: 'Hide' }));
+    expect([...region.querySelectorAll<HTMLElement>('[data-packed-panel-id]')].map(node => node.dataset.packedPanelId)).toEqual(['client-intent:core_functional_job:job', 'product:product']);
+    expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+    await user.click(within(region).getByRole('button', { name: 'Reset ground type filters' }));
+    expect(region.querySelectorAll('[data-packed-panel-id]')).toHaveLength(10);
+    expect(within(cfj).getAllByText('Shared selected outcomes')).toHaveLength(2);
+
+    await user.click(within(cfj).getByRole('button', { name: 'Make progress' }));
+    expect(inspector.getByRole('heading', { name: 'Make progress' })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    region = inspector.getByRole('region', { name: 'Offer neighborhood' });
+    const restored = region.querySelector<HTMLElement>('[data-packed-panel-id="client-intent:core_functional_job:job"]')!;
+    await user.click(within(restored).getByRole('button', { name: 'Consulting' }));
+    expect(inspector.getByRole('heading', { name: 'Consulting' })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    expect(within(inspector.getByRole('region', { name: 'Offer neighborhood' })).getAllByText('Shared selected outcomes')).toHaveLength(2);
+    expect(document).toEqual(snapshot);
   });
 
   it('retains linked-Product draft editing and its dirty navigation guard', async () => {

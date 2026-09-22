@@ -67,6 +67,8 @@ The owner chain is `MapSpike.tsx` gesture/state → a focused helper in `touchpo
 
 Neighborhood focus and concrete-ground disclosure are independent: selection/mode transitions never toggle disclosure, and Hide → Dim or Reset remounts previously hidden grounds with their existing disclosure state. All focus actions are presentation-only and cause no `MapDocument` transaction, Inspector-history entry, URL mutation, or entity-specific parent state update.
 
+Optional rich Neighborhood content is read-only and remains subordinate to the same disclosure. Its basis and neighbor links use ordinary `navigateInspector()` history navigation; the disclosure button contains no nested basis or neighbor controls. Rich content does not acquire separate disclosure, focus, filtering, card, or layout state. Disclosure and focus/filter actions, basis navigation, neighbor navigation, and reading outcome comparisons never mutate `MapDocument`; navigation changes only transient Inspector/history state under the existing rules.
+
 Current tests cover many focus transitions but do not prove every tab sequence, focus trap, screen reader announcement, external navigation, or browser geometry. Those remain manual browser/accessibility checks.
 
 ## Relation and structural editing
