@@ -86,7 +86,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .inspector .derived-neighborhood-focus-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .55rem .8rem; min-width: 0; margin: .25rem 0 .65rem; padding: .5rem .6rem; border: 1px solid var(--border-subtle); border-radius: .45rem; background: rgba(255,255,255,.018); }
 .inspector .derived-neighborhood-focus-controls > .derived-neighborhood-type-overview,
 .inspector .derived-neighborhood-secondary-controls > .derived-neighborhood-mode-controls { min-width: 0; margin: 0; padding: 0; border: 0; background: transparent; }
-.inspector .derived-neighborhood-focus-controls legend { padding: 0 .2rem; color: rgba(255,255,255,.58); font-size: .68rem; letter-spacing: .04em; }
+.inspector .derived-neighborhood-focus-controls legend { margin-bottom: .3rem; padding: 0 .2rem; color: rgba(255,255,255,.58); font-size: .68rem; letter-spacing: .04em; }
 .inspector .derived-neighborhood-type-overview { flex: 1 1 20rem; }
 .inspector .derived-neighborhood-type-options { display: flex; flex-wrap: wrap; gap: .3rem .75rem; min-width: 0; }
 .inspector .derived-neighborhood-secondary-controls { display: flex; flex: 0 1 auto; flex-wrap: wrap; align-items: flex-end; gap: .45rem .55rem; min-width: 0; }
