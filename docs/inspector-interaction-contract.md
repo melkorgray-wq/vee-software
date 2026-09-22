@@ -23,6 +23,7 @@ The coverage inventory, including all Touchpoint sections, owners, CSS, derivati
 - **Confirmation state:** pending exact destructive impact plus Cancel/Confirm; no mutation has occurred for that pending operation.
 - **Validation/error/status state:** recoverable local error or time-bounded operation feedback. It does not itself mutate the document.
 - **Measured presentation state:** `usePackedPanelLayout` output derived from container/panel measurements. It affects coordinates/height only and is neither selection nor authored data.
+- **Neighborhood focus state:** owner-keyed transient selected ground-type IDs plus `dim | hide` mode, owned by shared `NeighborhoodGroups`. It is independent from disclosure and committed data.
 
 ## State table
 
@@ -39,6 +40,8 @@ The coverage inventory, including all Touchpoint sections, owners, CSS, derivati
 | Confirmation | confirmation state/dialog in `MapSpike.tsx` | Owner reports destructive impact | Modal exact impact and Cancel/Confirm | Confirm performs one transaction; Cancel none | Escape/Cancel closes without mutation | Transient only |
 | Validation/error/status | local editor or global message state | Validation/domain failure or success | `role=alert`/`role=status` feedback | Failure none; status describes prior commit | Error remains recoverable; no silent retry | Transient; no sync/save meaning |
 | Measured presentation | `usePackedPanelLayout` | mount, panel/container resize/content change | Packed transforms and explicit container height, or Grid fallback | None | Recalculates or falls back; no authored effect | Recomputed, never persisted |
+| Neighborhood type selection | `NeighborhoodGroups`, isolated by inspected owner | Native type-checkbox toggle or Reset | Empty means unfiltered; otherwise matching uses selected IDs with OR semantics | None | Toggle adds/removes one type; Reset clears all; unavailable types are pruned | Transient; not stored in document, history, URL, or entity-specific parents |
+| Neighborhood focus mode | `NeighborhoodGroups`, isolated by inspected owner | Choose Dim or Hide | Dim retains all cards and de-emphasizes nonmatches; Hide renders matching cards only | None | Mode persists while that owner is mounted; owner change synchronously shows Dim default | Transient; not stored in document, history, URL, or entity-specific parents |
 
 ## Commit contract
 
@@ -60,6 +63,9 @@ The owner chain is `MapSpike.tsx` gesture/state → a focused helper in `touchpo
 - Opening an editor deliberately focuses its first relevant search/candidate/input. Explicit Close and Escape restore focus to the still-mounted/remounted heading action where appropriate. Pointer-outside dismissal and switching editors must not steal focus back from the new pointer/focus owner.
 - Candidate rows support native keyboard activation and one primary selection hit area. They must not contain competing entity navigation while local editing is active.
 - Escape is progressive: close the deepest resolver/confirmation/nested mode first, then its editor, then any outer transient surface. Nested Back returns one editor level; Inspector Back traverses entities.
+- Neighborhood type checkboxes, Reset, and the single-choice Dim/Hide controls are native keyboard controls with visible focus. Before a checkbox, Reset, or Hide mode action could remove the currently focused card subtree, focus moves synchronously to the initiating control (or the stable controls container); focus is never left on detached content. Dim never changes card accessibility or tab order. Neighbor links continue through `navigateInspector()`, and the newly inspected owner synchronously receives empty selection and Dim.
+
+Neighborhood focus and concrete-ground disclosure are independent: selection/mode transitions never toggle disclosure, and Hide → Dim or Reset remounts previously hidden grounds with their existing disclosure state. All focus actions are presentation-only and cause no `MapDocument` transaction, Inspector-history entry, URL mutation, or entity-specific parent state update.
 
 Current tests cover many focus transitions but do not prove every tab sequence, focus trap, screen reader announcement, external navigation, or browser geometry. Those remain manual browser/accessibility checks.
 

@@ -20,6 +20,15 @@ Neighborhood does not diagnose absent relationships, suggest potential neighbors
 - A ground count is the number of unique neighbors in that concrete ground. Because grounds may overlap, their counts must not be summed or presented as a global unique-neighbor total.
 - Neighborhood is read-only: it does not mutate `MapDocument`, author neighbor-to-neighbor relationships, or turn available upstream intent into authored local selection.
 
+### Ground-type focused exploration
+
+- A **ground type** is presentation metadata classifying one concrete, already-existing nonempty ground. It is neither a domain entity nor an ontology-wide taxonomy. The available types are the unique ground types represented by at least one current nonempty ground, in deterministic first-appearance order; potential types, empty types, and zero counts are not presented.
+- Current Touchpoint mappings are Offer grounds → `offer` / **Offer** and the container ground → `container` / **Located in**. Current Offer mappings are the Product ground → `product` / **Product** and co-presentation grounds → `touchpoint` / **Touchpoint**. Concrete-ground IDs (`offer:…`, `container:…`, `product:…`, and `touchpoint:…`) remain unchanged. These mappings do not establish a shared ontology taxonomy; future ground kinds extend the shared presentation metadata explicitly.
+- **Selected types** are a transient set of ground-type IDs. An empty set means an unfiltered view. With a nonempty set, a ground matches when its `groundTypeId` is selected; multiple selected types use OR semantics.
+- **Focus mode** is transient `dim | hide` and defaults to `dim`. In Dim, all grounds retain their composition and order while nonmatching grounds are visually de-emphasized. In Hide, only matching grounds are presented. Reset clears the selected set; with no selected types, every ground is fully visible regardless of the stored mode.
+- Selection and mode are owned by shared `NeighborhoodGroups`, isolated by inspected owner, and synchronously default to empty selection plus Dim when entity navigation changes the owner. If committed grounds change and a selected type is no longer available, that type is removed from the effective selection; losing all selected types is equivalent to reset.
+- Existing concrete-ground disclosure is independent transient state. Filtering never changes it, so Hide → Dim and reset restore the same grounds and disclosure choices. Focused exploration never changes neighbor arrays, counts, IDs, basis metadata, navigation targets, or `MapDocument`.
+
 ### Established entity-specific grounds
 
 For a **Touchpoint**, the accepted grounds are:
@@ -57,17 +66,9 @@ Client intent is an accepted next semantic direction, not implemented Neighborho
 
 This direction introduces no new relationship kinds and approves no unconfirmed matching algorithm. Its concrete grounds, grouping, derivation owner, and presentation require an implementation task consistent with the provisional ontology and existing intent ownership.
 
-### Focused exploration
-
-Focused exploration is accepted as a non-mutating functional direction. Ground-type controls may temporarily hide or dim cards that do not match the active type filter without changing `MapDocument` or its authored relationships. This state is a transient view/filter state, not document state.
-
-Before type controls are implemented, the boundary between a concrete ground and its ground type must be defined explicitly. No ground-type taxonomy is accepted by this contract beyond the established entity-specific grounds above.
-
 ## Deferred decisions and open questions
 
 - A relevant-Repulsor ground is deferred until Offer-level exposure semantics are agreed. It is not implementation-ready.
-- Focused-exploration interaction details remain open: exact control design, hide-versus-dim default, single versus multiple selection, initial mode, keyboard and focus behavior, dismissal/reset behavior, accessibility semantics, and responsive presentation.
-- The concrete-ground/ground-type boundary and any reusable ground-type taxonomy remain open and must be settled before type controls are implemented.
 - Client-intent matching/grouping details and ownership beyond the accepted constraints above remain open; no speculative relation or algorithm may fill those gaps.
 
 ## Owner chain and change gate

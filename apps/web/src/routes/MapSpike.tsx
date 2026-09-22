@@ -315,6 +315,8 @@ function ClientScopePackedGroups({ panelIds, children }: { panelIds: readonly st
 type NeighborhoodPresentationGroup = {
   id: string;
   label: string;
+  groundTypeId: string;
+  groundTypeLabel: string;
   count: number;
   linkedEntities: { id: string; title: string }[];
   basisKind: string;
@@ -333,24 +335,65 @@ function NeighborhoodGroups({ groups, entityNoun, inspectedOwnerId, expansionSna
   ariaLabel: string;
   contentIdPrefix: string;
 }) {
+  type FocusMode = 'dim' | 'hide';
+  type FocusState = { ownerId: string; selectedGroundTypeIds: Set<string>; focusMode: FocusMode };
+  const [storedFocusState, setStoredFocusState] = useState<FocusState>(() => ({ ownerId: inspectedOwnerId, selectedGroundTypeIds: new Set(), focusMode: 'dim' }));
+  const availableTypes = groups.reduce<{ id: string; label: string }[]>((types, group) => {
+    if (!types.some(type => type.id === group.groundTypeId)) types.push({ id: group.groundTypeId, label: group.groundTypeLabel });
+    return types;
+  }, []);
+  const availableTypeIds = new Set(availableTypes.map(type => type.id));
+  const ownerFocusState = storedFocusState.ownerId === inspectedOwnerId
+    ? storedFocusState
+    : { ownerId: inspectedOwnerId, selectedGroundTypeIds: new Set<string>(), focusMode: 'dim' as const };
+  const selectedGroundTypeIds = new Set([...ownerFocusState.selectedGroundTypeIds].filter(id => availableTypeIds.has(id)));
+  const focusMode = ownerFocusState.focusMode;
+  const hasSelection = selectedGroundTypeIds.size > 0;
   const initialExpansion = initialCompactOverviewExpandedGroupIds(groups);
   const isExpanded = (groupId: string) => expansionSnapshot?.[groupId] ?? (expansionSnapshot ? false : initialExpansion.has(groupId));
   const orderedGroups = [...groups].sort((left, right) => Number(isExpanded(right.id)) - Number(isExpanded(left.id)));
+  const displayedGroups = hasSelection && focusMode === 'hide'
+    ? orderedGroups.filter(group => selectedGroundTypeIds.has(group.groundTypeId))
+    : orderedGroups;
   const containerRef = useRef<HTMLDivElement>(null);
-  const packedLayout = usePackedPanelLayout(containerRef, orderedGroups.map(group => group.id), {
+  const packedLayout = usePackedPanelLayout(containerRef, displayedGroups.map(group => group.id), {
     panelSelector: ':scope > .derived-neighborhood-slice',
     panelIdAttribute: 'data-packed-panel-id',
     minPanelWidthRem: 14,
     maxPanelWidthRem: 20,
     gapRem: .65,
   });
+  const updateFocusState = (selected: Set<string>, mode: FocusMode = focusMode) => {
+    setStoredFocusState({ ownerId: inspectedOwnerId, selectedGroundTypeIds: selected, focusMode: mode });
+  };
   return <section className={`business-structure-derived neighborhood-groups ${className}`.trim()} aria-label={ariaLabel}>
     <div className="derived-heading"><h5>Neighborhood</h5><span>Derived</span></div>
+    <div className="derived-neighborhood-focus-controls" aria-label="Neighborhood focus controls">
+      <fieldset className="derived-neighborhood-type-overview">
+        <legend>Ground types</legend>
+        <div className="derived-neighborhood-type-options">{availableTypes.map(type => <label key={type.id}>
+          <input type="checkbox" checked={selectedGroundTypeIds.has(type.id)} onChange={event => {
+            event.currentTarget.focus();
+            const next = new Set(selectedGroundTypeIds);
+            if (event.currentTarget.checked) next.add(type.id); else next.delete(type.id);
+            updateFocusState(next);
+          }} />
+          <span>{type.label}</span>
+        </label>)}</div>
+      </fieldset>
+      <fieldset className="derived-neighborhood-mode-controls">
+        <legend>Focus mode</legend>
+        <label><input type="radio" name={`${contentIdPrefix}-${inspectedOwnerId}-focus-mode`} value="dim" checked={focusMode === 'dim'} onChange={event => { event.currentTarget.focus(); updateFocusState(selectedGroundTypeIds, 'dim'); }} />Dim</label>
+        <label><input type="radio" name={`${contentIdPrefix}-${inspectedOwnerId}-focus-mode`} value="hide" checked={focusMode === 'hide'} onChange={event => { event.currentTarget.focus(); updateFocusState(selectedGroundTypeIds, 'hide'); }} />Hide</label>
+      </fieldset>
+      <button type="button" className="derived-neighborhood-reset" disabled={!hasSelection} onClick={event => { event.currentTarget.focus(); updateFocusState(new Set()); }}>Reset ground type filters</button>
+    </div>
     <div ref={containerRef} className={`derived-neighborhood-slices${packedLayout.packed ? ' is-packed' : ''}`} style={packedLayout.containerStyle}>
-      {orderedGroups.map(group => {
+      {displayedGroups.map(group => {
         const expanded = isExpanded(group.id);
+        const dimmed = hasSelection && focusMode === 'dim' && !selectedGroundTypeIds.has(group.groundTypeId);
         const contentId = `${contentIdPrefix}-${encodeURIComponent(inspectedOwnerId)}-${encodeURIComponent(group.id)}`;
-        return <div className="business-structure-property derived-neighborhood-slice" role="group" aria-label={group.label} data-basis-kind={group.basisKind} data-basis-id={group.basisId} data-packed-panel-id={group.id} style={packedLayout.panelStyle(group.id)} key={group.id}>
+        return <div className={`business-structure-property derived-neighborhood-slice${dimmed ? ' is-dimmed' : ''}`} role="group" aria-label={group.label} data-ground-type-id={group.groundTypeId} data-basis-kind={group.basisKind} data-basis-id={group.basisId} data-packed-panel-id={group.id} style={packedLayout.panelStyle(group.id)} key={group.id}>
           <button type="button" className="derived-neighborhood-disclosure" aria-expanded={expanded} aria-controls={contentId} aria-label={`${group.label}, ${group.count} ${entityNoun}`} onClick={() => onToggle(group.id)}>
             <span className="derived-neighborhood-chevron" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
             <span className="derived-neighborhood-label">{group.label}</span>
@@ -2093,6 +2136,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const neighborhoodGroups = [
       ...structure.otherTouchpointsByOffer.map((group) => ({
         id: `offer:${group.offer.id}`,
+        groundTypeId: 'offer',
+        groundTypeLabel: 'Offer',
         basisKind: 'offer' as const,
         basisId: group.offer.id,
         label: `Other Touchpoints for ${group.offer.title}`,
@@ -2101,6 +2146,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       })),
       ...(structure.container && structure.otherTouchpointsInContainer.length > 0 ? [{
         id: `container:${structure.container.id}`,
+        groundTypeId: 'container',
+        groundTypeLabel: 'Located in',
         basisKind: 'container' as const,
         basisId: structure.container.id,
         label: `More in ${structure.container.title}`,
@@ -2249,7 +2296,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   function offerNeighborhoodSection() {
     if (selected?.kind !== 'offer') return null;
     type OfferEntity = Extract<Entity, { kind: 'offer' }>;
-    type OfferNeighborhoodGroup = { id: string; label: string; offers: OfferEntity[]; basisKind: 'product' | 'touchpoint'; basisId: string };
+    type OfferNeighborhoodGroup = { id: string; label: string; groundTypeId: 'product' | 'touchpoint'; groundTypeLabel: 'Product' | 'Touchpoint'; offers: OfferEntity[]; basisKind: 'product' | 'touchpoint'; basisId: string };
     const entitiesById = new Map(document.entities.map(entity => [entity.id, entity]));
     const offerSort = (left: OfferEntity, right: OfferEntity) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id);
     const groups: OfferNeighborhoodGroup[] = [];
@@ -2269,7 +2316,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         const entity = entitiesById.get(id);
         return entity?.kind === 'offer' ? [entity] : [];
       }).sort(offerSort);
-      if (offers.length) groups.push({ id: `product:${product.id}`, label: `Other Offers for ${product.title}`, offers, basisKind: 'product', basisId: product.id });
+      if (offers.length) groups.push({ id: `product:${product.id}`, label: `Other Offers for ${product.title}`, groundTypeId: 'product', groundTypeLabel: 'Product', offers, basisKind: 'product', basisId: product.id });
     }
 
     const touchpoints = [...new Set(document.relationships.flatMap(relation =>
@@ -2288,10 +2335,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         const entity = entitiesById.get(id);
         return entity?.kind === 'offer' ? [entity] : [];
       }).sort(offerSort);
-      if (offers.length) groups.push({ id: `touchpoint:${touchpoint.id}`, label: `Other Offers on ${touchpoint.title}`, offers, basisKind: 'touchpoint', basisId: touchpoint.id });
+      if (offers.length) groups.push({ id: `touchpoint:${touchpoint.id}`, label: `Other Offers on ${touchpoint.title}`, groundTypeId: 'touchpoint', groundTypeLabel: 'Touchpoint', offers, basisKind: 'touchpoint', basisId: touchpoint.id });
     }
     if (!groups.length) return null;
-    const presentationGroups = groups.map(group => ({ id: group.id, label: group.label, count: group.offers.length, linkedEntities: group.offers, basisKind: group.basisKind, basisId: group.basisId }));
+    const presentationGroups = groups.map(group => ({ id: group.id, label: group.label, groundTypeId: group.groundTypeId, groundTypeLabel: group.groundTypeLabel, count: group.offers.length, linkedEntities: group.offers, basisKind: group.basisKind, basisId: group.basisId }));
     const storedExpansion = offerNeighborhoodExpanded[selected.id];
     const initialExpansion = initialCompactOverviewExpandedGroupIds(presentationGroups);
     const toggleGroup = (groupId: string) => setOfferNeighborhoodExpanded(current => {
