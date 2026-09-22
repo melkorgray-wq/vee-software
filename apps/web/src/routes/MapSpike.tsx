@@ -2099,7 +2099,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         linkedEntities: group.touchpoints,
         count: group.touchpoints.length,
       })),
-      ...(structure.container ? [{
+      ...(structure.container && structure.otherTouchpointsInContainer.length > 0 ? [{
         id: `container:${structure.container.id}`,
         basisKind: 'container' as const,
         basisId: structure.container.id,
@@ -2243,7 +2243,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
           </section>
         </div>
       </div>
-      <NeighborhoodGroups groups={neighborhoodGroups} entityNoun="Touchpoints" inspectedOwnerId={structure.touchpoint.id} expansionSnapshot={storedExpansion} onToggle={toggleNeighborhoodGroup} emptyStateText="No related Touchpoints" onNavigate={navigateInspector} ariaLabel="Touchpoint neighborhood" contentIdPrefix="neighborhood" />
+      {neighborhoodGroups.length > 0 && <NeighborhoodGroups groups={neighborhoodGroups} entityNoun="Touchpoints" inspectedOwnerId={structure.touchpoint.id} expansionSnapshot={storedExpansion} onToggle={toggleNeighborhoodGroup} emptyStateText="No related Touchpoints" onNavigate={navigateInspector} ariaLabel="Touchpoint neighborhood" contentIdPrefix="neighborhood" />}
     </section>;
   }
   function offerNeighborhoodSection() {
@@ -2269,7 +2269,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         const entity = entitiesById.get(id);
         return entity?.kind === 'offer' ? [entity] : [];
       }).sort(offerSort);
-      groups.push({ id: `product:${product.id}`, label: `Other Offers for ${product.title}`, offers, basisKind: 'product', basisId: product.id });
+      if (offers.length) groups.push({ id: `product:${product.id}`, label: `Other Offers for ${product.title}`, offers, basisKind: 'product', basisId: product.id });
     }
 
     const touchpoints = [...new Set(document.relationships.flatMap(relation =>

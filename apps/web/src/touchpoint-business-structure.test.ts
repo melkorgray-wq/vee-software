@@ -86,12 +86,46 @@ describe('Touchpoint Business structure read model', () => {
     expect(deriveTouchpointBusinessStructure(fixture(), 'touch')!.otherTouchpointsByOffer[0]!.touchpoints.map(item => item.id)).toEqual(['other']);
   });
 
+  it('omits empty Offer grounds and deduplicates repeated valid neighbors by entity ID', () => {
+    const document = fixture();
+    document.relationships = document.relationships.filter(relation => relation.id !== 'bo');
+    document.relationships.push(
+      { id: 'ao-duplicate', kind: 'offer_presented_at_touchpoint', offerId: 'o-a', touchpointId: 'other' },
+      { id: 'ao-inspected-duplicate', kind: 'offer_presented_at_touchpoint', offerId: 'o-a', touchpointId: 'touch' },
+      { id: 'ao-invalid', kind: 'offer_presented_at_touchpoint', offerId: 'o-a', touchpointId: 'missing' },
+    );
+    const result = deriveTouchpointBusinessStructure(document, 'touch')!;
+    expect(result.otherTouchpointsByOffer.map(group => [group.offer.id, group.touchpoints.map(item => item.id)])).toEqual([
+      ['o-a', ['other']],
+    ]);
+  });
+
   it('same-Offer neighborhood remains grouped per Offer', () => {
     expect(deriveTouchpointBusinessStructure(fixture(), 'touch')!.otherTouchpointsByOffer.map(group => [group.offer.title, group.touchpoints[0]?.title])).toEqual([['Alpha', 'About'], ['Beta', 'About']]);
   });
 
   it('same-container neighborhood excludes selected Touchpoint', () => {
     expect(deriveTouchpointBusinessStructure(fixture(), 'touch')!.otherTouchpointsInContainer.map(item => item.title)).toEqual(['About', 'Front Page']);
+  });
+
+  it('returns an empty same-container neighborhood when no other valid Touchpoint shares it', () => {
+    const document = fixture();
+    document.entities = document.entities.filter(entity => entity.id !== 'other' && entity.id !== 'parent');
+    expect(deriveTouchpointBusinessStructure(document, 'touch')!.otherTouchpointsInContainer).toEqual([]);
+  });
+
+  it('keeps sorted entity IDs for nonempty Offer and container grounds in a mixed projection', () => {
+    const document = fixture();
+    document.relationships = document.relationships.filter(relation => relation.id !== 'bo');
+    document.entities.push({ id: 'z', kind: 'touchpoint', title: 'About', locatedInId: 'web' });
+    document.relationships.push({ id: 'az', kind: 'offer_presented_at_touchpoint', offerId: 'o-a', touchpointId: 'z' });
+    const result = deriveTouchpointBusinessStructure(document, 'touch')!;
+    expect(result.otherTouchpointsByOffer.map(group => ({ offerId: group.offer.id, ids: group.touchpoints.map(item => item.id), count: group.touchpoints.length }))).toEqual([
+      { offerId: 'o-a', ids: ['other', 'z'], count: 2 },
+    ]);
+    expect({ ids: result.otherTouchpointsInContainer.map(item => item.id), count: result.otherTouchpointsInContainer.length }).toEqual({
+      ids: ['other', 'z', 'parent'], count: 3,
+    });
   });
 
   it('same Offer and same Located in remain separate derived axes', () => {

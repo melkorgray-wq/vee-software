@@ -38,17 +38,12 @@ Product, Offer, and Touchpoint are graph entities. `Located in` is a registry re
 
 - `deriveTouchpointBusinessStructure()` derives the Touchpoint projection from committed records. Its `otherTouchpointsByOffer` and `otherTouchpointsInContainer` fields feed `touchpointBusinessStructureSection()` in `apps/web/src/routes/MapSpike.tsx`.
 - `offerNeighborhoodSection()` currently derives Offer grounds in `MapSpike.tsx`.
+- Both projections exclude concrete grounds without valid neighbors and omit the entire Neighborhood section when no nonempty grounds remain.
 - Shared `NeighborhoodGroups` owns rendering, count badges, disclosure, navigation links, stable group identity, and the shared layout behavior described by the presentation contract.
 - Disclosure and Inspector navigation follow the shared presentation and interaction contracts. Disclosure/filter state is transient UI state, not part of `MapDocument`.
 - Regression evidence currently lives in `apps/web/src/touchpoint-business-structure.test.ts` and `apps/web/src/routes/MapSpike.test.tsx`.
 
 This contract establishes functional semantics. It does not move entity-specific derivation into `NeighborhoodGroups`; the renderer consumes derived groups and must not become the ontology owner.
-
-## Known implementation gaps
-
-- Touchpoint assembly currently creates an Offer ground for every Offer linked to the inspected Touchpoint, even when that ground has no neighbors. It can also create a `Located in` ground with no neighbors.
-- Existing Offer regressions explicitly preserve some zero-neighbor Product grounds.
-- Those zero-neighbor groups conflict with the accepted nonempty-ground invariant. A separate runtime task must change the derivation/assembly owners and affected regressions. This documentation-only change intentionally does not alter runtime code or tests, and the current zero-neighbor output is not an accepted invariant.
 
 ## Accepted directions for further development
 
