@@ -41,12 +41,22 @@ For an **Offer**, the accepted grounds are:
 - the other Offers belonging to the same Product; and
 - for each Touchpoint linked directly to the inspected Offer, the other Offers directly co-presented at that Touchpoint.
 
+The accepted Offer Client-intent semantic projection adds six ground types, in deterministic order: `core_functional_job`, `related_job`, `consumption_chain_job`, `emotional_job`, `social_job`, and `financial_desired_outcome`. These IDs classify Offer-Neighborhood projection grounds; they do not introduce a new ontology taxonomy. Client-intent grounds are derived only from valid Offer-owned `OfferJobSelection` and `OfferFinancialIntent` records. Product intent by itself is not an Offer ground.
+
+- A Job ground's concrete basis is the resolved Job entity ID, not a Product-intent or Offer-selection record ID. Product Job intents belonging to different Products therefore match when their valid Offer selections resolve to the same Job. A Job ground exists only when the inspected Offer and at least one other valid Offer select that Job.
+- For Core Functional, Related, and Consumption Chain Jobs, each Offer's scope is its effective Offer-selected Desired Outcome subset, including the compatibility fallback owned by `effectiveOfferDesiredOutcomeIds()`. The projection retains only existing ordinary Desired Outcomes connected to that concrete Job by `job_has_desired_outcome`; duplicate, stale, wrong-kind, and other-Job references do not contribute. Multiple malformed selections for the same Offer and Job merge their valid subsets while the Offer remains one neighbor.
+- A Job ground retains the inspected Offer's full effective subset and, per neighbor, the neighbor's full effective subset plus intersection, inspected-only, and neighbor-only Desired Outcome IDs. Ordinary Desired Outcomes are comparison detail beneath the Job and never separate concrete grounds. A shared Job is sufficient even when the subsets are identical, overlapping, disjoint, or both empty; sharing a Job does not assert the same Desired Outcome scope or a Touchpoint encounter path.
+- Emotional and Social Job grounds use the same concrete Job identity but always have empty Desired Outcome arrays. Malformed ordinary Desired Outcome data does not create an outcome branch for those Job kinds.
+- A Financial Desired Outcome is not a Job. Its concrete ground exists only when the inspected Offer and another Offer each own a valid `OfferFinancialIntent` to the same existing Financial Desired Outcome. It is neither inherited from Product intent nor inferred from the entity's mere existence.
+- Concrete IDs are `client-intent:<job-kind>:<job-id>` for Job grounds and `client-intent:financial_desired_outcome:<financial-desired-outcome-id>` for Financial Desired Outcome grounds. Neighbors, outcome arrays, and grounds have deterministic title-then-ID ordering within the fixed type order; neighbor identity is the Offer entity ID and counts reflect unique neighbors.
+
 Product, Offer, and Touchpoint are graph entities. `Located in` is a registry reference and must not be rendered, navigated, or modeled as a graph entity. These grounds are entity-specific; they must not be generalized to another entity kind without an accepted ontology decision.
 
 ## Current runtime behavior
 
 - `deriveTouchpointBusinessStructure()` derives the Touchpoint projection from committed records. Its `otherTouchpointsByOffer` and `otherTouchpointsInContainer` fields feed `touchpointBusinessStructureSection()` in `apps/web/src/routes/MapSpike.tsx`.
 - `offerNeighborhoodSection()` currently derives Offer grounds in `MapSpike.tsx`.
+- `deriveOfferClientIntentNeighborhood()` in `apps/web/src/offer-client-intent-neighborhood.ts` implements the framework-independent Offer Client-intent semantic derivation for step 3A. Its focused regression owner is `apps/web/src/offer-client-intent-neighborhood.test.ts`. The projection is implemented and tested but is not yet adapted to `NeighborhoodPresentationGroup` or integrated into the Inspector UI.
 - Both projections exclude concrete grounds without valid neighbors and omit the entire Neighborhood section when no nonempty grounds remain.
 - Shared `NeighborhoodGroups` owns rendering, count badges, disclosure, navigation links, stable group identity, and the shared layout behavior described by the presentation contract.
 - Disclosure and Inspector navigation follow the shared presentation and interaction contracts. Disclosure/filter state is transient UI state, not part of `MapDocument`.
@@ -56,26 +66,21 @@ This contract establishes functional semantics. It does not move entity-specific
 
 ## Accepted directions for further development
 
-### Client intent grounds
+### Touchpoint Client intent grounds
 
-Client intent is an accepted next semantic direction, not implemented Neighborhood behavior:
-
-- an Offer uses its own selected Job/Desired Outcome subsets and its Offer-owned Financial Desired Outcome;
-- a Touchpoint uses only locally selected paths that were actually authored for that Touchpoint, together with contributor attribution; and
-- available upstream intent is not locally selected intent and therefore is not a local Neighborhood basis.
-
-This direction introduces no new relationship kinds and approves no unconfirmed matching algorithm. Its concrete grounds, grouping, derivation owner, and presentation require an implementation task consistent with the provisional ontology and existing intent ownership.
+Touchpoint Client-intent semantics remain an accepted next direction, not implemented Neighborhood behavior. A Touchpoint would use only locally selected paths actually authored for that Touchpoint, together with contributor attribution; available upstream intent is not locally selected intent and therefore is not a local Neighborhood basis. This direction introduces no new relationship kinds, and its concrete grounds, matching, derivation owner, and presentation remain unapproved.
 
 ## Deferred decisions and open questions
 
 - A relevant-Repulsor ground is deferred until Offer-level exposure semantics are agreed. It is not implementation-ready.
-- Client-intent matching/grouping details and ownership beyond the accepted constraints above remain open; no speculative relation or algorithm may fill those gaps.
+- Client-intent matching/grouping details and ownership beyond the accepted Offer projection and the Touchpoint constraints above remain open; no speculative relation or algorithm may fill those gaps.
 
 ## Owner chain and change gate
 
 The verified owner chains are:
 
 - Touchpoint derivation: `deriveTouchpointBusinessStructure()` and `otherTouchpointsByOffer` / `otherTouchpointsInContainer` in `apps/web/src/touchpoint-business-structure.ts`;
+- Offer Client-intent semantic derivation: `deriveOfferClientIntentNeighborhood()` in `apps/web/src/offer-client-intent-neighborhood.ts`, with focused regressions in `apps/web/src/offer-client-intent-neighborhood.test.ts`;
 - Inspector assembly and shared rendering: `touchpointBusinessStructureSection()`, `offerNeighborhoodSection()`, and `NeighborhoodGroups` in `apps/web/src/routes/MapSpike.tsx`;
 - presentation, disclosure, navigation, focus, and transient-state rules: the [Inspector presentation contract](./inspector-presentation-contract.md) and [Inspector interaction contract](./inspector-interaction-contract.md); and
 - regression evidence: `apps/web/src/touchpoint-business-structure.test.ts` and `apps/web/src/routes/MapSpike.test.tsx`.
