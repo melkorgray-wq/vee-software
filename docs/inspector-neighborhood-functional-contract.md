@@ -65,7 +65,7 @@ Product, Offer, and Touchpoint are graph entities. `Located in` is a registry re
 
 - `deriveTouchpointBusinessStructure()` derives the Touchpoint projection from committed records. Its `otherTouchpointsByOffer` and `otherTouchpointsInContainer` fields feed `touchpointBusinessStructureSection()` in `apps/web/src/routes/MapSpike.tsx`.
 - `offerNeighborhoodSection()` derives the existing Product and shared-Touchpoint grounds, invokes `deriveOfferClientIntentNeighborhood()` once for the committed document and inspected Offer, and adapts that framework-independent projection to `NeighborhoodPresentationGroup`. Step 3B, the read-only runtime integration, is implemented. Structural grounds remain first (nonempty Product, then deterministic shared Touchpoints), followed by semantic grounds in canonical CFJ, RJ, CCJ, EJ, SJ, FDO order.
-- `deriveTouchpointClientIntentNeighborhood()` implements and tests the framework-independent Step 4A Touchpoint semantic projection, including its materialized-path validation and contributor provenance. Its Inspector/UI integration is still pending; existing Touchpoint common-Offer and **Located in** grounds remain the only Touchpoint Neighborhood grounds currently rendered.
+- `deriveTouchpointClientIntentNeighborhood()` implements and tests the framework-independent Step 4A Touchpoint semantic projection. Step 4B adapts that projection into the Inspector after nonempty shared-Offer grounds and the nonempty **Located in** ground, followed by semantic grounds in canonical CFJ, RJ, CCJ, EJ, SJ, FDO order. Counts remain unique neighboring Touchpoints. Expanded cards navigate to the concrete basis and neighboring Touchpoints, compare projection-owned local ordinary-DO subsets for DO-bearing Jobs, and show projection-owned contributor Offer provenance without making Offers or DOs grounds or count items.
 - The six runtime ground-type labels are **Core Functional Job**, **Related Job**, **Consumption Chain Job**, **Emotional Job**, **Social Job**, and **Financial Desired Outcome**. They are local presentation labels for projection type IDs, not an ontology-wide taxonomy. Each semantic card is titled by its concrete Job or FDO entity; Job identity remains the ground even when Offer selections originate under different Products.
 - DO-bearing Job cards show each neighboring Offer's projection-owned common, inspected-only, and neighbor-only subsets. Empty subsets remain explicit `None`; these rows compare local Offer selections and do not decide whether the shared Job ground exists. Ordinary Desired Outcomes are detail, never grounds or count items. Emotional/Social Job cards have no ordinary-DO branch. FDO is an independent outcome ground, not a Job or inherited Product intent.
 - Both projections exclude concrete grounds without valid neighbors and omit the entire Neighborhood section when no nonempty grounds remain.
@@ -74,12 +74,6 @@ Product, Offer, and Touchpoint are graph entities. `Located in` is a registry re
 - Regression evidence currently lives in `apps/web/src/touchpoint-business-structure.test.ts`, `apps/web/src/offer-client-intent-neighborhood.test.ts`, `apps/web/src/touchpoint-client-intent-neighborhood.test.ts`, and `apps/web/src/routes/MapSpike.test.tsx`.
 
 This contract establishes functional semantics. It does not move entity-specific derivation into `NeighborhoodGroups`; the renderer consumes derived groups and must not become the ontology owner.
-
-## Accepted directions for further development
-
-### Touchpoint Client intent UI integration
-
-Step 4B remains an accepted next direction: adapt the implemented Touchpoint semantic projection into the existing shared Neighborhood presentation without changing its semantic owner or inferring new relationships. This step has not been implemented.
 
 ## Deferred decisions and open questions
 

@@ -168,6 +168,45 @@ function semanticOfferNeighborhoodDocument(): MapDocument {
   return document;
 }
 
+function semanticTouchpointNeighborhoodDocument(): MapDocument {
+  const document = semanticOfferNeighborhoodDocument();
+  document.entities.push({ id: 'touch-neighbor', kind: 'touchpoint', title: 'Very long neighboring consultation Touchpoint title' });
+  document.placements.push({ viewId: 'spike-view', entityId: 'touch-neighbor', x: 2500, y: 0 });
+  document.relationships.push(
+    { id: 'neighbor-offer', kind: 'offer_presented_at_touchpoint', offerId: 'offer-b', touchpointId: 'touch-neighbor' },
+    { id: 'ccj-outcome', kind: 'job_has_desired_outcome', jobId: 'ccj', desiredOutcomeId: 'do-a' },
+  );
+  document.touchpointContainers.push({ id: 'place', title: 'Online' });
+  Object.assign(document.entities.find(entity => entity.id === 'touch')!, { locatedInId: 'place' });
+  Object.assign(document.entities.find(entity => entity.id === 'touch-neighbor')!, { locatedInId: 'place' });
+  const localSelections = [
+    ['cfj', 'cfj-intent-a', 'offer-a', ['do-common', 'do-inspected']],
+    ['rj', 'rj-intent-a', 'offer-a', ['do-a']],
+    ['ccj', 'ccj-intent-a', 'offer-a', ['do-a']],
+    ['ej', 'ej-intent-a', 'offer-a', []],
+    ['sj', 'sj-intent-a', 'offer-a', []],
+  ] as const;
+  const neighborSelections = [
+    ['cfj', 'cfj-intent-b', ['do-common', 'do-neighbor']],
+    ['rj', 'rj-intent-b', ['do-a']],
+    ['ccj', 'ccj-intent-b', ['do-a']],
+    ['ej', 'ej-intent-b', []],
+    ['sj', 'sj-intent-b', []],
+  ] as const;
+  for (const selection of document.offerJobSelections) {
+    if (selection.id === 'ccj-a' || selection.id === 'ccj-b') selection.addressedDesiredOutcomeIds = ['do-a'];
+  }
+  document.touchpointJobSelections.push(
+    ...localSelections.map(([id, productJobIntentId, offerId, addressedDesiredOutcomeIds]) => ({ id: `local-${id}`, touchpointId: 'touch', offerId, productJobIntentId, addressedDesiredOutcomeIds: [...addressedDesiredOutcomeIds] })),
+    ...neighborSelections.map(([id, productJobIntentId, addressedDesiredOutcomeIds]) => ({ id: `neighbor-${id}`, touchpointId: 'touch-neighbor', offerId: 'offer-b', productJobIntentId, addressedDesiredOutcomeIds: [...addressedDesiredOutcomeIds] })),
+  );
+  document.touchpointFinancialSelections.push(
+    { id: 'local-fdo', touchpointId: 'touch', offerId: 'offer-a', offerFinancialIntentId: 'fdo-a', financialDesiredOutcomeId: 'fdo' },
+    { id: 'neighbor-fdo', touchpointId: 'touch-neighbor', offerId: 'offer-b', offerFinancialIntentId: 'fdo-b', financialDesiredOutcomeId: 'fdo' },
+  );
+  return document;
+}
+
 function multiKindClientScopeDocument(): MapDocument {
   const document = touchpointInspectorDocument();
   document.entities.push(
@@ -1350,6 +1389,57 @@ describe('Touchpoint Business structure Inspector', () => {
       vi.useRealTimers();
     }
   });
+
+  it('presents Step 4A semantic grounds after structural grounds with comparisons, provenance, filtering, and navigation', async () => {
+    const user = userEvent.setup();
+    const source = semanticTouchpointNeighborhoodDocument();
+    const snapshot = structuredClone(source);
+    const inspector = renderTouchpointInspector(source);
+    const region = inspector.getByRole('region', { name: 'Touchpoint neighborhood' });
+    const ids = [...region.querySelectorAll<HTMLElement>('[data-packed-panel-id]')].map(panel => panel.dataset.packedPanelId);
+    expect(ids).toEqual([
+      'offer:offer-b', 'offer:offer-a', 'container:place',
+      'client-intent:core_functional_job:job', 'client-intent:related_job:rj',
+      'client-intent:consumption_chain_job:ccj', 'client-intent:emotional_job:ej',
+      'client-intent:social_job:sj', 'client-intent:financial_desired_outcome:fdo',
+    ]);
+    const types = within(region).getByRole('group', { name: 'Ground types' });
+    expect(within(types).getAllByRole('checkbox').map(input => input.parentElement?.textContent)).toEqual([
+      'Offer', 'Located in', 'Core Functional Job', 'Related Job', 'Consumption Chain Job',
+      'Emotional Job', 'Social Job', 'Financial Desired Outcome',
+    ]);
+    const cfj = region.querySelector<HTMLElement>('[data-packed-panel-id="client-intent:core_functional_job:job"]')!;
+    const disclosure = within(cfj).getByRole('button', { name: 'Make progress, 1 Touchpoints' });
+    expect(disclosure).toHaveAttribute('aria-controls', 'neighborhood-touch-client-intent%3Acore_functional_job%3Ajob');
+    await user.click(disclosure);
+    const comparison = within(cfj).getByRole('region', { name: 'Desired Outcome comparison with Very long neighboring consultation Touchpoint title' });
+    expect(within(comparison).getByText('Shared selected outcomes').parentElement).toHaveTextContent('Reduce delayHere viaSubscriptionVery long neighboring consultation Touchpoint title viaConsulting');
+    expect(within(comparison).getByText('Only Checkout').parentElement).toHaveTextContent('Reduce effortHere viaSubscription');
+    expect(within(comparison).getByText('Only Very long neighboring consultation Touchpoint title').parentElement).toHaveTextContent('Increase clarityVery long neighboring consultation Touchpoint title viaConsulting');
+    for (const id of ['client-intent:emotional_job:ej', 'client-intent:social_job:sj', 'client-intent:financial_desired_outcome:fdo']) {
+      const panel = region.querySelector<HTMLElement>(`[data-packed-panel-id="${id}"]`)!;
+      await user.click(within(panel).getByRole('button', { name: /Touchpoints$/ }));
+      expect(panel.querySelector('.semantic-neighborhood-job-outcome-branch')).not.toBeInTheDocument();
+      expect(within(panel).getByText('Here via').parentElement).toHaveTextContent('Subscription');
+    }
+    await user.click(within(types).getByRole('checkbox', { name: 'Offer' }));
+    await user.click(within(types).getByRole('checkbox', { name: 'Core Functional Job' }));
+    await user.click(within(region).getByRole('radio', { name: 'Hide' }));
+    expect([...region.querySelectorAll<HTMLElement>('[data-packed-panel-id]')].map(panel => panel.dataset.packedPanelId)).toEqual([
+      'client-intent:core_functional_job:job', 'offer:offer-b', 'offer:offer-a',
+    ]);
+    await user.click(within(region).getByRole('button', { name: 'Reset ground type filters' }));
+    expect(within(cfj).getByText('Shared selected outcomes')).toBeInTheDocument();
+    await user.click(within(cfj).getByRole('button', { name: 'Reduce delay' }));
+    expect(inspector.getByRole('heading', { name: 'Reduce delay' })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    const restored = inspector.getByRole('region', { name: 'Touchpoint neighborhood' });
+    const restoredCfj = restored.querySelector<HTMLElement>('[data-packed-panel-id="client-intent:core_functional_job:job"]')!;
+    await user.click(within(restoredCfj).getAllByRole('button', { name: 'Subscription' })[0]!);
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+    expect(source).toEqual(snapshot);
+  });
+
 });
 
 describe('Offer Inspector derived neighborhood', () => {
@@ -1617,7 +1707,7 @@ describe('Offer Inspector derived neighborhood', () => {
     for (const id of ['client-intent:emotional_job:ej', 'client-intent:social_job:sj', 'client-intent:financial_desired_outcome:fdo']) {
       const current = panel(id);
       await user.click(within(current).getByRole('button', { name: /Offers$/ }));
-      expect(current.querySelector('.offer-neighborhood-job-outcome-branch')).not.toBeInTheDocument();
+      expect(current.querySelector('.semantic-neighborhood-job-outcome-branch')).not.toBeInTheDocument();
       expect(within(current).queryByText('Shared selected outcomes')).not.toBeInTheDocument();
     }
     expect(within(panel('client-intent:financial_desired_outcome:fdo')).getByText('Financial Desired Outcome')).toBeInTheDocument();
