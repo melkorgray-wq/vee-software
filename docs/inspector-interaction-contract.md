@@ -2,7 +2,7 @@
 
 Status: **Accepted reference for new Inspector work**. It is grounded in `PRODUCT.md`, the hardened Touchpoint Inspector, domain operations, and regression evidence. It does not claim that every Inspector implements the contract or that the proposed architecture is final.
 
-Read this file and the [Inspector presentation contract](./inspector-presentation-contract.md) during Plan/task-stub preparation. Authority runs from repository/product contracts and accepted decisions, through runtime behavior, then automated regression evidence; documentation is corrected when it disagrees. Old notes and screenshots are clues only. Product/Offer section-wide Apply is legacy debt, never the reusable reference.
+Read this file and the [Inspector presentation contract](./inspector-presentation-contract.md) during Plan/task-stub preparation. For a new Inspector kind or Neighborhood extension, also follow the [Neighborhood functional contract](./inspector-neighborhood-functional-contract.md) and [transfer checklist](./inspector-presentation-contract.md#neighborhood-transfer-checklist); preserve the established shared transient-state and navigation behavior rather than recreating it per kind. Authority runs from repository/product contracts and accepted decisions, through runtime behavior, then automated regression evidence; documentation is corrected when it disagrees. Old notes and screenshots are clues only. Product/Offer section-wide Apply is legacy debt, never the reusable reference.
 
 ## Planning gate and audited owners
 
