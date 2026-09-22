@@ -1,6 +1,6 @@
 # Inspector Neighborhood functional contract
 
-Status: **Accepted functional contract for Inspector Neighborhood**. This contract defines accepted functional semantics and explicitly separates them from current runtime behavior, implementation gaps, accepted future direction, and deferred decisions. It is grounded in [`PRODUCT.md`](../PRODUCT.md), the [Inspector presentation contract](./inspector-presentation-contract.md), and the [Inspector interaction contract](./inspector-interaction-contract.md). It does not settle the proposed architecture, provisional ontology, or the deferred choices named below.
+Status: **Accepted functional contract for Inspector Neighborhood**. Offer and Touchpoint Neighborhood were accepted by the user after real-browser review on 23 September 2026 (implementation and polish PRs #171–#181). This contract separates accepted semantics from implemented runtime behavior and deferred choices; visual acceptance does not imply that every screen-reader/assistive-technology check was performed. It is grounded in [`PRODUCT.md`](../PRODUCT.md), the [Inspector presentation contract](./inspector-presentation-contract.md), and the [Inspector interaction contract](./inspector-interaction-contract.md). It does not settle the proposed architecture, provisional ontology, or the deferred choices named below.
 
 ## Purpose
 
@@ -69,11 +69,15 @@ Product, Offer, and Touchpoint are graph entities. `Located in` is a registry re
 - The six runtime ground-type labels are **Core Functional Job**, **Related Job**, **Consumption Chain Job**, **Emotional Job**, **Social Job**, and **Financial Desired Outcome**. They are local presentation labels for projection type IDs, not an ontology-wide taxonomy. Each semantic card is titled by its concrete Job or FDO entity; Job identity remains the ground even when Offer selections originate under different Products.
 - DO-bearing Job cards show each neighboring Offer's projection-owned common, inspected-only, and neighbor-only subsets. Empty subsets remain explicit `None`; these rows compare local Offer selections and do not decide whether the shared Job ground exists. Ordinary Desired Outcomes are detail, never grounds or count items. Emotional/Social Job cards have no ordinary-DO branch. FDO is an independent outcome ground, not a Job or inherited Product intent.
 - Both projections exclude concrete grounds without valid neighbors and omit the entire Neighborhood section when no nonempty grounds remain.
-- Shared `NeighborhoodGroups` owns rendering, count badges, disclosure, navigation links, stable group identity, and the shared layout behavior described by the presentation contract. Its optional rich expanded-content slot receives only the existing Inspector navigation callback; the Offer adapter owns semantic read content, while the renderer retains its unchanged neighbor-list fallback.
+- Shared `NeighborhoodGroups` owns cards, type controls, count badges, disclosure, navigation links, and stable layout identity. Both Offer and Touchpoint adapters supply a projection-specific read-only `NeighborhoodSemanticViewModel` to shared `SemanticNeighborhoodContent` through the optional rich expanded-content slot, which receives only the existing Inspector navigation callback; groups without it retain the ordinary shared neighbor-link fallback. The shared renderer never owns ontology matching or contributor attribution.
 - Disclosure and Inspector navigation follow the shared presentation and interaction contracts. Disclosure/filter state is transient UI state, not part of `MapDocument`.
 - Regression evidence currently lives in `apps/web/src/touchpoint-business-structure.test.ts`, `apps/web/src/offer-client-intent-neighborhood.test.ts`, `apps/web/src/touchpoint-client-intent-neighborhood.test.ts`, and `apps/web/src/routes/MapSpike.test.tsx`.
 
 This contract establishes functional semantics. It does not move entity-specific derivation into `NeighborhoodGroups`; the renderer consumes derived groups and must not become the ontology owner.
+
+## Reusing Neighborhood in another Inspector
+
+For the mandatory per-kind transfer sequence, owner chain, and evidence gate, use the [Neighborhood transfer checklist](./inspector-presentation-contract.md#neighborhood-transfer-checklist), which is explicitly required by `AGENTS.md` during Plan. Accepted Offer and Touchpoint grounds are examples of entity-owned semantics, not a template to copy onto Product, Client-side or other kinds. Only an approved kind-specific projection and adapter may extend the existing shared renderer. Keep geometry and interaction rules in their respective contracts rather than duplicating them here.
 
 ## Deferred decisions and open questions
 
@@ -86,7 +90,7 @@ The verified owner chains are:
 
 - Touchpoint derivation: `deriveTouchpointBusinessStructure()` and `otherTouchpointsByOffer` / `otherTouchpointsInContainer` in `apps/web/src/touchpoint-business-structure.ts`;
 - Offer Client-intent semantic derivation: `deriveOfferClientIntentNeighborhood()` in `apps/web/src/offer-client-intent-neighborhood.ts`, with focused regressions in `apps/web/src/offer-client-intent-neighborhood.test.ts`;
-- Touchpoint Client-intent semantic derivation (Step 4A): `deriveTouchpointClientIntentNeighborhood()` in `apps/web/src/touchpoint-client-intent-neighborhood.ts`, with focused regressions in `apps/web/src/touchpoint-client-intent-neighborhood.test.ts`;
+- Touchpoint Client-intent semantic derivation: `deriveTouchpointClientIntentNeighborhood()` in `apps/web/src/touchpoint-client-intent-neighborhood.ts`, with focused regressions in `apps/web/src/touchpoint-client-intent-neighborhood.test.ts`;
 - Inspector assembly and shared rendering: `touchpointBusinessStructureSection()`, `offerNeighborhoodSection()`, and `NeighborhoodGroups` in `apps/web/src/routes/MapSpike.tsx`;
 - presentation, disclosure, navigation, focus, and transient-state rules: the [Inspector presentation contract](./inspector-presentation-contract.md) and [Inspector interaction contract](./inspector-interaction-contract.md); and
 - regression evidence: `apps/web/src/touchpoint-business-structure.test.ts` and `apps/web/src/routes/MapSpike.test.tsx`.
