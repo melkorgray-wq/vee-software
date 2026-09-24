@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useReducer, useRef, useState, type CSSPrope
 import { createPortal } from 'react-dom';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, disclosureOverlayPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction, type Point, type WorkspaceShortcutState } from '../map-interaction';
@@ -18,6 +18,7 @@ import { Link } from '../router';
 import { commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, globalIntentDiscovery, touchpointClientScope, touchpointUpstreamSources, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft, type UpstreamLeaf } from './touchpoint-edit';
 import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
 import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets } from '../touchpoint-business-structure';
+import { deriveOfferBusinessStructure } from '../offer-business-structure';
 import { initialCompactOverviewExpandedGroupIds } from '../compact-overview-presentation';
 import { useClientScopePackedLayout, usePackedPanelLayout } from '../client-scope-packed-layout';
 import { deriveOfferClientIntentNeighborhood, type OfferClientIntentGround, type OfferClientIntentJobComparison, type OfferClientIntentGroundTypeId } from '../offer-client-intent-neighborhood';
@@ -94,6 +95,7 @@ type ProductConfirmation =
   | { mode: 'dirty'; pending: () => void; returnFocus: HTMLElement | null }
   | { mode: 'impact'; owner: 'product'; pending?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getProductIntentChangeImpact> }
   | { mode: 'impact'; owner: 'offer'; pending?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getOfferIntentChangeImpact> }
+  | { mode: 'impact'; owner: 'offer-product'; immediateCommit: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getOfferIntentChangeImpact> }
   | { mode: 'impact'; owner: 'touchpoint'; immediateCommit: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getTouchpointLinkedOfferChangeImpact> };
 type ClientScopeEditor = { mode: 'upstream' | 'global-search' | 'current-contributor-choice' | 'ancestor-contributor-choice' | 'invalid'; actionOrigin?: 'parent-source' | 'global-discovery'; query: string; kind?: ConnectionPickerKind | undefined; target?: { leaf: UpstreamLeaf } | undefined; currentContributorCandidateIds?: string[]; contributorOfferIds: string[]; ancestorContributingOfferIds: Record<string, string>; unresolved?: Extract<BottomUpTouchpointResult, { status: 'unresolved' | 'invalid' }> };
 type ChildrenEditor =
@@ -576,12 +578,14 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const [offersPicker, setOffersPicker] = useState<{ query: string } | null>(null);
   const [parentPicker, setParentPicker] = useState<{ query: string } | null>(null);
+  const [productPicker, setProductPicker] = useState<{ query: string } | null>(null);
   const [childrenEditor, setChildrenEditor] = useState<ChildrenEditor | null>(null);
   const relationEditorRef = useRef<HTMLDivElement>(null);
   const childrenEditorRef = useRef<HTMLDivElement>(null);
   const childrenEditorButtonRef = useRef<HTMLButtonElement>(null);
   const discardChildCreationRef = useRef(false);
   const parentPickerButtonRef = useRef<HTMLButtonElement>(null);
+  const productPickerButtonRef = useRef<HTMLButtonElement>(null);
   const locatedInEditButtonRef = useRef<HTMLButtonElement>(null);
   const urlEditButtonRef = useRef<HTMLButtonElement>(null);
   const offersPickerButtonRef = useRef<HTMLButtonElement>(null);
@@ -598,7 +602,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const connectionPickerButtonRef = useRef<HTMLButtonElement>(null);
   const clientScopeEditorRef = useRef<HTMLElement>(null);
   const [offerIntentSectionIds, setOfferIntentSectionIds] = useState<Record<string, string[]>>({});
-  const [offerSelectionMemory, setOfferSelectionMemory] = useState<Record<string, string[]>>({});
+  const [, setOfferSelectionMemory] = useState<Record<string, string[]>>({});
   const [productIntentSectionIds, setProductIntentSectionIds] = useState<string[]>([]);
   const [rememberedProductOutcomes, setRememberedProductOutcomes] = useState<Record<string, string[]>>({});
   const rememberedProductOutcomesRef = useRef<Record<string, string[]>>({});
@@ -644,6 +648,9 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const touchpointBusinessStructure = selected?.kind === 'touchpoint'
     ? deriveTouchpointBusinessStructure(document, selected.id)
     : undefined;
+  const offerBusinessStructure = selected?.kind === 'offer'
+    ? deriveOfferBusinessStructure(document, selected.id)
+    : undefined;
   const inspectorDirty = Boolean(selected && editDraft && (() => { const baseline = draftFor(selected); return JSON.stringify({ ...editDraft, touchpointIntent: undefined }) !== JSON.stringify({ ...baseline, touchpointIntent: undefined }) || Boolean(editDraft.touchpointIntent && baseline.touchpointIntent && !equalTouchpointIntentDraft(editDraft.touchpointIntent, baseline.touchpointIntent)); })());
 
   function resetDocumentInteractionState() {
@@ -659,6 +666,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setCreateDraft(draft());
     setOffersPicker(null);
     setParentPicker(null);
+    setProductPicker(null);
     setChildrenEditor(null);
     setBusinessInlineEdit(null);
     setConnectionPicker(null);
@@ -768,9 +776,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   }
   type RelationEditorCloseReason = 'explicit' | 'commit' | 'pointer' | 'switch-editor';
   function closeRelationEditor(reason: RelationEditorCloseReason) {
-    const focusTarget = offersPicker ? offersPickerButtonRef : parentPicker ? parentPickerButtonRef : null;
+    const focusTarget = offersPicker ? offersPickerButtonRef : parentPicker ? parentPickerButtonRef : productPicker ? productPickerButtonRef : null;
     setOffersPicker(null);
     setParentPicker(null);
+    setProductPicker(null);
     if (reason === 'explicit' || reason === 'commit') requestAnimationFrame(() => focusTarget?.current?.focus());
   }
   type ClientScopeEditorCloseReason = 'explicit' | 'pointer' | 'switch-editor';
@@ -792,6 +801,13 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     if (!closeClientScopeEditor('switch-editor')) return;
     setBusinessInlineEdit(null);
     setOffersPicker({ query: '' });
+  }
+  function openProductEditor() {
+    setChildrenEditor(null);
+    closeRelationEditor('switch-editor');
+    if (!closeClientScopeEditor('switch-editor')) return;
+    setBusinessInlineEdit(null);
+    setProductPicker({ query: '' });
   }
   function openParentEditor() {
     setChildrenEditor(null);
@@ -836,7 +852,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     return () => { globalThis.document.removeEventListener('pointerdown', pointer); globalThis.document.removeEventListener('keydown', keyboard); };
   }, [childrenEditor]);
   useEffect(() => {
-    if (!offersPicker && !parentPicker) return;
+    if (!offersPicker && !parentPicker && !productPicker) return;
     const dismissOnPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof globalThis.Node) || relationEditorRef.current?.contains(target) || confirmationRef.current?.contains(target)) return;
@@ -853,7 +869,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       globalThis.document.removeEventListener('pointerdown', dismissOnPointerDown);
       globalThis.document.removeEventListener('keydown', dismissOnEscape);
     };
-  }, [offersPicker, parentPicker, productConfirmation]);
+  }, [offersPicker, parentPicker, productPicker, productConfirmation]);
   useEffect(() => {
     if (!connectionPicker) return;
     const dismissOnPointerDown = (event: PointerEvent) => {
@@ -982,6 +998,42 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     }
     commitLinkedOffersImmediately(touchpointId, targetOfferIds);
   }
+  function commitOfferProductImmediately(offerId: string, productId: string, confirmedImpact = false) {
+    try {
+      const before = documentRef.current;
+      const committed = changeOfferProduct(before, { offerId, productId, confirmedImpact });
+      const next = reconsiderPlacementAfterRelationCommit(before, committed, VIEW_ID, offerId);
+      setDocument(next);
+      setEditDraft(current => current ? {
+        ...current,
+        linkedProductId: productId,
+        selectedIntentIds: [],
+        offerIntentOutcomes: {},
+      } : current);
+      setOfferExpanded({});
+      setOfferIntentSectionIds({ [productId]: [] });
+      setOfferSelectionMemory({ [productId]: [] });
+      closeRelationEditor('commit');
+      publishSuccess('Product updated.');
+    } catch (error) {
+      publishError(error instanceof Error ? error.message : 'Product could not be updated.');
+    }
+  }
+  function requestOfferProductCommit(productId: string, returnFocus: HTMLElement | null) {
+    if (selected?.kind !== 'offer' || !offerBusinessStructure || offerBusinessStructure.product.id === productId) {
+      closeRelationEditor('commit');
+      return;
+    }
+    const offerId = selected.id;
+    const durable = documentRef.current;
+    const financialDesiredOutcomeIds = durable.offerFinancialIntents.filter(intent => intent.offerId === offerId).map(intent => intent.financialDesiredOutcomeId);
+    const impact = getOfferIntentChangeImpact(durable, { offerId, productId, selections: [], financialDesiredOutcomeIds });
+    if (impact.touchpointJobSelectionIds.length || impact.narrowedTouchpointSelections.length || impact.touchpointFinancialSelectionIds.length) {
+      setProductConfirmation({ mode: 'impact', owner: 'offer-product', impact, returnFocus, immediateCommit: () => commitOfferProductImmediately(offerId, productId, true) });
+      return;
+    }
+    commitOfferProductImmediately(offerId, productId);
+  }
   function commitParentImmediately(touchpointId: string, parentTouchpointId: string) {
     const before = documentRef.current;
     const currentParentId = before.relationships.find((relation): relation is Extract<Relationship, { kind: 'touchpoint_contains_touchpoint' }> => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === touchpointId)?.parentTouchpointId ?? '';
@@ -1044,6 +1096,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setBusinessInlineEdit(null);
     setOffersPicker(null);
     setParentPicker(null);
+    setProductPicker(null);
     setConnectionPicker(null);
     setInspectorTitleEdit(null);
     const entity = documentRef.current.entities.find((e) => e.id === id);
@@ -2422,6 +2475,39 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       {neighborhoodGroups.length > 0 && <NeighborhoodGroups groups={neighborhoodGroups} entityNoun="Touchpoints" inspectedOwnerId={structure.touchpoint.id} expansionSnapshot={storedExpansion} onToggle={toggleNeighborhoodGroup} emptyStateText="No related Touchpoints" onNavigate={navigateInspector} ariaLabel="Touchpoint neighborhood" contentIdPrefix="neighborhood" />}
     </>;
   }
+  function offerBusinessStructureSection() {
+    const structure = offerBusinessStructure;
+    if (!structure) return null;
+    const products = document.entities.filter((entity): entity is Extract<Entity, { kind: 'product' }> => entity.kind === 'product');
+    const query = productPicker?.query.trim().toLocaleLowerCase() ?? '';
+    const candidates = products.filter(product => !query || product.title.toLocaleLowerCase().includes(query));
+    const searchable = products.length >= RELATION_EDITOR_SEARCH_THRESHOLD;
+    const navigationList = (entities: { id: string; title: string }[]) => entities.length
+      ? <ul className="business-structure-links">{entities.map(entity => <li key={entity.id}><button type="button" onClick={() => navigateInspector(entity.id)}>{entity.title}</button></li>)}</ul>
+      : <p className="business-structure-empty">No connected Touchpoints.</p>;
+    return <section className="touchpoint-business-structure" aria-label="Business structure">
+      <div className="business-structure-primary">
+        <div className="business-structure-regions">
+          <section className="business-structure-region business-structure-placement" aria-labelledby="offer-product-heading">
+            {productPicker ? <h5 id="offer-product-heading">Product</h5> : <h5 id="offer-product-heading"><button ref={productPickerButtonRef} data-touchpoint-editor-affordance type="button" className="inspector-property-heading-action" aria-label="Edit Product" onClick={openProductEditor}>Product<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h5>}
+            <div className="business-structure-property" role="group" aria-label="Product property">
+              {productPicker ? <div ref={relationEditorRef} className="inspector-relation-editor" aria-label="Product editor">
+                <div className="inspector-relation-editor-header"><strong>Product</strong><button type="button" className="inspector-secondary-action" onClick={() => closeRelationEditor('explicit')}>Close</button></div>
+                {searchable && <label className="inspector-relation-editor-search" htmlFor="offer-product-search">Search Products<input autoFocus id="offer-product-search" type="search" value={productPicker.query} onChange={event => setProductPicker({ query: event.target.value })} /></label>}
+                <div className="inspector-relation-candidates" role="radiogroup" aria-label="Product options" aria-live="polite">
+                  {candidates.length ? candidates.map((product, index) => <label className="inspector-relation-row inspector-relation-row-radio" key={product.id}><input autoFocus={!searchable && index === 0} type="radio" name="offer-product" checked={structure.product.id === product.id} onChange={() => undefined} onClick={event => requestOfferProductCommit(product.id, event.currentTarget)} /><span className="inspector-relation-indicator" aria-hidden="true" /><span>{product.title}</span></label>) : <p role="status">No matching Products.</p>}
+                </div>
+              </div> : navigationList([structure.product])}
+            </div>
+          </section>
+          <section className="business-structure-region business-structure-containment" aria-labelledby="offer-presentation-heading">
+            <h5 id="offer-presentation-heading">Presentation</h5>
+            <div className="business-structure-property" role="group" aria-label="Connected Touchpoints property"><h5>Connected Touchpoints</h5>{navigationList(structure.touchpoints)}</div>
+          </section>
+        </div>
+      </div>
+    </section>;
+  }
   function offerNeighborhoodSection() {
     if (selected?.kind !== 'offer') return null;
     type OfferEntity = Extract<Entity, { kind: 'offer' }>;
@@ -3002,36 +3088,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               {touchpointBusinessStructureSection()}
               {touchpointClientScopeSection()}
               {touchpointResistanceSection()}
-              {selected.kind === 'offer' && (
-                <div className="connected-field">
-                <label>
-                  Linked Product
-                  <select
-                    value={editDraft.linkedProductId}
-                    onChange={(e) => {
-                      const linkedProductId = e.target.value;
-                      const memory = { ...offerSelectionMemory, [editDraft.linkedProductId]: editDraft.selectedIntentIds };
-                      setOfferSelectionMemory(memory);
-                      setOfferIntentSectionIds(current => current[linkedProductId] ? current : { ...current, [linkedProductId]: [] });
-                      setEditDraft({
-                        ...editDraft,
-                        linkedProductId,
-                        selectedIntentIds: memory[linkedProductId] ?? [],
-                      });
-                    }}
-                  >
-                    {document.entities
-                      .filter((e) => e.kind === 'product')
-                      .map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.title}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                {document.entities.find(entity => entity.id === editDraft.linkedProductId) && <button type="button" className="connected-title" onClick={() => navigateInspector(editDraft.linkedProductId)}>{entityTitle(document, editDraft.linkedProductId)}</button>}
-                </div>
-              )}
+              {offerBusinessStructureSection()}
               {offerNeighborhoodSection()}
               {productIntentFields(editDraft, setEditDraft)}
               {offerIntentFields(editDraft, setEditDraft)}
@@ -3075,7 +3132,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 {productConfirmation.impact.narrowedTouchpointSelections.map(item => { const selection = document.touchpointJobSelections.find(candidate => candidate.id === item.touchpointJobSelectionId); const touchpoint = document.entities.find(entity => entity.id === selection?.touchpointId); return <p key={item.touchpointJobSelectionId}><strong>{touchpoint?.title}</strong><span>loses {item.removedDesiredOutcomeIds.map(id => document.entities.find(entity => entity.id === id)?.title).join(', ')}</span></p>; })}
               </div>
             )}
-            {productConfirmation.mode === 'impact' && productConfirmation.owner === 'offer' && (
+            {productConfirmation.mode === 'impact' && (productConfirmation.owner === 'offer' || productConfirmation.owner === 'offer-product') && (
               <div className="impact-list">
                 {productConfirmation.impact.touchpointJobSelectionIds.map(id => { const selection = document.touchpointJobSelections.find(item => item.id === id); const touchpoint = document.entities.find(entity => entity.id === selection?.touchpointId); const intent = document.productJobIntents.find(item => item.id === selection?.productJobIntentId); const job = document.entities.find(entity => entity.id === intent?.jobId); return <p key={id}><strong>{touchpoint?.title}</strong><span>loses {job?.title}</span></p>; })}
                 {productConfirmation.impact.narrowedTouchpointSelections.map(item => { const selection = document.touchpointJobSelections.find(candidate => candidate.id === item.touchpointJobSelectionId); const touchpoint = document.entities.find(entity => entity.id === selection?.touchpointId); return <p key={item.touchpointJobSelectionId}><strong>{touchpoint?.title}</strong><span>loses {item.removedDesiredOutcomeIds.map(id => document.entities.find(entity => entity.id === id)?.title).join(', ')}</span></p>; })}
@@ -3094,7 +3151,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 <button type="button" onClick={closeProductConfirmation}>Keep editing</button>
               </> : <>
                 <button type="button" onClick={closeProductConfirmation}>Cancel</button>
-                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; setProductConfirmation(null); if (confirmation.owner === 'touchpoint') { confirmation.immediateCommit(); requestAnimationFrame(() => confirmation.returnFocus?.focus()); } else { productApplyBypassRef.current = true; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>{productConfirmation.owner === 'touchpoint' ? 'Confirm removal' : 'Apply changes'}</button>
+                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; setProductConfirmation(null); if (confirmation.owner === 'touchpoint' || confirmation.owner === 'offer-product') { confirmation.immediateCommit(); requestAnimationFrame(() => confirmation.returnFocus?.focus()); } else { productApplyBypassRef.current = true; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>{productConfirmation.owner === 'touchpoint' || productConfirmation.owner === 'offer-product' ? 'Confirm removal' : 'Apply changes'}</button>
               </>}
             </div>
           </div>
