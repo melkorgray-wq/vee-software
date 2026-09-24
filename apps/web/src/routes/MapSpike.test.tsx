@@ -2002,6 +2002,49 @@ describe('Offer Inspector derived neighborhood', () => {
     expect((inspector.getByRole('checkbox', { name: /Stay affordable/ }) as HTMLInputElement).checked).toBe(dirtyFinancialState);
     expect(inspector.getByLabelText('Connected Touchpoints editor')).toBeInTheDocument();
   });
+
+  it('commits the TQO child-parent-child detach sequence without reauthoring surviving intent', async () => {
+    const user = userEvent.setup();
+    const source = offerNeighborhoodDocument();
+    const touchpoints = [
+      { id: 'tqo-parent', kind: 'touchpoint' as const, title: 'Partnership request' },
+      { id: 'tqo-book', kind: 'touchpoint' as const, title: 'Leadform · Book a call' },
+      { id: 'tqo-context', kind: 'touchpoint' as const, title: 'Leadform · Send context' },
+    ];
+    source.entities.push(...touchpoints);
+    source.placements.push(...touchpoints.map((entity, index) => ({ viewId: 'spike-view', entityId: entity.id, x: 3000 + index * 140, y: 0 })));
+    source.relationships.push(
+      { id: 'tqo-parent-book', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'tqo-parent', childTouchpointId: 'tqo-book' },
+      { id: 'tqo-parent-context', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'tqo-parent', childTouchpointId: 'tqo-context' },
+      ...['offer-a', 'offer-b', 'offer-c'].flatMap(offerId => touchpoints.map(touchpoint => ({ id: `${offerId}-${touchpoint.id}`, kind: 'offer_presented_at_touchpoint' as const, offerId, touchpointId: touchpoint.id }))),
+    );
+    source.productJobIntents.push({ id: 'tqo-intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
+    source.offerJobSelections.push(
+      { id: 'tqo-offer-a', offerId: 'offer-a', productJobIntentId: 'tqo-intent' },
+      { id: 'tqo-offer-b', offerId: 'offer-b', productJobIntentId: 'tqo-intent' },
+      { id: 'tqo-offer-c', offerId: 'offer-c', productJobIntentId: 'tqo-intent' },
+    );
+    source.touchpointJobSelections.push(
+      { id: 'tqo-parent-path', touchpointId: 'tqo-parent', offerId: 'offer-a', productJobIntentId: 'tqo-intent', addressedDesiredOutcomeIds: ['do-a'] },
+      { id: 'tqo-book-a', touchpointId: 'tqo-book', offerId: 'offer-a', productJobIntentId: 'tqo-intent', addressedDesiredOutcomeIds: ['do-a'] },
+      { id: 'tqo-book-b', touchpointId: 'tqo-book', offerId: 'offer-b', productJobIntentId: 'tqo-intent', addressedDesiredOutcomeIds: ['do-a'] },
+      { id: 'tqo-context-a', touchpointId: 'tqo-context', offerId: 'offer-a', productJobIntentId: 'tqo-intent', addressedDesiredOutcomeIds: ['do-a'] },
+      { id: 'tqo-context-c', touchpointId: 'tqo-context', offerId: 'offer-c', productJobIntentId: 'tqo-intent', addressedDesiredOutcomeIds: ['do-a'] },
+    );
+
+    const inspector = await inspectOffer(user, source);
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+    await user.click(structure.getByRole('button', { name: 'Edit Connected Touchpoints' }));
+    for (const title of ['Leadform · Book a call', 'Partnership request', 'Leadform · Send context']) {
+      const checkbox = within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: title });
+      await user.click(checkbox);
+      await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Confirm removal' }));
+      expect(within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: title })).not.toBeChecked();
+    }
+    expect(inspector.queryByText(/Ancestor contributor resolution/)).not.toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump().touchpointJobSelections).toContainEqual(expect.objectContaining({ id: 'tqo-context-c' }));
+    expect(window.__VEE_DEV__!.dump().touchpointJobSelections.filter(selection => selection.touchpointId === 'tqo-parent')).toEqual([]);
+  });
 });
 
 describe('map-first authoring interactions', () => {
