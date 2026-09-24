@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, removeProductJobIntent, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, createEmptyMapDocument, duplicateEntity, movePlacement, updateEntity, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct, planTouchpointIntentPathChange, commitTouchpointIntentPathPlan, commitTouchpointParent, planTouchpointStructuralChange } from './index';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, removeProductJobIntent, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, changeOfferProduct, createEmptyMapDocument, duplicateEntity, movePlacement, updateEntity, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct, planTouchpointIntentPathChange, commitTouchpointIntentPathPlan, commitTouchpointParent, planTouchpointStructuralChange } from './index';
 
 function completed(result: ReturnType<typeof authorTouchpointIntentBottomUp>) { if (result.status !== 'complete') throw new Error(`Expected complete, got ${result.status}`); return result.document; }
 
@@ -221,6 +221,48 @@ describe('map authoring domain', () => {
       expect(getOfferIntentChangeImpact(d, { offerId: 'offer', productId: 'product', selections: [{ productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['outcome'] }], financialDesiredOutcomeIds: [] })).toEqual({
         touchpointJobSelectionIds: [], narrowedTouchpointSelections: [{ touchpointJobSelectionId: 'touch-selection', removedDesiredOutcomeIds: ['outcome-b'] }], touchpointFinancialSelectionIds: [],
       });
+    });
+    it('changes an Offer Product atomically, preserves the relationship ID and unrelated records, and treats the current Product as a no-op', () => {
+      let d = addProductJobIntent(intentDocument(), { id: 'intent', productId: 'product', jobId: 'core', addressedDesiredOutcomeIds: ['outcome'] });
+      d = addEntity(d, { ...place, entityId: 'other-product', title: 'Other Product', kind: 'product' });
+      d = addEntity(d, { ...place, entityId: 'offer', title: 'Offer', kind: 'offer', linkedProductId: 'product', relationshipId: 'packaged' });
+      d = addEntity(d, { ...place, entityId: 'unrelated-offer', title: 'Unrelated', kind: 'offer', linkedProductId: 'product', relationshipId: 'unrelated-packaged' });
+      d = setOfferJobSelections(d, { offerId: 'offer', productJobIntentIds: ['intent'], newSelectionIds: ['selection'] });
+      d = setOfferJobSelections(d, { offerId: 'unrelated-offer', productJobIntentIds: ['intent'], newSelectionIds: ['unrelated-selection'] });
+      expect(changeOfferProduct(d, { offerId: 'offer', productId: 'product' })).toBe(d);
+      const changed = changeOfferProduct(d, { offerId: 'offer', productId: 'other-product' });
+      expect(changed.relationships).toContainEqual({ id: 'packaged', kind: 'product_packaged_as_offer', productId: 'other-product', offerId: 'offer' });
+      expect(changed.offerJobSelections).not.toContainEqual(expect.objectContaining({ offerId: 'offer' }));
+      expect(changed.offerJobSelections).toContainEqual(expect.objectContaining({ id: 'unrelated-selection' }));
+    });
+    it('validates Offer and Product IDs and requires confirmation before applying downstream impact', () => {
+      let d = addProductJobIntent(intentDocument(), { id: 'intent', productId: 'product', jobId: 'core', addressedDesiredOutcomeIds: ['outcome'] });
+      d = addEntity(d, { ...place, entityId: 'other-product', title: 'Other Product', kind: 'product' });
+      d = addEntity(d, { ...place, entityId: 'offer', title: 'Offer', kind: 'offer', linkedProductId: 'product', relationshipId: 'packaged' });
+      d = setOfferJobSelections(d, { offerId: 'offer', productJobIntentIds: ['intent'], newSelectionIds: ['selection'] });
+      d = addEntity(d, { ...place, entityId: 'touch', title: 'Touchpoint', kind: 'touchpoint', linkedOfferIds: ['offer'], relationshipIds: ['presented'] });
+      d = setTouchpointIntentSelections(d, { touchpointId: 'touch', selections: [{ id: 'touch-selection', kind: 'job', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['outcome'] }] });
+      expect(() => changeOfferProduct(d, { offerId: 'missing', productId: 'other-product' })).toThrow('Offer');
+      expect(() => changeOfferProduct(d, { offerId: 'offer', productId: 'missing' })).toThrow('Product');
+      expect(() => changeOfferProduct(d, { offerId: 'offer', productId: 'other-product' })).toThrow('confirmation');
+      expect(d.relationships).toContainEqual(expect.objectContaining({ id: 'packaged', productId: 'product' }));
+      expect(d.offerJobSelections).toContainEqual(expect.objectContaining({ id: 'selection' }));
+      expect(d.touchpointJobSelections).toContainEqual(expect.objectContaining({ id: 'touch-selection' }));
+      const changed = changeOfferProduct(d, { offerId: 'offer', productId: 'other-product', confirmedImpact: true });
+      expect(changed.offerJobSelections).toEqual([]);
+      expect(changed.touchpointJobSelections).toEqual([]);
+    });
+    it('preserves Product-independent Offer and Touchpoint financial intent during a Product change', () => {
+      let d = intentDocument();
+      d = addEntity(d, { ...place, entityId: 'other-product', title: 'Other Product', kind: 'product' });
+      d = addEntity(d, { ...place, entityId: 'financial', title: 'Budget', kind: 'financial_desired_outcome' });
+      d = addEntity(d, { ...place, entityId: 'offer', title: 'Offer', kind: 'offer', linkedProductId: 'product', relationshipId: 'packaged' });
+      d = setOfferFinancialIntents(d, { offerId: 'offer', financialDesiredOutcomeIds: ['financial'], newIntentIds: ['financial-intent'] });
+      d = addEntity(d, { ...place, entityId: 'touch', title: 'Touchpoint', kind: 'touchpoint', linkedOfferIds: ['offer'], relationshipIds: ['presented'] });
+      d = setTouchpointIntentSelections(d, { touchpointId: 'touch', selections: [{ id: 'touch-financial', kind: 'financial', offerId: 'offer', offerFinancialIntentId: 'financial-intent' }] });
+      const changed = changeOfferProduct(d, { offerId: 'offer', productId: 'other-product' });
+      expect(changed.offerFinancialIntents).toEqual(d.offerFinancialIntents);
+      expect(changed.touchpointFinancialSelections).toEqual(d.touchpointFinancialSelections);
     });
     it('removing an addressed Outcome preserves Client ontology and duplication creates fresh authored record IDs', () => {
       let d = addProductJobIntent(intentDocument(), { id: 'intent', productId: 'product', jobId: 'core', addressedDesiredOutcomeIds: ['outcome'] });

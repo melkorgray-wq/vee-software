@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StrictMode, useEffect, useState, type MouseEvent, type ReactNode } from 'react';
@@ -1392,10 +1392,13 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(inspector.queryByRole('textbox', { name: 'URL' })).not.toBeInTheDocument();
   });
 
-  it('non-Touchpoint Inspector does not render Touchpoint Business structure', async () => {
+  it('Offer Inspector replaces Touchpoint-specific structure with its own Product and Presentation regions', async () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(structureDocument());
     await user.click(within(inspector.getByRole('region', { name: 'Business structure' })).getAllByRole('button', { name: 'Subscription' })[0]!);
-    expect(inspector.queryByRole('region', { name: 'Business structure' })).not.toBeInTheDocument();
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+    expect(structure.getByRole('button', { name: 'Edit Product' })).toHaveTextContent('ProductClick to edit');
+    expect(structure.getByRole('heading', { name: 'Presentation' })).toBeInTheDocument();
+    expect(structure.queryByRole('button', { name: 'Edit linked Offers' })).not.toBeInTheDocument();
   });
 
   it('keeps successful operation feedback available until its timeout expires', () => {
@@ -1797,24 +1800,88 @@ describe('Offer Inspector derived neighborhood', () => {
     expect(document).toEqual(snapshot);
   });
 
-  it('retains linked-Product draft editing and its dirty navigation guard', async () => {
+  it('commits Product locally while retaining unrelated draft edits and their dirty navigation guard', async () => {
     const user = userEvent.setup();
     const document = offerNeighborhoodDocument();
     let inspector = await inspectOffer(user, document);
-    await user.selectOptions(inspector.getByLabelText('Linked Product'), 'product-other');
+    const financial = inspector.getByRole('checkbox', { name: /Stay affordable/ });
+    await user.click(financial);
     expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
-    const neighborhood = within(inspector.getByRole('region', { name: 'Offer neighborhood' }));
-    expect(neighborhood.getByRole('button', { name: 'Other Offers for Orbit, 2 Offers' })).toBeInTheDocument();
-    expect(neighborhood.getByRole('button', { name: 'Other Offers for Orbit, 2 Offers' })).toHaveAttribute('aria-expanded', 'true');
-    await user.click(neighborhood.getByRole('button', { name: 'Advisory' }));
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+    await user.click(structure.getByRole('button', { name: 'Edit Product' }));
+    expect(inspector.queryByLabelText('Linked Product')).not.toBeInTheDocument();
+    const editor = within(inspector.getByLabelText('Product editor'));
+    expect(editor.queryByRole('button', { name: /Clear/ })).not.toBeInTheDocument();
+    await user.click(editor.getByRole('radio', { name: 'Other Product' }));
+    expect(inspector.queryByLabelText('Product editor')).not.toBeInTheDocument();
+    expect(structure.getByRole('button', { name: 'Other Product' })).toBeInTheDocument();
+    expect(financial).toBeChecked();
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
+    await user.click(structure.getByRole('button', { name: 'Other Product' }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Discard/ }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Keep editing' }));
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
+    await user.click(structure.getByRole('button', { name: 'Other Product' }));
     inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
-    expect(inspector.getByRole('heading', { name: 'Advisory' })).toBeInTheDocument();
+    expect(inspector.getByRole('heading', { name: 'Other Product' })).toBeInTheDocument();
     await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
     expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
-    expect(inspector.getByLabelText('Linked Product')).toHaveValue('product');
+    expect(within(inspector.getByRole('region', { name: 'Business structure' })).getByRole('button', { name: 'Other Product' })).toBeInTheDocument();
+  });
+
+  it('orders Business structure before Neighborhood and Client intent and applies exact Product-change impact only after confirmation', async () => {
+    const user = userEvent.setup();
+    const source = semanticTouchpointNeighborhoodDocument();
+    source.entities.push({ id: 'replacement-product', kind: 'product', title: 'Replacement Product' });
+    source.placements.push({ viewId: 'spike-view', entityId: 'replacement-product', x: 3000, y: 0 });
+    const inspector = await inspectOffer(user, source);
+    const form = inspector.getByRole('button', { name: 'Apply changes' }).closest('form')!;
+    const structure = inspector.getByRole('region', { name: 'Business structure' });
+    const neighborhood = inspector.getByRole('region', { name: 'Offer neighborhood' });
+    const clientIntent = inspector.getByRole('group', { name: 'Client intent' });
+    expect(structure.compareDocumentPosition(neighborhood) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(neighborhood.compareDocumentPosition(clientIntent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(form.querySelectorAll('.business-structure-links button')).not.toHaveLength(0);
+
+    const heading = within(structure).getByRole('button', { name: 'Edit Product' });
+    await user.click(heading);
+    const editor = within(inspector.getByLabelText('Product editor'));
+    await user.click(editor.getByRole('radio', { name: 'Replacement Product' }));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getAllByText(/loses/).length).toBeGreaterThan(0);
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(inspector.getByLabelText('Product editor')).toBeInTheDocument();
+    expect(within(structure).getByRole('radio', { name: 'Orbit' })).toBeChecked();
+
+    await user.click(within(inspector.getByLabelText('Product editor')).getByRole('radio', { name: 'Replacement Product' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Confirm removal' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(within(structure).getByRole('button', { name: 'Replacement Product' })).toBeInTheDocument();
+    await waitFor(() => expect(within(structure).getByRole('button', { name: 'Edit Product' })).toHaveFocus());
+  });
+
+  it('supports Close, Escape, pointer dismissal, and committed-only empty Presentation without exposing an editor', async () => {
+    const user = userEvent.setup();
+    const source = offerNeighborhoodDocument();
+    source.relationships = source.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint' || relation.offerId !== 'offer-a');
+    const inspector = await inspectOffer(user, source);
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+    expect(structure.getByText('No connected Touchpoints.')).toBeInTheDocument();
+    expect(structure.queryByRole('button', { name: /Edit.*Touchpoint/i })).not.toBeInTheDocument();
+    const heading = structure.getByRole('button', { name: 'Edit Product' });
+    await user.click(heading);
+    await user.click(within(inspector.getByLabelText('Product editor')).getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(structure.getByRole('button', { name: 'Edit Product' })).toHaveFocus());
+    await user.click(structure.getByRole('button', { name: 'Edit Product' }));
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(structure.getByRole('button', { name: 'Edit Product' })).toHaveFocus());
+    await user.click(structure.getByRole('button', { name: 'Edit Product' }));
+    await user.pointer({ target: inspector.getByRole('heading', { name: 'Subscription' }), keys: '[MouseLeft]' });
+    expect(inspector.queryByLabelText('Product editor')).not.toBeInTheDocument();
+    expect(structure.getByRole('button', { name: 'Edit Product' })).not.toHaveFocus();
   });
 });
 

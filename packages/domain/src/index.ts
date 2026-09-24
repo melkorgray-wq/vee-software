@@ -593,6 +593,53 @@ export function getOfferIntentChangeImpact(document: MapDocument, input: { offer
   };
 }
 
+const hasOfferIntentChangeImpact = (impact: OfferIntentChangeImpact) =>
+  impact.touchpointJobSelectionIds.length > 0
+  || impact.narrowedTouchpointSelections.length > 0
+  || impact.touchpointFinancialSelectionIds.length > 0;
+
+/** Atomically changes an Offer's required Product while preserving the relationship identity. */
+export function changeOfferProduct(document: MapDocument, input: { offerId: string; productId: string; confirmedImpact?: boolean }): MapDocument {
+  entityOfKind(document, input.offerId, 'offer', 'Offer');
+  entityOfKind(document, input.productId, 'product', 'Product');
+  const relationships = document.relationships.filter((relation): relation is Extract<Relationship, { kind: 'product_packaged_as_offer' }> =>
+    relation.kind === 'product_packaged_as_offer' && relation.offerId === input.offerId,
+  );
+  if (relationships.length !== 1) throw new DomainError('invalid_offer_product_relationship', 'Offer must have exactly one valid Product relationship.');
+  const relationship = relationships[0]!;
+  entityOfKind(document, relationship.productId, 'product', 'Current Product');
+  if (relationship.productId === input.productId) return document;
+
+  const financialDesiredOutcomeIds = document.offerFinancialIntents
+    .filter(intent => intent.offerId === input.offerId)
+    .map(intent => intent.financialDesiredOutcomeId);
+  const impact = getOfferIntentChangeImpact(document, {
+    offerId: input.offerId,
+    productId: input.productId,
+    selections: [],
+    financialDesiredOutcomeIds,
+  });
+  if (hasOfferIntentChangeImpact(impact) && !input.confirmedImpact) {
+    throw new DomainError('offer_product_change_confirmation_required', 'Changing this Product requires confirmation of its downstream impact.');
+  }
+
+  const removedTouchpointJobIds = new Set(impact.touchpointJobSelectionIds);
+  const removedTouchpointFinancialIds = new Set(impact.touchpointFinancialSelectionIds);
+  const narrowedScopes = new Map(impact.narrowedTouchpointSelections.map(item => [item.touchpointJobSelectionId, new Set(item.removedDesiredOutcomeIds)]));
+  return pruneIrrelevantTouchpointMitigations({
+    ...document,
+    relationships: document.relationships.map(candidate => candidate.id === relationship.id ? { ...candidate, productId: input.productId } : candidate),
+    offerJobSelections: document.offerJobSelections.filter(selection => selection.offerId !== input.offerId),
+    touchpointJobSelections: document.touchpointJobSelections
+      .filter(selection => !removedTouchpointJobIds.has(selection.id))
+      .map(selection => {
+        const removed = narrowedScopes.get(selection.id);
+        return removed ? { ...selection, addressedDesiredOutcomeIds: selection.addressedDesiredOutcomeIds.filter(id => !removed.has(id)) } : selection;
+      }),
+    touchpointFinancialSelections: document.touchpointFinancialSelections.filter(selection => !removedTouchpointFinancialIds.has(selection.id)),
+  });
+}
+
 /** Calculates the durable downstream records affected by replacing one Product's Job intent. */
 export function getProductIntentChangeImpact(document: MapDocument, input: { productId: string; intents: { jobId: string; addressedDesiredOutcomeIds: string[] }[] }): ProductIntentChangeImpact {
   entityOfKind(document, input.productId, 'product', 'Product');
