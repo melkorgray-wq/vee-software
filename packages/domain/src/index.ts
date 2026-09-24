@@ -195,6 +195,14 @@ export interface TouchpointIntentDraft {
   pendingFinancialLeafIds: string[];
 }
 
+function touchpointIntentResolutionMessage(document: MapDocument, result: { touchpointId: string; candidateOfferIds?: string[] }, semanticLeafId: string): string {
+  const title = (id: string) => document.entities.find(entity => entity.id === id)?.title ?? id;
+  const candidates = result.candidateOfferIds?.map(id => `${title(id)} (${id})`).join(', ');
+  return candidates
+    ? `Choose a contributing Offer for ancestor Touchpoint ${title(result.touchpointId)} (${result.touchpointId}) while authoring ${title(semanticLeafId)} (${semanticLeafId}). Candidates: ${candidates}.`
+    : `No contributing Offer path is available at ancestor Touchpoint ${title(result.touchpointId)} (${result.touchpointId}) while authoring ${title(semanticLeafId)} (${semanticLeafId}).`;
+}
+
 /** Replaces the authored local scope; upstream Product and Offer intent is never mutated. */
 export function setTouchpointIntentSelections(document: MapDocument, input: { touchpointId: string; selections: TouchpointTopDownSelection[] }): MapDocument {
   const linked = linkedOfferIds(document, input.touchpointId);
@@ -286,11 +294,11 @@ export function applyTouchpointIntentDraft(document: MapDocument, input: { touch
     const missingProduct = !next.productJobIntents.some(intent => intent.productId === productId && intent.jobId === grouped.jobId);
     const intent = next.productJobIntents.find(candidate => candidate.productId === productId && candidate.jobId === grouped.jobId);
     const missingOffer = !intent || !next.offerJobSelections.some(selection => selection.offerId === grouped.offerId && selection.productJobIntentId === intent.id);
-    { const result = authorTouchpointIntentBottomUp(next, { touchpointId: input.touchpointId, contributingOfferIds: [grouped.offerId], jobId: grouped.jobId, addressedDesiredOutcomeIds: [...new Set(grouped.outcomeIds)], productJobIntentIds: missingProduct ? [input.newId()] : [], offerJobSelectionIds: missingOffer ? [input.newId()] : [], touchpointSelectionIds: next.touchpointJobSelections.some(selection => selection.touchpointId === input.touchpointId && selection.offerId === grouped.offerId && next.productJobIntents.find(intent => intent.id === selection.productJobIntentId)?.jobId === grouped.jobId) ? [] : [input.newId()] }); if (result.status !== 'complete') throw new DomainError(result.reason, 'Ancestor contributor resolution is required before applying this draft.'); next = result.document; }
+    { const result = authorTouchpointIntentBottomUp(next, { touchpointId: input.touchpointId, contributingOfferIds: [grouped.offerId], jobId: grouped.jobId, addressedDesiredOutcomeIds: [...new Set(grouped.outcomeIds)], productJobIntentIds: missingProduct ? [input.newId()] : [], offerJobSelectionIds: missingOffer ? [input.newId()] : [], touchpointSelectionIds: next.touchpointJobSelections.some(selection => selection.touchpointId === input.touchpointId && selection.offerId === grouped.offerId && next.productJobIntents.find(intent => intent.id === selection.productJobIntentId)?.jobId === grouped.jobId) ? [] : [input.newId()] }); if (result.status !== 'complete') throw new DomainError(result.reason, touchpointIntentResolutionMessage(document, result, grouped.outcomeIds[0] ?? grouped.jobId)); next = result.document; }
   }
   for (const leaf of input.draft.financialLeaves) for (const offerId of leaf.contributorOfferIds) {
     const missing = !next.offerFinancialIntents.some(intent => intent.offerId === offerId && intent.financialDesiredOutcomeId === leaf.financialDesiredOutcomeId);
-    { const result = authorTouchpointIntentBottomUp(next, { touchpointId: input.touchpointId, contributingOfferIds: [offerId], financialDesiredOutcomeId: leaf.financialDesiredOutcomeId, offerFinancialIntentIds: missing ? [input.newId()] : [], touchpointSelectionIds: next.touchpointFinancialSelections.some(selection => selection.touchpointId === input.touchpointId && selection.offerId === offerId && selection.financialDesiredOutcomeId === leaf.financialDesiredOutcomeId) ? [] : [input.newId()] }); if (result.status !== 'complete') throw new DomainError(result.reason, 'Ancestor contributor resolution is required before applying this draft.'); next = result.document; }
+    { const result = authorTouchpointIntentBottomUp(next, { touchpointId: input.touchpointId, contributingOfferIds: [offerId], financialDesiredOutcomeId: leaf.financialDesiredOutcomeId, offerFinancialIntentIds: missing ? [input.newId()] : [], touchpointSelectionIds: next.touchpointFinancialSelections.some(selection => selection.touchpointId === input.touchpointId && selection.offerId === offerId && selection.financialDesiredOutcomeId === leaf.financialDesiredOutcomeId) ? [] : [input.newId()] }); if (result.status !== 'complete') throw new DomainError(result.reason, touchpointIntentResolutionMessage(document, result, leaf.financialDesiredOutcomeId)); next = result.document; }
   }
 
   const selections: TouchpointTopDownSelection[] = [];

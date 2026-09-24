@@ -1,4 +1,4 @@
-import { addTouchpointContainer, applyTouchpointIntentDraft, commitTouchpointParent as commitDomainTouchpointParent, effectiveOfferDesiredOutcomeIds, relevantRepulsorsForTouchpoint, setTouchpointMitigations, updateEntity, type Entity, type MapDocument, type TouchpointIntentDraft as DomainTouchpointIntentDraft, type TouchpointIntentFinancialLeaf, type TouchpointIntentJobLeaf } from '@vee/domain';
+import { addTouchpointContainer, applyTouchpointIntentDraft, commitTouchpointParent as commitDomainTouchpointParent, effectiveOfferDesiredOutcomeIds, getTouchpointLinkedOfferChangeImpact, relevantRepulsorsForTouchpoint, setTouchpointMitigations, updateEntity, type Entity, type MapDocument, type TouchpointIntentDraft as DomainTouchpointIntentDraft, type TouchpointIntentFinancialLeaf, type TouchpointIntentJobLeaf } from '@vee/domain';
 
 export type TouchpointJobLeaf = TouchpointIntentJobLeaf;
 export type TouchpointFinancialLeaf = TouchpointIntentFinancialLeaf;
@@ -313,22 +313,24 @@ export function commitTouchpointLinkedOffers(document: MapDocument, input: { tou
   if (new Set(input.linkedOfferIds).size !== input.linkedOfferIds.length) throw new Error('An Offer cannot be linked more than once.');
   if (input.linkedOfferIds.some(id => !document.entities.some(entity => entity.id === id && entity.kind === 'offer'))) throw new Error('Linked Offers must be existing Offer entities.');
   const linkedOfferIds = [...input.linkedOfferIds];
-  let touchpointIntent = createTouchpointIntentDraft(document, touchpoint.id);
-  if (input.confirmedRemoval) touchpointIntent = {
-    ...touchpointIntent,
-    jobLeaves: touchpointIntent.jobLeaves.map(leaf => ({ ...leaf, contributorOfferIds: leaf.contributorOfferIds.filter(id => linkedOfferIds.includes(id)) })),
-    financialLeaves: touchpointIntent.financialLeaves.map(leaf => ({ ...leaf, contributorOfferIds: leaf.contributorOfferIds.filter(id => linkedOfferIds.includes(id)) })),
-  };
-  const parentTouchpointId = document.relationships.find((relation): relation is Extract<MapDocument['relationships'][number], { kind: 'touchpoint_contains_touchpoint' }> => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === touchpoint.id)?.parentTouchpointId ?? '';
-  return applyTouchpointEditDraft(document, { touchpointId: touchpoint.id, newId: input.newId, draft: {
-    title: touchpoint.title, linkedOfferIds, parentTouchpointId,
-    locatedInId: touchpoint.locatedInId ?? '',
-    locatedInQuery: document.touchpointContainers.find(container => container.id === touchpoint.locatedInId)?.title ?? '',
-    locationDraft: touchpoint.locatedInId ? { kind: 'existing', containerId: touchpoint.locatedInId } : { kind: 'none' },
-    url: touchpoint.url ?? '',
-    mitigatedRepulsorIds: document.relationships.flatMap(relation => relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === touchpoint.id ? [relation.repulsorId] : []),
-    touchpointIntent,
-  } });
+  const impact = getTouchpointLinkedOfferChangeImpact(document, { touchpointId: touchpoint.id, linkedOfferIds });
+  if (impact.length && !input.confirmedRemoval) throw new Error('Confirm removal of the affected Touchpoint intent paths before detaching this Offer.');
+  const parent = document.relationships.find((relation): relation is Extract<MapDocument['relationships'][number], { kind: 'touchpoint_contains_touchpoint' }> => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === touchpoint.id);
+  const oldOffers = document.relationships.filter((relation): relation is Extract<MapDocument['relationships'][number], { kind: 'offer_presented_at_touchpoint' }> => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === touchpoint.id);
+  // This is a structural transaction, not intent authoring. updateEntity owns the
+  // exact contributor-path pruning and leaves every surviving committed path alone.
+  return updateEntity(document, {
+    entityId: touchpoint.id,
+    title: touchpoint.title,
+    ...(touchpoint.locatedInId ? { locatedInId: touchpoint.locatedInId } : {}),
+    ...(touchpoint.url ? { url: touchpoint.url } : {}),
+    linkedOfferIds,
+    relationshipIds: linkedOfferIds.map(offerId => oldOffers.find(relation => relation.offerId === offerId)?.id ?? input.newId()),
+    ...(parent ? {
+      parentTouchpointId: parent.parentTouchpointId,
+      parentRelationshipId: parent.id,
+    } : {}),
+  });
 }
 
 /** Commits one Offer-side checkbox through the Touchpoint-owned complete Offer-set operation. */

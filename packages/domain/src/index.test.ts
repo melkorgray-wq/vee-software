@@ -726,6 +726,16 @@ describe('bottom-up structural ancestry propagation', () => {
     expect(d.touchpointJobSelections.filter(selection => selection.touchpointId === 'parent')).toHaveLength(1);
   });
 
+  it('identifies the ancestor, semantic leaf, and candidate Offers when draft authoring genuinely needs a choice', () => {
+    const before = ancestryDocument(['offer', 'offer-b']);
+    let sequence = 0;
+    expect(() => applyTouchpointIntentDraft(before, {
+      touchpointId: 'child',
+      draft: { jobLeaves: [{ jobId: 'job', semanticLeafId: 'outcome', desiredOutcomeId: 'outcome', contributorOfferIds: ['offer'] }], financialLeaves: [], pendingJobLeafIds: [], pendingFinancialLeafIds: [] },
+      newId: () => `specific-context-${++sequence}`,
+    })).toThrow('Choose a contributing Offer for ancestor Touchpoint Parent (parent) while authoring Outcome (outcome). Candidates: Subscription (offer), offer-b (offer-b).');
+  });
+
   it('skips an ancestor whose semantic leaf is already durably satisfied', () => {
     const before = ancestryDocument(['offer', 'offer-b']);
     before.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['outcome'] });

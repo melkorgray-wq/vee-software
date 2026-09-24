@@ -25,6 +25,36 @@ function fixture(): MapDocument {
   };
 }
 
+function tqoDetachSequenceFixture(): MapDocument {
+  const document = fixture();
+  document.entities.push(
+    { id: 'offer-clarity', kind: 'offer', title: 'Marketing clarity' },
+    { id: 'offer-launch', kind: 'offer', title: 'Launch from scratch' },
+    { id: 'tp-leadform', kind: 'touchpoint', title: 'Partnership request' },
+    { id: 'tp-book-call', kind: 'touchpoint', title: 'Leadform · Book a call' },
+    { id: 'tp-send-context', kind: 'touchpoint', title: 'Leadform · Send context' },
+  );
+  document.relationships.push(
+    { id: 'packages-clarity', kind: 'product_packaged_as_offer', productId: 'product', offerId: 'offer-clarity' },
+    { id: 'packages-launch', kind: 'product_packaged_as_offer', productId: 'product', offerId: 'offer-launch' },
+    { id: 'leadform-book', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'tp-leadform', childTouchpointId: 'tp-book-call' },
+    { id: 'leadform-context', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'tp-leadform', childTouchpointId: 'tp-send-context' },
+    ...['offer-a', 'offer-b', 'offer-clarity', 'offer-launch'].flatMap(offerId => ['tp-leadform', 'tp-book-call', 'tp-send-context'].map(touchpointId => ({ id: `${offerId}-${touchpointId}`, kind: 'offer_presented_at_touchpoint' as const, offerId, touchpointId }))),
+  );
+  document.offerJobSelections.push(
+    { id: 'clarity-onboard', offerId: 'offer-clarity', productJobIntentId: 'intent' },
+    { id: 'launch-onboard', offerId: 'offer-launch', productJobIntentId: 'intent' },
+  );
+  document.touchpointJobSelections.push(
+    { id: 'leadform-onboard', touchpointId: 'tp-leadform', offerId: 'offer-clarity', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] },
+    { id: 'book-onboard-a', touchpointId: 'tp-book-call', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] },
+    { id: 'book-onboard-clarity', touchpointId: 'tp-book-call', offerId: 'offer-clarity', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] },
+    { id: 'context-clarity', touchpointId: 'tp-send-context', offerId: 'offer-clarity', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] },
+    { id: 'context-onboard', touchpointId: 'tp-send-context', offerId: 'offer-launch', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] },
+  );
+  return document;
+}
+
 describe('Touchpoint linked Offer commit', () => {
   it('retains relationship IDs, allocates only additions, removes safely, and does not mutate input', () => {
     const document = fixture();
@@ -77,6 +107,28 @@ describe('Offer connected Touchpoint inverse commit', () => {
     expect(committed.touchpointJobSelections).toEqual([{ id: 'path-b', touchpointId: 'touch', offerId: 'offer-b', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a', 'do-b'] }]);
     expect(committed.offerJobSelections.map(selection => selection.id)).toEqual(document.offerJobSelections.map(selection => selection.id));
     expect(committed.productJobIntents).toEqual(document.productJobIntents);
+  });
+
+  it('reproduces the TQO bottom-up sequence without reauthoring surviving committed intent', () => {
+    let document = tqoDetachSequenceFixture();
+
+    // The successful first operation has an already-authored ancestor leaf.
+    document = commitOfferConnectedTouchpoint(document, { offerId: 'offer-clarity', touchpointId: 'tp-book-call', connected: false, confirmedRemoval: true, newId: () => { throw new Error('must not author'); } });
+    expect(document.touchpointJobSelections).toContainEqual(expect.objectContaining({ id: 'book-onboard-a' }));
+    expect(document.touchpointJobSelections).not.toContainEqual(expect.objectContaining({ id: 'book-onboard-clarity' }));
+
+    // State immediately before the formerly failing operation: the parent leaf has
+    // been removed, while Send context retains Launch → DO A and has three viable
+    // ancestor contributor Offers. A structural detach must not reauthor that leaf.
+    document = commitOfferConnectedTouchpoint(document, { offerId: 'offer-clarity', touchpointId: 'tp-leadform', connected: false, confirmedRemoval: true, newId: () => { throw new Error('must not author'); } });
+    expect(document.touchpointJobSelections.filter(selection => selection.touchpointId === 'tp-leadform')).toEqual([]);
+    expect(document.touchpointJobSelections).toContainEqual(expect.objectContaining({ id: 'context-onboard', offerId: 'offer-launch', addressedDesiredOutcomeIds: ['do-a'] }));
+    expect(document.relationships.flatMap(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === 'tp-leadform' ? [relation.offerId] : []).sort()).toEqual(['offer-a', 'offer-b', 'offer-launch']);
+
+    document = commitOfferConnectedTouchpoint(document, { offerId: 'offer-clarity', touchpointId: 'tp-send-context', connected: false, confirmedRemoval: true, newId: () => { throw new Error('must not author'); } });
+    expect(document.touchpointJobSelections).toContainEqual(expect.objectContaining({ id: 'context-onboard', offerId: 'offer-launch' }));
+    expect(document.touchpointJobSelections).not.toContainEqual(expect.objectContaining({ id: 'context-clarity' }));
+    expect(document.touchpointJobSelections.filter(selection => selection.touchpointId === 'tp-leadform')).toEqual([]);
   });
 });
 
