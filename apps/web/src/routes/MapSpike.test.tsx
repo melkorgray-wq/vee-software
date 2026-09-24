@@ -1804,8 +1804,9 @@ describe('Offer Inspector derived neighborhood', () => {
     const user = userEvent.setup();
     const document = offerNeighborhoodDocument();
     let inspector = await inspectOffer(user, document);
-    const financial = inspector.getByRole('checkbox', { name: /Stay affordable/ });
+    const financial = inspector.getByRole('checkbox', { name: /Stay affordable/ }) as HTMLInputElement;
     await user.click(financial);
+    const dirtyFinancialState = financial.checked;
     expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
     const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
     await user.click(structure.getByRole('button', { name: 'Edit Product' }));
@@ -1815,7 +1816,7 @@ describe('Offer Inspector derived neighborhood', () => {
     await user.click(editor.getByRole('radio', { name: 'Other Product' }));
     expect(inspector.queryByLabelText('Product editor')).not.toBeInTheDocument();
     expect(structure.getByRole('button', { name: 'Other Product' })).toBeInTheDocument();
-    expect(financial).toBeChecked();
+    expect((inspector.getByRole('checkbox', { name: /Stay affordable/ }) as HTMLInputElement).checked).toBe(dirtyFinancialState);
     expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
     await user.click(structure.getByRole('button', { name: 'Other Product' }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
@@ -1863,14 +1864,14 @@ describe('Offer Inspector derived neighborhood', () => {
     await waitFor(() => expect(within(structure).getByRole('button', { name: 'Edit Product' })).toHaveFocus());
   });
 
-  it('supports Close, Escape, pointer dismissal, and committed-only empty Presentation without exposing an editor', async () => {
+  it('supports Product Close, Escape, pointer dismissal, and committed-only empty Presentation with its separate inverse editor', async () => {
     const user = userEvent.setup();
     const source = offerNeighborhoodDocument();
     source.relationships = source.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint' || relation.offerId !== 'offer-a');
     const inspector = await inspectOffer(user, source);
     const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
     expect(structure.getByText('No connected Touchpoints.')).toBeInTheDocument();
-    expect(structure.queryByRole('button', { name: /Edit.*Touchpoint/i })).not.toBeInTheDocument();
+    expect(structure.getByRole('button', { name: 'Edit Connected Touchpoints' })).toHaveTextContent('Connected TouchpointsClick to edit');
     const heading = structure.getByRole('button', { name: 'Edit Product' });
     await user.click(heading);
     await user.click(within(inspector.getByLabelText('Product editor')).getByRole('button', { name: 'Close' }));
@@ -1882,6 +1883,124 @@ describe('Offer Inspector derived neighborhood', () => {
     await user.pointer({ target: inspector.getByRole('heading', { name: 'Subscription' }), keys: '[MouseLeft]' });
     expect(inspector.queryByLabelText('Product editor')).not.toBeInTheDocument();
     expect(structure.getByRole('button', { name: 'Edit Product' })).not.toHaveFocus();
+  });
+
+  it('immediately attaches and detaches Connected Touchpoints, stays open, and preserves an unrelated Offer draft', async () => {
+    const user = userEvent.setup();
+    const source = offerNeighborhoodDocument();
+    source.entities.push({ id: 'touch-other', kind: 'touchpoint', title: 'Consultation room' });
+    source.relationships.push({ id: 'other-offer', kind: 'offer_presented_at_touchpoint', offerId: 'offer-b', touchpointId: 'touch-other' });
+    source.placements.push({ viewId: 'spike-view', entityId: 'touch-other', x: 3000, y: 0 });
+    const inspector = await inspectOffer(user, source);
+    const financial = inspector.getByRole('checkbox', { name: /Stay affordable/ }) as HTMLInputElement;
+    await user.click(financial);
+    const dirtyFinancialState = financial.checked;
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+    expect(structure.getAllByText('Click to edit')).toHaveLength(2);
+    await user.click(structure.getByRole('button', { name: 'Edit Connected Touchpoints' }));
+    const editor = within(inspector.getByLabelText('Connected Touchpoints editor'));
+    expect(editor.getByRole('checkbox', { name: 'Checkout' })).toBeChecked();
+    expect(editor.queryByRole('button', { name: /Create Touchpoint/i })).not.toBeInTheDocument();
+    const other = editor.getByRole('checkbox', { name: 'Consultation room' });
+    await user.click(other);
+    expect(other).toBeChecked();
+    expect(inspector.getByLabelText('Connected Touchpoints editor')).toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
+    expect((inspector.getByRole('checkbox', { name: /Stay affordable/ }) as HTMLInputElement).checked).toBe(dirtyFinancialState);
+    await user.click(other);
+    expect(other).not.toBeChecked();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(inspector.getByLabelText('Connected Touchpoints editor')).toBeInTheDocument();
+  });
+
+  it('keeps the required final connection selected and restores focus on Close, Escape, pointer dismissal, and editor switching', async () => {
+    const user = userEvent.setup();
+    const source = offerNeighborhoodDocument();
+    source.relationships = source.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint' || relation.touchpointId !== 'touch' || relation.offerId === 'offer-a');
+    const inspector = await inspectOffer(user, source);
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+    const heading = structure.getByRole('button', { name: 'Edit Connected Touchpoints' });
+    await user.click(heading);
+    const checkout = within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: 'Checkout' });
+    await user.click(checkout);
+    expect(checkout).toBeChecked();
+    expect(inspector.getByRole('alert')).toHaveTextContent('at least one Offer');
+    await user.click(within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(structure.getByRole('button', { name: 'Edit Connected Touchpoints' })).toHaveFocus());
+    await user.click(structure.getByRole('button', { name: 'Edit Connected Touchpoints' }));
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(structure.getByRole('button', { name: 'Edit Connected Touchpoints' })).toHaveFocus());
+    await user.click(structure.getByRole('button', { name: 'Edit Connected Touchpoints' }));
+    await user.click(structure.getByRole('button', { name: 'Edit Product' }));
+    expect(inspector.queryByLabelText('Connected Touchpoints editor')).not.toBeInTheDocument();
+    expect(inspector.getByLabelText('Product editor')).toBeInTheDocument();
+    await user.click(structure.getByRole('button', { name: 'Edit Connected Touchpoints' }));
+    expect(inspector.queryByLabelText('Product editor')).not.toBeInTheDocument();
+    await user.pointer({ target: inspector.getByRole('heading', { name: 'Subscription' }), keys: '[MouseLeft]' });
+    expect(inspector.queryByLabelText('Connected Touchpoints editor')).not.toBeInTheDocument();
+    expect(structure.getByRole('button', { name: 'Edit Connected Touchpoints' })).not.toHaveFocus();
+  });
+
+  it('progressively searches Connected Touchpoints and preserves read-view navigation after editing', async () => {
+    const user = userEvent.setup();
+    const source = offerNeighborhoodDocument();
+    for (let index = 0; index < RELATION_EDITOR_SEARCH_THRESHOLD; index += 1) {
+      const id = `search-touch-${index}`;
+      source.entities.push({ id, kind: 'touchpoint', title: `Candidate ${index}` });
+      source.relationships.push({ id: `search-link-${index}`, kind: 'offer_presented_at_touchpoint', offerId: 'offer-b', touchpointId: id });
+      source.placements.push({ viewId: 'spike-view', entityId: id, x: 3000 + index * 100, y: 0 });
+    }
+    const inspector = await inspectOffer(user, source);
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+    await user.click(structure.getByRole('button', { name: 'Edit Connected Touchpoints' }));
+    const editor = within(inspector.getByLabelText('Connected Touchpoints editor'));
+    await user.type(editor.getByRole('searchbox', { name: 'Search Touchpoints' }), 'absent');
+    expect(editor.getByRole('status')).toHaveTextContent('No matching Touchpoints.');
+    await user.clear(editor.getByRole('searchbox', { name: 'Search Touchpoints' }));
+    const candidate = editor.getByRole('checkbox', { name: 'Candidate 0' });
+    await user.click(candidate);
+    await user.click(editor.getByRole('button', { name: 'Close' }));
+    await user.click(structure.getByRole('button', { name: 'Candidate 0' }));
+    expect(inspector.getByRole('heading', { name: 'Candidate 0' })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    expect(within(inspector.getByRole('region', { name: 'Business structure' })).getByRole('button', { name: 'Candidate 0' })).toBeInTheDocument();
+  });
+
+  it('reviews exact Touchpoint-owned downstream impact before detaching and preserves the Offer draft on Cancel and Confirm', async () => {
+    const user = userEvent.setup();
+    const source = offerNeighborhoodDocument();
+    source.productJobIntents.push({ id: 'impact-intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a', 'do-b'] });
+    source.offerJobSelections.push(
+      { id: 'impact-offer-a', offerId: 'offer-a', productJobIntentId: 'impact-intent', addressedDesiredOutcomeIds: ['do-a'] },
+      { id: 'impact-offer-b', offerId: 'offer-b', productJobIntentId: 'impact-intent', addressedDesiredOutcomeIds: ['do-b'] },
+    );
+    source.touchpointJobSelections.push(
+      { id: 'impact-a', touchpointId: 'touch', offerId: 'offer-a', productJobIntentId: 'impact-intent', addressedDesiredOutcomeIds: ['do-a'] },
+      { id: 'impact-b', touchpointId: 'touch', offerId: 'offer-b', productJobIntentId: 'impact-intent', addressedDesiredOutcomeIds: ['do-b'] },
+    );
+    const inspector = await inspectOffer(user, source);
+    const financial = inspector.getByRole('checkbox', { name: /Stay affordable/ }) as HTMLInputElement;
+    await user.click(financial);
+    const dirtyFinancialState = financial.checked;
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+    await user.click(structure.getByRole('button', { name: 'Edit Connected Touchpoints' }));
+    let checkout = within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: 'Checkout' });
+    await user.click(checkout);
+    let dialog = within(screen.getByRole('dialog'));
+    expect(dialog.getByText(/path to Make progress → Finish faster will be removed/)).toBeInTheDocument();
+    await user.click(dialog.getByRole('button', { name: 'Cancel' }));
+    checkout = within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: 'Checkout' });
+    expect(checkout).toBeChecked();
+    await waitFor(() => expect(checkout).toHaveFocus());
+    expect((inspector.getByRole('checkbox', { name: /Stay affordable/ }) as HTMLInputElement).checked).toBe(dirtyFinancialState);
+    await user.click(checkout);
+    dialog = within(screen.getByRole('dialog'));
+    await user.click(dialog.getByRole('button', { name: 'Confirm removal' }));
+    checkout = within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: 'Checkout' });
+    expect(checkout).not.toBeChecked();
+    await waitFor(() => expect(checkout).toHaveFocus());
+    expect((inspector.getByRole('checkbox', { name: /Stay affordable/ }) as HTMLInputElement).checked).toBe(dirtyFinancialState);
+    expect(inspector.getByLabelText('Connected Touchpoints editor')).toBeInTheDocument();
   });
 });
 

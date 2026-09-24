@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyMapDocument, relevantRepulsorsForTouchpoint, type MapDocument } from '@vee/domain';
-import { applyTouchpointEditDraft, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, connectionPickerCatalogue, createTouchpointIntentDraft, equalTouchpointIntentDraft, filterConnectionCandidates, globalIntentDiscovery, selectCurrentOfferIntent, touchpointClientScope, touchpointIntentCatalogue, touchpointUpstreamSources, validateTouchpointIntentDraft } from './touchpoint-edit';
+import { applyTouchpointEditDraft, commitOfferConnectedTouchpoint, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, connectionPickerCatalogue, createTouchpointIntentDraft, equalTouchpointIntentDraft, filterConnectionCandidates, globalIntentDiscovery, selectCurrentOfferIntent, touchpointClientScope, touchpointIntentCatalogue, touchpointUpstreamSources, validateTouchpointIntentDraft } from './touchpoint-edit';
 
 function fixture(): MapDocument {
   return {
@@ -37,6 +37,46 @@ describe('Touchpoint linked Offer commit', () => {
     expect(added.relationships).not.toContainEqual(expect.objectContaining({ id: 'presents-a' }));
     expect(added.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint')).toEqual(document.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint'));
     expect(document).toEqual(snapshot);
+  });
+});
+
+describe('Offer connected Touchpoint inverse commit', () => {
+  it('attaches and safely detaches through the Touchpoint owner without mutating the input', () => {
+    const document = fixture();
+    document.entities.push({ id: 'touch-b', kind: 'touchpoint', title: 'Other', locatedInId: 'site', url: 'https://example.test' });
+    document.touchpointContainers.push({ id: 'site', title: 'Site' });
+    document.relationships.push(
+      { id: 'presents-b-other', kind: 'offer_presented_at_touchpoint', offerId: 'offer-b', touchpointId: 'touch-b' },
+      { id: 'contains', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'touch', childTouchpointId: 'touch-b' },
+    );
+    const snapshot = structuredClone(document);
+    const attached = commitOfferConnectedTouchpoint(document, { offerId: 'offer-a', touchpointId: 'touch-b', connected: true, newId: () => 'presents-a-other' });
+    expect(attached.relationships).toContainEqual({ id: 'presents-a-other', kind: 'offer_presented_at_touchpoint', offerId: 'offer-a', touchpointId: 'touch-b' });
+    expect(document).toEqual(snapshot);
+    const detached = commitOfferConnectedTouchpoint(attached, { offerId: 'offer-a', touchpointId: 'touch-b', connected: false, confirmedRemoval: true, newId: () => { throw new Error('must not allocate'); } });
+    expect(detached.relationships).not.toContainEqual(expect.objectContaining({ id: 'presents-a-other' }));
+    expect(detached.relationships).toContainEqual(expect.objectContaining({ id: 'presents-b-other' }));
+    expect(detached.relationships).toContainEqual(expect.objectContaining({ id: 'contains' }));
+    expect(detached.entities.find(entity => entity.id === 'touch-b')).toMatchObject({ locatedInId: 'site', url: 'https://example.test' });
+    expect(detached.touchpointJobSelections).toEqual(document.touchpointJobSelections);
+  });
+
+  it('rejects removing the final Offer and unknown endpoints, and preserves no-op identity', () => {
+    const document = fixture();
+    expect(commitOfferConnectedTouchpoint(document, { offerId: 'offer-a', touchpointId: 'touch', connected: true, newId: () => 'unused' })).toBe(document);
+    expect(() => commitOfferConnectedTouchpoint(document, { offerId: 'missing', touchpointId: 'touch', connected: true, newId: () => 'unused' })).toThrow('Offer does not exist.');
+    expect(() => commitOfferConnectedTouchpoint(document, { offerId: 'offer-a', touchpointId: 'missing', connected: true, newId: () => 'unused' })).toThrow('Touchpoint does not exist.');
+    const sole = { ...document, relationships: document.relationships.filter(relation => relation.id !== 'presents-b') };
+    expect(() => commitOfferConnectedTouchpoint(sole, { offerId: 'offer-a', touchpointId: 'touch', connected: false, confirmedRemoval: true, newId: () => 'unused' })).toThrow('A Touchpoint must present at least one Offer.');
+    expect(sole.relationships).toContainEqual(expect.objectContaining({ id: 'presents-a' }));
+  });
+
+  it('confirmed removal prunes only downstream records that lose the removed contributor path', () => {
+    const document = fixture();
+    const committed = commitOfferConnectedTouchpoint(document, { offerId: 'offer-a', touchpointId: 'touch', connected: false, confirmedRemoval: true, newId: () => 'unused' });
+    expect(committed.touchpointJobSelections).toEqual([{ id: 'path-b', touchpointId: 'touch', offerId: 'offer-b', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a', 'do-b'] }]);
+    expect(committed.offerJobSelections.map(selection => selection.id)).toEqual(document.offerJobSelections.map(selection => selection.id));
+    expect(committed.productJobIntents).toEqual(document.productJobIntents);
   });
 });
 

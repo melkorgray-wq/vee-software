@@ -331,6 +331,25 @@ export function commitTouchpointLinkedOffers(document: MapDocument, input: { tou
   } });
 }
 
+/** Commits one Offer-side checkbox through the Touchpoint-owned complete Offer-set operation. */
+export function commitOfferConnectedTouchpoint(document: MapDocument, input: { offerId: string; touchpointId: string; connected: boolean; confirmedRemoval?: boolean; newId: () => string }): MapDocument {
+  if (!document.entities.some(entity => entity.id === input.offerId && entity.kind === 'offer')) throw new Error('Offer does not exist.');
+  if (!document.entities.some(entity => entity.id === input.touchpointId && entity.kind === 'touchpoint')) throw new Error('Touchpoint does not exist.');
+  const offerIds = [...new Set(document.relationships.flatMap(relation => {
+    if (relation.kind !== 'offer_presented_at_touchpoint' || relation.touchpointId !== input.touchpointId) return [];
+    return document.entities.some(entity => entity.id === relation.offerId && entity.kind === 'offer') ? [relation.offerId] : [];
+  }))];
+  const alreadyConnected = offerIds.includes(input.offerId);
+  if (alreadyConnected === input.connected) return document;
+  const linkedOfferIds = input.connected ? [...offerIds, input.offerId] : offerIds.filter(id => id !== input.offerId);
+  return commitTouchpointLinkedOffers(document, {
+    touchpointId: input.touchpointId,
+    linkedOfferIds,
+    ...(input.confirmedRemoval === undefined ? {} : { confirmedRemoval: input.confirmedRemoval }),
+    newId: input.newId,
+  });
+}
+
 /** Immediately commits a parent from a fresh durable Touchpoint snapshot. */
 export function commitTouchpointParent(document: MapDocument, input: { touchpointId: string; parentTouchpointId: string; newId: () => string }): MapDocument {
   const currentParentId = document.relationships.find((relation): relation is Extract<MapDocument['relationships'][number], { kind: 'touchpoint_contains_touchpoint' }> => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === input.touchpointId)?.parentTouchpointId ?? '';
