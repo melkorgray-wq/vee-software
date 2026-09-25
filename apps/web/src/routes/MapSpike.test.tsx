@@ -315,38 +315,54 @@ describe('Offer Content Inspector', () => {
     expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentUrl: 'https://example.test/a/very/long/document', contentText: 'First line\nSecond line' });
   });
 
-  it('commits both fields immediately without Apply, clears them, and recovers from validation or Escape with focus return', async () => {
+  it('commits each field independently while Close and Escape only dismiss unfinished input', async () => {
     const user = userEvent.setup();
     const inspector = renderOfferInspector();
     await user.click(inspector.getByRole('button', { name: 'Add content' }));
     const url = inspector.getByLabelText('External document URL');
     const text = inspector.getByLabelText('Content text');
     await user.type(url, 'javascript:alert(1)');
-    await user.type(text, 'Draft text');
-    await user.click(inspector.getByRole('button', { name: 'Close' }));
+    await user.click(text);
     expect(inspector.getByRole('alert')).toHaveTextContent('absolute http: or https:');
-    expect(inspector.getByLabelText('External document URL')).toBeInTheDocument();
-    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).not.toHaveProperty('contentText');
-    await user.clear(url); await user.type(url, 'https://example.test/doc');
+    await user.type(text, 'Draft text');
+    await user.click(url);
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentText: 'Draft text' });
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).not.toHaveProperty('contentUrl');
+    await user.click(inspector.getByRole('button', { name: 'Close' }));
+    expect(inspector.getByText('Draft text')).toBeInTheDocument();
+    expect(inspector.queryByRole('link')).not.toBeInTheDocument();
+
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    const nextUrl = inspector.getByLabelText('External document URL');
+    await user.clear(nextUrl); await user.type(nextUrl, 'https://example.test/doc');
+    await user.click(inspector.getByLabelText('Content text'));
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentUrl: 'https://example.test/doc', contentText: 'Draft text' });
     await user.click(inspector.getByRole('button', { name: 'Close' }));
     expect(inspector.getByRole('link', { name: 'https://example.test/doc' })).toBeInTheDocument();
     expect(inspector.getByText('Draft text')).toBeInTheDocument();
     expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    await user.click(inspector.getByLabelText('Content text'));
+    await user.clear(inspector.getByLabelText('Content text'));
+    await user.type(inspector.getByLabelText('Content text'), 'Unfinished close');
+    await user.click(inspector.getByRole('button', { name: 'Close' }));
+    expect(inspector.getByText('Draft text')).toBeInTheDocument();
+
     await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
     await user.clear(inspector.getByLabelText('External document URL'));
+    await user.click(inspector.getByLabelText('Content text'));
     await user.click(inspector.getByRole('button', { name: 'Close' }));
     expect(inspector.queryByRole('link')).not.toBeInTheDocument();
     expect(inspector.getByText('Draft text')).toBeInTheDocument();
+
     await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
-    await user.type(inspector.getByLabelText('External document URL'), 'https://example.test/url-only');
+    await user.click(inspector.getByLabelText('Content text'));
     await user.clear(inspector.getByLabelText('Content text'));
-    await user.click(inspector.getByRole('button', { name: 'Close' }));
-    expect(inspector.getByRole('link', { name: 'https://example.test/url-only' })).toBeInTheDocument();
-    expect(inspector.queryByText('Draft text')).not.toBeInTheDocument();
-    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
-    await user.clear(inspector.getByLabelText('External document URL'));
+    await user.click(inspector.getByLabelText('External document URL'));
     await user.click(inspector.getByRole('button', { name: 'Close' }));
     expect(inspector.getByText('No content documented')).toBeInTheDocument();
+
     await user.click(inspector.getByRole('button', { name: 'Add content' }));
     await user.type(inspector.getByLabelText('Content text'), 'Unfinished');
     fireEvent.keyDown(inspector.getByLabelText('Content text'), { key: 'Escape' });

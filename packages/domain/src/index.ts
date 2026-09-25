@@ -163,19 +163,14 @@ export function setOfferFinancialIntents(document: MapDocument, input: { offerId
   return pruneIrrelevantTouchpointMitigations({ ...document, offerFinancialIntents: [...document.offerFinancialIntents.filter(intent => intent.offerId !== input.offerId), ...replacement], touchpointFinancialSelections: document.touchpointFinancialSelections.filter(selection => selection.offerId !== input.offerId || retainedIds.has(selection.offerFinancialIntentId)) });
 }
 
-/** Atomically replaces only the authored Content owned by one Offer. */
-export function updateOfferContent(document: MapDocument, input: { offerId: string; contentUrl?: string; contentText?: string }): MapDocument {
+/** Atomically replaces one independently authored Content property owned by an Offer. */
+export function updateOfferContent(document: MapDocument, input: { offerId: string; field: 'contentUrl' | 'contentText'; value?: string }): MapDocument {
   const offer = entityOfKind(document, input.offerId, 'offer', 'Offer') as Extract<Entity, { kind: 'offer' }>;
-  const contentUrl = safeAbsoluteHttpUrl(input.contentUrl);
-  const contentText = optional(input.contentText);
-  if (offer.contentUrl === contentUrl && offer.contentText === contentText) return document;
-  const replacement: Entity = {
-    id: offer.id,
-    kind: offer.kind,
-    title: offer.title,
-    ...(contentUrl ? { contentUrl } : {}),
-    ...(contentText ? { contentText } : {}),
-  };
+  const normalized = input.field === 'contentUrl' ? safeAbsoluteHttpUrl(input.value) : optional(input.value);
+  if (offer[input.field] === normalized) return document;
+  const replacement: Extract<Entity, { kind: 'offer' }> = { ...offer };
+  if (normalized) replacement[input.field] = normalized;
+  else delete replacement[input.field];
   return { ...document, entities: document.entities.map(entity => entity.id === offer.id ? replacement : entity) };
 }
 
@@ -1066,7 +1061,7 @@ export function duplicateEntity(document: MapDocument, input: { sourceEntityId: 
     const targetIds = document.relationships.filter((relationship): relationship is Extract<Relationship, { kind: 'repulsor_resists' }> => relationship.kind === 'repulsor_resists' && relationship.repulsorId === source.id).map(relationship => relationship.targetEntityId);
     return addEntity(document, { entityId: input.entityId, title, kind: 'repulsor', resistedTargetIds: targetIds, relationshipIds: input.relationshipIds.slice(0, targetIds.length), viewId: input.viewId, x: input.x, y: input.y });
   }
-  if (source.kind === 'offer') { const relation = document.relationships.find((r): r is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => r.kind === 'product_packaged_as_offer' && r.offerId === source.id)!; let copy = addEntity(document, { entityId: input.entityId, title, kind: 'offer', linkedProductId: relation.productId, relationshipId: input.relationshipIds[0]!, viewId: input.viewId, x: input.x, y: input.y }); copy = updateOfferContent(copy, { offerId: input.entityId, ...(source.contentUrl ? { contentUrl: source.contentUrl } : {}), ...(source.contentText ? { contentText: source.contentText } : {}) }); const selected = document.offerJobSelections.filter(selection => selection.offerId === source.id).map(selection => ({ productJobIntentId: selection.productJobIntentId, addressedDesiredOutcomeIds: effectiveOfferDesiredOutcomeIds(document, selection) })); copy = setOfferJobSelections(copy, { offerId: input.entityId, selections: selected, newSelectionIds: input.relationshipIds.slice(1, selected.length + 1) }); const financial = document.offerFinancialIntents.filter(intent => intent.offerId === source.id).map(intent => intent.financialDesiredOutcomeId); copy = setOfferFinancialIntents(copy, { offerId: input.entityId, financialDesiredOutcomeIds: financial, newIntentIds: input.relationshipIds.slice(1 + selected.length, 1 + selected.length + financial.length) }); return copy; }
+  if (source.kind === 'offer') { const relation = document.relationships.find((r): r is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => r.kind === 'product_packaged_as_offer' && r.offerId === source.id)!; let copy = addEntity(document, { entityId: input.entityId, title, kind: 'offer', linkedProductId: relation.productId, relationshipId: input.relationshipIds[0]!, viewId: input.viewId, x: input.x, y: input.y }); if (source.contentUrl) copy = updateOfferContent(copy, { offerId: input.entityId, field: 'contentUrl', value: source.contentUrl }); if (source.contentText) copy = updateOfferContent(copy, { offerId: input.entityId, field: 'contentText', value: source.contentText }); const selected = document.offerJobSelections.filter(selection => selection.offerId === source.id).map(selection => ({ productJobIntentId: selection.productJobIntentId, addressedDesiredOutcomeIds: effectiveOfferDesiredOutcomeIds(document, selection) })); copy = setOfferJobSelections(copy, { offerId: input.entityId, selections: selected, newSelectionIds: input.relationshipIds.slice(1, selected.length + 1) }); const financial = document.offerFinancialIntents.filter(intent => intent.offerId === source.id).map(intent => intent.financialDesiredOutcomeId); copy = setOfferFinancialIntents(copy, { offerId: input.entityId, financialDesiredOutcomeIds: financial, newIntentIds: input.relationshipIds.slice(1 + selected.length, 1 + selected.length + financial.length) }); return copy; }
   if (source.kind !== 'touchpoint') throw new DomainError('unsupported_entity_kind', 'Source entity kind cannot be duplicated.');
   const offerIds = document.relationships.filter((r): r is Extract<Relationship, { kind: 'offer_presented_at_touchpoint' }> => r.kind === 'offer_presented_at_touchpoint' && r.touchpointId === source.id).map(r => r.offerId);
   const parent = document.relationships.find((r): r is Extract<Relationship, { kind: 'touchpoint_contains_touchpoint' }> => r.kind === 'touchpoint_contains_touchpoint' && r.childTouchpointId === source.id);

@@ -2741,20 +2741,23 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       setOfferContentDraft(null);
       if (restoreFocus) requestAnimationFrame(() => offerContentButtonRef.current?.focus());
     };
-    const commitContent = (restoreFocus: boolean) => {
+    const commitContentField = (field: 'contentUrl' | 'contentText') => {
       if (!offerContentDraft || offerContentDraft.offerId !== selected.id) return false;
       try {
         const next = updateOfferContent(documentRef.current, {
           offerId: selected.id,
-          contentUrl: offerContentDraft.contentUrl,
-          contentText: offerContentDraft.contentText,
+          field,
+          value: offerContentDraft[field],
         });
         documentRef.current = next;
         setDocument(next);
-        closeEditor(restoreFocus);
+        const committedOffer = next.entities.find((entity): entity is Extract<Entity, { kind: 'offer' }> => entity.id === selected.id && entity.kind === 'offer')!;
+        setOfferContentDraft(current => current?.offerId !== selected.id ? current : field === 'contentUrl'
+          ? { offerId: current.offerId, contentUrl: committedOffer.contentUrl ?? '', contentText: current.contentText }
+          : { ...current, contentText: committedOffer.contentText ?? '' });
         return true;
       } catch (error) {
-        setOfferContentDraft({ ...offerContentDraft, error: error instanceof Error ? error.message : 'Content could not be updated.' });
+        if (field === 'contentUrl') setOfferContentDraft({ ...offerContentDraft, error: error instanceof Error ? error.message : 'External document URL could not be updated.' });
         return false;
       }
     };
@@ -2767,18 +2770,15 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       }
     };
     return <section className="offer-content" aria-labelledby="offer-content-heading">
-      {editing ? <div className="offer-content-heading"><h4 id="offer-content-heading">Offer Content</h4><button data-offer-content-close type="button" className="inspector-secondary-action" onClick={() => commitContent(true)}>Close</button></div> : <h4 id="offer-content-heading" aria-label="Offer Content"><button ref={offerContentButtonRef} data-touchpoint-editor-affordance type="button" className="inspector-property-heading-action" aria-label={selected.contentUrl || selected.contentText ? 'Edit Offer Content' : 'Add content'} onClick={openEditor}>{selected.contentUrl || selected.contentText ? 'Offer Content' : 'Add content'}<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h4>}
-      {editing ? <div className="inspector-relation-editor offer-content-editor" aria-label="Offer Content editor" onBlur={event => {
-        if (event.relatedTarget instanceof HTMLElement && (event.currentTarget.contains(event.relatedTarget) || event.relatedTarget.matches('[data-offer-content-close]'))) return;
-        commitContent(false);
-      }} onKeyDown={event => {
+      {editing ? <div className="offer-content-heading"><h4 id="offer-content-heading">Offer Content</h4><button data-offer-content-close type="button" className="inspector-secondary-action" onClick={() => closeEditor(true)}>Close</button></div> : <h4 id="offer-content-heading" aria-label="Offer Content"><button ref={offerContentButtonRef} data-touchpoint-editor-affordance type="button" className="inspector-property-heading-action" aria-label={selected.contentUrl || selected.contentText ? 'Edit Offer Content' : 'Add content'} onClick={openEditor}>{selected.contentUrl || selected.contentText ? 'Offer Content' : 'Add content'}<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h4>}
+      {editing ? <div className="inspector-relation-editor offer-content-editor" aria-label="Offer Content editor" onKeyDown={event => {
         if (event.key !== 'Escape') return;
         event.preventDefault();
         event.stopPropagation();
         closeEditor(true);
       }}>
-        <label>External document URL<input autoFocus type="url" value={offerContentDraft.contentUrl} aria-invalid={Boolean(offerContentDraft.error)} aria-describedby={offerContentDraft.error ? 'offer-content-url-error' : undefined} onChange={event => setOfferContentDraft({ offerId: offerContentDraft.offerId, contentUrl: event.target.value, contentText: offerContentDraft.contentText })} /></label>
-        <label>Content text<textarea rows={6} value={offerContentDraft.contentText} onChange={event => setOfferContentDraft({ ...offerContentDraft, contentText: event.target.value })} /></label>
+        <label>External document URL<input autoFocus type="url" value={offerContentDraft.contentUrl} aria-invalid={Boolean(offerContentDraft.error)} aria-describedby={offerContentDraft.error ? 'offer-content-url-error' : undefined} onChange={event => setOfferContentDraft({ offerId: offerContentDraft.offerId, contentUrl: event.target.value, contentText: offerContentDraft.contentText })} onBlur={event => { if (!(event.relatedTarget instanceof HTMLElement && event.relatedTarget.matches('[data-offer-content-close]'))) commitContentField('contentUrl'); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commitContentField('contentUrl'); } }} /></label>
+        <label>Content text<textarea rows={6} value={offerContentDraft.contentText} onChange={event => setOfferContentDraft({ ...offerContentDraft, contentText: event.target.value })} onBlur={event => { if (!(event.relatedTarget instanceof HTMLElement && event.relatedTarget.matches('[data-offer-content-close]'))) commitContentField('contentText'); }} /></label>
         {offerContentDraft.error && <p id="offer-content-url-error" className="error-message" role="alert">{offerContentDraft.error}</p>}
       </div> : <div className="offer-content-read">
         {!selected.contentUrl && !selected.contentText && <p className="business-structure-empty">No content documented</p>}
