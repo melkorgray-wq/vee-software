@@ -39,6 +39,7 @@ const CLIENT_SCOPE_KIND_ORDER = ['core_functional_job', 'related_job', 'consumpt
 type ClientScopePanelKind = (typeof CLIENT_SCOPE_KIND_ORDER)[number];
 type OperationFeedback = { text: string; kind: 'success' | 'error' };
 type OfferContentDraft = { offerId: string; contentUrl: string; contentText: string; error?: string };
+type OfferContentPresentation = { preview: string; hasMultipleParagraphs: boolean };
 type LocationDraft = { kind: 'none' } | { kind: 'existing'; containerId: string } | { kind: 'new'; title: string };
 type EditDraft = {
   title: string;
@@ -110,6 +111,17 @@ type ChildrenEditor =
   | { mode: 'reassign-one' | 'reassign-all'; query: string; childTouchpointIds: string[]; error?: string }
   | { mode: 'resolve-contributor'; query: string; command: TouchpointStructuralCommand; choices: Record<string, string>; obligationKey: string; touchpointId: string; candidateOfferIds: string[]; returnMode: 'list' | 'reassign-one' | 'reassign-all'; error?: string }
   | { mode: 'create-child'; query: string; title: string; offerId: string; error?: string };
+
+export function offerContentPresentation(contentText: string): OfferContentPresentation {
+  const paragraphs = contentText
+    .split(/\r?\n[^\S\r\n]*\r?\n(?:[^\S\r\n]*\r?\n)*/)
+    .filter(paragraph => paragraph.trim().length > 0);
+  return {
+    preview: paragraphs.length > 1 ? (paragraphs[0] ?? contentText) : contentText,
+    hasMultipleParagraphs: paragraphs.length > 1,
+  };
+}
+
 function previousChildrenEditorLevel(editor: ChildrenEditor): ChildrenEditor {
   if (editor.mode !== 'resolve-contributor' || editor.returnMode === 'list') return { mode: 'list', query: '' };
   return { mode: editor.returnMode, query: '', childTouchpointIds: [...editor.command.childTouchpointIds] };
@@ -629,6 +641,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const inspectorTitleButtonRef = useRef<HTMLButtonElement>(null);
   const [offerContentDraft, setOfferContentDraft] = useState<OfferContentDraft | null>(null);
   const [offerContentCopyStatus, setOfferContentCopyStatus] = useState<string | null>(null);
+  const [expandedOfferContentId, setExpandedOfferContentId] = useState<string | null>(null);
   const offerContentButtonRef = useRef<HTMLButtonElement>(null);
   const [quick, setQuick] = useState<Quick | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -673,6 +686,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setInspectorTitleEdit(null);
     setOfferContentDraft(null);
     setOfferContentCopyStatus(null);
+    setExpandedOfferContentId(null);
     setInlineEdit(null);
     dispatchInspectorHistory({ type: 'replace', history: emptyInspectorHistory() });
     setMenu(null);
@@ -1276,6 +1290,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setConnectionPicker(null);
     setInspectorTitleEdit(null);
     const entity = documentRef.current.entities.find((e) => e.id === id);
+    setExpandedOfferContentId(null);
     setEditDraft(entity ? draftFor(entity, documentRef.current) : null);
     resetProductSession(entity, documentRef.current);
   }
@@ -2733,6 +2748,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   function offerContentSection() {
     if (selected?.kind !== 'offer') return null;
     const editing = offerContentDraft?.offerId === selected.id;
+    const contentPresentation = selected.contentText ? offerContentPresentation(selected.contentText) : null;
+    const contentExpanded = expandedOfferContentId === selected.id;
     const openEditor = () => {
       setOfferContentCopyStatus(null);
       setOfferContentDraft({ offerId: selected.id, contentUrl: selected.contentUrl ?? '', contentText: selected.contentText ?? '' });
@@ -2783,7 +2800,13 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       </div> : <div className="offer-content-read">
         {!selected.contentUrl && !selected.contentText && <p className="business-structure-empty">No content documented</p>}
         {selected.contentUrl && <a className="business-structure-external-link offer-content-link" href={selected.contentUrl} target="_blank" rel="noopener noreferrer">{selected.contentUrl}</a>}
-        {selected.contentText && <div className="offer-content-text-row"><p className="offer-content-text">{selected.contentText}</p><button type="button" className="inspector-secondary-action" onClick={copyText}>Copy</button></div>}
+        {selected.contentText && contentPresentation && <div className="offer-content-text-row">
+          <p className="offer-content-text">{contentExpanded ? selected.contentText : contentPresentation.preview}</p>
+          <div className="offer-content-actions">
+            {contentPresentation.hasMultipleParagraphs && <button type="button" className="inspector-secondary-action" onClick={() => setExpandedOfferContentId(contentExpanded ? null : selected.id)}>{contentExpanded ? 'Show less' : 'Show more'}</button>}
+            <button type="button" className="inspector-secondary-action" onClick={copyText}>Copy</button>
+          </div>
+        </div>}
         {offerContentCopyStatus && <p className="offer-content-copy-status" role="status" aria-live="polite">{offerContentCopyStatus}</p>}
       </div>}
     </section>;
