@@ -306,6 +306,7 @@ describe('Offer Content Inspector', () => {
     const text = inspector.getByText(/First line/);
     expect(text).toHaveClass('offer-content-text');
     expect(text).toHaveTextContent('First line Second line');
+    expect(inspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
     await user.click(inspector.getByRole('button', { name: 'Copy' }));
     expect(writeText).toHaveBeenCalledWith('First line\nSecond line');
     expect(inspector.getByRole('status')).toHaveTextContent('Content text copied');
@@ -313,6 +314,78 @@ describe('Offer Content Inspector', () => {
     await user.click(inspector.getByRole('button', { name: 'Copy' }));
     expect(inspector.getByRole('status')).toHaveTextContent('could not be copied');
     expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentUrl: 'https://example.test/a/very/long/document', contentText: 'First line\nSecond line' });
+  });
+
+  it('previews the first non-empty paragraph and toggles the unchanged full text without activating Apply', async () => {
+    const document = offerNeighborhoodDocument();
+    const contentText = '\n \nFirst paragraph line one\nline two\n\n   \n\nSecond paragraph';
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    const before = window.__VEE_DEV__!.dump();
+    const text = inspector.getByText(/First paragraph line one/);
+
+    expect(text).toHaveTextContent('First paragraph line one line two');
+    expect(text).not.toHaveTextContent('Second paragraph');
+    expect(inspector.queryByRole('button', { name: 'Show less' })).not.toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Show more' }));
+    expect(text.textContent).toBe(contentText);
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+    await user.click(inspector.getByRole('button', { name: 'Show less' }));
+    expect(text.textContent).toBe('First paragraph line one\nline two');
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+  });
+
+  it('resets expanded content when navigating to another Offer', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Subscription preview\n\nSubscription detail' });
+    Object.assign(document.entities.find(entity => entity.id === 'offer-b')!, { contentText: 'Consulting preview\n\nConsulting detail' });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+
+    await user.click(inspector.getByRole('button', { name: 'Show more' }));
+    expect(inspector.getByText(/Subscription preview/)).toHaveTextContent('Subscription detail');
+    await user.click(inspector.getAllByRole('button', { name: 'Consulting' })[0]!);
+    expect(inspector.getByText('Consulting preview')).toBeInTheDocument();
+    expect(inspector.queryByText('Consulting detail')).not.toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Show more' })).toBeInTheDocument();
+  });
+
+  it('keeps Copy after the text in the action row and always copies the full source text', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const document = offerNeighborhoodDocument();
+    const contentText = 'Preview paragraph\n\nFull detail';
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText });
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const inspector = renderOfferInspector(document);
+    const text = inspector.getByText('Preview paragraph');
+    const actions = inspector.getByRole('button', { name: 'Copy' }).closest<HTMLElement>('.offer-content-actions')!;
+
+    expect(text.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await user.click(within(actions).getByRole('button', { name: 'Copy' }));
+    await user.click(inspector.getByRole('button', { name: 'Show more' }));
+    await user.click(inspector.getByRole('button', { name: 'Copy' }));
+    expect(writeText).toHaveBeenNthCalledWith(1, contentText);
+    expect(writeText).toHaveBeenNthCalledWith(2, contentText);
+  });
+
+  it('omits text actions for URL-only content and preserves link plus controls when text is added', () => {
+    const urlOnly = offerNeighborhoodDocument();
+    Object.assign(urlOnly.entities.find(entity => entity.id === 'offer-a')!, { contentUrl: 'https://example.test/source' });
+    let inspector = renderOfferInspector(urlOnly);
+    expect(inspector.getByRole('link', { name: 'https://example.test/source' })).toBeInTheDocument();
+    expect(inspector.queryByRole('button', { name: 'Copy' })).not.toBeInTheDocument();
+    expect(inspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
+
+    cleanup();
+    const combined = offerNeighborhoodDocument();
+    Object.assign(combined.entities.find(entity => entity.id === 'offer-a')!, { contentUrl: 'https://example.test/source', contentText: 'Preview\n\nDetail' });
+    inspector = renderOfferInspector(combined);
+    expect(inspector.getByRole('link', { name: 'https://example.test/source' })).toHaveAttribute('href', 'https://example.test/source');
+    expect(inspector.getByRole('button', { name: 'Show more' })).toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Copy' })).toBeInTheDocument();
   });
 
   it('commits each field independently while Close and Escape only dismiss unfinished input', async () => {
