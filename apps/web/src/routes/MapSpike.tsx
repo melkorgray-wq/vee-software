@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useReducer, useRef, useState, type CSSPrope
 import { createPortal } from 'react-dom';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateOfferContent, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, disclosureOverlayPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction, type Point, type WorkspaceShortcutState } from '../map-interaction';
@@ -38,6 +38,7 @@ type PostCreateContinuation = WorkspaceView;
 const CLIENT_SCOPE_KIND_ORDER = ['core_functional_job', 'related_job', 'consumption_chain_job', 'emotional_job', 'social_job', 'financial_desired_outcome'] as const;
 type ClientScopePanelKind = (typeof CLIENT_SCOPE_KIND_ORDER)[number];
 type OperationFeedback = { text: string; kind: 'success' | 'error' };
+type OfferContentDraft = { offerId: string; contentUrl: string; contentText: string; error?: string };
 type LocationDraft = { kind: 'none' } | { kind: 'existing'; containerId: string } | { kind: 'new'; title: string };
 type EditDraft = {
   title: string;
@@ -626,6 +627,9 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [inlineEdit, setInlineEdit] = useState<{ entityId: string; title: string } | null>(null);
   const [inspectorTitleEdit, setInspectorTitleEdit] = useState<{ entityId: string; title: string } | null>(null);
   const inspectorTitleButtonRef = useRef<HTMLButtonElement>(null);
+  const [offerContentDraft, setOfferContentDraft] = useState<OfferContentDraft | null>(null);
+  const [offerContentCopyStatus, setOfferContentCopyStatus] = useState<string | null>(null);
+  const offerContentButtonRef = useRef<HTMLButtonElement>(null);
   const [quick, setQuick] = useState<Quick | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const copiedRef = useRef(copiedId);
@@ -667,6 +671,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     selectedRef.current = null;
     setEditDraft(null);
     setInspectorTitleEdit(null);
+    setOfferContentDraft(null);
+    setOfferContentCopyStatus(null);
     setInlineEdit(null);
     dispatchInspectorHistory({ type: 'replace', history: emptyInspectorHistory() });
     setMenu(null);
@@ -2724,6 +2730,64 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       </div>
     </section>;
   }
+  function offerContentSection() {
+    if (selected?.kind !== 'offer') return null;
+    const editing = offerContentDraft?.offerId === selected.id;
+    const openEditor = () => {
+      setOfferContentCopyStatus(null);
+      setOfferContentDraft({ offerId: selected.id, contentUrl: selected.contentUrl ?? '', contentText: selected.contentText ?? '' });
+    };
+    const closeEditor = (restoreFocus: boolean) => {
+      setOfferContentDraft(null);
+      if (restoreFocus) requestAnimationFrame(() => offerContentButtonRef.current?.focus());
+    };
+    const commitContentField = (field: 'contentUrl' | 'contentText') => {
+      if (!offerContentDraft || offerContentDraft.offerId !== selected.id) return false;
+      try {
+        const next = updateOfferContent(documentRef.current, {
+          offerId: selected.id,
+          field,
+          value: offerContentDraft[field],
+        });
+        documentRef.current = next;
+        setDocument(next);
+        const committedOffer = next.entities.find((entity): entity is Extract<Entity, { kind: 'offer' }> => entity.id === selected.id && entity.kind === 'offer')!;
+        setOfferContentDraft(current => current?.offerId !== selected.id ? current : field === 'contentUrl'
+          ? { offerId: current.offerId, contentUrl: committedOffer.contentUrl ?? '', contentText: current.contentText }
+          : { ...current, contentText: committedOffer.contentText ?? '' });
+        return true;
+      } catch (error) {
+        if (field === 'contentUrl') setOfferContentDraft({ ...offerContentDraft, error: error instanceof Error ? error.message : 'External document URL could not be updated.' });
+        return false;
+      }
+    };
+    const copyText = async () => {
+      try {
+        await navigator.clipboard.writeText(selected.contentText ?? '');
+        setOfferContentCopyStatus('Content text copied.');
+      } catch {
+        setOfferContentCopyStatus('Content text could not be copied.');
+      }
+    };
+    return <section className="offer-content" aria-labelledby="offer-content-heading">
+      {editing ? <div className="offer-content-heading"><h4 id="offer-content-heading">Offer Content</h4><button data-offer-content-close type="button" className="inspector-secondary-action" onClick={() => closeEditor(true)}>Close</button></div> : <h4 id="offer-content-heading" aria-label="Offer Content"><button ref={offerContentButtonRef} data-touchpoint-editor-affordance type="button" className="inspector-property-heading-action" aria-label={selected.contentUrl || selected.contentText ? 'Edit Offer Content' : 'Add content'} onClick={openEditor}>{selected.contentUrl || selected.contentText ? 'Offer Content' : 'Add content'}<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h4>}
+      {editing ? <div className="inspector-relation-editor offer-content-editor" aria-label="Offer Content editor" onKeyDown={event => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault();
+        event.stopPropagation();
+        closeEditor(true);
+      }}>
+        <label>External document URL<input autoFocus type="url" value={offerContentDraft.contentUrl} aria-invalid={Boolean(offerContentDraft.error)} aria-describedby={offerContentDraft.error ? 'offer-content-url-error' : undefined} onChange={event => setOfferContentDraft({ offerId: offerContentDraft.offerId, contentUrl: event.target.value, contentText: offerContentDraft.contentText })} onBlur={event => { if (!(event.relatedTarget instanceof HTMLElement && event.relatedTarget.matches('[data-offer-content-close]'))) commitContentField('contentUrl'); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commitContentField('contentUrl'); } }} /></label>
+        <label>Content text<textarea rows={6} value={offerContentDraft.contentText} onChange={event => setOfferContentDraft({ ...offerContentDraft, contentText: event.target.value })} onBlur={event => { if (!(event.relatedTarget instanceof HTMLElement && event.relatedTarget.matches('[data-offer-content-close]'))) commitContentField('contentText'); }} /></label>
+        {offerContentDraft.error && <p id="offer-content-url-error" className="error-message" role="alert">{offerContentDraft.error}</p>}
+      </div> : <div className="offer-content-read">
+        {!selected.contentUrl && !selected.contentText && <p className="business-structure-empty">No content documented</p>}
+        {selected.contentUrl && <a className="business-structure-external-link offer-content-link" href={selected.contentUrl} target="_blank" rel="noopener noreferrer">{selected.contentUrl}</a>}
+        {selected.contentText && <div className="offer-content-text-row"><p className="offer-content-text">{selected.contentText}</p><button type="button" className="inspector-secondary-action" onClick={copyText}>Copy</button></div>}
+        {offerContentCopyStatus && <p className="offer-content-copy-status" role="status" aria-live="polite">{offerContentCopyStatus}</p>}
+      </div>}
+    </section>;
+  }
   function offerNeighborhoodSection() {
     if (selected?.kind !== 'offer') return null;
     type OfferEntity = Extract<Entity, { kind: 'offer' }>;
@@ -3305,6 +3369,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               {touchpointClientScopeSection()}
               {touchpointResistanceSection()}
               {offerBusinessStructureSection()}
+              {offerContentSection()}
               {offerNeighborhoodSection()}
               {productIntentFields(editDraft, setEditDraft)}
               {offerIntentFields(editDraft, setEditDraft)}
