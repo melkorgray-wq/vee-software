@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useReducer, useRef, useState, type CSSPrope
 import { createPortal } from 'react-dom';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, disclosureOverlayPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction, type Point, type WorkspaceShortcutState } from '../map-interaction';
@@ -15,7 +15,7 @@ import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, recons
 import { nearestSpatialCandidate, spatialDirectionForKey } from '../map-spatial-navigation';
 import { enterMoveMode, inactiveMoveMode, moveInMode, moveVectorForKey, type MoveMode } from '../map-move-mode';
 import { Link } from '../router';
-import { commitOfferConnectedTouchpoint, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, createTouchpointIntentDraft, entityTitle, equalTouchpointIntentDraft, globalIntentDiscovery, replaceTouchpointLinkedOffer, touchpointClientScope, touchpointUpstreamSources, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft, type UpstreamLeaf } from './touchpoint-edit';
+import { collisionSafeOfferTitle, commitOfferConnectedTouchpoint, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, createSiblingOfferAndReplace, createTouchpointIntentDraft, duplicateOfferAndReplace, entityTitle, equalTouchpointIntentDraft, globalIntentDiscovery, planFutureTouchpointOfferReplacement, replaceTouchpointLinkedOffer, touchpointClientScope, touchpointUpstreamSources, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft, type UpstreamLeaf } from './touchpoint-edit';
 import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
 import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets } from '../touchpoint-business-structure';
 import { deriveOfferBusinessStructure, projectConnectedTouchpointCandidates } from '../offer-business-structure';
@@ -97,10 +97,12 @@ type ProductConfirmation =
   | { mode: 'impact'; owner: 'offer'; pending?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getOfferIntentChangeImpact> }
   | { mode: 'impact'; owner: 'offer-product'; immediateCommit: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getOfferIntentChangeImpact> }
   | { mode: 'impact'; owner: 'touchpoint'; immediateCommit: () => void; returnFocus: HTMLElement | null; returnFocusId?: string; impact: ReturnType<typeof getTouchpointLinkedOfferChangeImpact> }
-  | { mode: 'impact'; owner: 'touchpoint-replacement'; immediateCommit: () => void; returnFocus: HTMLElement | null; returnFocusId: string; impact: ReturnType<typeof getTouchpointLinkedOfferChangeImpact>; touchpointId: string; departingOfferId: string; replacementOfferId: string };
+  | { mode: 'impact'; owner: 'touchpoint-replacement'; immediateCommit: () => void; returnFocus: HTMLElement | null; returnFocusId: string; impact: ReturnType<typeof getTouchpointLinkedOfferChangeImpact>; touchpointId: string; departingOfferId: string; replacementOfferId: string }
+  | { mode: 'impact'; owner: 'touchpoint-created-replacement'; operationKind: 'sibling' | 'duplicate'; immediateCommit: () => void; returnFocus: HTMLElement | null; returnFocusId: string; impact: ReturnType<typeof getTouchpointLinkedOfferChangeImpact>; touchpointId: string; departingOfferId: string; plannedOfferTitle: string };
 type ConnectedTouchpointsEditor =
   | { mode: 'list'; query: string; error?: string }
-  | { mode: 'replace-offer'; touchpointId: string; departingOfferId: string; query: string; replacementOfferId?: string; error?: string };
+  | { mode: 'replace-offer'; touchpointId: string; departingOfferId: string; query: string; replacementOfferId?: string; error?: string }
+  | { mode: 'create-sibling'; touchpointId: string; departingOfferId: string; title: string; error?: string };
 type ClientScopeEditor = { mode: 'upstream' | 'global-search' | 'current-contributor-choice' | 'ancestor-contributor-choice' | 'invalid'; actionOrigin?: 'parent-source' | 'global-discovery'; query: string; kind?: ConnectionPickerKind | undefined; target?: { leaf: UpstreamLeaf } | undefined; currentContributorCandidateIds?: string[]; contributorOfferIds: string[]; ancestorContributingOfferIds: Record<string, string>; unresolved?: Extract<BottomUpTouchpointResult, { status: 'unresolved' | 'invalid' }> };
 type ChildrenEditor =
   | { mode: 'list'; query: string; error?: string }
@@ -780,7 +782,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   });
   function closeProductConfirmation() {
     const target = productConfirmation?.returnFocus;
-    const targetId = productConfirmation?.mode === 'impact' && (productConfirmation.owner === 'touchpoint' || productConfirmation.owner === 'touchpoint-replacement') ? productConfirmation.returnFocusId : undefined;
+    const targetId = productConfirmation?.mode === 'impact' && (productConfirmation.owner === 'touchpoint' || productConfirmation.owner === 'touchpoint-replacement' || productConfirmation.owner === 'touchpoint-created-replacement') ? productConfirmation.returnFocusId : undefined;
     setProductConfirmation(null);
     requestAnimationFrame(() => (targetId ? globalThis.document.getElementById(targetId) : target)?.focus());
   }
@@ -900,7 +902,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const dismissOnEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key !== 'Escape' || productConfirmation) return;
       event.preventDefault();
-      if (connectedTouchpointsEditor.mode === 'replace-offer') setConnectedTouchpointsEditor({ mode: 'list', query: '' });
+      if (connectedTouchpointsEditor.mode === 'create-sibling') setConnectedTouchpointsEditor({ mode: 'replace-offer', touchpointId: connectedTouchpointsEditor.touchpointId, departingOfferId: connectedTouchpointsEditor.departingOfferId, query: '' });
+      else if (connectedTouchpointsEditor.mode === 'replace-offer') setConnectedTouchpointsEditor({ mode: 'list', query: '' });
       else closeConnectedTouchpointsEditor('explicit');
     };
     globalThis.document.addEventListener('pointerdown', dismissOnPointerDown);
@@ -1059,7 +1062,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       const committed = commitOfferConnectedTouchpoint(before, { offerId, touchpointId, connected, confirmedRemoval, newId: () => crypto.randomUUID() });
       const next = reconsiderPlacementAfterRelationCommit(before, committed, VIEW_ID, touchpointId);
       setDocument(next);
-      setConnectedTouchpointsEditor(current => current ? { mode: 'list', query: current.query } : current);
+      setConnectedTouchpointsEditor(current => current ? { mode: 'list', query: 'query' in current ? current.query : '' } : current);
       publishSuccess('Connected Touchpoints updated.');
       requestAnimationFrame(() => globalThis.document.getElementById(returnFocusId)?.focus());
     } catch (error) {
@@ -1103,6 +1106,63 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
           publishSuccess('Connected Touchpoint Offer replaced.');
         } catch (error) {
           setConnectedTouchpointsEditor(current => current?.mode === 'replace-offer' ? { ...current, error: error instanceof Error ? error.message : 'Offer could not be replaced.' } : current);
+        }
+      },
+    });
+  }
+  function createdReplacementPlacement(source: MapDocument, departingOfferId: string, title: string) {
+    const productId = source.relationships.find((relation): relation is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => relation.kind === 'product_packaged_as_offer' && relation.offerId === departingOfferId)?.productId;
+    const anchors = [productId, departingOfferId].filter((id): id is string => Boolean(id));
+    return findRelatedPlacement(source, VIEW_ID, layoutForEntity({ kind: 'offer', title }), anchors, productId ? [{ sourceId: productId, targetId: '__new__' }] : []);
+  }
+  function finishCreatedOfferReplacement(next: MapDocument, offerId: string, departingOfferId: string) {
+    documentRef.current = next;
+    setDocument(next);
+    setConnectedTouchpointsEditor(null);
+    performInspectorNavigation(offerId);
+    pendingInspectorRevealRef.current = [offerId, departingOfferId, ...immediateNeighbors(next, offerId)];
+    publishSuccess('Connected Touchpoint Offer replaced.');
+  }
+  function requestCreatedOfferReplacement(operationKind: 'sibling' | 'duplicate', returnFocus: HTMLButtonElement) {
+    const editor = connectedTouchpointsEditor;
+    if (!editor || editor.mode === 'list') return;
+    if (operationKind === 'sibling' && editor.mode !== 'create-sibling') return;
+    if (operationKind === 'duplicate' && editor.mode !== 'replace-offer') return;
+    const touchpointId = editor.touchpointId;
+    const departingOfferId = editor.departingOfferId;
+    const durable = documentRef.current;
+    const departing = durable.entities.find(entity => entity.id === departingOfferId && entity.kind === 'offer');
+    if (!departing) return;
+    const plannedOfferTitle = operationKind === 'sibling' ? (editor.mode === 'create-sibling' ? editor.title.trim() : '') : collisionSafeOfferTitle(durable, departing.title);
+    if (!plannedOfferTitle) {
+      setConnectedTouchpointsEditor(current => current?.mode === 'create-sibling' ? { ...current, error: 'Enter a title for the sibling Offer.' } : current);
+      return;
+    }
+    let impact: ReturnType<typeof getTouchpointLinkedOfferChangeImpact>;
+    try {
+      impact = planFutureTouchpointOfferReplacement(durable, { touchpointId, departingOfferId });
+    } catch (error) {
+      setConnectedTouchpointsEditor(current => current ? { ...current, error: error instanceof Error ? error.message : 'Replacement could not be planned.' } : current);
+      return;
+    }
+    const offerId = crypto.randomUUID();
+    const duplicationRelationshipIds = operationKind === 'duplicate' ? Array.from({ length: duplicateEntityRelationshipIdCount(durable, departingOfferId) }, () => crypto.randomUUID()) : [];
+    const productRelationshipId = operationKind === 'sibling' ? crypto.randomUUID() : '';
+    const replacementRelationshipId = crypto.randomUUID();
+    const returnFocusId = returnFocus.id;
+    setProductConfirmation({
+      mode: 'impact', owner: 'touchpoint-created-replacement', operationKind, impact, touchpointId, departingOfferId, plannedOfferTitle, returnFocus, returnFocusId,
+      immediateCommit: () => {
+        const before = documentRef.current;
+        try {
+          const placement = { viewId: VIEW_ID, ...createdReplacementPlacement(before, departingOfferId, plannedOfferTitle) };
+          const committed = operationKind === 'sibling'
+            ? createSiblingOfferAndReplace(before, { touchpointId, departingOfferId, title: plannedOfferTitle, offerId, productRelationshipId, replacementRelationshipId, placement })
+            : duplicateOfferAndReplace(before, { touchpointId, departingOfferId, offerId, duplicationRelationshipIds, replacementRelationshipId, placement });
+          finishCreatedOfferReplacement(committed, offerId, departingOfferId);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Offer could not be created and replaced.';
+          setConnectedTouchpointsEditor(operationKind === 'sibling' ? { mode: 'create-sibling', touchpointId, departingOfferId, title: plannedOfferTitle, error: message } : { mode: 'replace-offer', touchpointId, departingOfferId, query: '', error: message });
         }
       },
     });
@@ -2595,7 +2655,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const candidates = products.filter(product => !query || product.title.toLocaleLowerCase().includes(query));
     const searchable = products.length >= RELATION_EDITOR_SEARCH_THRESHOLD;
     const allTouchpoints = projectConnectedTouchpointCandidates(document, inspectedOfferId);
-    const touchpointQuery = connectedTouchpointsEditor?.query.trim().toLocaleLowerCase() ?? '';
+    const touchpointQuery = connectedTouchpointsEditor && 'query' in connectedTouchpointsEditor ? connectedTouchpointsEditor.query.trim().toLocaleLowerCase() : '';
     const touchpointCandidates = allTouchpoints.filter(touchpoint => !touchpointQuery || touchpoint.title.toLocaleLowerCase().includes(touchpointQuery));
     const touchpointsSearchable = allTouchpoints.length >= RELATION_EDITOR_SEARCH_THRESHOLD;
     const navigationList = (entities: { id: string; title: string }[]) => entities.length
@@ -2620,17 +2680,30 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             <h5 id="offer-presentation-heading">Presentation</h5>
             <div className="business-structure-property" role="group" aria-label="Connected Touchpoints property">
               {connectedTouchpointsEditor ? <div ref={connectedTouchpointsEditorRef} className="inspector-relation-editor" aria-label="Connected Touchpoints editor">
-                {connectedTouchpointsEditor.mode === 'replace-offer' ? (() => {
+                {connectedTouchpointsEditor.mode === 'create-sibling' ? (() => {
+                  const productId = document.relationships.find((relation): relation is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => relation.kind === 'product_packaged_as_offer' && relation.offerId === connectedTouchpointsEditor.departingOfferId)?.productId;
+                  const productTitle = productId ? entityTitle(document, productId) : 'Unavailable Product';
+                  return <>
+                    <div className="inspector-relation-editor-header"><strong>Create sibling Offer</strong><div className="inspector-relation-editor-actions"><button type="button" className="inspector-secondary-action" onClick={() => setConnectedTouchpointsEditor({ mode: 'replace-offer', touchpointId: connectedTouchpointsEditor.touchpointId, departingOfferId: connectedTouchpointsEditor.departingOfferId, query: '' })}>Back</button><button type="button" className="inspector-secondary-action" onClick={() => closeConnectedTouchpointsEditor('explicit')}>Close</button></div></div>
+                    <p>Product: <strong>{productTitle}</strong></p>
+                    <label htmlFor="sibling-offer-title">Title<input autoFocus id="sibling-offer-title" required value={connectedTouchpointsEditor.title} onChange={event => setConnectedTouchpointsEditor({ mode: 'create-sibling', touchpointId: connectedTouchpointsEditor.touchpointId, departingOfferId: connectedTouchpointsEditor.departingOfferId, title: event.target.value })} /></label>
+                    {connectedTouchpointsEditor.error && <p role="alert">{connectedTouchpointsEditor.error}</p>}
+                    <div className="inspector-relation-editor-actions"><button id="create-sibling-offer-confirm" type="button" className="primary" onClick={event => requestCreatedOfferReplacement('sibling', event.currentTarget)}>Create and replace</button></div>
+                  </>;
+                })() : connectedTouchpointsEditor.mode === 'replace-offer' ? (() => {
                   const offers = document.entities.filter((entity): entity is Extract<Entity, { kind: 'offer' }> => entity.kind === 'offer' && entity.id !== connectedTouchpointsEditor.departingOfferId);
                   const offerQuery = connectedTouchpointsEditor.query.trim().toLocaleLowerCase();
                   const candidates = offers.filter(offer => !offerQuery || offer.title.toLocaleLowerCase().includes(offerQuery)).sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
                   const searchable = offers.length >= RELATION_EDITOR_SEARCH_THRESHOLD;
                   return <>
                     <div className="inspector-relation-editor-header"><strong>Replace Offer</strong><div className="inspector-relation-editor-actions"><button type="button" className="inspector-secondary-action" onClick={() => setConnectedTouchpointsEditor({ mode: 'list', query: '' })}>Back</button><button type="button" className="inspector-secondary-action" onClick={() => closeConnectedTouchpointsEditor('explicit')}>Close</button></div></div>
+                    <p><strong>{entityTitle(document, connectedTouchpointsEditor.touchpointId)}</strong> currently presents only <strong>{entityTitle(document, connectedTouchpointsEditor.departingOfferId)}</strong>. A Touchpoint cannot be left without an Offer, so choose or create a replacement.</p>
                     {searchable && <label className="inspector-relation-editor-search" htmlFor="replacement-offer-search">Search Offers<input autoFocus id="replacement-offer-search" type="search" value={connectedTouchpointsEditor.query} onChange={event => setConnectedTouchpointsEditor({ ...connectedTouchpointsEditor, query: event.target.value })} /></label>}
                     <div className="inspector-relation-candidates" role="radiogroup" aria-label="Replacement Offer options" aria-live="polite">
                       {candidates.length ? candidates.map((offer, index) => { const id = `replacement-offer-${connectedTouchpointsEditor.touchpointId}-${offer.id}`; return <label className="inspector-relation-row inspector-relation-row-radio" key={offer.id}><input id={id} autoFocus={!searchable && index === 0} type="radio" name="replacement-offer" checked={connectedTouchpointsEditor.replacementOfferId === offer.id} onChange={event => requestTouchpointOfferReplacement(connectedTouchpointsEditor.touchpointId, connectedTouchpointsEditor.departingOfferId, offer.id, event.currentTarget)} /><span className="inspector-relation-indicator" aria-hidden="true" /><span>{offer.title}</span></label>; }) : <p role="status">No replacement Offers are available.</p>}
-                    </div>{connectedTouchpointsEditor.error && <p role="alert">{connectedTouchpointsEditor.error}</p>}
+                    </div>
+                    <div className="inspector-relation-editor-actions"><button id="create-sibling-offer" type="button" onClick={() => setConnectedTouchpointsEditor({ mode: 'create-sibling', touchpointId: connectedTouchpointsEditor.touchpointId, departingOfferId: connectedTouchpointsEditor.departingOfferId, title: '' })}>Create sibling Offer</button><button id="duplicate-current-offer" type="button" onClick={event => requestCreatedOfferReplacement('duplicate', event.currentTarget)}>Duplicate current Offer</button></div>
+                    {connectedTouchpointsEditor.error && <p role="alert">{connectedTouchpointsEditor.error}</p>}
                   </>;
                 })() : <>
                   <div className="inspector-relation-editor-header"><strong>Connected Touchpoints</strong><button type="button" className="inspector-secondary-action" onClick={() => closeConnectedTouchpointsEditor('explicit')}>Close</button></div>
@@ -3264,10 +3337,11 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         </section>
       </div>
       {productConfirmation && (
-        <div className="confirmation-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !(productConfirmation.mode === 'impact' && (productConfirmation.owner === 'touchpoint' || productConfirmation.owner === 'touchpoint-replacement'))) closeProductConfirmation(); }}>
+        <div className="confirmation-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !(productConfirmation.mode === 'impact' && (productConfirmation.owner === 'touchpoint' || productConfirmation.owner === 'touchpoint-replacement' || productConfirmation.owner === 'touchpoint-created-replacement'))) closeProductConfirmation(); }}>
           <div ref={confirmationRef} role="dialog" aria-modal="true" aria-labelledby="product-confirmation-title" className="confirmation-dialog" onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); closeProductConfirmation(); } }}>
-            <h2 id="product-confirmation-title">{productConfirmation.mode === 'dirty' ? `Unsaved ${selected?.kind === 'offer' ? 'Offer' : 'Product'} changes` : productConfirmation.owner === 'touchpoint-replacement' ? 'Replace this Touchpoint Offer?' : 'This change affects downstream intent'}</h2>
+            <h2 id="product-confirmation-title">{productConfirmation.mode === 'dirty' ? `Unsaved ${selected?.kind === 'offer' ? 'Offer' : 'Product'} changes` : productConfirmation.owner === 'touchpoint-replacement' || productConfirmation.owner === 'touchpoint-created-replacement' ? 'Replace this Touchpoint Offer?' : 'This change affects downstream intent'}</h2>
             {productConfirmation.mode === 'impact' && productConfirmation.owner === 'touchpoint-replacement' && <p>Replace <strong>{entityTitle(document, productConfirmation.departingOfferId)}</strong> with <strong>{entityTitle(document, productConfirmation.replacementOfferId)}</strong> at <strong>{entityTitle(document, productConfirmation.touchpointId)}</strong>?</p>}
+            {productConfirmation.mode === 'impact' && productConfirmation.owner === 'touchpoint-created-replacement' && <p>{productConfirmation.operationKind === 'sibling' ? 'Create' : 'Duplicate as'} <strong>{productConfirmation.plannedOfferTitle}</strong> and replace <strong>{entityTitle(document, productConfirmation.departingOfferId)}</strong> at <strong>{entityTitle(document, productConfirmation.touchpointId)}</strong>?</p>}
             {productConfirmation.mode === 'impact' && productConfirmation.owner === 'product' && (
               <div className="impact-list">
                 {productConfirmation.impact.offerJobSelectionIds.map(id => { const selection = document.offerJobSelections.find(item => item.id === id); const offer = document.entities.find(entity => entity.id === selection?.offerId); const intent = document.productJobIntents.find(item => item.id === selection?.productJobIntentId); const job = document.entities.find(entity => entity.id === intent?.jobId); return <p key={id}><strong>{offer?.title}</strong><span>loses {job?.title}</span></p>; })}
@@ -3283,7 +3357,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 {productConfirmation.impact.touchpointFinancialSelectionIds.map(id => { const selection = document.touchpointFinancialSelections.find(item => item.id === id); const touchpoint = document.entities.find(entity => entity.id === selection?.touchpointId); const outcome = document.entities.find(entity => entity.id === selection?.financialDesiredOutcomeId); return <p key={id}><strong>{touchpoint?.title}</strong><span>loses {outcome?.title}</span></p>; })}
               </div>
             )}
-            {productConfirmation.mode === 'impact' && (productConfirmation.owner === 'touchpoint' || productConfirmation.owner === 'touchpoint-replacement') && (
+            {productConfirmation.mode === 'impact' && (productConfirmation.owner === 'touchpoint' || productConfirmation.owner === 'touchpoint-replacement' || productConfirmation.owner === 'touchpoint-created-replacement') && (
               <div className="impact-list">
                 {productConfirmation.impact.map((path) => { const offer = document.entities.find(entity => entity.id === path.offerId); const alternatives = path.alternativeContributingOfferIds.map(id => document.entities.find(entity => entity.id === id)?.title).filter(Boolean).join(', '); return <p key={`${path.kind}:${path.offerId}:${path.touchpointSelectionIds.join(':')}:${path.kind === 'job' ? path.desiredOutcomeIds.join(':') : path.financialDesiredOutcomeId}`}><strong>{offer?.title}</strong><span>path to {path.kind === 'job' ? [document.entities.find(entity => entity.id === path.jobId)?.title, ...path.desiredOutcomeIds.map(id => document.entities.find(entity => entity.id === id)?.title)].filter(Boolean).join(' → ') : document.entities.find(entity => entity.id === path.financialDesiredOutcomeId)?.title} will be removed{alternatives ? `; alternative: ${alternatives}` : ''}</span></p>; })}
               </div>
@@ -3295,7 +3369,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 <button type="button" onClick={closeProductConfirmation}>Keep editing</button>
               </> : <>
                 <button type="button" onClick={closeProductConfirmation}>Cancel</button>
-                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; setProductConfirmation(null); if (confirmation.owner === 'touchpoint' || confirmation.owner === 'touchpoint-replacement' || confirmation.owner === 'offer-product') { confirmation.immediateCommit(); requestAnimationFrame(() => ((confirmation.owner === 'touchpoint' || confirmation.owner === 'touchpoint-replacement') && confirmation.returnFocusId ? globalThis.document.getElementById(confirmation.returnFocusId) : confirmation.returnFocus)?.focus()); } else { productApplyBypassRef.current = true; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>{productConfirmation.owner === 'touchpoint-replacement' ? 'Replace Offer' : productConfirmation.owner === 'touchpoint' || productConfirmation.owner === 'offer-product' ? 'Confirm removal' : 'Apply changes'}</button>
+                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; setProductConfirmation(null); if (confirmation.owner === 'touchpoint' || confirmation.owner === 'touchpoint-replacement' || confirmation.owner === 'touchpoint-created-replacement' || confirmation.owner === 'offer-product') { confirmation.immediateCommit(); if (confirmation.owner !== 'touchpoint-created-replacement') requestAnimationFrame(() => ((confirmation.owner === 'touchpoint' || confirmation.owner === 'touchpoint-replacement') && confirmation.returnFocusId ? globalThis.document.getElementById(confirmation.returnFocusId) : confirmation.returnFocus)?.focus()); } else { productApplyBypassRef.current = true; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>{productConfirmation.owner === 'touchpoint-created-replacement' ? 'Confirm' : productConfirmation.owner === 'touchpoint-replacement' ? 'Replace Offer' : productConfirmation.owner === 'touchpoint' || productConfirmation.owner === 'offer-product' ? 'Confirm removal' : 'Apply changes'}</button>
               </>}
             </div>
           </div>

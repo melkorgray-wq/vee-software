@@ -994,15 +994,37 @@ export function updateRepulsorTargets(document: MapDocument, input: { repulsorId
   return { ...document, relationships: [...document.relationships.filter(relationship => !(relationship.kind === 'repulsor_resists' && relationship.repulsorId === input.repulsorId)), ...replacement] };
 }
 
-export function duplicateEntity(document: MapDocument, input: { sourceEntityId: string; entityId: string; viewId: string; x: number; y: number; relationshipIds: string[] }): MapDocument {
+/** Number of fresh record IDs consumed by the canonical duplication owner. */
+export function duplicateEntityRelationshipIdCount(document: MapDocument, sourceEntityId: string): number {
+  const source = document.entities.find(entity => entity.id === sourceEntityId);
+  if (!source) throw new DomainError('unknown_entity', 'Source entity does not exist.');
+  if (source.kind === 'product') return document.productJobIntents.filter(intent => intent.productId === source.id).length;
+  if (source.kind === 'emotional_job' || source.kind === 'social_job') return document.relationships.filter(relation => relation.kind === 'core_functional_job_contextualizes_job' && relation.contextualJobId === source.id).length;
+  if (isClientRootEntityKind(source.kind)) return 0;
+  if (source.kind === 'related_job' || source.kind === 'desired_outcome') return 1;
+  if (source.kind === 'repulsor') return document.relationships.filter(relation => relation.kind === 'repulsor_resists' && relation.repulsorId === source.id).length;
+  if (source.kind === 'offer') return 1 + document.offerJobSelections.filter(selection => selection.offerId === source.id).length + document.offerFinancialIntents.filter(intent => intent.offerId === source.id).length;
+  if (source.kind === 'touchpoint') {
+    const offerCount = document.relationships.filter(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === source.id).length;
+    const parentCount = document.relationships.some(relation => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === source.id) ? 1 : 0;
+    return offerCount + parentCount
+      + document.touchpointJobSelections.filter(selection => selection.touchpointId === source.id).length
+      + document.touchpointFinancialSelections.filter(selection => selection.touchpointId === source.id).length
+      + document.relationships.filter(relation => relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === source.id).length;
+  }
+  throw new DomainError('unsupported_entity_kind', 'Source entity kind cannot be duplicated.');
+}
+
+export function duplicateEntity(document: MapDocument, input: { sourceEntityId: string; entityId: string; viewId: string; x: number; y: number; relationshipIds: string[]; title?: string }): MapDocument {
   const source = document.entities.find(e => e.id === input.sourceEntityId); if (!source) throw new DomainError('unknown_entity', 'Source entity does not exist.');
+  const title = input.title ?? source.title;
   if (source.kind === 'product') {
-    let copy = addEntity(document, { entityId: input.entityId, title: source.title, kind: source.kind, viewId: input.viewId, x: input.x, y: input.y });
+    let copy = addEntity(document, { entityId: input.entityId, title, kind: source.kind, viewId: input.viewId, x: input.x, y: input.y });
     for (const [index, intent] of document.productJobIntents.filter(candidate => candidate.productId === source.id).entries()) copy = addProductJobIntent(copy, { ...intent, id: input.relationshipIds[index]!, productId: input.entityId });
     return copy;
   }
   if (isClientRootEntityKind(source.kind)) {
-    let copy = addEntity(document, { entityId: input.entityId, title: source.title, kind: source.kind, viewId: input.viewId, x: input.x, y: input.y });
+    let copy = addEntity(document, { entityId: input.entityId, title, kind: source.kind, viewId: input.viewId, x: input.x, y: input.y });
     if (source.kind === 'emotional_job' || source.kind === 'social_job') {
       const contexts = document.relationships.flatMap(relation => relation.kind === 'core_functional_job_contextualizes_job' && relation.contextualJobId === source.id ? [relation.coreFunctionalJobId] : []);
       copy = setContextualCoreFunctionalJobs(copy, { contextualJobId: input.entityId, coreFunctionalJobIds: contexts, newRelationshipIds: input.relationshipIds.slice(0, contexts.length) });
@@ -1014,17 +1036,17 @@ export function duplicateEntity(document: MapDocument, input: { sourceEntityId: 
       ? document.relationships.find((r): r is Extract<Relationship, { kind: 'core_functional_job_has_related_job' }> => r.kind === 'core_functional_job_has_related_job' && r.relatedJobId === source.id)?.coreFunctionalJobId
       : document.relationships.find((r): r is Extract<Relationship, { kind: 'job_has_desired_outcome' }> => r.kind === 'job_has_desired_outcome' && r.desiredOutcomeId === source.id)?.jobId;
     if (!parentEntityId) throw new DomainError('missing_semantic_parent', 'Contextual Client entity has no semantic parent.');
-    return addEntity(document, { entityId: input.entityId, title: source.title, kind: source.kind, parentEntityId, relationshipId: input.relationshipIds[0]!, viewId: input.viewId, x: input.x, y: input.y });
+    return addEntity(document, { entityId: input.entityId, title, kind: source.kind, parentEntityId, relationshipId: input.relationshipIds[0]!, viewId: input.viewId, x: input.x, y: input.y });
   }
   if (source.kind === 'repulsor') {
     const targetIds = document.relationships.filter((relationship): relationship is Extract<Relationship, { kind: 'repulsor_resists' }> => relationship.kind === 'repulsor_resists' && relationship.repulsorId === source.id).map(relationship => relationship.targetEntityId);
-    return addEntity(document, { entityId: input.entityId, title: source.title, kind: 'repulsor', resistedTargetIds: targetIds, relationshipIds: input.relationshipIds.slice(0, targetIds.length), viewId: input.viewId, x: input.x, y: input.y });
+    return addEntity(document, { entityId: input.entityId, title, kind: 'repulsor', resistedTargetIds: targetIds, relationshipIds: input.relationshipIds.slice(0, targetIds.length), viewId: input.viewId, x: input.x, y: input.y });
   }
-  if (source.kind === 'offer') { const relation = document.relationships.find((r): r is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => r.kind === 'product_packaged_as_offer' && r.offerId === source.id)!; let copy = addEntity(document, { entityId: input.entityId, title: source.title, kind: 'offer', linkedProductId: relation.productId, relationshipId: input.relationshipIds[0]!, viewId: input.viewId, x: input.x, y: input.y }); const selected = document.offerJobSelections.filter(selection => selection.offerId === source.id).map(selection => ({ productJobIntentId: selection.productJobIntentId, addressedDesiredOutcomeIds: effectiveOfferDesiredOutcomeIds(document, selection) })); copy = setOfferJobSelections(copy, { offerId: input.entityId, selections: selected, newSelectionIds: input.relationshipIds.slice(1, selected.length + 1) }); const financial = document.offerFinancialIntents.filter(intent => intent.offerId === source.id).map(intent => intent.financialDesiredOutcomeId); copy = setOfferFinancialIntents(copy, { offerId: input.entityId, financialDesiredOutcomeIds: financial, newIntentIds: input.relationshipIds.slice(1 + selected.length, 1 + selected.length + financial.length) }); return copy; }
+  if (source.kind === 'offer') { const relation = document.relationships.find((r): r is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => r.kind === 'product_packaged_as_offer' && r.offerId === source.id)!; let copy = addEntity(document, { entityId: input.entityId, title, kind: 'offer', linkedProductId: relation.productId, relationshipId: input.relationshipIds[0]!, viewId: input.viewId, x: input.x, y: input.y }); const selected = document.offerJobSelections.filter(selection => selection.offerId === source.id).map(selection => ({ productJobIntentId: selection.productJobIntentId, addressedDesiredOutcomeIds: effectiveOfferDesiredOutcomeIds(document, selection) })); copy = setOfferJobSelections(copy, { offerId: input.entityId, selections: selected, newSelectionIds: input.relationshipIds.slice(1, selected.length + 1) }); const financial = document.offerFinancialIntents.filter(intent => intent.offerId === source.id).map(intent => intent.financialDesiredOutcomeId); copy = setOfferFinancialIntents(copy, { offerId: input.entityId, financialDesiredOutcomeIds: financial, newIntentIds: input.relationshipIds.slice(1 + selected.length, 1 + selected.length + financial.length) }); return copy; }
   if (source.kind !== 'touchpoint') throw new DomainError('unsupported_entity_kind', 'Source entity kind cannot be duplicated.');
   const offerIds = document.relationships.filter((r): r is Extract<Relationship, { kind: 'offer_presented_at_touchpoint' }> => r.kind === 'offer_presented_at_touchpoint' && r.touchpointId === source.id).map(r => r.offerId);
   const parent = document.relationships.find((r): r is Extract<Relationship, { kind: 'touchpoint_contains_touchpoint' }> => r.kind === 'touchpoint_contains_touchpoint' && r.childTouchpointId === source.id);
-  let copy = addEntity(document, { entityId: input.entityId, title: source.title, kind: 'touchpoint', ...(source.locatedInId ? { locatedInId: source.locatedInId } : {}), ...(source.url ? { url: source.url } : {}), linkedOfferIds: offerIds, relationshipIds: input.relationshipIds.slice(0, offerIds.length), ...(parent ? { parentTouchpointId: parent.parentTouchpointId, parentRelationshipId: input.relationshipIds[offerIds.length]! } : {}), viewId: input.viewId, x: input.x, y: input.y });
+  let copy = addEntity(document, { entityId: input.entityId, title, kind: 'touchpoint', ...(source.locatedInId ? { locatedInId: source.locatedInId } : {}), ...(source.url ? { url: source.url } : {}), linkedOfferIds: offerIds, relationshipIds: input.relationshipIds.slice(0, offerIds.length), ...(parent ? { parentTouchpointId: parent.parentTouchpointId, parentRelationshipId: input.relationshipIds[offerIds.length]! } : {}), viewId: input.viewId, x: input.x, y: input.y });
   const sourceJobs = document.touchpointJobSelections.filter(selection => selection.touchpointId === source.id && offerIds.includes(selection.offerId));
   const sourceFinancial = document.touchpointFinancialSelections.filter(selection => selection.touchpointId === source.id && offerIds.includes(selection.offerId));
   const mitigated = document.relationships.flatMap(relation => relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === source.id ? [relation.repulsorId] : []);

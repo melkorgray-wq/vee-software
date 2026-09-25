@@ -1,4 +1,4 @@
-import { addTouchpointContainer, applyTouchpointIntentDraft, commitTouchpointParent as commitDomainTouchpointParent, effectiveOfferDesiredOutcomeIds, getTouchpointLinkedOfferChangeImpact, relevantRepulsorsForTouchpoint, setTouchpointMitigations, updateEntity, type Entity, type MapDocument, type TouchpointIntentDraft as DomainTouchpointIntentDraft, type TouchpointIntentFinancialLeaf, type TouchpointIntentJobLeaf } from '@vee/domain';
+import { addEntity, addTouchpointContainer, applyTouchpointIntentDraft, commitTouchpointParent as commitDomainTouchpointParent, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getTouchpointLinkedOfferChangeImpact, relevantRepulsorsForTouchpoint, setTouchpointMitigations, updateEntity, type Entity, type MapDocument, type TouchpointIntentDraft as DomainTouchpointIntentDraft, type TouchpointIntentFinancialLeaf, type TouchpointIntentJobLeaf } from '@vee/domain';
 
 export type TouchpointJobLeaf = TouchpointIntentJobLeaf;
 export type TouchpointFinancialLeaf = TouchpointIntentFinancialLeaf;
@@ -369,6 +369,69 @@ export function replaceTouchpointLinkedOffer(document: MapDocument, input: { tou
     confirmedRemoval: input.confirmedRemoval,
     newId: input.newId,
   });
+}
+
+function assertSoleDepartingOffer(document: MapDocument, touchpointId: string, departingOfferId: string) {
+  if (!document.entities.some(entity => entity.id === touchpointId && entity.kind === 'touchpoint')) throw new Error('Touchpoint does not exist.');
+  if (!document.entities.some(entity => entity.id === departingOfferId && entity.kind === 'offer')) throw new Error('Departing Offer does not exist.');
+  const linkedOfferIds = document.relationships.flatMap(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === touchpointId && document.entities.some(entity => entity.id === relation.offerId && entity.kind === 'offer') ? [relation.offerId] : []);
+  if (linkedOfferIds.length !== 1 || linkedOfferIds[0] !== departingOfferId) throw new Error('The departing Offer is no longer the Touchpoint’s only Linked Offer.');
+}
+
+function departingProductId(document: MapDocument, departingOfferId: string) {
+  const relations = document.relationships.filter((relation): relation is Extract<MapDocument['relationships'][number], { kind: 'product_packaged_as_offer' }> => relation.kind === 'product_packaged_as_offer' && relation.offerId === departingOfferId && document.entities.some(entity => entity.id === relation.productId && entity.kind === 'product'));
+  if (relations.length !== 1) throw new Error('The departing Offer must have exactly one valid Product relationship.');
+  return relations[0]!.productId;
+}
+
+function assertTransactionInputs(document: MapDocument, input: { viewId: string; entityId: string; recordIds: string[]; x: number; y: number }) {
+  if (!document.views.some(view => view.id === input.viewId)) throw new Error('View does not exist.');
+  if (!Number.isFinite(input.x) || !Number.isFinite(input.y)) throw new Error('Placement coordinates must be finite.');
+  const supplied = [input.entityId, ...input.recordIds];
+  if (supplied.some(id => !id.trim()) || new Set(supplied).size !== supplied.length) throw new Error('Every created entity and record requires a distinct fresh ID.');
+  const occupied = new Set<string>([
+    ...document.entities.map(item => item.id), ...document.relationships.map(item => item.id), ...document.productJobIntents.map(item => item.id),
+    ...document.offerJobSelections.map(item => item.id), ...document.offerFinancialIntents.map(item => item.id), ...document.touchpointJobSelections.map(item => item.id),
+    ...document.touchpointFinancialSelections.map(item => item.id), ...document.touchpointContainers.map(item => item.id), ...document.epistemicAnnotations.map(item => item.id),
+  ]);
+  if (supplied.some(id => occupied.has(id))) throw new Error('Every created entity and record requires a distinct fresh ID.');
+}
+
+/** Projects removal of the sole departing contributor without inventing a future endpoint. */
+export function planFutureTouchpointOfferReplacement(document: MapDocument, input: { touchpointId: string; departingOfferId: string }) {
+  assertSoleDepartingOffer(document, input.touchpointId, input.departingOfferId);
+  return getTouchpointLinkedOfferChangeImpact(document, { touchpointId: input.touchpointId, linkedOfferIds: [] });
+}
+
+/** Deterministically names an Offer copy without depending on storage order or IDs. */
+export function collisionSafeOfferTitle(document: MapDocument, sourceTitle: string): string {
+  const occupied = new Set(document.entities.filter(entity => entity.kind === 'offer').map(entity => entity.title));
+  let suffix = 2;
+  while (occupied.has(`${sourceTitle} ${suffix}`)) suffix += 1;
+  return `${sourceTitle} ${suffix}`;
+}
+
+export type OfferReplacementPlacement = { viewId: string; x: number; y: number };
+
+/** Creates one blank sibling Offer and replaces the sole Touchpoint link as one immutable transaction. */
+export function createSiblingOfferAndReplace(document: MapDocument, input: { touchpointId: string; departingOfferId: string; title: string; offerId: string; productRelationshipId: string; replacementRelationshipId: string; placement: OfferReplacementPlacement }): MapDocument {
+  assertSoleDepartingOffer(document, input.touchpointId, input.departingOfferId);
+  const productId = departingProductId(document, input.departingOfferId);
+  if (!input.title.trim()) throw new Error('Enter a title for the sibling Offer.');
+  assertTransactionInputs(document, { viewId: input.placement.viewId, entityId: input.offerId, recordIds: [input.productRelationshipId, input.replacementRelationshipId], x: input.placement.x, y: input.placement.y });
+  const created = addEntity(document, { entityId: input.offerId, kind: 'offer', title: input.title.trim(), linkedProductId: productId, relationshipId: input.productRelationshipId, ...input.placement });
+  return replaceTouchpointLinkedOffer(created, { touchpointId: input.touchpointId, departingOfferId: input.departingOfferId, replacementOfferId: input.offerId, confirmedRemoval: true, newId: () => input.replacementRelationshipId });
+}
+
+/** Canonically duplicates one Offer and replaces the sole Touchpoint link atomically. */
+export function duplicateOfferAndReplace(document: MapDocument, input: { touchpointId: string; departingOfferId: string; offerId: string; duplicationRelationshipIds: string[]; replacementRelationshipId: string; placement: OfferReplacementPlacement }): MapDocument {
+  assertSoleDepartingOffer(document, input.touchpointId, input.departingOfferId);
+  departingProductId(document, input.departingOfferId);
+  const expected = duplicateEntityRelationshipIdCount(document, input.departingOfferId);
+  if (input.duplicationRelationshipIds.length !== expected) throw new Error('Canonical Offer duplication requires the complete fresh ID plan.');
+  assertTransactionInputs(document, { viewId: input.placement.viewId, entityId: input.offerId, recordIds: [...input.duplicationRelationshipIds, input.replacementRelationshipId], x: input.placement.x, y: input.placement.y });
+  const duplicated = duplicateEntity(document, { sourceEntityId: input.departingOfferId, entityId: input.offerId, title: collisionSafeOfferTitle(document, document.entities.find(entity => entity.id === input.departingOfferId)!.title), relationshipIds: input.duplicationRelationshipIds, ...input.placement });
+  return replaceTouchpointLinkedOffer(duplicated, { touchpointId: input.touchpointId, departingOfferId: input.departingOfferId, replacementOfferId: input.offerId, confirmedRemoval: true, newId: () => input.replacementRelationshipId });
 }
 
 /** Immediately commits a parent from a fresh durable Touchpoint snapshot. */

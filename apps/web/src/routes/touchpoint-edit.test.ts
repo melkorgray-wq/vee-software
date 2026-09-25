@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyMapDocument, relevantRepulsorsForTouchpoint, type MapDocument } from '@vee/domain';
-import { applyTouchpointEditDraft, commitOfferConnectedTouchpoint, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, connectionPickerCatalogue, createTouchpointIntentDraft, equalTouchpointIntentDraft, filterConnectionCandidates, globalIntentDiscovery, replaceTouchpointLinkedOffer, selectCurrentOfferIntent, touchpointClientScope, touchpointIntentCatalogue, touchpointUpstreamSources, validateTouchpointIntentDraft } from './touchpoint-edit';
+import { applyTouchpointEditDraft, collisionSafeOfferTitle, commitOfferConnectedTouchpoint, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, connectionPickerCatalogue, createSiblingOfferAndReplace, createTouchpointIntentDraft, duplicateOfferAndReplace, equalTouchpointIntentDraft, filterConnectionCandidates, globalIntentDiscovery, planFutureTouchpointOfferReplacement, replaceTouchpointLinkedOffer, selectCurrentOfferIntent, touchpointClientScope, touchpointIntentCatalogue, touchpointUpstreamSources, validateTouchpointIntentDraft } from './touchpoint-edit';
 
 function fixture(): MapDocument {
   return {
@@ -158,6 +158,63 @@ describe('atomic Touchpoint Offer replacement', () => {
     expect(() => replaceTouchpointLinkedOffer(sole, { ...command, replacementOfferId: 'offer-a' })).toThrow('must differ');
     expect(() => replaceTouchpointLinkedOffer(sole, { ...command, confirmedRemoval: false })).toThrow('Confirm removal');
     expect(() => replaceTouchpointLinkedOffer(fixture(), command)).toThrow('no longer');
+  });
+});
+
+describe('atomic created Offer replacement owners', () => {
+  function soleFixture() {
+    const document = fixture();
+    document.relationships = document.relationships.filter(relation => relation.id !== 'presents-b');
+    document.touchpointJobSelections = document.touchpointJobSelections.filter(selection => selection.id !== 'path-b');
+    return document;
+  }
+
+  it('creates a blank sibling under the same Product and atomically removes only the departing Touchpoint path', () => {
+    const document = soleFixture();
+    document.entities.push({ id: 'other-touch', kind: 'touchpoint', title: 'Other' });
+    document.relationships.push({ id: 'other-link', kind: 'offer_presented_at_touchpoint', offerId: 'offer-a', touchpointId: 'other-touch' });
+    const snapshot = structuredClone(document);
+    const next = createSiblingOfferAndReplace(document, { touchpointId: 'touch', departingOfferId: 'offer-a', title: 'Sibling', offerId: 'sibling', productRelationshipId: 'sibling-product', replacementRelationshipId: 'sibling-touch', placement: { viewId: 'view', x: 7, y: 9 } });
+    expect(document).toEqual(snapshot);
+    expect(next.entities).toContainEqual({ id: 'sibling', kind: 'offer', title: 'Sibling' });
+    expect(next.relationships).toContainEqual({ id: 'sibling-product', kind: 'product_packaged_as_offer', productId: 'product', offerId: 'sibling' });
+    expect(next.relationships).toContainEqual({ id: 'sibling-touch', kind: 'offer_presented_at_touchpoint', offerId: 'sibling', touchpointId: 'touch' });
+    expect(next.offerJobSelections.filter(item => item.offerId === 'sibling')).toEqual([]);
+    expect(next.offerFinancialIntents.filter(item => item.offerId === 'sibling')).toEqual([]);
+    expect(next.touchpointJobSelections.filter(item => item.touchpointId === 'touch')).toEqual([]);
+    expect(next.relationships).toContainEqual(expect.objectContaining({ id: 'other-link' }));
+  });
+
+  it('duplicates only canonical Offer-owned state and uses deterministic collision-safe titles', () => {
+    const document = soleFixture();
+    document.entities.push({ id: 'offer-2', kind: 'offer', title: 'Offer A 2' }, { id: 'similar', kind: 'offer', title: 'Offer A 02' });
+    document.offerFinancialIntents.push({ id: 'financial', offerId: 'offer-a', financialDesiredOutcomeId: 'fdo' });
+    expect(collisionSafeOfferTitle(document, 'Offer B')).toBe('Offer B 2');
+    expect(collisionSafeOfferTitle(document, 'Offer A')).toBe('Offer A 3');
+    document.entities.push({ id: 'offer-3', kind: 'offer', title: 'Offer A 3' });
+    expect(collisionSafeOfferTitle(document, 'Offer A')).toBe('Offer A 4');
+    const next = duplicateOfferAndReplace(document, { touchpointId: 'touch', departingOfferId: 'offer-a', offerId: 'copy', duplicationRelationshipIds: ['copy-product', 'copy-job', 'copy-financial'], replacementRelationshipId: 'copy-touch', placement: { viewId: 'view', x: 10, y: 20 } });
+    expect(next.entities).toContainEqual({ id: 'copy', kind: 'offer', title: 'Offer A 4' });
+    expect(next.offerJobSelections).toContainEqual(expect.objectContaining({ id: 'copy-job', offerId: 'copy', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a', 'do-b'] }));
+    expect(next.offerFinancialIntents).toContainEqual({ id: 'copy-financial', offerId: 'copy', financialDesiredOutcomeId: 'fdo' });
+    expect(next.touchpointJobSelections.some(item => item.offerId === 'copy')).toBe(false);
+    expect(next.relationships.filter(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === 'touch')).toEqual([expect.objectContaining({ offerId: 'copy' })]);
+  });
+
+  it('plans impact without a future endpoint and rejects malformed or stale commands without mutating input', () => {
+    const document = soleFixture();
+    expect(planFutureTouchpointOfferReplacement(document, { touchpointId: 'touch', departingOfferId: 'offer-a' })).toHaveLength(1);
+    const snapshot = structuredClone(document);
+    const base = { touchpointId: 'touch', departingOfferId: 'offer-a', title: 'Sibling', offerId: 'sibling', productRelationshipId: 'sibling-product', replacementRelationshipId: 'sibling-touch', placement: { viewId: 'view', x: 1, y: 2 } };
+    expect(() => createSiblingOfferAndReplace(document, { ...base, title: '   ' })).toThrow('Enter a title');
+    expect(() => createSiblingOfferAndReplace(document, { ...base, placement: { ...base.placement, viewId: 'missing' } })).toThrow('View does not exist');
+    expect(() => createSiblingOfferAndReplace(document, { ...base, offerId: 'offer-a' })).toThrow('fresh ID');
+    const malformed = structuredClone(document); malformed.relationships = malformed.relationships.filter(relation => relation.id !== 'packages-a');
+    expect(() => createSiblingOfferAndReplace(malformed, base)).toThrow('exactly one valid Product');
+    const stale = structuredClone(document); stale.relationships.push({ id: 'stale-link', kind: 'offer_presented_at_touchpoint', offerId: 'offer-b', touchpointId: 'touch' });
+    expect(() => createSiblingOfferAndReplace(stale, base)).toThrow('no longer');
+    expect(() => duplicateOfferAndReplace(document, { touchpointId: 'touch', departingOfferId: 'offer-a', offerId: 'copy', duplicationRelationshipIds: [], replacementRelationshipId: 'copy-touch', placement: base.placement })).toThrow('complete fresh ID plan');
+    expect(document).toEqual(snapshot);
   });
 });
 

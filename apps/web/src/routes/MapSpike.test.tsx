@@ -1956,6 +1956,46 @@ describe('Offer Inspector derived neighborhood', () => {
     expect(structure.getByRole('button', { name: 'Edit Connected Touchpoints' })).not.toHaveFocus();
   });
 
+  it('creates a sibling only after exact review and opens it with Inspector Back history', async () => {
+    const user = userEvent.setup();
+    const source = offerNeighborhoodDocument();
+    source.relationships = source.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint' || relation.touchpointId !== 'touch' || relation.offerId === 'offer-a');
+    const inspector = await inspectOffer(user, source);
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+    await user.click(structure.getByRole('button', { name: 'Edit Connected Touchpoints' }));
+    await user.click(within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: /^Checkout,/ }));
+    const replacement = within(inspector.getByLabelText('Connected Touchpoints editor'));
+    expect(inspector.getByLabelText('Connected Touchpoints editor')).toHaveTextContent(/Checkout currently presents only Subscription/i);
+    expect(replacement.getByRole('button', { name: 'Create sibling Offer' })).toBeInTheDocument();
+    expect(replacement.getByRole('button', { name: 'Duplicate current Offer' })).toBeInTheDocument();
+    const before = structuredClone(window.__VEE_DEV__!.dump());
+    await user.click(replacement.getByRole('button', { name: 'Create sibling Offer' }));
+    expect(inspector.getByText(/Product:/).parentElement).toHaveTextContent('Orbit');
+    await user.click(inspector.getByRole('button', { name: 'Create and replace' }));
+    expect(inspector.getByRole('alert')).toHaveTextContent('Enter a title');
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    await user.type(inspector.getByLabelText('Title'), 'Sibling plan');
+    await user.click(inspector.getByRole('button', { name: 'Create and replace' }));
+    const dialogElement = screen.getByRole('dialog', { name: 'Replace this Touchpoint Offer?' });
+    const dialog = within(dialogElement);
+    expect(dialogElement).toHaveTextContent('Sibling plan');
+    expect(dialogElement).toHaveTextContent('Subscription');
+    expect(dialogElement).toHaveTextContent('Checkout');
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    await user.click(dialog.getByRole('button', { name: 'Cancel' }));
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    await user.click(inspector.getByRole('button', { name: 'Create and replace' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Confirm' }));
+    await waitFor(() => expect(inspector.getByRole('heading', { name: 'Sibling plan' })).toBeInTheDocument());
+    const committed = window.__VEE_DEV__!.dump();
+    const sibling = committed.entities.find(entity => entity.kind === 'offer' && entity.title === 'Sibling plan')!;
+    expect(committed.offerJobSelections.filter(selection => selection.offerId === sibling.id)).toEqual([]);
+    expect(committed.offerFinancialIntents.filter(intent => intent.offerId === sibling.id)).toEqual([]);
+    expect(committed.relationships.filter(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === 'touch')).toEqual([expect.objectContaining({ offerId: sibling.id })]);
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+  });
+
   it('progressively searches Connected Touchpoints and preserves read-view navigation after editing', async () => {
     const user = userEvent.setup();
     const source = offerNeighborhoodDocument();
