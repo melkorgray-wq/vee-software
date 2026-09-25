@@ -1899,9 +1899,9 @@ describe('Offer Inspector derived neighborhood', () => {
     expect(structure.getAllByText('Click to edit')).toHaveLength(2);
     await user.click(structure.getByRole('button', { name: 'Edit Connected Touchpoints' }));
     const editor = within(inspector.getByLabelText('Connected Touchpoints editor'));
-    expect(editor.getByRole('checkbox', { name: 'Checkout' })).toBeChecked();
+    expect(editor.getByRole('checkbox', { name: /^Checkout,/ })).toBeChecked();
     expect(editor.queryByRole('button', { name: /Create Touchpoint/i })).not.toBeInTheDocument();
-    const other = editor.getByRole('checkbox', { name: 'Consultation room' });
+    const other = editor.getByRole('checkbox', { name: /^Consultation room,/ });
     await user.click(other);
     expect(other).toBeChecked();
     expect(inspector.getByLabelText('Connected Touchpoints editor')).toBeInTheDocument();
@@ -1913,7 +1913,7 @@ describe('Offer Inspector derived neighborhood', () => {
     expect(inspector.getByLabelText('Connected Touchpoints editor')).toBeInTheDocument();
   });
 
-  it('keeps the required final connection selected and restores focus on Close, Escape, pointer dismissal, and editor switching', async () => {
+  it('replaces the required final connection atomically with progressive cancellation and preserves editor focus behavior', async () => {
     const user = userEvent.setup();
     const source = offerNeighborhoodDocument();
     source.relationships = source.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint' || relation.touchpointId !== 'touch' || relation.offerId === 'offer-a');
@@ -1921,10 +1921,25 @@ describe('Offer Inspector derived neighborhood', () => {
     const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
     const heading = structure.getByRole('button', { name: 'Edit Connected Touchpoints' });
     await user.click(heading);
-    const checkout = within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: 'Checkout' });
+    const checkout = within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: /^Checkout,/ });
+    expect(checkout).toHaveAccessibleName('Checkout, Root · 1 Offer');
     await user.click(checkout);
     expect(checkout).toBeChecked();
-    expect(inspector.getByRole('alert')).toHaveTextContent('at least one Offer');
+    expect(inspector.getByText('Replace Offer')).toBeInTheDocument();
+    await user.click(inspector.getByRole('radio', { name: 'Advisory' }));
+    const dialog = within(screen.getByRole('dialog', { name: 'Replace this Touchpoint Offer?' }));
+    expect(dialog.getByRole('heading').nextElementSibling).toHaveTextContent('Replace Subscription with Advisory at Checkout?');
+    expect(window.__VEE_DEV__!.dump().relationships).toContainEqual(expect.objectContaining({ offerId: 'offer-a', touchpointId: 'touch' }));
+    await user.click(dialog.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(inspector.getByRole('radio', { name: 'Advisory' })).toHaveFocus());
+    await user.keyboard('{Escape}');
+    expect(within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: /^Checkout,/ })).toBeChecked();
+    await user.click(within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: /^Checkout,/ }));
+    await user.click(inspector.getByRole('radio', { name: 'Advisory' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Replace Offer' }));
+    expect(window.__VEE_DEV__!.dump().relationships).not.toContainEqual(expect.objectContaining({ offerId: 'offer-a', touchpointId: 'touch' }));
+    expect(window.__VEE_DEV__!.dump().relationships).toContainEqual(expect.objectContaining({ offerId: 'offer-c', touchpointId: 'touch' }));
+    expect(within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: /^Checkout,/ })).not.toBeChecked();
     await user.click(within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('button', { name: 'Close' }));
     await waitFor(() => expect(structure.getByRole('button', { name: 'Edit Connected Touchpoints' })).toHaveFocus());
     await user.click(structure.getByRole('button', { name: 'Edit Connected Touchpoints' }));
@@ -1957,7 +1972,7 @@ describe('Offer Inspector derived neighborhood', () => {
     await user.type(editor.getByRole('searchbox', { name: 'Search Touchpoints' }), 'absent');
     expect(editor.getByRole('status')).toHaveTextContent('No matching Touchpoints.');
     await user.clear(editor.getByRole('searchbox', { name: 'Search Touchpoints' }));
-    const candidate = editor.getByRole('checkbox', { name: 'Candidate 0' });
+    const candidate = editor.getByRole('checkbox', { name: /^Candidate 0,/ });
     await user.click(candidate);
     await user.click(editor.getByRole('button', { name: 'Close' }));
     await user.click(structure.getByRole('button', { name: 'Candidate 0' }));
@@ -1984,19 +1999,19 @@ describe('Offer Inspector derived neighborhood', () => {
     const dirtyFinancialState = financial.checked;
     const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
     await user.click(structure.getByRole('button', { name: 'Edit Connected Touchpoints' }));
-    let checkout = within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: 'Checkout' });
+    let checkout = within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: /^Checkout,/ });
     await user.click(checkout);
     let dialog = within(screen.getByRole('dialog'));
     expect(dialog.getByText(/path to Make progress → Finish faster will be removed/)).toBeInTheDocument();
     await user.click(dialog.getByRole('button', { name: 'Cancel' }));
-    checkout = within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: 'Checkout' });
+    checkout = within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: /^Checkout,/ });
     expect(checkout).toBeChecked();
     await waitFor(() => expect(checkout).toHaveFocus());
     expect((inspector.getByRole('checkbox', { name: /Stay affordable/ }) as HTMLInputElement).checked).toBe(dirtyFinancialState);
     await user.click(checkout);
     dialog = within(screen.getByRole('dialog'));
     await user.click(dialog.getByRole('button', { name: 'Confirm removal' }));
-    checkout = within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: 'Checkout' });
+    checkout = within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: /^Checkout,/ });
     expect(checkout).not.toBeChecked();
     await waitFor(() => expect(checkout).toHaveFocus());
     expect((inspector.getByRole('checkbox', { name: /Stay affordable/ }) as HTMLInputElement).checked).toBe(dirtyFinancialState);
@@ -2036,10 +2051,10 @@ describe('Offer Inspector derived neighborhood', () => {
     const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
     await user.click(structure.getByRole('button', { name: 'Edit Connected Touchpoints' }));
     for (const title of ['Leadform · Book a call', 'Partnership request', 'Leadform · Send context']) {
-      const checkbox = within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: title });
+      const checkbox = within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: new RegExp(`^${title},`) });
       await user.click(checkbox);
       await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Confirm removal' }));
-      expect(within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: title })).not.toBeChecked();
+      expect(within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: new RegExp(`^${title},`) })).not.toBeChecked();
     }
     expect(inspector.queryByText(/Ancestor contributor resolution/)).not.toBeInTheDocument();
     expect(window.__VEE_DEV__!.dump().touchpointJobSelections).toContainEqual(expect.objectContaining({ id: 'tqo-context-c' }));

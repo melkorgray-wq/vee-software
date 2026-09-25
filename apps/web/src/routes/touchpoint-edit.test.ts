@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyMapDocument, relevantRepulsorsForTouchpoint, type MapDocument } from '@vee/domain';
-import { applyTouchpointEditDraft, commitOfferConnectedTouchpoint, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, connectionPickerCatalogue, createTouchpointIntentDraft, equalTouchpointIntentDraft, filterConnectionCandidates, globalIntentDiscovery, selectCurrentOfferIntent, touchpointClientScope, touchpointIntentCatalogue, touchpointUpstreamSources, validateTouchpointIntentDraft } from './touchpoint-edit';
+import { applyTouchpointEditDraft, commitOfferConnectedTouchpoint, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, connectionPickerCatalogue, createTouchpointIntentDraft, equalTouchpointIntentDraft, filterConnectionCandidates, globalIntentDiscovery, replaceTouchpointLinkedOffer, selectCurrentOfferIntent, touchpointClientScope, touchpointIntentCatalogue, touchpointUpstreamSources, validateTouchpointIntentDraft } from './touchpoint-edit';
 
 function fixture(): MapDocument {
   return {
@@ -129,6 +129,35 @@ describe('Offer connected Touchpoint inverse commit', () => {
     expect(document.touchpointJobSelections).toContainEqual(expect.objectContaining({ id: 'context-onboard', offerId: 'offer-launch' }));
     expect(document.touchpointJobSelections).not.toContainEqual(expect.objectContaining({ id: 'context-clarity' }));
     expect(document.touchpointJobSelections.filter(selection => selection.touchpointId === 'tp-leadform')).toEqual([]);
+  });
+});
+
+describe('atomic Touchpoint Offer replacement', () => {
+  it('replaces the sole Offer without mutating input, prunes only departing paths, and authors no replacement intent', () => {
+    const document = fixture();
+    document.relationships = document.relationships.filter(relation => relation.id !== 'presents-b');
+    document.touchpointJobSelections = document.touchpointJobSelections.filter(selection => selection.id !== 'path-b');
+    document.entities.push({ id: 'other-touch', kind: 'touchpoint', title: 'Other Touchpoint' });
+    document.relationships.push({ id: 'other-link', kind: 'offer_presented_at_touchpoint', offerId: 'offer-a', touchpointId: 'other-touch' });
+    document.touchpointJobSelections.push({ id: 'other-touch-path', touchpointId: 'other-touch', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] });
+    const snapshot = structuredClone(document);
+    const replaced = replaceTouchpointLinkedOffer(document, { touchpointId: 'touch', departingOfferId: 'offer-a', replacementOfferId: 'offer-b', confirmedRemoval: true, newId: () => 'replacement-link' });
+    expect(document).toEqual(snapshot);
+    expect(replaced.relationships).toContainEqual({ id: 'replacement-link', kind: 'offer_presented_at_touchpoint', offerId: 'offer-b', touchpointId: 'touch' });
+    expect(replaced.relationships).not.toContainEqual(expect.objectContaining({ id: 'presents-a' }));
+    expect(replaced.touchpointJobSelections).not.toContainEqual(expect.objectContaining({ id: 'path-a' }));
+    expect(replaced.touchpointJobSelections).toContainEqual(expect.objectContaining({ id: 'other-touch-path' }));
+    expect(replaced.touchpointJobSelections.some(selection => selection.touchpointId === 'touch' && selection.offerId === 'offer-b')).toBe(false);
+    expect(replaced.entities.find(entity => entity.id === 'touch')).toEqual(document.entities.find(entity => entity.id === 'touch'));
+  });
+
+  it('rejects unknown/equal Offers, missing confirmation, and a stale sole-link precondition', () => {
+    const sole = fixture(); sole.relationships = sole.relationships.filter(relation => relation.id !== 'presents-b');
+    const command = { touchpointId: 'touch', departingOfferId: 'offer-a', replacementOfferId: 'offer-b', confirmedRemoval: true, newId: () => 'replacement' };
+    expect(() => replaceTouchpointLinkedOffer(sole, { ...command, replacementOfferId: 'missing' })).toThrow('Replacement Offer does not exist.');
+    expect(() => replaceTouchpointLinkedOffer(sole, { ...command, replacementOfferId: 'offer-a' })).toThrow('must differ');
+    expect(() => replaceTouchpointLinkedOffer(sole, { ...command, confirmedRemoval: false })).toThrow('Confirm removal');
+    expect(() => replaceTouchpointLinkedOffer(fixture(), command)).toThrow('no longer');
   });
 });
 
