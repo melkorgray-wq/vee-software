@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, removeProductJobIntent, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, changeOfferProduct, createEmptyMapDocument, duplicateEntity, movePlacement, updateEntity, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct, planTouchpointIntentPathChange, commitTouchpointIntentPathPlan, commitTouchpointParent, planTouchpointStructuralChange } from './index';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, removeProductJobIntent, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, changeOfferProduct, createEmptyMapDocument, duplicateEntity, movePlacement, updateEntity, updateOfferContent, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct, planTouchpointIntentPathChange, commitTouchpointIntentPathPlan, commitTouchpointParent, planTouchpointStructuralChange } from './index';
 
 function completed(result: ReturnType<typeof authorTouchpointIntentBottomUp>) { if (result.status !== 'complete') throw new Error(`Expected complete, got ${result.status}`); return result.document; }
 
@@ -9,6 +9,32 @@ function offerDocument() { let d = addEntity(empty(), { ...place, entityId: 'pro
 function touchpoint(d = offerDocument(), id = 'touch', parent?: string) { return addEntity(d, { ...place, entityId: id, title: id, kind: 'touchpoint', locatedInId: 'site', url: '  /checkout#pay  ', linkedOfferIds: ['offer'], relationshipIds: [`presented-${id}`], ...(parent ? { parentTouchpointId: parent, parentRelationshipId: `contains-${id}` } : {}) }); }
 
 describe('map authoring domain', () => {
+  it('updates independent optional Offer Content fields and treats normalized no-ops as identity', () => {
+    const before = offerDocument();
+    const urlOnly = updateOfferContent(before, { offerId: 'offer', contentUrl: '  https://example.test/brief  ' });
+    expect(urlOnly.entities.find(entity => entity.id === 'offer')).toMatchObject({ contentUrl: 'https://example.test/brief' });
+    expect(updateOfferContent(urlOnly, { offerId: 'offer', contentUrl: 'https://example.test/brief', contentText: '   ' })).toBe(urlOnly);
+    const textOnly = updateOfferContent(before, { offerId: 'offer', contentText: '  First line\nSecond line  ' });
+    expect(textOnly.entities.find(entity => entity.id === 'offer')).toMatchObject({ contentText: 'First line\nSecond line' });
+    const both = updateOfferContent(before, { offerId: 'offer', contentUrl: 'http://example.test/doc', contentText: 'Notes' });
+    expect(both.entities.find(entity => entity.id === 'offer')).toMatchObject({ contentUrl: 'http://example.test/doc', contentText: 'Notes' });
+    expect(updateOfferContent(both, { offerId: 'offer', contentUrl: '', contentText: '\n ' }).entities.find(entity => entity.id === 'offer')).toEqual({ id: 'offer', kind: 'offer', title: 'Subscription' });
+  });
+  it('rejects unsafe Offer Content URLs and preserves every unrelated document record', () => {
+    const before = offerDocument();
+    for (const contentUrl of ['javascript:alert(1)', '/relative', 'ftp://example.test/file', 'not a url']) {
+      expect(() => updateOfferContent(before, { offerId: 'offer', contentUrl, contentText: 'Draft' })).toThrow('absolute http: or https:');
+    }
+    expect(() => updateOfferContent(before, { offerId: 'product', contentText: 'Wrong owner' })).toThrow('must reference a offer');
+    const next = updateOfferContent(before, { offerId: 'offer', contentText: 'Draft' });
+    expect(next.entities.filter(entity => entity.id !== 'offer')).toEqual(before.entities.filter(entity => entity.id !== 'offer'));
+    expect({ ...next, entities: before.entities }).toEqual(before);
+  });
+  it('canonically duplicates both authored Offer Content fields', () => {
+    const source = updateOfferContent(offerDocument(), { offerId: 'offer', contentUrl: 'https://example.test/brief', contentText: 'Line one\nLine two' });
+    const copy = duplicateEntity(source, { sourceEntityId: 'offer', entityId: 'copy', title: 'Copy', viewId: 'view', x: 30, y: 40, relationshipIds: ['copy-product'] });
+    expect(copy.entities.find(entity => entity.id === 'copy')).toEqual({ id: 'copy', kind: 'offer', title: 'Copy', contentUrl: 'https://example.test/brief', contentText: 'Line one\nLine two' });
+  });
   it.each(CLIENT_ROOT_ENTITY_KINDS)('adds and duplicates independent %s roots without relationships or annotations', kind => {
     const business = addEntity(empty(), { ...place, entityId: 'product', title: 'Unrelated Product', kind: 'product' });
     const created = addEntity(business, { ...place, entityId: kind, title: `A ${kind}`, kind });
