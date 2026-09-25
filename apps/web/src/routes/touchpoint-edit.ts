@@ -352,6 +352,25 @@ export function commitOfferConnectedTouchpoint(document: MapDocument, input: { o
   });
 }
 
+/** Atomically replaces the sole linked Offer through the Touchpoint-owned full-set commit. */
+export function replaceTouchpointLinkedOffer(document: MapDocument, input: { touchpointId: string; departingOfferId: string; replacementOfferId: string; confirmedRemoval: boolean; newId: () => string }): MapDocument {
+  if (!document.entities.some(entity => entity.id === input.touchpointId && entity.kind === 'touchpoint')) throw new Error('Touchpoint does not exist.');
+  if (!document.entities.some(entity => entity.id === input.departingOfferId && entity.kind === 'offer')) throw new Error('Departing Offer does not exist.');
+  if (!document.entities.some(entity => entity.id === input.replacementOfferId && entity.kind === 'offer')) throw new Error('Replacement Offer does not exist.');
+  if (input.departingOfferId === input.replacementOfferId) throw new Error('Replacement Offer must differ from the departing Offer.');
+  const linkedOfferIds = [...new Set(document.relationships.flatMap(relation =>
+    relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === input.touchpointId
+      && document.entities.some(entity => entity.id === relation.offerId && entity.kind === 'offer') ? [relation.offerId] : [],
+  ))];
+  if (linkedOfferIds.length !== 1 || linkedOfferIds[0] !== input.departingOfferId) throw new Error('The departing Offer is no longer the Touchpoint’s only Linked Offer.');
+  return commitTouchpointLinkedOffers(document, {
+    touchpointId: input.touchpointId,
+    linkedOfferIds: [input.replacementOfferId],
+    confirmedRemoval: input.confirmedRemoval,
+    newId: input.newId,
+  });
+}
+
 /** Immediately commits a parent from a fresh durable Touchpoint snapshot. */
 export function commitTouchpointParent(document: MapDocument, input: { touchpointId: string; parentTouchpointId: string; newId: () => string }): MapDocument {
   const currentParentId = document.relationships.find((relation): relation is Extract<MapDocument['relationships'][number], { kind: 'touchpoint_contains_touchpoint' }> => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === input.touchpointId)?.parentTouchpointId ?? '';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyMapDocument, type MapDocument } from '@vee/domain';
-import { deriveOfferBusinessStructure } from './offer-business-structure';
+import { deriveOfferBusinessStructure, projectConnectedTouchpointCandidates } from './offer-business-structure';
 
 function fixture(): MapDocument {
   const base = createEmptyMapDocument({ mapId: 'map', title: 'Map', viewId: 'view', viewTitle: 'View' });
@@ -48,5 +48,31 @@ describe('deriveOfferBusinessStructure', () => {
     document.entities.push({ id: 'product-2', kind: 'product', title: 'Other' });
     document.relationships.push({ id: 'packaged-2', kind: 'product_packaged_as_offer', productId: 'product-2', offerId: 'offer' });
     expect(deriveOfferBusinessStructure(document, 'offer')).toBeUndefined();
+  });
+});
+
+describe('projectConnectedTouchpointCandidates', () => {
+  it('projects committed Root/Child metadata, unique valid Offer counts, and deterministic title/ID order', () => {
+    const document = fixture();
+    document.entities.push({ id: 'offer-b', kind: 'offer', title: 'Offer B' });
+    document.relationships.push(
+      { id: 'a', kind: 'offer_presented_at_touchpoint', offerId: 'offer', touchpointId: 'touch-a' },
+      { id: 'a-duplicate', kind: 'offer_presented_at_touchpoint', offerId: 'offer', touchpointId: 'touch-a' },
+      { id: 'b', kind: 'offer_presented_at_touchpoint', offerId: 'offer-b', touchpointId: 'touch-a' },
+      { id: 'child', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'touch-z', childTouchpointId: 'touch-a' },
+      { id: 'stale-offer', kind: 'offer_presented_at_touchpoint', offerId: 'missing', touchpointId: 'touch-b' },
+      { id: 'wrong-touch', kind: 'offer_presented_at_touchpoint', offerId: 'offer', touchpointId: 'product' },
+      { id: 'stale-parent', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'missing', childTouchpointId: 'touch-b' },
+    );
+    expect(projectConnectedTouchpointCandidates(document, 'offer')).toEqual([
+      { id: 'touch-a', title: 'Alpha', connected: true, structuralRole: 'Child', linkedOfferCount: 2 },
+      { id: 'touch-b', title: 'Alpha', connected: false, structuralRole: 'Root', linkedOfferCount: 0 },
+      { id: 'touch-z', title: 'Beta', connected: false, structuralRole: 'Root', linkedOfferCount: 0 },
+    ]);
+  });
+
+  it('does not depend on draft or UI state outside the durable document', () => {
+    const document = fixture();
+    expect(projectConnectedTouchpointCandidates(document, 'offer')).toEqual(projectConnectedTouchpointCandidates(structuredClone(document), 'offer'));
   });
 });

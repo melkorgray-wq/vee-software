@@ -324,6 +324,8 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .inspector-relation-row:focus-within { border-color: var(--color-primary); outline: 2px solid transparent; }
 .inspector-relation-row > input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .inspector-relation-row > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.inspector-relation-row-content { display: flex; flex-wrap: wrap; align-items: baseline; gap: .15rem .45rem; }
+.inspector-relation-row-content small { color: var(--text-muted); font-size: .72rem; }
 .inspector-relation-indicator { display: grid; place-items: center; width: .9rem; height: .9rem; border: 1px solid rgba(255,255,255,.65); background: rgba(0,0,0,.16); }
 .inspector-relation-row-radio .inspector-relation-indicator { border-radius: 50%; }
 .inspector-relation-row-checkbox .inspector-relation-indicator { border-radius: .15rem; }
