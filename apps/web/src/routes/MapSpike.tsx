@@ -643,6 +643,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [offerContentCopyStatus, setOfferContentCopyStatus] = useState<string | null>(null);
   const [expandedOfferContentId, setExpandedOfferContentId] = useState<string | null>(null);
   const offerContentButtonRef = useRef<HTMLButtonElement>(null);
+  const offerContentEditorRef = useRef<HTMLElement>(null);
+  const dismissingOfferContentRef = useRef(false);
   const [quick, setQuick] = useState<Quick | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const copiedRef = useRef(copiedId);
@@ -806,6 +808,16 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setProductConfirmation(null);
     requestAnimationFrame(() => (targetId ? globalThis.document.getElementById(targetId) : target)?.focus());
   }
+  type OfferContentEditorCloseReason = 'explicit' | 'escape' | 'pointer' | 'switch-editor';
+  function closeOfferContentEditor(reason: OfferContentEditorCloseReason) {
+    if (!offerContentDraft) return;
+    dismissingOfferContentRef.current = true;
+    setOfferContentDraft(null);
+    requestAnimationFrame(() => {
+      dismissingOfferContentRef.current = false;
+      if (reason === 'explicit' || reason === 'escape') offerContentButtonRef.current?.focus();
+    });
+  }
   type RelationEditorCloseReason = 'explicit' | 'commit' | 'pointer' | 'switch-editor';
   function closeRelationEditor(reason: RelationEditorCloseReason) {
     const focusTarget = offersPicker ? offersPickerButtonRef : parentPicker ? parentPickerButtonRef : productPicker ? productPickerButtonRef : null;
@@ -832,6 +844,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setLocalRemoval(null);
   }
   function openOffersEditor() {
+    closeOfferContentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
     setChildrenEditor(null);
     closeRelationEditor('switch-editor');
@@ -840,6 +853,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setOffersPicker({ query: '' });
   }
   function openProductEditor() {
+    closeOfferContentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
     setChildrenEditor(null);
     closeRelationEditor('switch-editor');
@@ -848,6 +862,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setProductPicker({ query: '' });
   }
   function openParentEditor() {
+    closeOfferContentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
     setChildrenEditor(null);
     closeRelationEditor('switch-editor');
@@ -856,6 +871,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setParentPicker({ query: '' });
   }
   function openLocatedInEditor(containerTitle: string) {
+    closeOfferContentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
     closeRelationEditor('switch-editor');
     closeChildrenEditor('switch-editor');
@@ -863,6 +879,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setBusinessInlineEdit({ property: 'located-in', query: containerTitle });
   }
   function openUrlEditor(storedUrl: string) {
+    closeOfferContentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
     closeRelationEditor('switch-editor');
     closeChildrenEditor('switch-editor');
@@ -874,6 +891,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     if (reason === 'explicit') requestAnimationFrame(() => childrenEditorButtonRef.current?.focus());
   }
   function openChildrenEditor() {
+    closeOfferContentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
     closeRelationEditor('switch-editor');
     if (!closeClientScopeEditor('switch-editor')) return;
@@ -893,6 +911,27 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     globalThis.document.addEventListener('pointerdown', pointer); globalThis.document.addEventListener('keydown', keyboard);
     return () => { globalThis.document.removeEventListener('pointerdown', pointer); globalThis.document.removeEventListener('keydown', keyboard); };
   }, [childrenEditor]);
+  useEffect(() => {
+    if (!offerContentDraft) return;
+    const dismissOnPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof globalThis.Node) || offerContentEditorRef.current?.contains(target)) return;
+      closeOfferContentEditor('pointer');
+    };
+    const dismissOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      closeOfferContentEditor('escape');
+    };
+    globalThis.document.addEventListener('pointerdown', dismissOnPointerDown);
+    globalThis.document.addEventListener('keydown', dismissOnEscape);
+    return () => {
+      globalThis.document.removeEventListener('pointerdown', dismissOnPointerDown);
+      globalThis.document.removeEventListener('keydown', dismissOnEscape);
+    };
+  }, [offerContentDraft]);
   useEffect(() => {
     if (!offersPicker && !parentPicker && !productPicker) return;
     const dismissOnPointerDown = (event: PointerEvent) => {
@@ -1062,6 +1101,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     commitLinkedOffersImmediately(touchpointId, targetOfferIds);
   }
   function openConnectedTouchpointsEditor() {
+    closeOfferContentEditor('switch-editor');
     closeRelationEditor('switch-editor');
     closeChildrenEditor('switch-editor');
     if (!closeClientScopeEditor('switch-editor')) return;
@@ -1288,6 +1328,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setProductPicker(null);
     setConnectedTouchpointsEditor(null);
     setConnectionPicker(null);
+    closeOfferContentEditor('switch-editor');
     setInspectorTitleEdit(null);
     const entity = documentRef.current.entities.find((e) => e.id === id);
     setExpandedOfferContentId(null);
@@ -1894,6 +1935,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setParentPicker(null);
     setConnectedTouchpointsEditor(null);
     setConnectionPicker(null);
+    closeOfferContentEditor('switch-editor');
     setCreateDraft(draft());
     resetProductSession(undefined);
     // Creation is an Inspector-owned empty draft, not an entity-history session.
@@ -2191,7 +2233,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     };
     const renderDiscoveryMatches = (matches: typeof discovery.titleMatches) => <div className="global-intent-results">{matches.jobGroups.map(group => renderJobGroup(group))}{matches.directLeaves.map(leaf => <div className="intent-discovery-leaf" key={leaf.checkboxId}><small>{KIND_LABELS[leaf.entity.kind]}</small>{renderSelectableRow(leaf, { showContributorPaths: true })}</div>)}</div>;
     return <section ref={clientScopeEditorRef} className={`touchpoint-client-scope${editing ? ' is-editing' : ''}`} aria-labelledby="touchpoint-client-scope-heading" onKeyDown={event => { if (event.key !== 'Escape' || !connectionPicker || localRemoval) return; event.preventDefault(); event.stopPropagation(); if (['current-contributor-choice', 'ancestor-contributor-choice', 'invalid'].includes(connectionPicker.mode)) backFromResolver(); else closeClientScopeEditor('explicit'); }}>
-      <div className="touchpoint-client-scope-heading">{editing ? <><h4 id="touchpoint-client-scope-heading">Client scope</h4><button type="button" className="inspector-secondary-action" aria-label="Close Client scope authoring" onClick={() => closeClientScopeEditor('explicit')}>Close</button></> : <h4 id="touchpoint-client-scope-heading" aria-label="Client scope"><button ref={connectionPickerButtonRef} data-touchpoint-editor-affordance type="button" className="inspector-property-heading-action" aria-label="Edit Client scope" disabled={!offers.length} onClick={() => { closeRelationEditor('switch-editor'); closeConnectedTouchpointsEditor('switch-editor'); closeChildrenEditor('switch-editor'); setBusinessInlineEdit(null); setConnectionPicker({ mode: 'upstream', query: '', kind: undefined, contributorOfferIds: [], ancestorContributingOfferIds: {} }); }}>Client scope<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h4>}</div>
+      <div className="touchpoint-client-scope-heading">{editing ? <><h4 id="touchpoint-client-scope-heading">Client scope</h4><button type="button" className="inspector-secondary-action" aria-label="Close Client scope authoring" onClick={() => closeClientScopeEditor('explicit')}>Close</button></> : <h4 id="touchpoint-client-scope-heading" aria-label="Client scope"><button ref={connectionPickerButtonRef} data-touchpoint-editor-affordance type="button" className="inspector-property-heading-action" aria-label="Edit Client scope" disabled={!offers.length} onClick={() => { closeOfferContentEditor('switch-editor'); closeRelationEditor('switch-editor'); closeConnectedTouchpointsEditor('switch-editor'); closeChildrenEditor('switch-editor'); setBusinessInlineEdit(null); setConnectionPicker({ mode: 'upstream', query: '', kind: undefined, contributorOfferIds: [], ancestorContributingOfferIds: {} }); }}>Client scope<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h4>}</div>
       {!editing && clientScopePanels.length ? <ClientScopePackedGroups panelIds={clientScopePanels.map(panel => panel.id)}>
         {clientScopePanels.map(panel => {
           const expanded = isClientScopePanelExpanded(panel);
@@ -2751,12 +2793,13 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const contentPresentation = selected.contentText ? offerContentPresentation(selected.contentText) : null;
     const contentExpanded = expandedOfferContentId === selected.id;
     const openEditor = () => {
+      closeConnectedTouchpointsEditor('switch-editor');
+      closeRelationEditor('switch-editor');
+      closeChildrenEditor('switch-editor');
+      if (!closeClientScopeEditor('switch-editor')) return;
+      setBusinessInlineEdit(null);
       setOfferContentCopyStatus(null);
       setOfferContentDraft({ offerId: selected.id, contentUrl: selected.contentUrl ?? '', contentText: selected.contentText ?? '' });
-    };
-    const closeEditor = (restoreFocus: boolean) => {
-      setOfferContentDraft(null);
-      if (restoreFocus) requestAnimationFrame(() => offerContentButtonRef.current?.focus());
     };
     const commitContentField = (field: 'contentUrl' | 'contentText') => {
       if (!offerContentDraft || offerContentDraft.offerId !== selected.id) return false;
@@ -2786,16 +2829,11 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         setOfferContentCopyStatus('Content text could not be copied.');
       }
     };
-    return <section className="offer-content" aria-labelledby="offer-content-heading">
-      {editing ? <div className="offer-content-heading"><h4 id="offer-content-heading">Offer Content</h4><button data-offer-content-close type="button" className="inspector-secondary-action" onClick={() => closeEditor(true)}>Close</button></div> : <h4 id="offer-content-heading" aria-label="Offer Content"><button ref={offerContentButtonRef} data-touchpoint-editor-affordance type="button" className="inspector-property-heading-action" aria-label={selected.contentUrl || selected.contentText ? 'Edit Offer Content' : 'Add content'} onClick={openEditor}>{selected.contentUrl || selected.contentText ? 'Offer Content' : 'Add content'}<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h4>}
-      {editing ? <div className="inspector-relation-editor offer-content-editor" aria-label="Offer Content editor" onKeyDown={event => {
-        if (event.key !== 'Escape') return;
-        event.preventDefault();
-        event.stopPropagation();
-        closeEditor(true);
-      }}>
-        <label>External document URL<input autoFocus type="url" value={offerContentDraft.contentUrl} aria-invalid={Boolean(offerContentDraft.error)} aria-describedby={offerContentDraft.error ? 'offer-content-url-error' : undefined} onChange={event => setOfferContentDraft({ offerId: offerContentDraft.offerId, contentUrl: event.target.value, contentText: offerContentDraft.contentText })} onBlur={event => { if (!(event.relatedTarget instanceof HTMLElement && event.relatedTarget.matches('[data-offer-content-close]'))) commitContentField('contentUrl'); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commitContentField('contentUrl'); } }} /></label>
-        <label>Content text<textarea rows={6} value={offerContentDraft.contentText} onChange={event => setOfferContentDraft({ ...offerContentDraft, contentText: event.target.value })} onBlur={event => { if (!(event.relatedTarget instanceof HTMLElement && event.relatedTarget.matches('[data-offer-content-close]'))) commitContentField('contentText'); }} /></label>
+    return <section ref={offerContentEditorRef} className="offer-content" aria-labelledby="offer-content-heading">
+      {editing ? <div className="offer-content-heading"><h4 id="offer-content-heading">Offer Content</h4><button data-offer-content-close type="button" className="inspector-secondary-action" onClick={() => closeOfferContentEditor('explicit')}>Close</button></div> : <h4 id="offer-content-heading" aria-label="Offer Content"><button ref={offerContentButtonRef} data-touchpoint-editor-affordance type="button" className="inspector-property-heading-action" aria-label={selected.contentUrl || selected.contentText ? 'Edit Offer Content' : 'Add content'} onClick={openEditor}>{selected.contentUrl || selected.contentText ? 'Offer Content' : 'Add content'}<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h4>}
+      {editing ? <div className="inspector-relation-editor offer-content-editor" aria-label="Offer Content editor">
+        <label>External document URL<input autoFocus type="url" value={offerContentDraft.contentUrl} aria-invalid={Boolean(offerContentDraft.error)} aria-describedby={offerContentDraft.error ? 'offer-content-url-error' : undefined} onChange={event => setOfferContentDraft({ offerId: offerContentDraft.offerId, contentUrl: event.target.value, contentText: offerContentDraft.contentText })} onBlur={event => { if (!dismissingOfferContentRef.current && !(event.relatedTarget instanceof HTMLElement && event.relatedTarget.matches('[data-offer-content-close]'))) commitContentField('contentUrl'); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commitContentField('contentUrl'); } }} /></label>
+        <label>Content text<textarea rows={6} value={offerContentDraft.contentText} onChange={event => setOfferContentDraft({ ...offerContentDraft, contentText: event.target.value })} onBlur={event => { if (!dismissingOfferContentRef.current && !(event.relatedTarget instanceof HTMLElement && event.relatedTarget.matches('[data-offer-content-close]'))) commitContentField('contentText'); }} /></label>
         {offerContentDraft.error && <p id="offer-content-url-error" className="error-message" role="alert">{offerContentDraft.error}</p>}
       </div> : <div className="offer-content-read">
         {!selected.contentUrl && !selected.contentText && <p className="business-structure-empty">No content documented</p>}
