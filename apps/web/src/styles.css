@@ -89,7 +89,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .offer-content-editor input, .offer-content-editor textarea { width: 100%; min-width: 0; padding: .45rem; }
 .offer-content-editor textarea { resize: vertical; white-space: pre-wrap; }
 .offer-content-copy-status { margin: 0; color: rgba(255,255,255,.7); font-size: .75rem; }
-.offer-structured-content { display: grid; gap: .6rem; min-width: 0; padding-top: .65rem; border-top: 1px solid var(--border-subtle); }
+.offer-structured-content { display: grid; gap: .6rem; min-width: 0; margin: 0; padding: .65rem 0 0; border: 0; border-top: 1px solid var(--border-subtle); background: transparent; }
 .offer-structured-content-heading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: .5rem .75rem; min-width: 0; }
 .offer-structured-content-heading > div { flex: 1 1 18rem; min-width: 0; }
 .offer-structured-content-heading h5, .offer-structured-content-heading p { margin: 0; }
