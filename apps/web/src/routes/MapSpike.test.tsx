@@ -275,6 +275,20 @@ function renderOfferInspector(document = offerNeighborhoodDocument(), offerName 
 }
 
 describe('Offer Content Inspector', () => {
+  it('keeps the text Close control immediately after the heading in one compact header cluster', async () => {
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector();
+    await user.click(inspector.getByRole('button', { name: 'Add content' }));
+
+    const heading = inspector.getByRole('heading', { name: 'Offer Content' });
+    const close = inspector.getByRole('button', { name: 'Close' });
+    const cluster = heading.parentElement!;
+    expect(cluster).toHaveClass('offer-content-heading');
+    expect(heading.nextElementSibling).toBe(close);
+    expect(cluster.children).toHaveLength(2);
+    expect(close).toHaveTextContent('Close');
+  });
+
   it('places a neutral editable empty section between Business structure and Neighborhood only for Offers', async () => {
     const user = userEvent.setup();
     const inspector = renderOfferInspector();
@@ -446,6 +460,63 @@ describe('Offer Content Inspector', () => {
     fireEvent.keyDown(inspector.getByLabelText('Content text'), { key: 'Escape' });
     await waitFor(() => expect(inspector.getByRole('button', { name: 'Add content' })).toHaveFocus());
     expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).not.toHaveProperty('contentText');
+  });
+
+  it.each([
+    ['External document URL', 'https://example.test/unfinished'],
+    ['Content text', 'Unfinished text'],
+  ])('Escape from %s discards only unfinished input and restores the heading affordance', async (label, value) => {
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector();
+    const before = window.__VEE_DEV__!.dump();
+    await user.click(inspector.getByRole('button', { name: 'Add content' }));
+    const field = inspector.getByLabelText(label);
+    fireEvent.change(field, { target: { value } });
+
+    fireEvent.keyDown(field, { key: 'Escape' });
+
+    await waitFor(() => expect(inspector.getByRole('button', { name: 'Add content' })).toHaveFocus());
+    expect(inspector.queryByLabelText('Offer Content editor')).not.toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+  });
+
+  it('keeps inside pointerdown local, while outside pointerdown discards without commit or focus theft', async () => {
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector();
+    const before = window.__VEE_DEV__!.dump();
+    await user.click(inspector.getByRole('button', { name: 'Add content' }));
+    const textarea = inspector.getByLabelText('Content text');
+    fireEvent.change(textarea, { target: { value: 'Unfinished pointer draft' } });
+
+    fireEvent.pointerDown(textarea);
+    expect(inspector.getByLabelText('Offer Content editor')).toBeInTheDocument();
+
+    const outside = screen.getByRole('tab', { name: 'Entity Inspector' });
+    fireEvent.pointerDown(outside);
+    outside.focus();
+    await waitFor(() => expect(inspector.queryByLabelText('Offer Content editor')).not.toBeInTheDocument());
+    expect(outside).toHaveFocus();
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+  });
+
+  it('switches mutually between Offer Content and Product without committing drafts or restoring stale focus', async () => {
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector();
+    const before = window.__VEE_DEV__!.dump();
+    await user.click(inspector.getByRole('button', { name: 'Add content' }));
+    fireEvent.change(inspector.getByLabelText('Content text'), { target: { value: 'Unfinished switch draft' } });
+
+    await user.click(inspector.getByRole('button', { name: 'Edit Product' }));
+
+    expect(inspector.queryByLabelText('Offer Content editor')).not.toBeInTheDocument();
+    expect(inspector.getByLabelText('Product editor')).toBeInTheDocument();
+    expect(within(inspector.getByLabelText('Product editor')).getAllByRole('radio')[0]).toHaveFocus();
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+
+    await user.click(inspector.getByRole('button', { name: 'Add content' }));
+    expect(inspector.queryByLabelText('Product editor')).not.toBeInTheDocument();
+    expect(inspector.getByLabelText('External document URL')).toHaveFocus();
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
   });
 });
 
