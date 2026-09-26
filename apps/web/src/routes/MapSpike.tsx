@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useReducer, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useReducer, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -39,12 +39,13 @@ const CLIENT_SCOPE_KIND_ORDER = ['core_functional_job', 'related_job', 'consumpt
 type ClientScopePanelKind = (typeof CLIENT_SCOPE_KIND_ORDER)[number];
 type OperationFeedback = { text: string; kind: 'success' | 'error' };
 type OfferContentBlockDraft = { title: string; text: string; titleError?: string | undefined; textError?: string | undefined };
+type OfferContentBlockPlacement = { kind: 'end' } | { kind: 'after'; blockId: string };
 type OfferContentDraft = {
   offerId: string;
   contentUrl: string;
   contentText: string;
   error?: string | undefined;
-  newBlock?: { title: string; error?: string | undefined } | undefined;
+  newBlock?: { title: string; placement: OfferContentBlockPlacement; error?: string | undefined } | undefined;
   blocks: Record<string, OfferContentBlockDraft>;
   deleteConfirmationBlockId?: string | undefined;
 };
@@ -691,6 +692,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const dismissingOfferContentRef = useRef(false);
   const activeOfferContentFieldRef = useRef<ActiveOfferContentField | null>(null);
   const offerContentDraftRef = useRef<OfferContentDraft | null>(offerContentDraft);
+  const pendingNewBlockFocusRef = useRef(false);
   offerContentDraftRef.current = offerContentDraft;
   const [quick, setQuick] = useState<Quick | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -789,6 +791,12 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   useEffect(() => () => {
     offerContentDisclosureSnapshotRef.current = null;
   }, []);
+
+  useLayoutEffect(() => {
+    if (!pendingNewBlockFocusRef.current || !offerContentDraft?.newBlock) return;
+    pendingNewBlockFocusRef.current = false;
+    globalThis.document.getElementById('offer-content-new-block-title')?.focus();
+  }, [offerContentDraft?.newBlock]);
 
   useEffect(() => {
     const snapshot = offerContentDisclosureSnapshotRef.current;
@@ -925,8 +933,14 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       return false;
     }
     try {
-      const next = addOfferContentBlock(documentRef.current, { offerId: draft.offerId, blockId: crypto.randomUUID(), title: draft.newBlock.title });
-      const added = committedOffer(next, draft.offerId)?.contentBlocks?.at(-1);
+      const blockId = crypto.randomUUID();
+      const next = addOfferContentBlock(documentRef.current, {
+        offerId: draft.offerId,
+        blockId,
+        title: draft.newBlock.title,
+        ...(draft.newBlock.placement.kind === 'after' ? { afterBlockId: draft.newBlock.placement.blockId } : {}),
+      });
+      const added = committedOffer(next, draft.offerId)?.contentBlocks?.find(block => block.id === blockId);
       if (!added) throw new Error('The created block could not be read from the Offer.');
       documentRef.current = next;
       setDocument(next);
@@ -976,8 +990,11 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const draft = offerContentDraftRef.current;
     if (!active || !draft) return false;
     if (active.kind === 'newBlockTitle') {
+      const returnFocusId = draft.newBlock?.placement.kind === 'after'
+        ? `offer-content-block-add-below-${encodeURIComponent(draft.newBlock.placement.blockId)}`
+        : 'offer-content-add-block';
+      pendingLocalFocusIdsRef.current = [returnFocusId];
       setCurrentOfferContentDraft({ ...draft, newBlock: undefined });
-      requestAnimationFrame(() => globalThis.document.getElementById('offer-content-add-block')?.focus());
     }
     else if (active.kind === 'blockTitle' || active.kind === 'blockText') {
       const block = committedOffer(documentRef.current, draft.offerId)?.contentBlocks?.find(item => item.id === active.blockId);
@@ -3045,10 +3062,24 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     };
     const cancelNewBlock = () => {
       const draft = offerContentDraftRef.current;
-      if (!draft) return;
+      if (!draft?.newBlock) return;
+      const returnFocusId = draft.newBlock.placement.kind === 'after'
+        ? `offer-content-block-add-below-${encodeURIComponent(draft.newBlock.placement.blockId)}`
+        : 'offer-content-add-block';
       activeOfferContentFieldRef.current = null;
+      pendingLocalFocusIdsRef.current = [returnFocusId];
       setCurrentOfferContentDraft({ ...draft, newBlock: undefined });
-      requestAnimationFrame(() => globalThis.document.getElementById('offer-content-add-block')?.focus());
+    };
+    const startNewBlockDraft = (placement: OfferContentBlockPlacement) => {
+      const draft = offerContentDraftRef.current;
+      if (!draft) return;
+      if (draft.newBlock) {
+        globalThis.document.getElementById('offer-content-new-block-title')?.focus();
+        return;
+      }
+      activeOfferContentFieldRef.current = { kind: 'newBlockTitle' };
+      pendingNewBlockFocusRef.current = true;
+      setCurrentOfferContentDraft({ ...draft, newBlock: { title: '', placement } });
     };
     const cancelDelete = (blockId: string) => {
       const draft = offerContentDraftRef.current;
@@ -3088,13 +3119,21 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       try {
         const next = reorderOfferContentBlocks(documentRef.current, { offerId: draft.offerId, blockIds: ids });
         documentRef.current = next;
+        pendingLocalFocusIdsRef.current = [`offer-content-block-move-${offset < 0 ? 'up' : 'down'}-${encodeURIComponent(blockId)}`];
         setDocument(next);
-        requestAnimationFrame(() => globalThis.document.getElementById(`offer-content-block-move-${offset < 0 ? 'up' : 'down'}-${encodeURIComponent(blockId)}`)?.focus());
       } catch (error) {
         const blockDraft = draft.blocks[blockId];
         if (blockDraft) setCurrentOfferContentDraft({ ...draft, blocks: { ...draft.blocks, [blockId]: { ...blockDraft, textError: error instanceof Error ? error.message : 'Block could not be moved. Try again.' } } });
       }
     };
+    const activeNewBlock = offerContentDraft?.newBlock;
+    const newBlockDraftCard = activeNewBlock && <article className="offer-content-block offer-content-new-block" data-draft-placement={activeNewBlock.placement.kind}>
+      <label>Block title<input id="offer-content-new-block-title" required value={activeNewBlock.title} aria-invalid={Boolean(activeNewBlock.error)} onFocus={() => { activeOfferContentFieldRef.current = { kind: 'newBlockTitle' }; }} onChange={event => { const draft = offerContentDraftRef.current; if (draft?.newBlock) setCurrentOfferContentDraft({ ...draft, newBlock: { ...draft.newBlock, title: event.target.value, error: undefined } }); }} onBlur={() => { if (!dismissingOfferContentRef.current) commitNewOfferContentBlock(); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commitNewOfferContentBlock(); } }} /></label>
+      {activeNewBlock.error && <p className="error-message" role="alert">{activeNewBlock.error}</p>}
+      <button type="button" className="inspector-secondary-action" onMouseDown={event => event.preventDefault()} onClick={cancelNewBlock}>Cancel</button>
+    </article>;
+    const anchoredDraftId = activeNewBlock?.placement.kind === 'after' ? activeNewBlock.placement.blockId : undefined;
+    const anchoredDraftIsRendered = anchoredDraftId !== undefined && (selected.contentBlocks ?? []).some(block => block.id === anchoredDraftId);
     return <section ref={offerContentEditorRef} className="offer-content" aria-labelledby="offer-content-heading">
       {editing ? <div className="offer-content-heading"><h4 id="offer-content-heading">Offer Content</h4><button data-offer-content-close type="button" className="inspector-secondary-action" onClick={() => closeOfferContentEditor('explicit')}>Close</button></div> : <h4 id="offer-content-heading" aria-label="Offer Content"><button ref={offerContentButtonRef} data-touchpoint-editor-affordance type="button" className="inspector-property-heading-action" aria-label={selected.contentUrl || selected.contentText || selected.contentBlocks?.length ? 'Edit Offer Content' : 'Add content'} onClick={openEditor}>{selected.contentUrl || selected.contentText || selected.contentBlocks?.length ? 'Offer Content' : 'Add content'}<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h4>}
       {editing ? <div className="inspector-relation-editor offer-content-editor" aria-label="Offer Content editor">
@@ -3102,25 +3141,23 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         <label>Content text<textarea rows={6} value={offerContentDraft.contentText} onFocus={() => { activeOfferContentFieldRef.current = { kind: 'contentText' }; }} onChange={event => setCurrentOfferContentDraft({ ...offerContentDraft, contentText: event.target.value })} onBlur={event => { if (!dismissingOfferContentRef.current && !(event.relatedTarget instanceof HTMLElement && event.relatedTarget.matches('[data-offer-content-close]')) && commitContentField('contentText')) activeOfferContentFieldRef.current = null; }} /></label>
         {offerContentDraft.error && <p id="offer-content-url-error" className="error-message" role="alert">{offerContentDraft.error}</p>}
         <section className="offer-structured-content" aria-labelledby="offer-structured-content-heading">
-          <div className="offer-structured-content-heading"><div><h5 id="offer-structured-content-heading">Structured Content</h5><p>Structure the Offer as named blocks. Think PAS, AIDA, BAB or 4Ps — or mix the logic and build your own.</p></div><button id="offer-content-add-block" type="button" className="inspector-secondary-action" onClick={() => {
-            if (offerContentDraftRef.current?.newBlock) { globalThis.document.getElementById('offer-content-new-block-title')?.focus(); return; }
-            activeOfferContentFieldRef.current = { kind: 'newBlockTitle' };
-            setCurrentOfferContentDraft({ ...offerContentDraft, newBlock: { title: '' } });
-          }}>Add block</button></div>
+          <div className="offer-structured-content-heading"><h5 id="offer-structured-content-heading">Structured Content</h5><button id="offer-content-add-block" type="button" className="inspector-secondary-action" onClick={() => startNewBlockDraft({ kind: 'end' })}>Add block</button></div>
+          <p className="offer-structured-content-help">Structure the Offer as named blocks. Think PAS, AIDA, BAB or 4Ps — or mix the logic and build your own.</p>
           <div className="offer-content-block-list">
             {(selected.contentBlocks ?? []).map((block, index) => {
               const blockDraft = offerContentDraft.blocks[block.id] ?? contentBlockDraft(block);
               const confirming = offerContentDraft.deleteConfirmationBlockId === block.id;
-              return <article className="offer-content-block" data-block-id={block.id} key={block.id}>
+              const draftFollowsBlock = offerContentDraft.newBlock?.placement.kind === 'after' && offerContentDraft.newBlock.placement.blockId === block.id;
+              return <Fragment key={block.id}><article className="offer-content-block" data-block-id={block.id}>
                 <label>Block title<input id={`offer-content-block-title-${encodeURIComponent(block.id)}`} required value={blockDraft.title} aria-invalid={Boolean(blockDraft.titleError)} onFocus={() => { activeOfferContentFieldRef.current = { kind: 'blockTitle', blockId: block.id }; }} onChange={event => setCurrentOfferContentDraft({ ...offerContentDraft, blocks: { ...offerContentDraft.blocks, [block.id]: { ...blockDraft, title: event.target.value, titleError: undefined } } })} onBlur={() => { if (!dismissingOfferContentRef.current && commitOfferContentBlockField(block.id, 'title')) activeOfferContentFieldRef.current = null; }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); if (commitOfferContentBlockField(block.id, 'title')) activeOfferContentFieldRef.current = null; } }} /></label>
                 {blockDraft.titleError && <p className="error-message" role="alert">{blockDraft.titleError}</p>}
                 <label>Block text<textarea rows={4} value={blockDraft.text} onFocus={() => { activeOfferContentFieldRef.current = { kind: 'blockText', blockId: block.id }; }} onChange={event => setCurrentOfferContentDraft({ ...offerContentDraft, blocks: { ...offerContentDraft.blocks, [block.id]: { ...blockDraft, text: event.target.value, textError: undefined } } })} onBlur={() => { if (!dismissingOfferContentRef.current && commitOfferContentBlockField(block.id, 'text')) activeOfferContentFieldRef.current = null; }} /></label>
                 {blockDraft.textError && <p className="error-message" role="alert">{blockDraft.textError}</p>}
-                <div className="offer-content-block-actions"><button id={`offer-content-block-move-up-${encodeURIComponent(block.id)}`} type="button" className="inspector-secondary-action" disabled={index === 0} onClick={() => moveBlock(block.id, -1)}>Move up</button><button id={`offer-content-block-move-down-${encodeURIComponent(block.id)}`} type="button" className="inspector-secondary-action" disabled={index === (selected.contentBlocks?.length ?? 0) - 1} onClick={() => moveBlock(block.id, 1)}>Move down</button><button id={`offer-content-block-delete-${encodeURIComponent(block.id)}`} type="button" className="inspector-secondary-action" onClick={() => block.text?.trim() ? setCurrentOfferContentDraft({ ...offerContentDraft, deleteConfirmationBlockId: block.id }) : removeBlock(block.id)}>Delete</button></div>
+                <div className="offer-content-block-actions"><button id={`offer-content-block-move-up-${encodeURIComponent(block.id)}`} type="button" className="inspector-secondary-action" disabled={index === 0} onClick={() => moveBlock(block.id, -1)}>Move up</button><button id={`offer-content-block-move-down-${encodeURIComponent(block.id)}`} type="button" className="inspector-secondary-action" disabled={index === (selected.contentBlocks?.length ?? 0) - 1} onClick={() => moveBlock(block.id, 1)}>Move down</button><button id={`offer-content-block-add-below-${encodeURIComponent(block.id)}`} type="button" className="inspector-secondary-action" onClick={() => startNewBlockDraft({ kind: 'after', blockId: block.id })}>Add block below</button><button id={`offer-content-block-delete-${encodeURIComponent(block.id)}`} type="button" className="inspector-secondary-action" onClick={() => block.text?.trim() ? setCurrentOfferContentDraft({ ...offerContentDraft, deleteConfirmationBlockId: block.id }) : removeBlock(block.id)}>Delete</button></div>
                 {confirming && <div className="offer-content-block-confirmation" role="group" aria-label={`Delete ${block.title}?`}><p>Delete “{block.title}”?</p><div><button type="button" className="inspector-secondary-action" onClick={() => cancelDelete(block.id)}>Cancel</button><button type="button" onClick={() => removeBlock(block.id)}>Delete block</button></div></div>}
-              </article>;
+              </article>{draftFollowsBlock && newBlockDraftCard}</Fragment>;
             })}
-            {offerContentDraft.newBlock && <article className="offer-content-block offer-content-new-block"><label>Block title<input id="offer-content-new-block-title" autoFocus required value={offerContentDraft.newBlock.title} aria-invalid={Boolean(offerContentDraft.newBlock.error)} onFocus={() => { activeOfferContentFieldRef.current = { kind: 'newBlockTitle' }; }} onChange={event => setCurrentOfferContentDraft({ ...offerContentDraft, newBlock: { title: event.target.value } })} onBlur={() => { if (!dismissingOfferContentRef.current) commitNewOfferContentBlock(); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commitNewOfferContentBlock(); } }} /></label>{offerContentDraft.newBlock.error && <p className="error-message" role="alert">{offerContentDraft.newBlock.error}</p>}<button type="button" className="inspector-secondary-action" onMouseDown={event => event.preventDefault()} onClick={cancelNewBlock}>Cancel</button></article>}
+            {offerContentDraft.newBlock && (offerContentDraft.newBlock.placement.kind === 'end' || !anchoredDraftIsRendered) && newBlockDraftCard}
           </div>
         </section>
       </div> : <div className="offer-content-read">
