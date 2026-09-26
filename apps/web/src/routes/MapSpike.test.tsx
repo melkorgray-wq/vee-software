@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StrictMode, useEffect, useState, type MouseEvent, type ReactNode } from 'react';
 import { isRenderedTitleTruncated, MapNode, MapSpike, RELATION_EDITOR_SEARCH_THRESHOLD } from './MapSpike';
-import { applyTouchpointIntentDraft, type MapDocument } from '@vee/domain';
+import { applyTouchpointIntentDraft, type Entity, type MapDocument } from '@vee/domain';
 import { parentTouchpointOptions } from '../map-interaction';
 
 type MockNode = { id: string; position: { x: number; y: number }; selected?: boolean; className?: string; data: { title: string; kindLabel: string } };
@@ -641,6 +641,85 @@ describe('Offer Content Inspector', () => {
     expect(inspector.getByLabelText('Product editor')).toBeInTheDocument();
     expect(within(inspector.getByLabelText('Product editor')).getAllByRole('radio')[0]).toHaveFocus();
     expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentText: 'Switch-completed text' });
+  });
+
+  it('keeps URL, free-form text, and Structured Content in reading order without framework controls', async () => {
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector();
+    await user.click(inspector.getByRole('button', { name: 'Add content' }));
+    const editor = inspector.getByLabelText('Offer Content editor');
+    const url = within(editor).getByLabelText('External document URL');
+    const text = within(editor).getByLabelText('Content text');
+    const structured = within(editor).getByRole('heading', { name: 'Structured Content' });
+    expect(url.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(text.compareDocumentPosition(structured) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(editor).getByText(/Think PAS, AIDA, BAB or 4Ps/)).toBeInTheDocument();
+    expect(within(editor).queryByRole('combobox')).not.toBeInTheDocument();
+    expect(within(editor).queryByRole('radio')).not.toBeInTheDocument();
+  });
+
+  it('creates at most one local new-block draft and commits only a nonblank title', async () => {
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector();
+    await user.click(inspector.getByRole('button', { name: 'Add content' }));
+    const before = window.__VEE_DEV__!.dump();
+    await user.click(inspector.getByRole('button', { name: 'Add block' }));
+    const title = inspector.getByLabelText('Block title');
+    expect(title).toHaveFocus();
+    await user.click(inspector.getByRole('button', { name: 'Add block' }));
+    expect(inspector.getAllByLabelText('Block title')).toHaveLength(1);
+    fireEvent.keyDown(title, { key: 'Enter' });
+    expect(inspector.getByRole('alert')).toHaveTextContent('Block title is required');
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    fireEvent.change(title, { target: { value: 'Problem' } });
+    fireEvent.keyDown(title, { key: 'Enter' });
+    const offer = window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a');
+    expect(offer).toMatchObject({ contentBlocks: [expect.objectContaining({ title: 'Problem' })] });
+    expect((offer as Extract<Entity, { kind: 'offer' }>).contentBlocks?.[0]?.id).toBeTruthy();
+  });
+
+  it('edits, reorders, and progressively cancels block-local state without changing siblings', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentUrl: 'https://example.test/source', contentText: 'Free form', contentBlocks: [{ id: 'first', title: 'First', text: 'Body' }, { id: 'second', title: 'Second' }] });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    const titles = inspector.getAllByLabelText('Block title');
+    fireEvent.change(titles[0]!, { target: { value: 'Renamed' } });
+    fireEvent.keyDown(titles[0]!, { key: 'Enter' });
+    const texts = inspector.getAllByLabelText('Block text');
+    fireEvent.change(texts[0]!, { target: { value: 'Line one\nLine two' } });
+    fireEvent.blur(texts[0]!);
+    await user.click(inspector.getAllByRole('button', { name: 'Move down' })[0]!);
+    let offer = window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a') as Extract<Entity, { kind: 'offer' }>;
+    expect(offer.contentBlocks).toEqual([{ id: 'second', title: 'Second' }, { id: 'first', title: 'Renamed', text: 'Line one\nLine two' }]);
+    expect(offer).toMatchObject({ contentUrl: 'https://example.test/source', contentText: 'Free form' });
+    expect(inspector.getAllByRole('button', { name: 'Move up' })[0]).toBeDisabled();
+    const renamed = inspector.getAllByLabelText('Block title')[1]!;
+    await user.click(renamed);
+    fireEvent.change(renamed, { target: { value: '' } });
+    fireEvent.keyDown(renamed, { key: 'Escape' });
+    expect(inspector.getAllByLabelText('Block title')[1]).toHaveValue('Renamed');
+    offer = window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a') as Extract<Entity, { kind: 'offer' }>;
+    expect(offer.contentBlocks?.[1]?.title).toBe('Renamed');
+  });
+
+  it('deletes empty-text blocks immediately, confirms authored text, and renders a read-only count', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentBlocks: [{ id: 'blank', title: 'Blank', text: '   ' }, { id: 'authored', title: 'Authored', text: 'Keep?' }] });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    expect(inspector.getByText('Structured content · 2 blocks')).toBeInTheDocument();
+    expect(inspector.queryByText('No content documented')).not.toBeInTheDocument();
+    expect(inspector.queryByText('Keep?')).not.toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    await user.click(inspector.getAllByRole('button', { name: 'Delete' })[0]!);
+    expect((window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a') as Extract<Entity, { kind: 'offer' }>).contentBlocks?.map(block => block.id)).toEqual(['authored']);
+    await user.click(inspector.getByRole('button', { name: 'Delete' }));
+    expect(inspector.getByRole('group', { name: 'Delete Authored?' })).toBeInTheDocument();
+    fireEvent.keyDown(globalThis.document.activeElement ?? globalThis.document.body, { key: 'Escape' });
+    expect(inspector.queryByRole('button', { name: 'Delete block' })).not.toBeInTheDocument();
+    expect((window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a') as Extract<Entity, { kind: 'offer' }>).contentBlocks).toHaveLength(1);
   });
 
 });

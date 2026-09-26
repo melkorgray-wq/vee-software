@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useReducer, useRef, useState, type CSSPrope
 import { createPortal } from 'react-dom';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateOfferContent, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addOfferContentBlock, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, removeOfferContentBlock, reorderOfferContentBlocks, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateOfferContent, updateOfferContentBlock, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type OfferContentBlock, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, disclosureOverlayPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction, type Point, type WorkspaceShortcutState } from '../map-interaction';
@@ -38,7 +38,22 @@ type PostCreateContinuation = WorkspaceView;
 const CLIENT_SCOPE_KIND_ORDER = ['core_functional_job', 'related_job', 'consumption_chain_job', 'emotional_job', 'social_job', 'financial_desired_outcome'] as const;
 type ClientScopePanelKind = (typeof CLIENT_SCOPE_KIND_ORDER)[number];
 type OperationFeedback = { text: string; kind: 'success' | 'error' };
-type OfferContentDraft = { offerId: string; contentUrl: string; contentText: string; error?: string };
+type OfferContentBlockDraft = { title: string; text: string; titleError?: string | undefined; textError?: string | undefined };
+type OfferContentDraft = {
+  offerId: string;
+  contentUrl: string;
+  contentText: string;
+  error?: string | undefined;
+  newBlock?: { title: string; error?: string | undefined } | undefined;
+  blocks: Record<string, OfferContentBlockDraft>;
+  deleteConfirmationBlockId?: string | undefined;
+};
+type ActiveOfferContentField =
+  | { kind: 'contentUrl' }
+  | { kind: 'contentText' }
+  | { kind: 'newBlockTitle' }
+  | { kind: 'blockTitle'; blockId: string }
+  | { kind: 'blockText'; blockId: string };
 type OfferContentPresentation = { preview: string; hasMultipleParagraphs: boolean };
 type OfferContentScrollOwner = Window | HTMLElement;
 type OfferContentDisclosureSnapshot = {
@@ -674,7 +689,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const offerContentButtonRef = useRef<HTMLButtonElement>(null);
   const offerContentEditorRef = useRef<HTMLElement>(null);
   const dismissingOfferContentRef = useRef(false);
-  const activeOfferContentFieldRef = useRef<'contentUrl' | 'contentText' | null>(null);
+  const activeOfferContentFieldRef = useRef<ActiveOfferContentField | null>(null);
   const offerContentDraftRef = useRef<OfferContentDraft | null>(offerContentDraft);
   offerContentDraftRef.current = offerContentDraft;
   const [quick, setQuick] = useState<Quick | null>(null);
@@ -869,6 +884,14 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     requestAnimationFrame(() => (targetId ? globalThis.document.getElementById(targetId) : target)?.focus());
   }
   type OfferContentEditorCloseReason = 'explicit' | 'escape' | 'pointer' | 'switch-editor';
+  const contentBlockDraft = (block: OfferContentBlock): OfferContentBlockDraft => ({ title: block.title, text: block.text ?? '' });
+  function setCurrentOfferContentDraft(next: OfferContentDraft | null) {
+    offerContentDraftRef.current = next;
+    setOfferContentDraft(next);
+  }
+  function committedOffer(documentValue: MapDocument, offerId: string) {
+    return documentValue.entities.find((entity): entity is Extract<Entity, { kind: 'offer' }> => entity.kind === 'offer' && entity.id === offerId);
+  }
   function commitContentField(field: 'contentUrl' | 'contentText') {
     const draft = offerContentDraftRef.current;
     if (!draft) return false;
@@ -880,38 +903,109 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       });
       documentRef.current = next;
       setDocument(next);
-      const committedOffer = next.entities.find((entity): entity is Extract<Entity, { kind: 'offer' }> => entity.id === draft.offerId && entity.kind === 'offer')!;
+      const offer = committedOffer(next, draft.offerId)!;
       const synchronizedDraft: OfferContentDraft = field === 'contentUrl'
-        ? { offerId: draft.offerId, contentUrl: committedOffer.contentUrl ?? '', contentText: draft.contentText }
-        : { ...draft, contentText: committedOffer.contentText ?? '' };
-      offerContentDraftRef.current = synchronizedDraft;
-      setOfferContentDraft(current => current?.offerId !== draft.offerId ? current : synchronizedDraft);
+        ? { ...draft, contentUrl: offer.contentUrl ?? '', error: undefined }
+        : { ...draft, contentText: offer.contentText ?? '' };
+      setCurrentOfferContentDraft(synchronizedDraft);
       return true;
     } catch (error) {
       if (field === 'contentUrl') {
         const invalidDraft = { ...draft, error: error instanceof Error ? error.message : 'External document URL could not be updated.' };
-        offerContentDraftRef.current = invalidDraft;
-        setOfferContentDraft(invalidDraft);
+        setCurrentOfferContentDraft(invalidDraft);
       }
+      return false;
+    }
+  }
+  function commitNewOfferContentBlock() {
+    const draft = offerContentDraftRef.current;
+    if (!draft?.newBlock) return true;
+    if (!draft.newBlock.title.trim()) {
+      setCurrentOfferContentDraft({ ...draft, newBlock: { ...draft.newBlock, error: 'Block title is required.' } });
+      return false;
+    }
+    try {
+      const next = addOfferContentBlock(documentRef.current, { offerId: draft.offerId, blockId: crypto.randomUUID(), title: draft.newBlock.title });
+      const added = committedOffer(next, draft.offerId)?.contentBlocks?.at(-1);
+      if (!added) throw new Error('The created block could not be read from the Offer.');
+      documentRef.current = next;
+      setDocument(next);
+      setCurrentOfferContentDraft({ ...draft, newBlock: undefined, blocks: { ...draft.blocks, [added.id]: contentBlockDraft(added) } });
+      activeOfferContentFieldRef.current = null;
+      requestAnimationFrame(() => globalThis.document.getElementById(`offer-content-block-title-${encodeURIComponent(added.id)}`)?.focus());
+      return true;
+    } catch (error) {
+      setCurrentOfferContentDraft({ ...draft, newBlock: { ...draft.newBlock, error: error instanceof Error ? error.message : 'Block could not be added. Try again.' } });
+      return false;
+    }
+  }
+  function commitOfferContentBlockField(blockId: string, field: 'title' | 'text') {
+    const draft = offerContentDraftRef.current;
+    const blockDraft = draft?.blocks[blockId];
+    if (!draft || !blockDraft) return false;
+    if (field === 'title' && !blockDraft.title.trim()) {
+      setCurrentOfferContentDraft({ ...draft, blocks: { ...draft.blocks, [blockId]: { ...blockDraft, titleError: 'Block title is required.' } } });
+      return false;
+    }
+    try {
+      const next = updateOfferContentBlock(documentRef.current, { offerId: draft.offerId, blockId, field, value: blockDraft[field] });
+      const block = committedOffer(next, draft.offerId)?.contentBlocks?.find(item => item.id === blockId);
+      if (!block) throw new Error('The updated block could not be read from the Offer.');
+      documentRef.current = next;
+      setDocument(next);
+      setCurrentOfferContentDraft({ ...draft, blocks: { ...draft.blocks, [blockId]: { ...contentBlockDraft(block) } } });
+      return true;
+    } catch (error) {
+      const errorKey = field === 'title' ? 'titleError' : 'textError';
+      setCurrentOfferContentDraft({ ...draft, blocks: { ...draft.blocks, [blockId]: { ...blockDraft, [errorKey]: error instanceof Error ? error.message : `Block ${field} could not be updated. Try again.` } } });
       return false;
     }
   }
   function completeActiveOfferContentField() {
     const field = activeOfferContentFieldRef.current;
     if (!field) return true;
-    const completed = commitContentField(field);
+    let completed: boolean;
+    if (field.kind === 'contentUrl' || field.kind === 'contentText') completed = commitContentField(field.kind);
+    else if (field.kind === 'newBlockTitle') completed = commitNewOfferContentBlock();
+    else completed = commitOfferContentBlockField(field.blockId, field.kind === 'blockTitle' ? 'title' : 'text');
     if (completed) activeOfferContentFieldRef.current = null;
     return completed;
   }
+  function abandonActiveOfferContentField() {
+    const active = activeOfferContentFieldRef.current;
+    const draft = offerContentDraftRef.current;
+    if (!active || !draft) return false;
+    if (active.kind === 'newBlockTitle') {
+      setCurrentOfferContentDraft({ ...draft, newBlock: undefined });
+      requestAnimationFrame(() => globalThis.document.getElementById('offer-content-add-block')?.focus());
+    }
+    else if (active.kind === 'blockTitle' || active.kind === 'blockText') {
+      const block = committedOffer(documentRef.current, draft.offerId)?.contentBlocks?.find(item => item.id === active.blockId);
+      if (block) setCurrentOfferContentDraft({ ...draft, blocks: { ...draft.blocks, [block.id]: contentBlockDraft(block) } });
+    } else {
+      const offer = committedOffer(documentRef.current, draft.offerId);
+      if (offer) setCurrentOfferContentDraft({ ...draft, [active.kind]: offer[active.kind] ?? '', ...(active.kind === 'contentUrl' ? { error: undefined } : {}) });
+    }
+    activeOfferContentFieldRef.current = null;
+    return true;
+  }
   function closeOfferContentEditor(reason: OfferContentEditorCloseReason) {
     if (!offerContentDraftRef.current) return true;
-    if (reason !== 'escape' && !completeActiveOfferContentField()) return false;
+    if (reason === 'escape') {
+      const draft = offerContentDraftRef.current;
+      if (draft.deleteConfirmationBlockId) {
+        setCurrentOfferContentDraft({ ...draft, deleteConfirmationBlockId: undefined });
+        requestAnimationFrame(() => globalThis.document.getElementById(`offer-content-block-delete-${encodeURIComponent(draft.deleteConfirmationBlockId!)}`)?.focus());
+        return false;
+      }
+      const active = activeOfferContentFieldRef.current;
+      if (abandonActiveOfferContentField() && active && active.kind !== 'contentUrl' && active.kind !== 'contentText') return false;
+    } else if (!completeActiveOfferContentField()) return false;
     // Escape abandons the active draft; successful completion suppresses only the
     // technical blur caused when React removes the completed editor.
     dismissingOfferContentRef.current = true;
     activeOfferContentFieldRef.current = null;
-    offerContentDraftRef.current = null;
-    setOfferContentDraft(null);
+    setCurrentOfferContentDraft(null);
     requestAnimationFrame(() => {
       dismissingOfferContentRef.current = false;
       if (reason === 'explicit' || reason === 'escape') offerContentButtonRef.current?.focus();
@@ -1013,6 +1107,11 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   }, [childrenEditor]);
   useEffect(() => {
     if (!offerContentDraft) return;
+    if (selected?.kind !== 'offer' || selected.id !== offerContentDraft.offerId) {
+      activeOfferContentFieldRef.current = null;
+      setCurrentOfferContentDraft(null);
+      return;
+    }
     const dismissOnPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof globalThis.Node) || offerContentEditorRef.current?.contains(target)) return;
@@ -1031,7 +1130,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       globalThis.document.removeEventListener('pointerdown', dismissOnPointerDown);
       globalThis.document.removeEventListener('keydown', dismissOnEscape);
     };
-  }, [offerContentDraft]);
+  }, [offerContentDraft, selected]);
   useEffect(() => {
     if (!offersPicker && !parentPicker && !productPicker) return;
     const dismissOnPointerDown = (event: PointerEvent) => {
@@ -2908,9 +3007,13 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       setOfferContentCopyStatus(null);
       offerContentDisclosureSnapshotRef.current = null;
       activeOfferContentFieldRef.current = null;
-      const draft = { offerId: selected.id, contentUrl: selected.contentUrl ?? '', contentText: selected.contentText ?? '' };
-      offerContentDraftRef.current = draft;
-      setOfferContentDraft(draft);
+      const draft: OfferContentDraft = {
+        offerId: selected.id,
+        contentUrl: selected.contentUrl ?? '',
+        contentText: selected.contentText ?? '',
+        blocks: Object.fromEntries((selected.contentBlocks ?? []).map(block => [block.id, contentBlockDraft(block)])),
+      };
+      setCurrentOfferContentDraft(draft);
     };
     const toggleContentDisclosure = () => {
       const anchor = offerContentDisclosureRef.current;
@@ -2940,14 +3043,88 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         setOfferContentCopyStatus('Content text could not be copied.');
       }
     };
+    const cancelNewBlock = () => {
+      const draft = offerContentDraftRef.current;
+      if (!draft) return;
+      activeOfferContentFieldRef.current = null;
+      setCurrentOfferContentDraft({ ...draft, newBlock: undefined });
+      requestAnimationFrame(() => globalThis.document.getElementById('offer-content-add-block')?.focus());
+    };
+    const cancelDelete = (blockId: string) => {
+      const draft = offerContentDraftRef.current;
+      if (!draft) return;
+      setCurrentOfferContentDraft({ ...draft, deleteConfirmationBlockId: undefined });
+      requestAnimationFrame(() => globalThis.document.getElementById(`offer-content-block-delete-${encodeURIComponent(blockId)}`)?.focus());
+    };
+    const removeBlock = (blockId: string) => {
+      const draft = offerContentDraftRef.current;
+      if (!draft) return;
+      const blocks = selected.contentBlocks ?? [];
+      const removedIndex = blocks.findIndex(block => block.id === blockId);
+      try {
+        const next = removeOfferContentBlock(documentRef.current, { offerId: draft.offerId, blockId });
+        documentRef.current = next;
+        setDocument(next);
+        const remainingDrafts = { ...draft.blocks };
+        delete remainingDrafts[blockId];
+        setCurrentOfferContentDraft({ ...draft, blocks: remainingDrafts, deleteConfirmationBlockId: undefined });
+        if (activeOfferContentFieldRef.current && 'blockId' in activeOfferContentFieldRef.current && activeOfferContentFieldRef.current.blockId === blockId) activeOfferContentFieldRef.current = null;
+        const remaining = committedOffer(next, draft.offerId)?.contentBlocks ?? [];
+        const focusId = remaining[Math.min(removedIndex, remaining.length - 1)]?.id;
+        requestAnimationFrame(() => globalThis.document.getElementById(focusId ? `offer-content-block-delete-${encodeURIComponent(focusId)}` : 'offer-content-add-block')?.focus());
+      } catch (error) {
+        const blockDraft = draft.blocks[blockId];
+        if (blockDraft) setCurrentOfferContentDraft({ ...draft, blocks: { ...draft.blocks, [blockId]: { ...blockDraft, textError: error instanceof Error ? error.message : 'Block could not be deleted. Try again.' } } });
+      }
+    };
+    const moveBlock = (blockId: string, offset: -1 | 1) => {
+      const draft = offerContentDraftRef.current;
+      if (!draft) return;
+      const ids = (committedOffer(documentRef.current, draft.offerId)?.contentBlocks ?? []).map(block => block.id);
+      const from = ids.indexOf(blockId);
+      const to = from + offset;
+      if (from < 0 || to < 0 || to >= ids.length) return;
+      [ids[from], ids[to]] = [ids[to]!, ids[from]!];
+      try {
+        const next = reorderOfferContentBlocks(documentRef.current, { offerId: draft.offerId, blockIds: ids });
+        documentRef.current = next;
+        setDocument(next);
+        requestAnimationFrame(() => globalThis.document.getElementById(`offer-content-block-move-${offset < 0 ? 'up' : 'down'}-${encodeURIComponent(blockId)}`)?.focus());
+      } catch (error) {
+        const blockDraft = draft.blocks[blockId];
+        if (blockDraft) setCurrentOfferContentDraft({ ...draft, blocks: { ...draft.blocks, [blockId]: { ...blockDraft, textError: error instanceof Error ? error.message : 'Block could not be moved. Try again.' } } });
+      }
+    };
     return <section ref={offerContentEditorRef} className="offer-content" aria-labelledby="offer-content-heading">
-      {editing ? <div className="offer-content-heading"><h4 id="offer-content-heading">Offer Content</h4><button data-offer-content-close type="button" className="inspector-secondary-action" onClick={() => closeOfferContentEditor('explicit')}>Close</button></div> : <h4 id="offer-content-heading" aria-label="Offer Content"><button ref={offerContentButtonRef} data-touchpoint-editor-affordance type="button" className="inspector-property-heading-action" aria-label={selected.contentUrl || selected.contentText ? 'Edit Offer Content' : 'Add content'} onClick={openEditor}>{selected.contentUrl || selected.contentText ? 'Offer Content' : 'Add content'}<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h4>}
+      {editing ? <div className="offer-content-heading"><h4 id="offer-content-heading">Offer Content</h4><button data-offer-content-close type="button" className="inspector-secondary-action" onClick={() => closeOfferContentEditor('explicit')}>Close</button></div> : <h4 id="offer-content-heading" aria-label="Offer Content"><button ref={offerContentButtonRef} data-touchpoint-editor-affordance type="button" className="inspector-property-heading-action" aria-label={selected.contentUrl || selected.contentText || selected.contentBlocks?.length ? 'Edit Offer Content' : 'Add content'} onClick={openEditor}>{selected.contentUrl || selected.contentText || selected.contentBlocks?.length ? 'Offer Content' : 'Add content'}<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h4>}
       {editing ? <div className="inspector-relation-editor offer-content-editor" aria-label="Offer Content editor">
-        <label>External document URL<input autoFocus type="url" value={offerContentDraft.contentUrl} aria-invalid={Boolean(offerContentDraft.error)} aria-describedby={offerContentDraft.error ? 'offer-content-url-error' : undefined} onFocus={() => { activeOfferContentFieldRef.current = 'contentUrl'; }} onChange={event => setOfferContentDraft({ offerId: offerContentDraft.offerId, contentUrl: event.target.value, contentText: offerContentDraft.contentText })} onBlur={event => { if (!dismissingOfferContentRef.current && !(event.relatedTarget instanceof HTMLElement && event.relatedTarget.matches('[data-offer-content-close]')) && commitContentField('contentUrl')) activeOfferContentFieldRef.current = null; }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); if (commitContentField('contentUrl')) activeOfferContentFieldRef.current = null; } }} /></label>
-        <label>Content text<textarea rows={6} value={offerContentDraft.contentText} onFocus={() => { activeOfferContentFieldRef.current = 'contentText'; }} onChange={event => setOfferContentDraft({ ...offerContentDraft, contentText: event.target.value })} onBlur={event => { if (!dismissingOfferContentRef.current && !(event.relatedTarget instanceof HTMLElement && event.relatedTarget.matches('[data-offer-content-close]')) && commitContentField('contentText')) activeOfferContentFieldRef.current = null; }} /></label>
+        <label>External document URL<input autoFocus type="url" value={offerContentDraft.contentUrl} aria-invalid={Boolean(offerContentDraft.error)} aria-describedby={offerContentDraft.error ? 'offer-content-url-error' : undefined} onFocus={() => { activeOfferContentFieldRef.current = { kind: 'contentUrl' }; }} onChange={event => setCurrentOfferContentDraft({ ...offerContentDraft, contentUrl: event.target.value, error: undefined })} onBlur={event => { if (!dismissingOfferContentRef.current && !(event.relatedTarget instanceof HTMLElement && event.relatedTarget.matches('[data-offer-content-close]')) && commitContentField('contentUrl')) activeOfferContentFieldRef.current = null; }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); if (commitContentField('contentUrl')) activeOfferContentFieldRef.current = null; } }} /></label>
+        <label>Content text<textarea rows={6} value={offerContentDraft.contentText} onFocus={() => { activeOfferContentFieldRef.current = { kind: 'contentText' }; }} onChange={event => setCurrentOfferContentDraft({ ...offerContentDraft, contentText: event.target.value })} onBlur={event => { if (!dismissingOfferContentRef.current && !(event.relatedTarget instanceof HTMLElement && event.relatedTarget.matches('[data-offer-content-close]')) && commitContentField('contentText')) activeOfferContentFieldRef.current = null; }} /></label>
         {offerContentDraft.error && <p id="offer-content-url-error" className="error-message" role="alert">{offerContentDraft.error}</p>}
+        <section className="offer-structured-content" aria-labelledby="offer-structured-content-heading">
+          <div className="offer-structured-content-heading"><div><h5 id="offer-structured-content-heading">Structured Content</h5><p>Structure the Offer as named blocks. Think PAS, AIDA, BAB or 4Ps — or mix the logic and build your own.</p></div><button id="offer-content-add-block" type="button" className="inspector-secondary-action" onClick={() => {
+            if (offerContentDraftRef.current?.newBlock) { globalThis.document.getElementById('offer-content-new-block-title')?.focus(); return; }
+            activeOfferContentFieldRef.current = { kind: 'newBlockTitle' };
+            setCurrentOfferContentDraft({ ...offerContentDraft, newBlock: { title: '' } });
+          }}>Add block</button></div>
+          <div className="offer-content-block-list">
+            {(selected.contentBlocks ?? []).map((block, index) => {
+              const blockDraft = offerContentDraft.blocks[block.id] ?? contentBlockDraft(block);
+              const confirming = offerContentDraft.deleteConfirmationBlockId === block.id;
+              return <article className="offer-content-block" data-block-id={block.id} key={block.id}>
+                <label>Block title<input id={`offer-content-block-title-${encodeURIComponent(block.id)}`} required value={blockDraft.title} aria-invalid={Boolean(blockDraft.titleError)} onFocus={() => { activeOfferContentFieldRef.current = { kind: 'blockTitle', blockId: block.id }; }} onChange={event => setCurrentOfferContentDraft({ ...offerContentDraft, blocks: { ...offerContentDraft.blocks, [block.id]: { ...blockDraft, title: event.target.value, titleError: undefined } } })} onBlur={() => { if (!dismissingOfferContentRef.current && commitOfferContentBlockField(block.id, 'title')) activeOfferContentFieldRef.current = null; }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); if (commitOfferContentBlockField(block.id, 'title')) activeOfferContentFieldRef.current = null; } }} /></label>
+                {blockDraft.titleError && <p className="error-message" role="alert">{blockDraft.titleError}</p>}
+                <label>Block text<textarea rows={4} value={blockDraft.text} onFocus={() => { activeOfferContentFieldRef.current = { kind: 'blockText', blockId: block.id }; }} onChange={event => setCurrentOfferContentDraft({ ...offerContentDraft, blocks: { ...offerContentDraft.blocks, [block.id]: { ...blockDraft, text: event.target.value, textError: undefined } } })} onBlur={() => { if (!dismissingOfferContentRef.current && commitOfferContentBlockField(block.id, 'text')) activeOfferContentFieldRef.current = null; }} /></label>
+                {blockDraft.textError && <p className="error-message" role="alert">{blockDraft.textError}</p>}
+                <div className="offer-content-block-actions"><button id={`offer-content-block-move-up-${encodeURIComponent(block.id)}`} type="button" className="inspector-secondary-action" disabled={index === 0} onClick={() => moveBlock(block.id, -1)}>Move up</button><button id={`offer-content-block-move-down-${encodeURIComponent(block.id)}`} type="button" className="inspector-secondary-action" disabled={index === (selected.contentBlocks?.length ?? 0) - 1} onClick={() => moveBlock(block.id, 1)}>Move down</button><button id={`offer-content-block-delete-${encodeURIComponent(block.id)}`} type="button" className="inspector-secondary-action" onClick={() => block.text?.trim() ? setCurrentOfferContentDraft({ ...offerContentDraft, deleteConfirmationBlockId: block.id }) : removeBlock(block.id)}>Delete</button></div>
+                {confirming && <div className="offer-content-block-confirmation" role="group" aria-label={`Delete ${block.title}?`}><p>Delete “{block.title}”?</p><div><button type="button" className="inspector-secondary-action" onClick={() => cancelDelete(block.id)}>Cancel</button><button type="button" onClick={() => removeBlock(block.id)}>Delete block</button></div></div>}
+              </article>;
+            })}
+            {offerContentDraft.newBlock && <article className="offer-content-block offer-content-new-block"><label>Block title<input id="offer-content-new-block-title" autoFocus required value={offerContentDraft.newBlock.title} aria-invalid={Boolean(offerContentDraft.newBlock.error)} onFocus={() => { activeOfferContentFieldRef.current = { kind: 'newBlockTitle' }; }} onChange={event => setCurrentOfferContentDraft({ ...offerContentDraft, newBlock: { title: event.target.value } })} onBlur={() => { if (!dismissingOfferContentRef.current) commitNewOfferContentBlock(); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commitNewOfferContentBlock(); } }} /></label>{offerContentDraft.newBlock.error && <p className="error-message" role="alert">{offerContentDraft.newBlock.error}</p>}<button type="button" className="inspector-secondary-action" onMouseDown={event => event.preventDefault()} onClick={cancelNewBlock}>Cancel</button></article>}
+          </div>
+        </section>
       </div> : <div className="offer-content-read">
-        {!selected.contentUrl && !selected.contentText && <p className="business-structure-empty">No content documented</p>}
+        {!selected.contentUrl && !selected.contentText && !(selected.contentBlocks?.length) && <p className="business-structure-empty">No content documented</p>}
         {selected.contentUrl && <a className="business-structure-external-link offer-content-link" href={selected.contentUrl} target="_blank" rel="noopener noreferrer">{selected.contentUrl}</a>}
         {selected.contentText && contentPresentation && <div className="offer-content-text-row">
           <p className="offer-content-text">{contentExpanded ? selected.contentText : contentPresentation.preview}</p>
@@ -2956,6 +3133,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             <button type="button" className="inspector-secondary-action" onClick={copyText}>Copy</button>
           </div>
         </div>}
+        {!!selected.contentBlocks?.length && <p className="offer-content-structured-indicator">Structured content · {selected.contentBlocks.length} {selected.contentBlocks.length === 1 ? 'block' : 'blocks'}</p>}
         {offerContentCopyStatus && <p className="offer-content-copy-status" role="status" aria-live="polite">{offerContentCopyStatus}</p>}
       </div>}
     </section>;
