@@ -356,6 +356,103 @@ describe('Offer Content Inspector', () => {
     expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
   });
 
+  it('restores the disclosure viewport offset once through the window owner without changing authored state or focus', async () => {
+    const document = offerNeighborhoodDocument();
+    const contentText = 'Preview paragraph\n\nFull detail';
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText });
+    const user = userEvent.setup();
+    const scrollBy = vi.fn();
+    Object.defineProperty(window, 'scrollBy', { configurable: true, value: scrollBy });
+    const inspector = renderOfferInspector(document);
+    const before = window.__VEE_DEV__!.dump();
+    const showMore = inspector.getByRole('button', { name: 'Show more' });
+    const geometry = vi.spyOn(showMore, 'getBoundingClientRect').mockReturnValue({ top: 180 } as DOMRect);
+
+    await user.click(showMore);
+    expect(geometry).toHaveBeenCalledOnce();
+    expect(scrollBy).not.toHaveBeenCalled();
+
+    const showLess = inspector.getByRole('button', { name: 'Show less' });
+    vi.spyOn(showLess, 'getBoundingClientRect').mockReturnValue({ top: 245 } as DOMRect);
+    await user.click(showLess);
+
+    expect(scrollBy).toHaveBeenCalledTimes(1);
+    expect(scrollBy).toHaveBeenCalledWith({ top: 65, behavior: 'auto' });
+    expect(inspector.getByRole('button', { name: 'Show more' })).toHaveFocus();
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentText });
+
+    fireEvent.click(inspector.getByRole('button', { name: 'Copy' }));
+    expect(scrollBy).toHaveBeenCalledTimes(1);
+    expect(inspector.getByRole('button', { name: 'Show more' }).compareDocumentPosition(inspector.getByRole('button', { name: 'Copy' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('restores only the nearest genuinely scrollable ancestor and does not use window scrolling', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Preview\n\nDetail' });
+    const user = userEvent.setup();
+    const scrollBy = vi.fn();
+    Object.defineProperty(window, 'scrollBy', { configurable: true, value: scrollBy });
+    const inspector = renderOfferInspector(document);
+    const showMore = inspector.getByRole('button', { name: 'Show more' });
+    const scrollOwner = showMore.closest('section')!.parentElement!;
+    scrollOwner.style.overflowY = 'auto';
+    Object.defineProperties(scrollOwner, {
+      clientHeight: { configurable: true, value: 200 },
+      scrollHeight: { configurable: true, value: 600 },
+      scrollTop: { configurable: true, writable: true, value: 40 },
+    });
+    vi.spyOn(showMore, 'getBoundingClientRect').mockReturnValue({ top: 90 } as DOMRect);
+
+    await user.click(showMore);
+    const showLess = inspector.getByRole('button', { name: 'Show less' });
+    vi.spyOn(showLess, 'getBoundingClientRect').mockReturnValue({ top: 125 } as DOMRect);
+    await user.click(showLess);
+
+    expect(scrollOwner.scrollTop).toBe(75);
+    expect(scrollBy).not.toHaveBeenCalled();
+  });
+
+  it('cancels pending restoration when Offer navigation replaces the disclosure owner', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Subscription preview\n\nSubscription detail' });
+    Object.assign(document.entities.find(entity => entity.id === 'offer-b')!, { contentText: 'Consulting preview\n\nConsulting detail' });
+    const user = userEvent.setup();
+    const scrollBy = vi.fn();
+    Object.defineProperty(window, 'scrollBy', { configurable: true, value: scrollBy });
+    const inspector = renderOfferInspector(document);
+    vi.spyOn(inspector.getByRole('button', { name: 'Show more' }), 'getBoundingClientRect').mockReturnValue({ top: 140 } as DOMRect);
+
+    await user.click(inspector.getByRole('button', { name: 'Show more' }));
+    await user.click(inspector.getAllByRole('button', { name: 'Consulting' })[0]!);
+
+    expect(inspector.getByRole('button', { name: 'Show more' })).toBeInTheDocument();
+    expect(scrollBy).not.toHaveBeenCalled();
+  });
+
+  it('abandons restoration safely when the saved scroll owner or disclosure anchor is detached', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Preview\n\nDetail' });
+    const user = userEvent.setup();
+    const scrollBy = vi.fn();
+    Object.defineProperty(window, 'scrollBy', { configurable: true, value: scrollBy });
+    const inspector = renderOfferInspector(document);
+    const showMore = inspector.getByRole('button', { name: 'Show more' });
+    const scrollOwner = showMore.closest('section')!.parentElement!;
+    scrollOwner.style.overflowY = 'auto';
+    Object.defineProperties(scrollOwner, { clientHeight: { configurable: true, value: 100 }, scrollHeight: { configurable: true, value: 500 } });
+    vi.spyOn(showMore, 'getBoundingClientRect').mockReturnValue({ top: 75 } as DOMRect);
+    await user.click(showMore);
+    const showLess = inspector.getByRole('button', { name: 'Show less' });
+    vi.spyOn(showLess, 'getBoundingClientRect').mockImplementation(() => {
+      scrollOwner.remove();
+      return { top: 150 } as DOMRect;
+    });
+
+    await expect(user.click(showLess)).resolves.toBeUndefined();
+    expect(scrollBy).not.toHaveBeenCalled();
+  });
+
   it('resets expanded content when navigating to another Offer', async () => {
     const document = offerNeighborhoodDocument();
     Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Subscription preview\n\nSubscription detail' });

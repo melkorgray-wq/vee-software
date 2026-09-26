@@ -40,6 +40,15 @@ type ClientScopePanelKind = (typeof CLIENT_SCOPE_KIND_ORDER)[number];
 type OperationFeedback = { text: string; kind: 'success' | 'error' };
 type OfferContentDraft = { offerId: string; contentUrl: string; contentText: string; error?: string };
 type OfferContentPresentation = { preview: string; hasMultipleParagraphs: boolean };
+type OfferContentScrollOwner = Window | HTMLElement;
+type OfferContentDisclosureSnapshot = {
+  offerId: string;
+  anchorTop: number;
+  scrollOwnerId: string;
+  scrollOwner: OfferContentScrollOwner;
+  contentText: string;
+  pendingRestore: boolean;
+};
 type LocationDraft = { kind: 'none' } | { kind: 'existing'; containerId: string } | { kind: 'new'; title: string };
 type EditDraft = {
   title: string;
@@ -120,6 +129,24 @@ export function offerContentPresentation(contentText: string): OfferContentPrese
     preview: paragraphs.length > 1 ? (paragraphs[0] ?? contentText) : contentText,
     hasMultipleParagraphs: paragraphs.length > 1,
   };
+}
+
+const offerContentScrollOwnerIds = new WeakMap<HTMLElement, string>();
+let nextOfferContentScrollOwnerId = 0;
+
+function offerContentScrollOwner(anchor: HTMLElement): { id: string; owner: OfferContentScrollOwner } {
+  for (let candidate = anchor.parentElement; candidate; candidate = candidate.parentElement) {
+    const overflowY = getComputedStyle(candidate).overflowY;
+    if (/(auto|scroll|overlay)/.test(overflowY) && candidate.scrollHeight > candidate.clientHeight) {
+      let id = offerContentScrollOwnerIds.get(candidate);
+      if (!id) {
+        id = `offer-content-scroll-owner-${++nextOfferContentScrollOwnerId}`;
+        offerContentScrollOwnerIds.set(candidate, id);
+      }
+      return { id, owner: candidate };
+    }
+  }
+  return { id: 'window', owner: window };
 }
 
 function previousChildrenEditorLevel(editor: ChildrenEditor): ChildrenEditor {
@@ -642,6 +669,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [offerContentDraft, setOfferContentDraft] = useState<OfferContentDraft | null>(null);
   const [offerContentCopyStatus, setOfferContentCopyStatus] = useState<string | null>(null);
   const [expandedOfferContentId, setExpandedOfferContentId] = useState<string | null>(null);
+  const offerContentDisclosureRef = useRef<HTMLButtonElement>(null);
+  const offerContentDisclosureSnapshotRef = useRef<OfferContentDisclosureSnapshot | null>(null);
   const offerContentButtonRef = useRef<HTMLButtonElement>(null);
   const offerContentEditorRef = useRef<HTMLElement>(null);
   const dismissingOfferContentRef = useRef(false);
@@ -691,6 +720,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setInspectorTitleEdit(null);
     setOfferContentDraft(null);
     setOfferContentCopyStatus(null);
+    offerContentDisclosureSnapshotRef.current = null;
     setExpandedOfferContentId(null);
     setInlineEdit(null);
     dispatchInspectorHistory({ type: 'replace', history: emptyInspectorHistory() });
@@ -740,6 +770,33 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     documentRef.current = nextDocument;
     setDocument(nextDocument);
   }), []);
+
+  useEffect(() => () => {
+    offerContentDisclosureSnapshotRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    const snapshot = offerContentDisclosureSnapshotRef.current;
+    if (snapshot && (selected?.kind !== 'offer' || selected.id !== snapshot.offerId || selected.contentText !== snapshot.contentText || !offerContentPresentation(snapshot.contentText).hasMultipleParagraphs)) {
+      offerContentDisclosureSnapshotRef.current = null;
+    }
+  }, [selected]);
+
+  useLayoutEffect(() => {
+    const snapshot = offerContentDisclosureSnapshotRef.current;
+    if (!snapshot?.pendingRestore) return;
+    // Restoration is one-shot even when an eligibility check fails.
+    offerContentDisclosureSnapshotRef.current = null;
+    const anchor = offerContentDisclosureRef.current;
+    if (!anchor?.isConnected || expandedOfferContentId !== null || selected?.kind !== 'offer' || selected.id !== snapshot.offerId || selected.contentText !== snapshot.contentText || !offerContentPresentation(snapshot.contentText).hasMultipleParagraphs) return;
+    const currentOwner = offerContentScrollOwner(anchor);
+    if (currentOwner.id !== snapshot.scrollOwnerId || currentOwner.owner !== snapshot.scrollOwner) return;
+    if (snapshot.scrollOwner instanceof HTMLElement && !snapshot.scrollOwner.isConnected) return;
+    const delta = anchor.getBoundingClientRect().top - snapshot.anchorTop;
+    if (delta === 0) return;
+    if (snapshot.scrollOwner instanceof HTMLElement) snapshot.scrollOwner.scrollTop += delta;
+    else snapshot.scrollOwner.scrollBy({ top: delta, behavior: 'auto' });
+  }, [expandedOfferContentId, selected]);
 
   useEffect(() => {
     if (message?.kind !== 'success') return;
@@ -1374,6 +1431,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setConnectionPicker(null);
     setInspectorTitleEdit(null);
     const entity = documentRef.current.entities.find((e) => e.id === id);
+    offerContentDisclosureSnapshotRef.current = null;
     setExpandedOfferContentId(null);
     setEditDraft(entity ? draftFor(entity, documentRef.current) : null);
     resetProductSession(entity, documentRef.current);
@@ -2843,10 +2901,31 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       if (!closeClientScopeEditor('switch-editor')) return;
       setBusinessInlineEdit(null);
       setOfferContentCopyStatus(null);
+      offerContentDisclosureSnapshotRef.current = null;
       activeOfferContentFieldRef.current = null;
       const draft = { offerId: selected.id, contentUrl: selected.contentUrl ?? '', contentText: selected.contentText ?? '' };
       offerContentDraftRef.current = draft;
       setOfferContentDraft(draft);
+    };
+    const toggleContentDisclosure = () => {
+      const anchor = offerContentDisclosureRef.current;
+      if (contentExpanded) {
+        const snapshot = offerContentDisclosureSnapshotRef.current;
+        if (snapshot?.offerId === selected.id) snapshot.pendingRestore = true;
+        setExpandedOfferContentId(null);
+        return;
+      }
+      if (!anchor || !contentPresentation?.hasMultipleParagraphs || !selected.contentText) return;
+      const scrollOwner = offerContentScrollOwner(anchor);
+      offerContentDisclosureSnapshotRef.current = {
+        offerId: selected.id,
+        anchorTop: anchor.getBoundingClientRect().top,
+        scrollOwnerId: scrollOwner.id,
+        scrollOwner: scrollOwner.owner,
+        contentText: selected.contentText,
+        pendingRestore: false,
+      };
+      setExpandedOfferContentId(selected.id);
     };
     const copyText = async () => {
       try {
@@ -2868,7 +2947,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         {selected.contentText && contentPresentation && <div className="offer-content-text-row">
           <p className="offer-content-text">{contentExpanded ? selected.contentText : contentPresentation.preview}</p>
           <div className="offer-content-actions">
-            {contentPresentation.hasMultipleParagraphs && <button type="button" className="inspector-secondary-action" onClick={() => setExpandedOfferContentId(contentExpanded ? null : selected.id)}>{contentExpanded ? 'Show less' : 'Show more'}</button>}
+            {contentPresentation.hasMultipleParagraphs && <button ref={offerContentDisclosureRef} type="button" className="inspector-secondary-action" onClick={toggleContentDisclosure}>{contentExpanded ? 'Show less' : 'Show more'}</button>}
             <button type="button" className="inspector-secondary-action" onClick={copyText}>Copy</button>
           </div>
         </div>}
