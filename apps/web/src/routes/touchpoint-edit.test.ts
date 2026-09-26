@@ -187,14 +187,16 @@ describe('atomic created Offer replacement owners', () => {
 
   it('duplicates only canonical Offer-owned state and uses deterministic collision-safe titles', () => {
     const document = soleFixture();
+    const departing = document.entities.find(entity => entity.id === 'offer-a' && entity.kind === 'offer')!;
+    Object.assign(departing, { contentUrl: 'https://example.test/brief', contentText: 'Minimal copy', contentBlocks: [{ id: 'source-heading', title: 'Heading' }, { id: 'source-empty', title: 'Empty body', text: '' }] });
     document.entities.push({ id: 'offer-2', kind: 'offer', title: 'Offer A 2' }, { id: 'similar', kind: 'offer', title: 'Offer A 02' });
     document.offerFinancialIntents.push({ id: 'financial', offerId: 'offer-a', financialDesiredOutcomeId: 'fdo' });
     expect(collisionSafeOfferTitle(document, 'Offer B')).toBe('Offer B 2');
     expect(collisionSafeOfferTitle(document, 'Offer A')).toBe('Offer A 3');
     document.entities.push({ id: 'offer-3', kind: 'offer', title: 'Offer A 3' });
     expect(collisionSafeOfferTitle(document, 'Offer A')).toBe('Offer A 4');
-    const next = duplicateOfferAndReplace(document, { touchpointId: 'touch', departingOfferId: 'offer-a', offerId: 'copy', duplicationRelationshipIds: ['copy-product', 'copy-job', 'copy-financial'], replacementRelationshipId: 'copy-touch', placement: { viewId: 'view', x: 10, y: 20 } });
-    expect(next.entities).toContainEqual({ id: 'copy', kind: 'offer', title: 'Offer A 4' });
+    const next = duplicateOfferAndReplace(document, { touchpointId: 'touch', departingOfferId: 'offer-a', offerId: 'copy', duplicationRelationshipIds: ['copy-product', 'copy-job', 'copy-financial'], offerContentBlockIds: ['copy-heading', 'copy-empty'], replacementRelationshipId: 'copy-touch', placement: { viewId: 'view', x: 10, y: 20 } });
+    expect(next.entities).toContainEqual({ id: 'copy', kind: 'offer', title: 'Offer A 4', contentUrl: 'https://example.test/brief', contentText: 'Minimal copy', contentBlocks: [{ id: 'copy-heading', title: 'Heading' }, { id: 'copy-empty', title: 'Empty body', text: '' }] });
     expect(next.offerJobSelections).toContainEqual(expect.objectContaining({ id: 'copy-job', offerId: 'copy', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a', 'do-b'] }));
     expect(next.offerFinancialIntents).toContainEqual({ id: 'copy-financial', offerId: 'copy', financialDesiredOutcomeId: 'fdo' });
     expect(next.touchpointJobSelections.some(item => item.offerId === 'copy')).toBe(false);
@@ -213,7 +215,10 @@ describe('atomic created Offer replacement owners', () => {
     expect(() => createSiblingOfferAndReplace(malformed, base)).toThrow('exactly one valid Product');
     const stale = structuredClone(document); stale.relationships.push({ id: 'stale-link', kind: 'offer_presented_at_touchpoint', offerId: 'offer-b', touchpointId: 'touch' });
     expect(() => createSiblingOfferAndReplace(stale, base)).toThrow('no longer');
-    expect(() => duplicateOfferAndReplace(document, { touchpointId: 'touch', departingOfferId: 'offer-a', offerId: 'copy', duplicationRelationshipIds: [], replacementRelationshipId: 'copy-touch', placement: base.placement })).toThrow('complete fresh ID plan');
+    expect(() => duplicateOfferAndReplace(document, { touchpointId: 'touch', departingOfferId: 'offer-a', offerId: 'copy', duplicationRelationshipIds: [], offerContentBlockIds: [], replacementRelationshipId: 'copy-touch', placement: base.placement })).toThrow('complete fresh ID plan');
+    const withBlock = structuredClone(document);
+    Object.assign(withBlock.entities.find(entity => entity.id === 'offer-a')!, { contentBlocks: [{ id: 'source-block', title: 'Block' }] });
+    expect(() => duplicateOfferAndReplace(withBlock, { touchpointId: 'touch', departingOfferId: 'offer-a', offerId: 'copy', duplicationRelationshipIds: ['copy-product', 'copy-job'], offerContentBlockIds: [], replacementRelationshipId: 'copy-touch', placement: base.placement })).toThrow('one fresh ID per Content block');
     expect(document).toEqual(snapshot);
   });
 });

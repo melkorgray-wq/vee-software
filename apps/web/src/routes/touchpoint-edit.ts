@@ -424,13 +424,15 @@ export function createSiblingOfferAndReplace(document: MapDocument, input: { tou
 }
 
 /** Canonically duplicates one Offer and replaces the sole Touchpoint link atomically. */
-export function duplicateOfferAndReplace(document: MapDocument, input: { touchpointId: string; departingOfferId: string; offerId: string; duplicationRelationshipIds: string[]; replacementRelationshipId: string; placement: OfferReplacementPlacement }): MapDocument {
+export function duplicateOfferAndReplace(document: MapDocument, input: { touchpointId: string; departingOfferId: string; offerId: string; duplicationRelationshipIds: string[]; offerContentBlockIds: string[]; replacementRelationshipId: string; placement: OfferReplacementPlacement }): MapDocument {
   assertSoleDepartingOffer(document, input.touchpointId, input.departingOfferId);
   departingProductId(document, input.departingOfferId);
   const expected = duplicateEntityRelationshipIdCount(document, input.departingOfferId);
   if (input.duplicationRelationshipIds.length !== expected) throw new Error('Canonical Offer duplication requires the complete fresh ID plan.');
-  assertTransactionInputs(document, { viewId: input.placement.viewId, entityId: input.offerId, recordIds: [...input.duplicationRelationshipIds, input.replacementRelationshipId], x: input.placement.x, y: input.placement.y });
-  const duplicated = duplicateEntity(document, { sourceEntityId: input.departingOfferId, entityId: input.offerId, title: collisionSafeOfferTitle(document, document.entities.find(entity => entity.id === input.departingOfferId)!.title), relationshipIds: input.duplicationRelationshipIds, ...input.placement });
+  const source = document.entities.find((entity): entity is Extract<Entity, { kind: 'offer' }> => entity.id === input.departingOfferId && entity.kind === 'offer')!;
+  if (input.offerContentBlockIds.length !== (source.contentBlocks?.length ?? 0)) throw new Error('Canonical Offer duplication requires one fresh ID per Content block.');
+  assertTransactionInputs(document, { viewId: input.placement.viewId, entityId: input.offerId, recordIds: [...input.duplicationRelationshipIds, ...input.offerContentBlockIds, input.replacementRelationshipId], x: input.placement.x, y: input.placement.y });
+  const duplicated = duplicateEntity(document, { sourceEntityId: input.departingOfferId, entityId: input.offerId, title: collisionSafeOfferTitle(document, source.title), relationshipIds: input.duplicationRelationshipIds, offerContentBlockIds: input.offerContentBlockIds, ...input.placement });
   return replaceTouchpointLinkedOffer(duplicated, { touchpointId: input.touchpointId, departingOfferId: input.departingOfferId, replacementOfferId: input.offerId, confirmedRemoval: true, newId: () => input.replacementRelationshipId });
 }
 
