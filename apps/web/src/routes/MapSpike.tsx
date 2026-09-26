@@ -1291,7 +1291,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const touchpointId = editor.touchpointId;
     const departingOfferId = editor.departingOfferId;
     const durable = documentRef.current;
-    const departing = durable.entities.find(entity => entity.id === departingOfferId && entity.kind === 'offer');
+    const departing = durable.entities.find((entity): entity is Extract<Entity, { kind: 'offer' }> => entity.id === departingOfferId && entity.kind === 'offer');
     if (!departing) return;
     const plannedOfferTitle = operationKind === 'sibling' ? (editor.mode === 'create-sibling' ? editor.title.trim() : '') : collisionSafeOfferTitle(durable, departing.title);
     if (!plannedOfferTitle) {
@@ -1307,6 +1307,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     }
     const offerId = crypto.randomUUID();
     const duplicationRelationshipIds = operationKind === 'duplicate' ? Array.from({ length: duplicateEntityRelationshipIdCount(durable, departingOfferId) }, () => crypto.randomUUID()) : [];
+    const offerContentBlockIds = operationKind === 'duplicate' ? (departing.contentBlocks ?? []).map(() => crypto.randomUUID()) : [];
     const productRelationshipId = operationKind === 'sibling' ? crypto.randomUUID() : '';
     const replacementRelationshipId = crypto.randomUUID();
     const returnFocusId = returnFocus.id;
@@ -1318,7 +1319,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
           const placement = { viewId: VIEW_ID, ...createdReplacementPlacement(before, departingOfferId, plannedOfferTitle) };
           const committed = operationKind === 'sibling'
             ? createSiblingOfferAndReplace(before, { touchpointId, departingOfferId, title: plannedOfferTitle, offerId, productRelationshipId, replacementRelationshipId, placement })
-            : duplicateOfferAndReplace(before, { touchpointId, departingOfferId, offerId, duplicationRelationshipIds, replacementRelationshipId, placement });
+            : duplicateOfferAndReplace(before, { touchpointId, departingOfferId, offerId, duplicationRelationshipIds, offerContentBlockIds, replacementRelationshipId, placement });
           finishCreatedOfferReplacement(committed, offerId, departingOfferId);
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Offer could not be created and replaced.';
@@ -1853,7 +1854,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   function duplicate(id: string) {
     const source = documentRef.current;
     const placement = source.placements.find((p) => p.entityId === id && p.viewId === VIEW_ID);
-    if (!placement || !source.entities.some((e) => e.id === id)) return;
+    const sourceEntity = source.entities.find((entity) => entity.id === id);
+    if (!placement || !sourceEntity) return;
     const entityId = crypto.randomUUID();
     try {
       const next = duplicateEntity(source, {
@@ -1863,6 +1865,9 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         x: placement.x + 40,
         y: placement.y + 40,
         relationshipIds: Array.from({ length: source.relationships.length + 2 }, () => crypto.randomUUID()),
+        ...(sourceEntity.kind === 'offer' && sourceEntity.contentBlocks
+          ? { offerContentBlockIds: sourceEntity.contentBlocks.map(() => crypto.randomUUID()) }
+          : {}),
       });
       const created = next.entities.find((e) => e.id === entityId)!;
       setDocument(next);

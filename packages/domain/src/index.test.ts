@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addProductJobIntent, removeProductJobIntent, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, changeOfferProduct, createEmptyMapDocument, duplicateEntity, movePlacement, updateEntity, updateOfferContent, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct, planTouchpointIntentPathChange, commitTouchpointIntentPathPlan, commitTouchpointParent, planTouchpointStructuralChange } from './index';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addOfferContentBlock, addProductJobIntent, removeOfferContentBlock, removeProductJobIntent, reorderOfferContentBlocks, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateOfferContentBlock, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, changeOfferProduct, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, movePlacement, updateEntity, updateOfferContent, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct, planTouchpointIntentPathChange, commitTouchpointIntentPathPlan, commitTouchpointParent, planTouchpointStructuralChange } from './index';
 
 function completed(result: ReturnType<typeof authorTouchpointIntentBottomUp>) { if (result.status !== 'complete') throw new Error(`Expected complete, got ${result.status}`); return result.document; }
 
@@ -9,6 +9,94 @@ function offerDocument() { let d = addEntity(empty(), { ...place, entityId: 'pro
 function touchpoint(d = offerDocument(), id = 'touch', parent?: string) { return addEntity(d, { ...place, entityId: id, title: id, kind: 'touchpoint', locatedInId: 'site', url: '  /checkout#pay  ', linkedOfferIds: ['offer'], relationshipIds: [`presented-${id}`], ...(parent ? { parentTouchpointId: parent, parentRelationshipId: `contains-${id}` } : {}) }); }
 
 describe('map authoring domain', () => {
+  describe('Offer structured Content blocks', () => {
+    function blocks() {
+      let document = addOfferContentBlock(offerDocument(), { offerId: 'offer', blockId: 'first', title: ' First ', text: '' });
+      document = addOfferContentBlock(document, { offerId: 'offer', blockId: 'middle', title: 'Middle', text: 'Body' });
+      return addOfferContentBlock(document, { offerId: 'offer', blockId: 'last', title: 'Last' });
+    }
+    const offer = (document: ReturnType<typeof offerDocument>, id = 'offer') => document.entities.find((entity): entity is Extract<(typeof document.entities)[number], { kind: 'offer' }> => entity.id === id && entity.kind === 'offer')!;
+
+    it('appends normalized blocks in authored order and validates owner, title, and document-wide IDs', () => {
+      const document = blocks();
+      expect(offer(document).contentBlocks).toEqual([
+        { id: 'first', title: 'First', text: '' }, { id: 'middle', title: 'Middle', text: 'Body' }, { id: 'last', title: 'Last' },
+      ]);
+      expect(() => addOfferContentBlock(document, { offerId: 'offer', blockId: 'new', title: '  ' })).toThrow('must not be blank');
+      expect(() => addOfferContentBlock(document, { offerId: 'offer', blockId: 'first', title: 'Again' })).toThrow('already exists');
+      expect(() => addOfferContentBlock(document, { offerId: 'product', blockId: 'new', title: 'Wrong' })).toThrow('must reference a offer');
+      expect(() => addOfferContentBlock(document, { offerId: 'missing', blockId: 'new', title: 'Missing' })).toThrow('does not reference');
+      let other = addEntity(document, { ...place, entityId: 'other', title: 'Other', kind: 'offer', linkedProductId: 'product', relationshipId: 'other-product' });
+      other = addOfferContentBlock(other, { offerId: 'other', blockId: 'other-block', title: 'Other block' });
+      expect(() => addOfferContentBlock(other, { offerId: 'offer', blockId: 'other-block', title: 'Collision' })).toThrow('already exists');
+    });
+
+    it('updates title and exact optional text independently with identity-preserving normalized no-ops', () => {
+      const document = blocks();
+      const titled = updateOfferContentBlock(document, { offerId: 'offer', blockId: 'middle', field: 'title', value: '  Renamed  ' });
+      expect(offer(titled).contentBlocks).toEqual([{ id: 'first', title: 'First', text: '' }, { id: 'middle', title: 'Renamed', text: 'Body' }, { id: 'last', title: 'Last' }]);
+      expect(updateOfferContentBlock(titled, { offerId: 'offer', blockId: 'middle', field: 'title', value: ' Renamed ' })).toBe(titled);
+      expect(() => updateOfferContentBlock(document, { offerId: 'offer', blockId: 'middle', field: 'title', value: '\t ' })).toThrow('must not be blank');
+      const emptyText = updateOfferContentBlock(document, { offerId: 'offer', blockId: 'middle', field: 'text', value: '' });
+      expect(offer(emptyText).contentBlocks![1]).toEqual({ id: 'middle', title: 'Middle', text: '' });
+      const absentText = updateOfferContentBlock(emptyText, { offerId: 'offer', blockId: 'middle', field: 'text', value: undefined });
+      expect(offer(absentText).contentBlocks![1]).toEqual({ id: 'middle', title: 'Middle' });
+      expect(updateOfferContentBlock(absentText, { offerId: 'offer', blockId: 'middle', field: 'text', value: undefined })).toBe(absentText);
+      expect(offer(absentText).contentUrl).toBeUndefined();
+      expect(() => updateOfferContentBlock(document, { offerId: 'offer', blockId: 'unknown', field: 'text', value: 'x' })).toThrow('does not belong');
+    });
+
+    it('removes first, middle, and final blocks while preserving order and canonicalizing empty state', () => {
+      const document = blocks();
+      const withoutFirst = removeOfferContentBlock(document, { offerId: 'offer', blockId: 'first' });
+      expect(offer(withoutFirst).contentBlocks?.map(block => block.id)).toEqual(['middle', 'last']);
+      const withoutMiddle = removeOfferContentBlock(document, { offerId: 'offer', blockId: 'middle' });
+      expect(offer(withoutMiddle).contentBlocks?.map(block => block.id)).toEqual(['first', 'last']);
+      const one = removeOfferContentBlock(withoutMiddle, { offerId: 'offer', blockId: 'first' });
+      const none = removeOfferContentBlock(one, { offerId: 'offer', blockId: 'last' });
+      expect(offer(none)).not.toHaveProperty('contentBlocks');
+      expect(none.relationships).toBe(document.relationships);
+      expect(() => removeOfferContentBlock(document, { offerId: 'offer', blockId: 'unknown' })).toThrow('does not belong');
+      let other = addEntity(document, { ...place, entityId: 'other', title: 'Other', kind: 'offer', linkedProductId: 'product', relationshipId: 'other-product' });
+      other = addOfferContentBlock(other, { offerId: 'other', blockId: 'foreign', title: 'Foreign' });
+      expect(() => removeOfferContentBlock(other, { offerId: 'offer', blockId: 'foreign' })).toThrow('does not belong');
+      expect(() => updateOfferContentBlock(other, { offerId: 'offer', blockId: 'foreign', field: 'text', value: 'x' })).toThrow('does not belong');
+    });
+
+    it('reorders only the exact current set while retaining block objects and rejecting invalid plans atomically', () => {
+      const document = blocks();
+      const original = offer(document).contentBlocks!;
+      const reordered = reorderOfferContentBlocks(document, { offerId: 'offer', blockIds: ['last', 'first', 'middle'] });
+      expect(offer(reordered).contentBlocks).toEqual([original[2], original[0], original[1]]);
+      expect(offer(reordered).contentBlocks![0]).toBe(original[2]);
+      expect(reorderOfferContentBlocks(document, { offerId: 'offer', blockIds: ['first', 'middle', 'last'] })).toBe(document);
+      for (const blockIds of [['first', 'first', 'last'], ['first', 'middle'], ['first', 'middle', 'last', 'extra'], ['first', 'middle', 'stale']]) {
+        expect(() => reorderOfferContentBlocks(document, { offerId: 'offer', blockIds })).toThrow();
+        expect(offer(document).contentBlocks).toBe(original);
+      }
+      let other = addEntity(document, { ...place, entityId: 'other', title: 'Other', kind: 'offer', linkedProductId: 'product', relationshipId: 'other-product' });
+      other = addOfferContentBlock(other, { offerId: 'other', blockId: 'foreign', title: 'Foreign' });
+      expect(() => reorderOfferContentBlocks(other, { offerId: 'offer', blockIds: ['first', 'middle', 'foreign'] })).toThrow();
+      const noBlocks = offerDocument();
+      expect(reorderOfferContentBlocks(noBlocks, { offerId: 'offer', blockIds: [] })).toBe(noBlocks);
+      expect(() => reorderOfferContentBlocks(noBlocks, { offerId: 'offer', blockIds: ['added'] })).toThrow();
+    });
+
+    it('duplicates blocks with a separate fresh ID pool without changing relationship accounting or source state', () => {
+      const document = blocks();
+      const snapshot = structuredClone(document);
+      expect(duplicateEntityRelationshipIdCount(document, 'offer')).toBe(1);
+      const copy = duplicateEntity(document, { sourceEntityId: 'offer', entityId: 'copy', viewId: 'view', x: 30, y: 40, relationshipIds: ['copy-product'], offerContentBlockIds: ['copy-first', 'copy-middle', 'copy-last'] });
+      expect(offer(copy, 'copy').contentBlocks).toEqual([
+        { id: 'copy-first', title: 'First', text: '' }, { id: 'copy-middle', title: 'Middle', text: 'Body' }, { id: 'copy-last', title: 'Last' },
+      ]);
+      expect(document).toEqual(snapshot);
+      for (const offerContentBlockIds of [undefined, ['one'], ['a', 'a', 'c'], ['a', ' ', 'c'], ['a', 'first', 'c']]) {
+        expect(() => duplicateEntity(document, { sourceEntityId: 'offer', entityId: 'bad-copy', viewId: 'view', x: 30, y: 40, relationshipIds: ['bad-product'], ...(offerContentBlockIds ? { offerContentBlockIds } : {}) })).toThrow();
+      }
+    });
+  });
+
   it('updates independent optional Offer Content fields and treats normalized no-ops as identity', () => {
     const before = offerDocument();
     const urlOnly = updateOfferContent(before, { offerId: 'offer', field: 'contentUrl', value: '  https://example.test/brief  ' });

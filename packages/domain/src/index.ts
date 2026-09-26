@@ -15,10 +15,12 @@ export function isRepulsorTargetKind(kind: ProvisionalEntityKind): kind is Repul
 export const EPISTEMIC_STATUSES = ['observed', 'participant_reported', 'business_intent', 'hypothesis', 'interpretation', 'confirmed_outcome'] as const;
 export type EpistemicStatus = typeof EPISTEMIC_STATUSES[number];
 
+export interface OfferContentBlock { id: string; title: string; text?: string }
+
 export type Entity =
   | { id: string; kind: 'touchpoint'; title: string; locatedInId?: string; url?: string }
   | { id: string; kind: 'product'; title: string }
-  | { id: string; kind: 'offer'; title: string; contentUrl?: string; contentText?: string }
+  | { id: string; kind: 'offer'; title: string; contentUrl?: string; contentText?: string; contentBlocks?: OfferContentBlock[] }
   | { id: string; kind: ClientRootEntityKind | ContextualClientEntityKind | RepulsorEntityKind; title: string };
 export type Relationship =
   | { id: string; kind: 'product_packaged_as_offer'; productId: string; offerId: string }
@@ -172,6 +174,75 @@ export function updateOfferContent(document: MapDocument, input: { offerId: stri
   if (normalized) replacement[input.field] = normalized;
   else delete replacement[input.field];
   return { ...document, entities: document.entities.map(entity => entity.id === offer.id ? replacement : entity) };
+}
+
+function offerContentBlockOwner(document: MapDocument, offerId: string, blockId: string) {
+  const offer = entityOfKind(document, offerId, 'offer', 'Offer') as Extract<Entity, { kind: 'offer' }>;
+  const index = offer.contentBlocks?.findIndex(block => block.id === blockId) ?? -1;
+  if (index < 0) throw new DomainError('unknown_offer_content_block', 'Content block does not belong to the specified Offer.');
+  return { offer, index };
+}
+
+function replaceOffer(document: MapDocument, offer: Extract<Entity, { kind: 'offer' }>): MapDocument {
+  return { ...document, entities: document.entities.map(entity => entity.id === offer.id ? offer : entity) };
+}
+
+/** Appends one validated structured Content block to its Offer-authored order. */
+export function addOfferContentBlock(document: MapDocument, input: { offerId: string; blockId: string; title: string; text?: string }): MapDocument {
+  const offer = entityOfKind(document, input.offerId, 'offer', 'Offer') as Extract<Entity, { kind: 'offer' }>;
+  const blockId = required(input.blockId, 'Content block ID');
+  const title = required(input.title, 'Content block title');
+  if (document.entities.some(entity => entity.kind === 'offer' && entity.contentBlocks?.some(block => block.id === blockId))) {
+    throw new DomainError('duplicate_offer_content_block_id', 'Content block ID already exists.');
+  }
+  const block: OfferContentBlock = { id: blockId, title, ...(input.text !== undefined ? { text: input.text } : {}) };
+  return replaceOffer(document, { ...offer, contentBlocks: [...(offer.contentBlocks ?? []), block] });
+}
+
+export type UpdateOfferContentBlockInput =
+  | { offerId: string; blockId: string; field: 'title'; value: string }
+  | { offerId: string; blockId: string; field: 'text'; value?: string | undefined };
+
+/** Updates exactly one property of one Offer-owned structured Content block. */
+export function updateOfferContentBlock(document: MapDocument, input: UpdateOfferContentBlockInput): MapDocument {
+  const { offer, index } = offerContentBlockOwner(document, input.offerId, input.blockId);
+  const block = offer.contentBlocks![index]!;
+  if (input.field === 'title') {
+    const title = required(input.value, 'Content block title');
+    if (block.title === title) return document;
+    const contentBlocks = offer.contentBlocks!.map((candidate, candidateIndex) => candidateIndex === index ? { ...candidate, title } : candidate);
+    return replaceOffer(document, { ...offer, contentBlocks });
+  }
+  if (block.text === input.value && ('text' in block) === (input.value !== undefined)) return document;
+  const replacement: OfferContentBlock = { ...block };
+  if (input.value === undefined) delete replacement.text;
+  else replacement.text = input.value;
+  const contentBlocks = offer.contentBlocks!.map((candidate, candidateIndex) => candidateIndex === index ? replacement : candidate);
+  return replaceOffer(document, { ...offer, contentBlocks });
+}
+
+/** Removes exactly one Offer-owned block and canonicalizes an empty collection to absence. */
+export function removeOfferContentBlock(document: MapDocument, input: { offerId: string; blockId: string }): MapDocument {
+  const { offer, index } = offerContentBlockOwner(document, input.offerId, input.blockId);
+  const contentBlocks = offer.contentBlocks!.filter((_, candidateIndex) => candidateIndex !== index);
+  const replacement: Extract<Entity, { kind: 'offer' }> = { ...offer };
+  if (contentBlocks.length) replacement.contentBlocks = contentBlocks;
+  else delete replacement.contentBlocks;
+  return replaceOffer(document, replacement);
+}
+
+/** Replaces authored order only when the supplied IDs are the exact current block set. */
+export function reorderOfferContentBlocks(document: MapDocument, input: { offerId: string; blockIds: string[] }): MapDocument {
+  const offer = entityOfKind(document, input.offerId, 'offer', 'Offer') as Extract<Entity, { kind: 'offer' }>;
+  const current = offer.contentBlocks ?? [];
+  if (new Set(input.blockIds).size !== input.blockIds.length) throw new DomainError('duplicate_offer_content_block_id', 'Content block IDs must be unique.');
+  const currentIds = new Set(current.map(block => block.id));
+  if (input.blockIds.length !== current.length || input.blockIds.some(id => !currentIds.has(id))) {
+    throw new DomainError('invalid_offer_content_block_order', 'Content block order must contain exactly the Offer’s current blocks.');
+  }
+  if (input.blockIds.every((id, index) => current[index]!.id === id)) return document;
+  const byId = new Map(current.map(block => [block.id, block]));
+  return replaceOffer(document, { ...offer, contentBlocks: input.blockIds.map(id => byId.get(id)!) });
 }
 
 function linkedOfferIds(document: MapDocument, touchpointId: string): Set<string> {
@@ -1034,7 +1105,7 @@ export function duplicateEntityRelationshipIdCount(document: MapDocument, source
   throw new DomainError('unsupported_entity_kind', 'Source entity kind cannot be duplicated.');
 }
 
-export function duplicateEntity(document: MapDocument, input: { sourceEntityId: string; entityId: string; viewId: string; x: number; y: number; relationshipIds: string[]; title?: string }): MapDocument {
+export function duplicateEntity(document: MapDocument, input: { sourceEntityId: string; entityId: string; viewId: string; x: number; y: number; relationshipIds: string[]; offerContentBlockIds?: string[]; title?: string }): MapDocument {
   const source = document.entities.find(e => e.id === input.sourceEntityId); if (!source) throw new DomainError('unknown_entity', 'Source entity does not exist.');
   const title = input.title ?? source.title;
   if (source.kind === 'product') {
@@ -1061,7 +1132,25 @@ export function duplicateEntity(document: MapDocument, input: { sourceEntityId: 
     const targetIds = document.relationships.filter((relationship): relationship is Extract<Relationship, { kind: 'repulsor_resists' }> => relationship.kind === 'repulsor_resists' && relationship.repulsorId === source.id).map(relationship => relationship.targetEntityId);
     return addEntity(document, { entityId: input.entityId, title, kind: 'repulsor', resistedTargetIds: targetIds, relationshipIds: input.relationshipIds.slice(0, targetIds.length), viewId: input.viewId, x: input.x, y: input.y });
   }
-  if (source.kind === 'offer') { const relation = document.relationships.find((r): r is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => r.kind === 'product_packaged_as_offer' && r.offerId === source.id)!; let copy = addEntity(document, { entityId: input.entityId, title, kind: 'offer', linkedProductId: relation.productId, relationshipId: input.relationshipIds[0]!, viewId: input.viewId, x: input.x, y: input.y }); if (source.contentUrl) copy = updateOfferContent(copy, { offerId: input.entityId, field: 'contentUrl', value: source.contentUrl }); if (source.contentText) copy = updateOfferContent(copy, { offerId: input.entityId, field: 'contentText', value: source.contentText }); const selected = document.offerJobSelections.filter(selection => selection.offerId === source.id).map(selection => ({ productJobIntentId: selection.productJobIntentId, addressedDesiredOutcomeIds: effectiveOfferDesiredOutcomeIds(document, selection) })); copy = setOfferJobSelections(copy, { offerId: input.entityId, selections: selected, newSelectionIds: input.relationshipIds.slice(1, selected.length + 1) }); const financial = document.offerFinancialIntents.filter(intent => intent.offerId === source.id).map(intent => intent.financialDesiredOutcomeId); copy = setOfferFinancialIntents(copy, { offerId: input.entityId, financialDesiredOutcomeIds: financial, newIntentIds: input.relationshipIds.slice(1 + selected.length, 1 + selected.length + financial.length) }); return copy; }
+  if (source.kind === 'offer') {
+    const blockIds = input.offerContentBlockIds ?? [];
+    const sourceBlocks = source.contentBlocks ?? [];
+    if (blockIds.length !== sourceBlocks.length) throw new DomainError('invalid_offer_content_block_ids', 'Each duplicated Content block requires one fresh ID.');
+    blockIds.forEach(id => required(id, 'Content block ID'));
+    unique(blockIds, 'duplicate_offer_content_block_id');
+    const occupiedBlockIds = new Set(document.entities.flatMap(entity => entity.kind === 'offer' ? (entity.contentBlocks ?? []).map(block => block.id) : []));
+    if (blockIds.some(id => occupiedBlockIds.has(id))) throw new DomainError('duplicate_offer_content_block_id', 'Content block ID already exists.');
+    const relation = document.relationships.find((r): r is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => r.kind === 'product_packaged_as_offer' && r.offerId === source.id)!;
+    let copy = addEntity(document, { entityId: input.entityId, title, kind: 'offer', linkedProductId: relation.productId, relationshipId: input.relationshipIds[0]!, viewId: input.viewId, x: input.x, y: input.y });
+    if (source.contentUrl) copy = updateOfferContent(copy, { offerId: input.entityId, field: 'contentUrl', value: source.contentUrl });
+    if (source.contentText) copy = updateOfferContent(copy, { offerId: input.entityId, field: 'contentText', value: source.contentText });
+    sourceBlocks.forEach((block, index) => { copy = addOfferContentBlock(copy, { offerId: input.entityId, blockId: blockIds[index]!, title: block.title, ...('text' in block ? { text: block.text } : {}) }); });
+    const selected = document.offerJobSelections.filter(selection => selection.offerId === source.id).map(selection => ({ productJobIntentId: selection.productJobIntentId, addressedDesiredOutcomeIds: effectiveOfferDesiredOutcomeIds(document, selection) }));
+    copy = setOfferJobSelections(copy, { offerId: input.entityId, selections: selected, newSelectionIds: input.relationshipIds.slice(1, selected.length + 1) });
+    const financial = document.offerFinancialIntents.filter(intent => intent.offerId === source.id).map(intent => intent.financialDesiredOutcomeId);
+    copy = setOfferFinancialIntents(copy, { offerId: input.entityId, financialDesiredOutcomeIds: financial, newIntentIds: input.relationshipIds.slice(1 + selected.length, 1 + selected.length + financial.length) });
+    return copy;
+  }
   if (source.kind !== 'touchpoint') throw new DomainError('unsupported_entity_kind', 'Source entity kind cannot be duplicated.');
   const offerIds = document.relationships.filter((r): r is Extract<Relationship, { kind: 'offer_presented_at_touchpoint' }> => r.kind === 'offer_presented_at_touchpoint' && r.touchpointId === source.id).map(r => r.offerId);
   const parent = document.relationships.find((r): r is Extract<Relationship, { kind: 'touchpoint_contains_touchpoint' }> => r.kind === 'touchpoint_contains_touchpoint' && r.childTouchpointId === source.id);
