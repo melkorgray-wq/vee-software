@@ -31,6 +31,34 @@ describe('map authoring domain', () => {
       expect(() => addOfferContentBlock(other, { offerId: 'offer', blockId: 'other-block', title: 'Collision' })).toThrow('already exists');
     });
 
+    it.each([
+      ['first', ['first', 'inserted', 'middle', 'last']],
+      ['middle', ['first', 'middle', 'inserted', 'last']],
+      ['last', ['first', 'middle', 'last', 'inserted']],
+    ])('inserts atomically after the %s block without changing existing blocks', (afterBlockId, expectedIds) => {
+      const document = blocks();
+      const existing = offer(document).contentBlocks!;
+      const inserted = addOfferContentBlock(document, { offerId: 'offer', blockId: 'inserted', title: ' Inserted ', text: 'New', afterBlockId });
+      expect(offer(inserted).contentBlocks?.map(block => block.id)).toEqual(expectedIds);
+      expect(offer(inserted).contentBlocks?.find(block => block.id === 'inserted')).toEqual({ id: 'inserted', title: 'Inserted', text: 'New' });
+      for (const block of existing) expect(offer(inserted).contentBlocks?.find(candidate => candidate.id === block.id)).toBe(block);
+      expect(offer(document).contentBlocks).toBe(existing);
+    });
+
+    it('rejects unknown and foreign insertion anchors without mutation', () => {
+      let document = blocks();
+      document = addEntity(document, { ...place, entityId: 'other', title: 'Other', kind: 'offer', linkedProductId: 'product', relationshipId: 'other-product' });
+      document = addOfferContentBlock(document, { offerId: 'other', blockId: 'foreign', title: 'Foreign' });
+      const snapshot = structuredClone(document);
+      for (const afterBlockId of ['unknown', 'foreign']) {
+        expect(() => addOfferContentBlock(document, { offerId: 'offer', blockId: `new-${afterBlockId}`, title: 'New', afterBlockId })).toThrow('does not belong');
+        expect(document).toEqual(snapshot);
+      }
+      expect(() => addOfferContentBlock(document, { offerId: 'offer', blockId: 'first', title: 'Duplicate', afterBlockId: 'middle' })).toThrow('already exists');
+      expect(() => addOfferContentBlock(document, { offerId: 'offer', blockId: 'new-blank', title: ' ', afterBlockId: 'middle' })).toThrow('must not be blank');
+      expect(document).toEqual(snapshot);
+    });
+
     it('updates title and exact optional text independently with identity-preserving normalized no-ops', () => {
       const document = blocks();
       const titled = updateOfferContentBlock(document, { offerId: 'offer', blockId: 'middle', field: 'title', value: '  Renamed  ' });

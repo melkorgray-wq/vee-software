@@ -90,10 +90,9 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .offer-content-editor textarea { resize: vertical; white-space: pre-wrap; }
 .offer-content-copy-status { margin: 0; color: rgba(255,255,255,.7); font-size: .75rem; }
 .offer-structured-content { display: grid; gap: .6rem; min-width: 0; margin: 0; padding: .65rem 0 0; border: 0; border-top: 1px solid var(--border-subtle); background: transparent; }
-.offer-structured-content-heading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: .5rem .75rem; min-width: 0; }
-.offer-structured-content-heading > div { flex: 1 1 18rem; min-width: 0; }
-.offer-structured-content-heading h5, .offer-structured-content-heading p { margin: 0; }
-.offer-structured-content-heading p { margin-top: .25rem; color: rgba(255,255,255,.66); font-size: .75rem; font-weight: 400; line-height: 1.45; overflow-wrap: anywhere; }
+.offer-structured-content-heading { display: inline-flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: .4rem .6rem; width: fit-content; max-width: 100%; min-width: 0; }
+.offer-structured-content-heading h5, .offer-structured-content-help { margin: 0; }
+.offer-structured-content-help { color: rgba(255,255,255,.66); font-size: .75rem; font-weight: 400; line-height: 1.45; overflow-wrap: anywhere; }
 .offer-content-block-list { display: grid; gap: .65rem; min-width: 0; }
 .offer-content-block { display: grid; gap: .45rem; min-width: 0; padding: .6rem; border: 1px solid var(--border-subtle); border-radius: .45rem; background: rgba(255,255,255,.018); }
 .offer-content-block textarea { min-height: 5.5rem; line-height: 1.45; }

@@ -187,8 +187,8 @@ function replaceOffer(document: MapDocument, offer: Extract<Entity, { kind: 'off
   return { ...document, entities: document.entities.map(entity => entity.id === offer.id ? offer : entity) };
 }
 
-/** Appends one validated structured Content block to its Offer-authored order. */
-export function addOfferContentBlock(document: MapDocument, input: { offerId: string; blockId: string; title: string; text?: string }): MapDocument {
+/** Inserts one validated structured Content block into its Offer-authored order. */
+export function addOfferContentBlock(document: MapDocument, input: { offerId: string; blockId: string; title: string; text?: string; afterBlockId?: string }): MapDocument {
   const offer = entityOfKind(document, input.offerId, 'offer', 'Offer') as Extract<Entity, { kind: 'offer' }>;
   const blockId = required(input.blockId, 'Content block ID');
   const title = required(input.title, 'Content block title');
@@ -196,7 +196,11 @@ export function addOfferContentBlock(document: MapDocument, input: { offerId: st
     throw new DomainError('duplicate_offer_content_block_id', 'Content block ID already exists.');
   }
   const block: OfferContentBlock = { id: blockId, title, ...(input.text !== undefined ? { text: input.text } : {}) };
-  return replaceOffer(document, { ...offer, contentBlocks: [...(offer.contentBlocks ?? []), block] });
+  const contentBlocks = offer.contentBlocks ?? [];
+  if (input.afterBlockId === undefined) return replaceOffer(document, { ...offer, contentBlocks: [...contentBlocks, block] });
+  const anchorIndex = contentBlocks.findIndex(candidate => candidate.id === input.afterBlockId);
+  if (anchorIndex < 0) throw new DomainError('unknown_offer_content_block', 'Content block anchor does not belong to the specified Offer.');
+  return replaceOffer(document, { ...offer, contentBlocks: [...contentBlocks.slice(0, anchorIndex + 1), block, ...contentBlocks.slice(anchorIndex + 1)] });
 }
 
 export type UpdateOfferContentBlockInput =

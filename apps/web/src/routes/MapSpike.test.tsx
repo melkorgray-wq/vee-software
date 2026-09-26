@@ -656,6 +656,81 @@ describe('Offer Content Inspector', () => {
     expect(within(editor).getByText(/Think PAS, AIDA, BAB or 4Ps/)).toBeInTheDocument();
     expect(within(editor).queryByRole('combobox')).not.toBeInTheDocument();
     expect(within(editor).queryByRole('radio')).not.toBeInTheDocument();
+    const cluster = within(editor).getByRole('heading', { name: 'Structured Content' }).parentElement!;
+    expect(cluster).toHaveClass('offer-structured-content-heading');
+    expect(within(cluster).getByRole('button', { name: 'Add block' })).toBeInTheDocument();
+    expect(cluster.nextElementSibling).toHaveClass('offer-structured-content-help');
+  });
+
+  it('anchors one focused local draft below its committed block and preserves that anchor through reorder and Cancel', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentBlocks: [{ id: 'first', title: 'First' }, { id: 'middle', title: 'Middle' }, { id: 'last', title: 'Last' }] });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    const editor = inspector.getByLabelText('Offer Content editor');
+    const cards = () => Array.from(editor.querySelectorAll<HTMLElement>('.offer-content-block-list > article'));
+    const firstCard = editor.querySelector<HTMLElement>('[data-block-id="first"]')!;
+    const firstAddBelow = within(firstCard).getByRole('button', { name: 'Add block below' });
+    expect(editor.querySelectorAll('[data-block-id]')).toHaveLength(3);
+    expect(inspector.getAllByRole('button', { name: 'Add block below' })).toHaveLength(3);
+
+    await user.click(firstAddBelow);
+    const title = inspector.getByLabelText('Block title', { selector: '#offer-content-new-block-title' });
+    expect(title).toHaveFocus();
+    expect(cards()[1]).toHaveClass('offer-content-new-block');
+    await user.click(inspector.getByRole('button', { name: 'Add block' }));
+    expect(inspector.getByLabelText('Block title', { selector: '#offer-content-new-block-title' })).toHaveFocus();
+    expect(cards()[1]).toHaveClass('offer-content-new-block');
+
+    await user.click(within(firstCard).getByRole('button', { name: 'Move down' }));
+    const reorderedCards = cards();
+    expect(reorderedCards.map(card => card.dataset.blockId ?? 'draft')).toEqual(['middle', 'first', 'draft', 'last']);
+    await user.click(within(reorderedCards[2]!).getByRole('button', { name: 'Cancel' }));
+    expect(firstAddBelow).toHaveFocus();
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentBlocks: [{ id: 'middle', title: 'Middle' }, { id: 'first', title: 'First' }, { id: 'last', title: 'Last' }] });
+  });
+
+  it('commits anchored drafts by Enter or blur and section drafts at the end', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentBlocks: [{ id: 'first', title: 'First' }, { id: 'middle', title: 'Middle' }, { id: 'last', title: 'Last' }] });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    const card = (id: string) => inspector.getByLabelText('Offer Content editor').querySelector<HTMLElement>(`[data-block-id="${id}"]`)!;
+    const blockIds = () => (window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a') as Extract<Entity, { kind: 'offer' }>).contentBlocks?.map(block => block.id) ?? [];
+    const blockTitles = () => (window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a') as Extract<Entity, { kind: 'offer' }>).contentBlocks?.map(block => block.title) ?? [];
+
+    await user.click(within(card('first')).getByRole('button', { name: 'Add block below' }));
+    await user.type(inspector.getByLabelText('Block title', { selector: '#offer-content-new-block-title' }), 'After first{Enter}');
+    expect(blockTitles()).toEqual(['First', 'After first', 'Middle', 'Last']);
+
+    await user.click(within(card('middle')).getByRole('button', { name: 'Add block below' }));
+    const middleDraft = inspector.getByLabelText('Block title', { selector: '#offer-content-new-block-title' });
+    await user.type(middleDraft, 'After middle');
+    fireEvent.blur(middleDraft);
+    expect(blockTitles()).toEqual(['First', 'After first', 'Middle', 'After middle', 'Last']);
+
+    await user.click(inspector.getByRole('button', { name: 'Add block' }));
+    await user.type(inspector.getByLabelText('Block title', { selector: '#offer-content-new-block-title' }), 'At end{Enter}');
+    expect(blockTitles()).toEqual(['First', 'After first', 'Middle', 'After middle', 'Last', 'At end']);
+    expect(new Set(blockIds()).size).toBe(6);
+  });
+
+  it('keeps a stale anchored draft recoverable and never inserts it elsewhere', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentBlocks: [{ id: 'first', title: 'First' }, { id: 'last', title: 'Last' }] });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    const first = inspector.getByLabelText('Offer Content editor').querySelector<HTMLElement>('[data-block-id="first"]')!;
+    await user.click(within(first).getByRole('button', { name: 'Add block below' }));
+    await user.click(within(first).getByRole('button', { name: 'Delete' }));
+    const staleDraft = inspector.getByLabelText('Block title', { selector: '#offer-content-new-block-title' });
+    fireEvent.change(staleDraft, { target: { value: 'Do not misplace' } });
+    fireEvent.keyDown(staleDraft, { key: 'Enter' });
+    expect(inspector.getByRole('alert')).toHaveTextContent('anchor does not belong');
+    expect((window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a') as Extract<Entity, { kind: 'offer' }>).contentBlocks).toEqual([{ id: 'last', title: 'Last' }]);
   });
 
   it('creates at most one local new-block draft and commits only a nonblank title', async () => {
