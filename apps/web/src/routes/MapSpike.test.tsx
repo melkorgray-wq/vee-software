@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StrictMode, useEffect, useState, type MouseEvent, type ReactNode } from 'react';
 import { isRenderedTitleTruncated, MapNode, MapSpike, RELATION_EDITOR_SEARCH_THRESHOLD } from './MapSpike';
 import { applyTouchpointIntentDraft, type Entity, type MapDocument } from '@vee/domain';
+import * as domain from '@vee/domain';
 import { parentTouchpointOptions } from '../map-interaction';
 
 type MockNode = { id: string; position: { x: number; y: number }; selected?: boolean; className?: string; data: { title: string; kindLabel: string } };
@@ -795,6 +796,121 @@ describe('Offer Content Inspector', () => {
     fireEvent.keyDown(globalThis.document.activeElement ?? globalThis.document.body, { key: 'Escape' });
     expect(inspector.queryByRole('button', { name: 'Delete block' })).not.toBeInTheDocument();
     expect((window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a') as Extract<Entity, { kind: 'offer' }>).contentBlocks).toHaveLength(1);
+  });
+
+  it.each([
+    ['Control', { ctrlKey: true }],
+    ['Meta', { metaKey: true }],
+  ])('%s+Enter commits multiline Block text before opening one anchored draft', async (_modifier, modifier) => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentBlocks: [{ id: 'first', title: 'First', text: 'Old' }, { id: 'middle', title: 'Middle' }, { id: 'last', title: 'Last' }] });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    const editor = inspector.getByLabelText('Offer Content editor');
+    const first = editor.querySelector<HTMLElement>('[data-block-id="first"]')!;
+    const text = within(first).getByLabelText('Block text');
+    await user.click(text);
+    fireEvent.change(text, { target: { value: 'Line one\nLine two' } });
+
+    fireEvent.keyDown(text, { key: 'Enter', ...modifier });
+
+    const title = inspector.getByLabelText('Block title', { selector: '#offer-content-new-block-title' });
+    expect(title).toHaveFocus();
+    expect(title.closest('article')?.previousElementSibling).toBe(first);
+    expect(editor.querySelectorAll('.offer-content-new-block')).toHaveLength(1);
+    const afterShortcut = window.__VEE_DEV__!.dump();
+    expect((afterShortcut.entities.find(entity => entity.id === 'offer-a') as Extract<Entity, { kind: 'offer' }>).contentBlocks).toEqual([
+      { id: 'first', title: 'First', text: 'Line one\nLine two' },
+      { id: 'middle', title: 'Middle' },
+      { id: 'last', title: 'Last' },
+    ]);
+
+    fireEvent.blur(text);
+    expect(window.__VEE_DEV__!.dump()).toEqual(afterShortcut);
+    fireEvent.keyDown(title, { key: 'Escape' });
+    expect((window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a') as Extract<Entity, { kind: 'offer' }>).contentBlocks?.[0]).toEqual({ id: 'first', title: 'First', text: 'Line one\nLine two' });
+  });
+
+  it.each([
+    ['plain Enter', { key: 'Enter' }],
+    ['Shift+Enter', { key: 'Enter', shiftKey: true }],
+  ])('leaves %s available for multiline Block text without creating a draft', async (_name, keyboard) => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentBlocks: [{ id: 'first', title: 'First', text: 'Line one' }] });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    const text = inspector.getByLabelText('Block text');
+    fireEvent.focus(text);
+    fireEvent.keyDown(text, keyboard);
+    fireEvent.change(text, { target: { value: 'Line one\n' } });
+
+    expect(text).toHaveValue('Line one\n');
+    expect(inspector.queryByLabelText('Block title', { selector: '#offer-content-new-block-title' })).not.toBeInTheDocument();
+    expect((window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a') as Extract<Entity, { kind: 'offer' }>).contentBlocks).toEqual([{ id: 'first', title: 'First', text: 'Line one' }]);
+  });
+
+  it('keeps an existing draft and its anchor while committing text from another stable block ID', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentBlocks: [{ id: 'first', title: 'First' }, { id: 'middle', title: 'Middle' }, { id: 'last', title: 'Last' }] });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    const editor = inspector.getByLabelText('Offer Content editor');
+    await user.click(within(editor.querySelector<HTMLElement>('[data-block-id="first"]')!).getByRole('button', { name: 'Add block below' }));
+    const middleText = within(editor.querySelector<HTMLElement>('[data-block-id="middle"]')!).getByLabelText('Block text');
+    fireEvent.change(middleText, { target: { value: 'Committed middle' } });
+    fireEvent.keyDown(middleText, { key: 'Enter', ctrlKey: true });
+
+    const draft = editor.querySelector<HTMLElement>('.offer-content-new-block')!;
+    expect(draft.previousElementSibling).toHaveAttribute('data-block-id', 'first');
+    expect(editor.querySelectorAll('.offer-content-new-block')).toHaveLength(1);
+    expect(inspector.getByLabelText('Block title', { selector: '#offer-content-new-block-title' })).toHaveFocus();
+    expect((window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a') as Extract<Entity, { kind: 'offer' }>).contentBlocks).toEqual([{ id: 'first', title: 'First' }, { id: 'middle', title: 'Middle', text: 'Committed middle' }, { id: 'last', title: 'Last' }]);
+  });
+
+  it('keeps a failed continuation recoverable in the current block without moving an existing draft', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentBlocks: [{ id: 'first', title: 'First' }, { id: 'middle', title: 'Middle', text: 'Old middle' }] });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    const editor = inspector.getByLabelText('Offer Content editor');
+    await user.click(within(editor.querySelector<HTMLElement>('[data-block-id="first"]')!).getByRole('button', { name: 'Add block below' }));
+    const text = within(editor.querySelector<HTMLElement>('[data-block-id="middle"]')!).getByLabelText('Block text');
+    await user.click(text);
+    fireEvent.change(text, { target: { value: 'Recover this draft' } });
+    const failure = vi.spyOn(domain, 'updateOfferContentBlock').mockImplementationOnce(() => { throw new Error('The block is stale.'); });
+
+    fireEvent.keyDown(text, { key: 'Enter', ctrlKey: true });
+
+    expect(text).toHaveFocus();
+    expect(text).toHaveValue('Recover this draft');
+    expect(within(editor.querySelector<HTMLElement>('[data-block-id="middle"]')!).getByRole('alert')).toHaveTextContent('The block is stale.');
+    const draft = editor.querySelector<HTMLElement>('.offer-content-new-block')!;
+    expect(draft.previousElementSibling).toHaveAttribute('data-block-id', 'first');
+    expect(editor.querySelectorAll('.offer-content-new-block')).toHaveLength(1);
+    expect((window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a') as Extract<Entity, { kind: 'offer' }>).contentBlocks).toEqual([{ id: 'first', title: 'First' }, { id: 'middle', title: 'Middle', text: 'Old middle' }]);
+    failure.mockRestore();
+  });
+
+  it('exposes the local continuation shortcut on every Add block below action without another control', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentBlocks: [{ id: 'first', title: 'First' }, { id: 'middle', title: 'Middle' }, { id: 'last', title: 'Last' }] });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+
+    const actions = inspector.getAllByRole('button', { name: 'Add block below' });
+    expect(actions).toHaveLength(3);
+    for (const action of actions) {
+      expect(action).toHaveAttribute('aria-keyshortcuts', 'Control+Enter Meta+Enter');
+      const hint = globalThis.document.getElementById(action.getAttribute('aria-describedby')!);
+      expect(hint).toHaveTextContent('from Block text: Ctrl/⌘ + Enter');
+      expect(hint?.querySelector('button, a, input, textarea, select')).toBeNull();
+    }
+    expect(inspector.getAllByText('Ctrl/⌘ + Enter')).toHaveLength(3);
   });
 
 });
