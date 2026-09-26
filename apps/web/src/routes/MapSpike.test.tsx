@@ -276,6 +276,34 @@ function renderOfferInspector(document = offerNeighborhoodDocument(), offerName 
 }
 
 describe('Offer Content Inspector', () => {
+  let contentResizeObservers: { callback: ResizeObserverCallback; observed: Set<Element>; disconnected: boolean }[];
+
+  beforeEach(() => {
+    contentResizeObservers = [];
+    class ControllableResizeObserver implements ResizeObserver {
+      readonly observed = new Set<Element>();
+      disconnected = false;
+      constructor(readonly callback: ResizeObserverCallback) { contentResizeObservers.push(this); }
+      observe(target: Element) { this.observed.add(target); }
+      unobserve(target: Element) { this.observed.delete(target); }
+      disconnect() { this.disconnected = true; this.observed.clear(); }
+    }
+    vi.stubGlobal('ResizeObserver', ControllableResizeObserver);
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  function measureOfferContent(inspector: ReturnType<typeof within>, { scrollHeight, clientHeight, width = 320 }: { scrollHeight: number; clientHeight: number; width?: number }) {
+    const viewport = inspector.getByText((_: string, element: Element | null) => element?.classList.contains('offer-content-text') ?? false);
+    Object.defineProperties(viewport, {
+      scrollHeight: { configurable: true, value: scrollHeight },
+      clientHeight: { configurable: true, value: clientHeight },
+      getBoundingClientRect: { configurable: true, value: () => ({ width, height: clientHeight, top: 0, left: 0, right: width, bottom: clientHeight, x: 0, y: 0, toJSON: () => ({}) }) },
+    });
+    act(() => contentResizeObservers.forEach(observer => observer.callback([], observer as unknown as ResizeObserver)));
+    return viewport;
+  }
+
   it('keeps the text Close control immediately after the heading in one compact header cluster', async () => {
     const user = userEvent.setup();
     const inspector = renderOfferInspector();
@@ -336,25 +364,148 @@ describe('Offer Content Inspector', () => {
     expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentUrl: 'https://example.test/a/very/long/document', contentText: 'First line\nSecond line' });
   });
 
-  it('previews the first non-empty paragraph and toggles the unchanged full text without activating Apply', async () => {
+  it('uses rendered compact overflow for a long single paragraph and toggles the unchanged full text without activating Apply', async () => {
     const document = offerNeighborhoodDocument();
-    const contentText = '\n \nFirst paragraph line one\nline two\n\n   \n\nSecond paragraph';
+    const contentText = 'A single authored paragraph that is long enough to wrap through the compact viewport without any blank paragraph separators.';
     Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText });
     const user = userEvent.setup();
     const inspector = renderOfferInspector(document);
     const before = window.__VEE_DEV__!.dump();
-    const text = inspector.getByText(/First paragraph line one/);
+    const text = measureOfferContent(inspector, { scrollHeight: 180, clientHeight: 72 });
 
-    expect(text).toHaveTextContent('First paragraph line one line two');
-    expect(text).not.toHaveTextContent('Second paragraph');
+    expect(text.textContent).toBe(contentText);
     expect(inspector.queryByRole('button', { name: 'Show less' })).not.toBeInTheDocument();
     await user.click(inspector.getByRole('button', { name: 'Show more' }));
     expect(text.textContent).toBe(contentText);
     expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
     await user.click(inspector.getByRole('button', { name: 'Show less' }));
-    expect(text.textContent).toBe('First paragraph line one\nline two');
+    expect(text.textContent).toBe(contentText);
+    expect(text).not.toHaveClass('is-expanded');
     expect(window.__VEE_DEV__!.dump()).toEqual(before);
     expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+  });
+
+  it('shows short multi-paragraph and single-paragraph text without disclosure when each fits compact geometry', () => {
+    const multiParagraph = offerNeighborhoodDocument();
+    Object.assign(multiParagraph.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'One\n\nTwo' });
+    let inspector = renderOfferInspector(multiParagraph);
+    let text = measureOfferContent(inspector, { scrollHeight: 60, clientHeight: 72 });
+    expect(text.textContent).toBe('One\n\nTwo');
+    expect(inspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
+
+    cleanup();
+    const singleParagraph = offerNeighborhoodDocument();
+    Object.assign(singleParagraph.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Short text' });
+    inspector = renderOfferInspector(singleParagraph);
+    text = measureOfferContent(inspector, { scrollHeight: 24, clientHeight: 72 });
+    expect(text.textContent).toBe('Short text');
+    expect(inspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
+  });
+
+  it('discloses multiline overflow independently of blank separators and exposes the viewport relationship', () => {
+    const document = offerNeighborhoodDocument();
+    const contentText = 'Line one\nLine two\nLine three\nLine four\nLine five';
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText });
+    const inspector = renderOfferInspector(document);
+    const text = measureOfferContent(inspector, { scrollHeight: 120, clientHeight: 72 });
+    const disclosure = inspector.getByRole('button', { name: 'Show more' });
+    expect(text.textContent).toBe(contentText);
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    expect(disclosure).toHaveAttribute('aria-controls', text.id);
+  });
+
+  it('recomputes fit and overflow on width changes and cancels expanded restoration when overflow disappears', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Responsive authored content' });
+    const user = userEvent.setup();
+    const scrollBy = vi.fn();
+    Object.defineProperty(window, 'scrollBy', { configurable: true, value: scrollBy });
+    const inspector = renderOfferInspector(document);
+
+    measureOfferContent(inspector, { scrollHeight: 60, clientHeight: 72, width: 480 });
+    expect(inspector.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
+    measureOfferContent(inspector, { scrollHeight: 120, clientHeight: 72, width: 220 });
+    const showMore = inspector.getByRole('button', { name: 'Show more' });
+    vi.spyOn(showMore, 'getBoundingClientRect').mockReturnValue({ top: 100 } as DOMRect);
+    await user.click(showMore);
+    expect(inspector.getByRole('button', { name: 'Show less' })).toHaveAttribute('aria-expanded', 'true');
+
+    measureOfferContent(inspector, { scrollHeight: 60, clientHeight: 72, width: 520 });
+    expect(inspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
+    expect(inspector.getByText('Responsive authored content')).not.toHaveClass('is-expanded');
+    expect(scrollBy).not.toHaveBeenCalled();
+  });
+
+  it('disconnects stale observers and ignores their callbacks after editor replacement and unmount', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Measured text' });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    measureOfferContent(inspector, { scrollHeight: 120, clientHeight: 72 });
+    const observer = contentResizeObservers.find(candidate => [...candidate.observed].some(target => target.classList.contains('offer-content-text')))!;
+
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    expect(observer.disconnected).toBe(true);
+    act(() => observer.callback([], observer as unknown as ResizeObserver));
+    expect(inspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
+
+    cleanup();
+    expect(() => act(() => observer.callback([], observer as unknown as ResizeObserver))).not.toThrow();
+  });
+
+  it('invalidates stale eligibility and remeasures the exact committed replacement text', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Previously overflowing authored text' });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    measureOfferContent(inspector, { scrollHeight: 120, clientHeight: 72 });
+    expect(inspector.getByRole('button', { name: 'Show more' })).toBeInTheDocument();
+
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    const textarea = inspector.getByLabelText('Content text');
+    await user.clear(textarea);
+    await user.type(textarea, 'Short replacement');
+    await user.click(inspector.getByRole('button', { name: 'Close' }));
+
+    expect(inspector.getByText('Short replacement').textContent).toBe('Short replacement');
+    expect(inspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
+    measureOfferContent(inspector, { scrollHeight: 24, clientHeight: 72, width: 320 });
+    expect(inspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentText: 'Short replacement' });
+  });
+
+  it('does not replace controls for repeated identical measurements', () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Stable overflowing text' });
+    const inspector = renderOfferInspector(document);
+    measureOfferContent(inspector, { scrollHeight: 120, clientHeight: 72, width: 240 });
+    const disclosure = inspector.getByRole('button', { name: 'Show more' });
+    const observerCount = contentResizeObservers.length;
+    measureOfferContent(inspector, { scrollHeight: 120, clientHeight: 72, width: 240 });
+    expect(inspector.getByRole('button', { name: 'Show more' })).toBe(disclosure);
+    expect(contentResizeObservers).toHaveLength(observerCount);
+  });
+
+  it('keeps a readable measured read state when ResizeObserver is unavailable', () => {
+    vi.stubGlobal('ResizeObserver', undefined);
+    const scrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollHeight');
+    const clientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight');
+    Object.defineProperties(HTMLElement.prototype, {
+      scrollHeight: { configurable: true, get() { return this.classList.contains('offer-content-text') ? 120 : 0; } },
+      clientHeight: { configurable: true, get() { return this.classList.contains('offer-content-text') ? 72 : 0; } },
+    });
+    try {
+      const document = offerNeighborhoodDocument();
+      Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Fallback overflow text' });
+      const inspector = renderOfferInspector(document);
+      expect(inspector.getByText('Fallback overflow text')).toBeInTheDocument();
+      expect(inspector.getByRole('button', { name: 'Show more' })).toBeInTheDocument();
+    } finally {
+      if (scrollHeight) Object.defineProperty(HTMLElement.prototype, 'scrollHeight', scrollHeight);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight');
+      if (clientHeight) Object.defineProperty(HTMLElement.prototype, 'clientHeight', clientHeight);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight');
+    }
   });
 
   it('restores the disclosure viewport offset once through the window owner without changing authored state or focus', async () => {
@@ -365,6 +516,7 @@ describe('Offer Content Inspector', () => {
     const scrollBy = vi.fn();
     Object.defineProperty(window, 'scrollBy', { configurable: true, value: scrollBy });
     const inspector = renderOfferInspector(document);
+    measureOfferContent(inspector, { scrollHeight: 160, clientHeight: 72 });
     const before = window.__VEE_DEV__!.dump();
     const showMore = inspector.getByRole('button', { name: 'Show more' });
     const geometry = vi.spyOn(showMore, 'getBoundingClientRect').mockReturnValue({ top: 180 } as DOMRect);
@@ -395,6 +547,7 @@ describe('Offer Content Inspector', () => {
     const scrollBy = vi.fn();
     Object.defineProperty(window, 'scrollBy', { configurable: true, value: scrollBy });
     const inspector = renderOfferInspector(document);
+    measureOfferContent(inspector, { scrollHeight: 160, clientHeight: 72 });
     const showMore = inspector.getByRole('button', { name: 'Show more' });
     const scrollOwner = showMore.closest('section')!.parentElement!;
     scrollOwner.style.overflowY = 'auto';
@@ -422,6 +575,7 @@ describe('Offer Content Inspector', () => {
     const scrollBy = vi.fn();
     Object.defineProperty(window, 'scrollBy', { configurable: true, value: scrollBy });
     const inspector = renderOfferInspector(document);
+    measureOfferContent(inspector, { scrollHeight: 160, clientHeight: 72 });
     vi.spyOn(inspector.getByRole('button', { name: 'Show more' }), 'getBoundingClientRect').mockReturnValue({ top: 140 } as DOMRect);
 
     await user.click(inspector.getByRole('button', { name: 'Show more' }));
@@ -438,6 +592,7 @@ describe('Offer Content Inspector', () => {
     const scrollBy = vi.fn();
     Object.defineProperty(window, 'scrollBy', { configurable: true, value: scrollBy });
     const inspector = renderOfferInspector(document);
+    measureOfferContent(inspector, { scrollHeight: 160, clientHeight: 72 });
     const showMore = inspector.getByRole('button', { name: 'Show more' });
     const scrollOwner = showMore.closest('section')!.parentElement!;
     scrollOwner.style.overflowY = 'auto';
@@ -460,12 +615,13 @@ describe('Offer Content Inspector', () => {
     Object.assign(document.entities.find(entity => entity.id === 'offer-b')!, { contentText: 'Consulting preview\n\nConsulting detail' });
     const user = userEvent.setup();
     const inspector = renderOfferInspector(document);
+    measureOfferContent(inspector, { scrollHeight: 160, clientHeight: 72 });
 
     await user.click(inspector.getByRole('button', { name: 'Show more' }));
     expect(inspector.getByText(/Subscription preview/)).toHaveTextContent('Subscription detail');
     await user.click(inspector.getAllByRole('button', { name: 'Consulting' })[0]!);
-    expect(inspector.getByText('Consulting preview')).toBeInTheDocument();
-    expect(inspector.queryByText('Consulting detail')).not.toBeInTheDocument();
+    measureOfferContent(inspector, { scrollHeight: 160, clientHeight: 72 });
+    expect(inspector.getByText(/Consulting preview/).textContent).toBe('Consulting preview\n\nConsulting detail');
     expect(inspector.getByRole('button', { name: 'Show more' })).toBeInTheDocument();
   });
 
@@ -477,7 +633,7 @@ describe('Offer Content Inspector', () => {
     const user = userEvent.setup();
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
     const inspector = renderOfferInspector(document);
-    const text = inspector.getByText('Preview paragraph');
+    const text = measureOfferContent(inspector, { scrollHeight: 160, clientHeight: 72 });
     const actions = inspector.getByRole('button', { name: 'Copy' }).closest<HTMLElement>('.offer-content-actions')!;
     const showMore = within(actions).getByRole('button', { name: 'Show more' });
     const copy = within(actions).getByRole('button', { name: 'Copy' });
@@ -516,6 +672,7 @@ describe('Offer Content Inspector', () => {
     const combined = offerNeighborhoodDocument();
     Object.assign(combined.entities.find(entity => entity.id === 'offer-a')!, { contentUrl: 'https://example.test/source', contentText: 'Preview\n\nDetail' });
     inspector = renderOfferInspector(combined);
+    measureOfferContent(inspector, { scrollHeight: 160, clientHeight: 72 });
     expect(inspector.getByRole('link', { name: 'https://example.test/source' })).toHaveAttribute('href', 'https://example.test/source');
     expect(inspector.getByRole('button', { name: 'Show more' })).toBeInTheDocument();
     expect(inspector.getByRole('button', { name: 'Copy' })).toBeInTheDocument();

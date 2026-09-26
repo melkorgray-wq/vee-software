@@ -83,7 +83,9 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .offer-content-read { display: grid; gap: .55rem; min-width: 0; }
 .offer-content-link { width: fit-content; max-width: 100%; }
 .offer-content-text-row { display: grid; gap: .45rem; min-width: 0; }
-.offer-content-text { min-width: 0; margin: 0; color: rgba(255,255,255,.9); white-space: pre-wrap; overflow-wrap: anywhere; }
+.offer-content-text { --offer-content-compact-height: 4.5rem; min-width: 0; max-height: var(--offer-content-compact-height); margin: 0; overflow: hidden; color: rgba(255,255,255,.9); white-space: pre-wrap; overflow-wrap: anywhere; }
+.offer-content-text.is-expanded { max-height: none; overflow: visible; }
+.offer-content-text.is-measuring-compact { max-height: var(--offer-content-compact-height); overflow: hidden; }
 .offer-content-actions { display: flex; justify-content: flex-start; flex-wrap: wrap; gap: .4rem .75rem; min-width: 0; }
 .offer-content-editor label { display: grid; gap: .3rem; min-width: 0; font-size: .74rem; font-weight: 650; }
 .offer-content-editor input, .offer-content-editor textarea { width: 100%; min-width: 0; padding: .45rem; }
