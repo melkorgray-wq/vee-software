@@ -423,117 +423,129 @@ describe('Offer Content Inspector', () => {
     expect(inspector.getByRole('button', { name: 'Copy' })).toBeInTheDocument();
   });
 
-  it('commits each field independently while Close and Escape only dismiss unfinished input', async () => {
+  it('completes only the active field before outside pointer dismissal without stealing focus', async () => {
     const user = userEvent.setup();
     const inspector = renderOfferInspector();
     await user.click(inspector.getByRole('button', { name: 'Add content' }));
-    const url = inspector.getByLabelText('External document URL');
     const text = inspector.getByLabelText('Content text');
-    await user.type(url, 'javascript:alert(1)');
     await user.click(text);
-    expect(inspector.getByRole('alert')).toHaveTextContent('absolute http: or https:');
-    await user.type(text, 'Draft text');
-    await user.click(url);
-    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentText: 'Draft text' });
-    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).not.toHaveProperty('contentUrl');
-    await user.click(inspector.getByRole('button', { name: 'Close' }));
-    expect(inspector.getByText('Draft text')).toBeInTheDocument();
-    expect(inspector.queryByRole('link')).not.toBeInTheDocument();
+    await user.type(text, 'Pointer-completed text');
 
-    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
-    const nextUrl = inspector.getByLabelText('External document URL');
-    await user.clear(nextUrl); await user.type(nextUrl, 'https://example.test/doc');
-    await user.click(inspector.getByLabelText('Content text'));
-    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentUrl: 'https://example.test/doc', contentText: 'Draft text' });
-    await user.click(inspector.getByRole('button', { name: 'Close' }));
-    expect(inspector.getByRole('link', { name: 'https://example.test/doc' })).toBeInTheDocument();
-    expect(inspector.getByText('Draft text')).toBeInTheDocument();
-    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
-
-    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
-    await user.click(inspector.getByLabelText('Content text'));
-    await user.clear(inspector.getByLabelText('Content text'));
-    await user.type(inspector.getByLabelText('Content text'), 'Unfinished close');
-    await user.click(inspector.getByRole('button', { name: 'Close' }));
-    expect(inspector.getByText('Draft text')).toBeInTheDocument();
-
-    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
-    await user.clear(inspector.getByLabelText('External document URL'));
-    await user.click(inspector.getByLabelText('Content text'));
-    await user.click(inspector.getByRole('button', { name: 'Close' }));
-    expect(inspector.queryByRole('link')).not.toBeInTheDocument();
-    expect(inspector.getByText('Draft text')).toBeInTheDocument();
-
-    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
-    await user.click(inspector.getByLabelText('Content text'));
-    await user.clear(inspector.getByLabelText('Content text'));
-    await user.click(inspector.getByLabelText('External document URL'));
-    await user.click(inspector.getByRole('button', { name: 'Close' }));
-    expect(inspector.getByText('No content documented')).toBeInTheDocument();
-
-    await user.click(inspector.getByRole('button', { name: 'Add content' }));
-    await user.type(inspector.getByLabelText('Content text'), 'Unfinished');
-    fireEvent.keyDown(inspector.getByLabelText('Content text'), { key: 'Escape' });
-    await waitFor(() => expect(inspector.getByRole('button', { name: 'Add content' })).toHaveFocus());
-    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).not.toHaveProperty('contentText');
-  });
-
-  it.each([
-    ['External document URL', 'https://example.test/unfinished'],
-    ['Content text', 'Unfinished text'],
-  ])('Escape from %s discards only unfinished input and restores the heading affordance', async (label, value) => {
-    const user = userEvent.setup();
-    const inspector = renderOfferInspector();
-    const before = window.__VEE_DEV__!.dump();
-    await user.click(inspector.getByRole('button', { name: 'Add content' }));
-    const field = inspector.getByLabelText(label);
-    fireEvent.change(field, { target: { value } });
-
-    fireEvent.keyDown(field, { key: 'Escape' });
-
-    await waitFor(() => expect(inspector.getByRole('button', { name: 'Add content' })).toHaveFocus());
-    expect(inspector.queryByLabelText('Offer Content editor')).not.toBeInTheDocument();
-    expect(window.__VEE_DEV__!.dump()).toEqual(before);
-  });
-
-  it('keeps inside pointerdown local, while outside pointerdown discards without commit or focus theft', async () => {
-    const user = userEvent.setup();
-    const inspector = renderOfferInspector();
-    const before = window.__VEE_DEV__!.dump();
-    await user.click(inspector.getByRole('button', { name: 'Add content' }));
-    const textarea = inspector.getByLabelText('Content text');
-    fireEvent.change(textarea, { target: { value: 'Unfinished pointer draft' } });
-
-    fireEvent.pointerDown(textarea);
+    fireEvent.pointerDown(text);
     expect(inspector.getByLabelText('Offer Content editor')).toBeInTheDocument();
 
     const outside = screen.getByRole('tab', { name: 'Entity Inspector' });
     fireEvent.pointerDown(outside);
     outside.focus();
+
     await waitFor(() => expect(inspector.queryByLabelText('Offer Content editor')).not.toBeInTheDocument());
     expect(outside).toHaveFocus();
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentText: 'Pointer-completed text' });
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).not.toHaveProperty('contentUrl');
+  });
+
+  it('completes a valid active URL on outside dismissal without touching committed text', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Committed sibling' });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    await user.type(inspector.getByLabelText('External document URL'), 'https://example.test/doc');
+
+    fireEvent.pointerDown(screen.getByText('Offer intent'));
+
+    await waitFor(() => expect(inspector.queryByLabelText('Offer Content editor')).not.toBeInTheDocument());
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentUrl: 'https://example.test/doc', contentText: 'Committed sibling' });
+  });
+
+  it('completes active text on Close and restores the remounted heading affordance', async () => {
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector();
+    await user.click(inspector.getByRole('button', { name: 'Add content' }));
+    await user.click(inspector.getByLabelText('Content text'));
+    await user.type(inspector.getByLabelText('Content text'), 'Close-completed text');
+
+    await user.click(inspector.getByRole('button', { name: 'Close' }));
+
+    const heading = inspector.getByRole('button', { name: 'Edit Offer Content' });
+    await waitFor(() => expect(heading).toHaveFocus());
+    expect(inspector.getByText('Close-completed text')).toBeInTheDocument();
+  });
+
+  it.each(['outside', 'Close', 'switch-editor'] as const)('keeps an invalid URL recoverable for %s dismissal', async (dismissal) => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Committed sibling' });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    const before = window.__VEE_DEV__!.dump();
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    await user.type(inspector.getByLabelText('External document URL'), 'javascript:alert(1)');
+
+    if (dismissal === 'outside') fireEvent.pointerDown(screen.getByText('Offer intent'));
+    else if (dismissal === 'Close') await user.click(inspector.getByRole('button', { name: 'Close' }));
+    else await user.click(inspector.getByRole('button', { name: 'Edit Product' }));
+
+    expect(inspector.getByLabelText('Offer Content editor')).toBeInTheDocument();
+    expect(inspector.getByRole('alert')).toHaveTextContent('absolute http: or https:');
+    expect(inspector.queryByLabelText('Product editor')).not.toBeInTheDocument();
     expect(window.__VEE_DEV__!.dump()).toEqual(before);
   });
 
-  it('switches mutually between Offer Content and Product without committing drafts or restoring stale focus', async () => {
+  it.each([
+    ['External document URL', 'https://example.test/unfinished'],
+    ['Content text', 'Unfinished text'],
+  ])('Escape from %s abandons the active draft, preserves its sibling, and restores focus', async (label, value) => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: label === 'External document URL' ? 'Committed text' : undefined, contentUrl: label === 'Content text' ? 'https://example.test/committed' : undefined });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    const before = window.__VEE_DEV__!.dump();
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    const field = inspector.getByLabelText(label);
+    await user.click(field);
+    fireEvent.change(field, { target: { value } });
+
+    fireEvent.keyDown(field, { key: 'Escape' });
+
+    await waitFor(() => expect(inspector.getByRole('button', { name: 'Edit Offer Content' })).toHaveFocus());
+    expect(inspector.queryByLabelText('Offer Content editor')).not.toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+  });
+
+  it('keeps URL and text blur completions independent and does not re-commit either on Close', async () => {
     const user = userEvent.setup();
     const inspector = renderOfferInspector();
-    const before = window.__VEE_DEV__!.dump();
     await user.click(inspector.getByRole('button', { name: 'Add content' }));
-    fireEvent.change(inspector.getByLabelText('Content text'), { target: { value: 'Unfinished switch draft' } });
+    const url = inspector.getByLabelText('External document URL');
+    const text = inspector.getByLabelText('Content text');
+    await user.type(url, 'https://example.test/first');
+    await user.click(text);
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentUrl: 'https://example.test/first' });
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).not.toHaveProperty('contentText');
+
+    await user.type(text, 'Second transaction');
+    await user.click(url);
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentUrl: 'https://example.test/first', contentText: 'Second transaction' });
+    await user.click(inspector.getByRole('button', { name: 'Close' }));
+    expect(inspector.getByRole('link', { name: 'https://example.test/first' })).toBeInTheDocument();
+    expect(inspector.getByText('Second transaction')).toBeInTheDocument();
+  });
+
+  it('completes active text before switching editors and preserves the new editor focus', async () => {
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector();
+    await user.click(inspector.getByRole('button', { name: 'Add content' }));
+    await user.click(inspector.getByLabelText('Content text'));
+    await user.type(inspector.getByLabelText('Content text'), 'Switch-completed text');
 
     await user.click(inspector.getByRole('button', { name: 'Edit Product' }));
 
     expect(inspector.queryByLabelText('Offer Content editor')).not.toBeInTheDocument();
     expect(inspector.getByLabelText('Product editor')).toBeInTheDocument();
     expect(within(inspector.getByLabelText('Product editor')).getAllByRole('radio')[0]).toHaveFocus();
-    expect(window.__VEE_DEV__!.dump()).toEqual(before);
-
-    await user.click(inspector.getByRole('button', { name: 'Add content' }));
-    expect(inspector.queryByLabelText('Product editor')).not.toBeInTheDocument();
-    expect(inspector.getByLabelText('External document URL')).toHaveFocus();
-    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentText: 'Switch-completed text' });
   });
+
 });
 
 function expectSharedNeighborhoodControls(region: HTMLElement, checkboxNames: string[]) {
