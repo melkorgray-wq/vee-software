@@ -993,8 +993,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       const returnFocusId = draft.newBlock?.placement.kind === 'after'
         ? `offer-content-block-add-below-${encodeURIComponent(draft.newBlock.placement.blockId)}`
         : 'offer-content-add-block';
+      pendingLocalFocusIdsRef.current = [returnFocusId];
       setCurrentOfferContentDraft({ ...draft, newBlock: undefined });
-      requestAnimationFrame(() => globalThis.document.getElementById(returnFocusId)?.focus());
     }
     else if (active.kind === 'blockTitle' || active.kind === 'blockText') {
       const block = committedOffer(documentRef.current, draft.offerId)?.contentBlocks?.find(item => item.id === active.blockId);
@@ -3067,8 +3067,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         ? `offer-content-block-add-below-${encodeURIComponent(draft.newBlock.placement.blockId)}`
         : 'offer-content-add-block';
       activeOfferContentFieldRef.current = null;
+      pendingLocalFocusIdsRef.current = [returnFocusId];
       setCurrentOfferContentDraft({ ...draft, newBlock: undefined });
-      requestAnimationFrame(() => globalThis.document.getElementById(returnFocusId)?.focus());
     };
     const startNewBlockDraft = (placement: OfferContentBlockPlacement) => {
       const draft = offerContentDraftRef.current;
@@ -3119,8 +3119,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       try {
         const next = reorderOfferContentBlocks(documentRef.current, { offerId: draft.offerId, blockIds: ids });
         documentRef.current = next;
+        pendingLocalFocusIdsRef.current = [`offer-content-block-move-${offset < 0 ? 'up' : 'down'}-${encodeURIComponent(blockId)}`];
         setDocument(next);
-        requestAnimationFrame(() => globalThis.document.getElementById(`offer-content-block-move-${offset < 0 ? 'up' : 'down'}-${encodeURIComponent(blockId)}`)?.focus());
       } catch (error) {
         const blockDraft = draft.blocks[blockId];
         if (blockDraft) setCurrentOfferContentDraft({ ...draft, blocks: { ...draft.blocks, [blockId]: { ...blockDraft, textError: error instanceof Error ? error.message : 'Block could not be moved. Try again.' } } });

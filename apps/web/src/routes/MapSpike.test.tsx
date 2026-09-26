@@ -687,7 +687,7 @@ describe('Offer Content Inspector', () => {
     const reorderedCards = cards();
     expect(reorderedCards.map(card => card.dataset.blockId ?? 'draft')).toEqual(['middle', 'first', 'draft', 'last']);
     await user.click(within(reorderedCards[2]!).getByRole('button', { name: 'Cancel' }));
-    expect(firstAddBelow).toHaveFocus();
+    await waitFor(() => expect(within(editor.querySelector<HTMLElement>('[data-block-id="first"]')!).getByRole('button', { name: 'Add block below' })).toHaveFocus());
     expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentBlocks: [{ id: 'middle', title: 'Middle' }, { id: 'first', title: 'First' }, { id: 'last', title: 'Last' }] });
   });
 
