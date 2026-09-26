@@ -381,13 +381,29 @@ describe('Offer Content Inspector', () => {
     const inspector = renderOfferInspector(document);
     const text = inspector.getByText('Preview paragraph');
     const actions = inspector.getByRole('button', { name: 'Copy' }).closest<HTMLElement>('.offer-content-actions')!;
+    const showMore = within(actions).getByRole('button', { name: 'Show more' });
+    const copy = within(actions).getByRole('button', { name: 'Copy' });
 
     expect(text.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    await user.click(within(actions).getByRole('button', { name: 'Copy' }));
-    await user.click(inspector.getByRole('button', { name: 'Show more' }));
-    await user.click(inspector.getByRole('button', { name: 'Copy' }));
+    expect(showMore.compareDocumentPosition(copy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await user.click(copy);
+    await user.click(showMore);
+    const expandedActions = inspector.getByRole('button', { name: 'Copy' }).closest<HTMLElement>('.offer-content-actions')!;
+    const showLess = within(expandedActions).getByRole('button', { name: 'Show less' });
+    const expandedCopy = within(expandedActions).getByRole('button', { name: 'Copy' });
+    expect(showLess.compareDocumentPosition(expandedCopy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await user.click(expandedCopy);
     expect(writeText).toHaveBeenNthCalledWith(1, contentText);
     expect(writeText).toHaveBeenNthCalledWith(2, contentText);
+
+    cleanup();
+    const singleParagraphDocument = offerNeighborhoodDocument();
+    Object.assign(singleParagraphDocument.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Single paragraph' });
+    const singleParagraphInspector = renderOfferInspector(singleParagraphDocument);
+    const singleCopy = singleParagraphInspector.getByRole('button', { name: 'Copy' });
+    const singleActions = singleCopy.closest<HTMLElement>('.offer-content-actions')!;
+    expect(within(singleActions).getAllByRole('button')).toEqual([singleCopy]);
+    expect(singleParagraphInspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
   });
 
   it('omits text actions for URL-only content and preserves link plus controls when text is added', () => {
