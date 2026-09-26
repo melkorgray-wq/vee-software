@@ -89,6 +89,20 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .offer-content-editor input, .offer-content-editor textarea { width: 100%; min-width: 0; padding: .45rem; }
 .offer-content-editor textarea { resize: vertical; white-space: pre-wrap; }
 .offer-content-copy-status { margin: 0; color: rgba(255,255,255,.7); font-size: .75rem; }
+.offer-structured-content { display: grid; gap: .6rem; min-width: 0; margin: 0; padding: .65rem 0 0; border: 0; border-top: 1px solid var(--border-subtle); background: transparent; }
+.offer-structured-content-heading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: .5rem .75rem; min-width: 0; }
+.offer-structured-content-heading > div { flex: 1 1 18rem; min-width: 0; }
+.offer-structured-content-heading h5, .offer-structured-content-heading p { margin: 0; }
+.offer-structured-content-heading p { margin-top: .25rem; color: rgba(255,255,255,.66); font-size: .75rem; font-weight: 400; line-height: 1.45; overflow-wrap: anywhere; }
+.offer-content-block-list { display: grid; gap: .65rem; min-width: 0; }
+.offer-content-block { display: grid; gap: .45rem; min-width: 0; padding: .6rem; border: 1px solid var(--border-subtle); border-radius: .45rem; background: rgba(255,255,255,.018); }
+.offer-content-block textarea { min-height: 5.5rem; line-height: 1.45; }
+.offer-content-block-actions, .offer-content-block-confirmation > div { display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: .4rem; min-width: 0; }
+.offer-content-block-actions > *, .offer-content-block-confirmation button, .offer-content-new-block > button { width: auto; max-width: 100%; }
+.offer-content-new-block > button { justify-self: start; }
+.offer-content-block-confirmation { display: grid; gap: .4rem; min-width: 0; padding: .5rem; border: 1px solid var(--border-soft); border-radius: .35rem; background: rgba(255,255,255,.035); }
+.offer-content-block-confirmation p, .offer-content-structured-indicator { margin: 0; overflow-wrap: anywhere; }
+.offer-content-structured-indicator { width: fit-content; max-width: 100%; padding: .2rem .45rem; border: 1px solid var(--border-subtle); border-radius: 999px; color: rgba(255,255,255,.68); font-size: .72rem; }
 .business-structure-derived.neighborhood-groups { display: grid; gap: .55rem; min-width: 0; margin: 0; padding: .65rem 0 0; border: 0; border-top: 1px dashed var(--border-subtle); border-radius: 0; background: transparent; box-shadow: none; }
 .business-structure-derived.neighborhood-groups h5 { margin: 0; color: rgba(255,255,255,.62); font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; }
 .derived-heading { display: flex; grid-column: 1 / -1; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .1rem; }
