@@ -691,6 +691,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const offerContentEditorRef = useRef<HTMLElement>(null);
   const dismissingOfferContentRef = useRef(false);
   const activeOfferContentFieldRef = useRef<ActiveOfferContentField | null>(null);
+  const shortcutCompletedBlockTextRef = useRef<string | null>(null);
   const offerContentDraftRef = useRef<OfferContentDraft | null>(offerContentDraft);
   const pendingNewBlockFocusRef = useRef(false);
   offerContentDraftRef.current = offerContentDraft;
@@ -3024,6 +3025,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       setOfferContentCopyStatus(null);
       offerContentDisclosureSnapshotRef.current = null;
       activeOfferContentFieldRef.current = null;
+      shortcutCompletedBlockTextRef.current = null;
       const draft: OfferContentDraft = {
         offerId: selected.id,
         contentUrl: selected.contentUrl ?? '',
@@ -3080,6 +3082,12 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       activeOfferContentFieldRef.current = { kind: 'newBlockTitle' };
       pendingNewBlockFocusRef.current = true;
       setCurrentOfferContentDraft({ ...draft, newBlock: { title: '', placement } });
+    };
+    const continueAfterBlockText = (blockId: string) => {
+      if (!commitOfferContentBlockField(blockId, 'text')) return;
+      activeOfferContentFieldRef.current = null;
+      shortcutCompletedBlockTextRef.current = blockId;
+      startNewBlockDraft({ kind: 'after', blockId });
     };
     const cancelDelete = (blockId: string) => {
       const draft = offerContentDraftRef.current;
@@ -3151,9 +3159,9 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               return <Fragment key={block.id}><article className="offer-content-block" data-block-id={block.id}>
                 <label>Block title<input id={`offer-content-block-title-${encodeURIComponent(block.id)}`} required value={blockDraft.title} aria-invalid={Boolean(blockDraft.titleError)} onFocus={() => { activeOfferContentFieldRef.current = { kind: 'blockTitle', blockId: block.id }; }} onChange={event => setCurrentOfferContentDraft({ ...offerContentDraft, blocks: { ...offerContentDraft.blocks, [block.id]: { ...blockDraft, title: event.target.value, titleError: undefined } } })} onBlur={() => { if (!dismissingOfferContentRef.current && commitOfferContentBlockField(block.id, 'title')) activeOfferContentFieldRef.current = null; }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); if (commitOfferContentBlockField(block.id, 'title')) activeOfferContentFieldRef.current = null; } }} /></label>
                 {blockDraft.titleError && <p className="error-message" role="alert">{blockDraft.titleError}</p>}
-                <label>Block text<textarea rows={4} value={blockDraft.text} onFocus={() => { activeOfferContentFieldRef.current = { kind: 'blockText', blockId: block.id }; }} onChange={event => setCurrentOfferContentDraft({ ...offerContentDraft, blocks: { ...offerContentDraft.blocks, [block.id]: { ...blockDraft, text: event.target.value, textError: undefined } } })} onBlur={() => { if (!dismissingOfferContentRef.current && commitOfferContentBlockField(block.id, 'text')) activeOfferContentFieldRef.current = null; }} /></label>
+                <label>Block text<textarea rows={4} value={blockDraft.text} onFocus={() => { activeOfferContentFieldRef.current = { kind: 'blockText', blockId: block.id }; }} onChange={event => setCurrentOfferContentDraft({ ...offerContentDraft, blocks: { ...offerContentDraft.blocks, [block.id]: { ...blockDraft, text: event.target.value, textError: undefined } } })} onBlur={() => { if (shortcutCompletedBlockTextRef.current === block.id) { shortcutCompletedBlockTextRef.current = null; return; } if (!dismissingOfferContentRef.current && commitOfferContentBlockField(block.id, 'text')) activeOfferContentFieldRef.current = null; }} onKeyDown={event => { if (event.key !== 'Enter' || (!event.ctrlKey && !event.metaKey)) return; event.preventDefault(); event.stopPropagation(); continueAfterBlockText(block.id); }} /></label>
                 {blockDraft.textError && <p className="error-message" role="alert">{blockDraft.textError}</p>}
-                <div className="offer-content-block-actions"><button id={`offer-content-block-move-up-${encodeURIComponent(block.id)}`} type="button" className="inspector-secondary-action" disabled={index === 0} onClick={() => moveBlock(block.id, -1)}>Move up</button><button id={`offer-content-block-move-down-${encodeURIComponent(block.id)}`} type="button" className="inspector-secondary-action" disabled={index === (selected.contentBlocks?.length ?? 0) - 1} onClick={() => moveBlock(block.id, 1)}>Move down</button><button id={`offer-content-block-add-below-${encodeURIComponent(block.id)}`} type="button" className="inspector-secondary-action" onClick={() => startNewBlockDraft({ kind: 'after', blockId: block.id })}>Add block below</button><button id={`offer-content-block-delete-${encodeURIComponent(block.id)}`} type="button" className="inspector-secondary-action" onClick={() => block.text?.trim() ? setCurrentOfferContentDraft({ ...offerContentDraft, deleteConfirmationBlockId: block.id }) : removeBlock(block.id)}>Delete</button></div>
+                <div className="offer-content-block-actions"><button id={`offer-content-block-move-up-${encodeURIComponent(block.id)}`} type="button" className="inspector-secondary-action" disabled={index === 0} onClick={() => moveBlock(block.id, -1)}>Move up</button><button id={`offer-content-block-move-down-${encodeURIComponent(block.id)}`} type="button" className="inspector-secondary-action" disabled={index === (selected.contentBlocks?.length ?? 0) - 1} onClick={() => moveBlock(block.id, 1)}>Move down</button><span className="offer-content-block-continuation"><button id={`offer-content-block-add-below-${encodeURIComponent(block.id)}`} type="button" className="inspector-secondary-action" aria-keyshortcuts="Control+Enter Meta+Enter" aria-describedby={`offer-content-block-shortcut-${encodeURIComponent(block.id)}`} onClick={() => startNewBlockDraft({ kind: 'after', blockId: block.id })}>Add block below</button><span id={`offer-content-block-shortcut-${encodeURIComponent(block.id)}`} className="offer-content-block-shortcut-hint">from Block text: <kbd>Ctrl/⌘ + Enter</kbd></span></span><button id={`offer-content-block-delete-${encodeURIComponent(block.id)}`} type="button" className="inspector-secondary-action" onClick={() => block.text?.trim() ? setCurrentOfferContentDraft({ ...offerContentDraft, deleteConfirmationBlockId: block.id }) : removeBlock(block.id)}>Delete</button></div>
                 {confirming && <div className="offer-content-block-confirmation" role="group" aria-label={`Delete ${block.title}?`}><p>Delete “{block.title}”?</p><div><button type="button" className="inspector-secondary-action" onClick={() => cancelDelete(block.id)}>Cancel</button><button type="button" onClick={() => removeBlock(block.id)}>Delete block</button></div></div>}
               </article>{draftFollowsBlock && newBlockDraftCard}</Fragment>;
             })}
