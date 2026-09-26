@@ -281,8 +281,13 @@ describe('Offer Content Inspector', () => {
     const business = inspector.getByRole('region', { name: 'Business structure' });
     const content = inspector.getByRole('region', { name: 'Offer Content' });
     const neighborhood = inspector.getByText('Neighborhood').closest('section')!;
-    expect(business.compareDocumentPosition(content) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(content.compareDocumentPosition(neighborhood) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(content).toBeInstanceOf(HTMLElement);
+    expect(content.tagName).toBe('SECTION');
+    expect(content).toHaveClass('offer-content');
+    expect(content.parentElement).toBe(business.parentElement);
+    expect(neighborhood.parentElement).toBe(business.parentElement);
+    expect(business.nextElementSibling).toBe(content);
+    expect(content.nextElementSibling).toBe(neighborhood);
     expect(within(content).getByText('No content documented')).toBeInTheDocument();
     const add = within(content).getByRole('button', { name: 'Add content' });
     expect(add).toHaveTextContent('Click to edit');
