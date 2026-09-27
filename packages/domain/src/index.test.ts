@@ -64,13 +64,13 @@ describe('map authoring domain', () => {
       expect(offerContentWholeText(copy, 'copy').replace('Copied', 'Subscription')).toBe(offerContentWholeText(source, 'offer'));
     });
 
-    it('rejects invalid owners, refuses malformed fallback, and is a pure repeatable read', () => {
+    it('rejects invalid owners, follows canonical malformed-state normalization, and is a pure repeatable read', () => {
       const document = bothRepresentations();
       expect(() => offerContentWholeText(document, 'missing')).toThrow('existing entity');
       expect(() => offerContentWholeText(document, 'product')).toThrow('must reference a offer');
       const malformed = { ...document, entities: document.entities.map(entity => entity.id === 'offer' && entity.kind === 'offer' ? { ...entity, currentContentSource: 'structured' as const, contentBlocks: [{ id: 'blank', title: 'Title', text: ' ' }] } : entity) };
       expect(offerContentSourceState(malformed, 'offer')).toMatchObject({ currentContentSource: 'free_form', structuredEligible: false });
-      expect(offerContentWholeText(malformed, 'offer')).toBe('Subscription');
+      expect(offerContentWholeText(malformed, 'offer')).toBe('Subscription\n\nFree\nbody');
       const snapshot = structuredClone(document);
       const entities = document.entities;
       expect(offerContentWholeText(document, 'offer')).toBe(offerContentWholeText(document, 'offer'));
