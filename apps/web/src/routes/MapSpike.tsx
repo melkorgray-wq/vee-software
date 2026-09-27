@@ -823,12 +823,15 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     };
 
     measure();
-    if (typeof ResizeObserver === 'undefined') return () => { active = false; };
-    const observer = new ResizeObserver(measure);
-    observer.observe(viewport);
+    const fonts = globalThis.document.fonts;
+    fonts?.addEventListener('loadingdone', measure);
+    void fonts?.ready.then(measure);
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(viewport);
     return () => {
       active = false;
-      observer.disconnect();
+      fonts?.removeEventListener('loadingdone', measure);
+      observer?.disconnect();
     };
   }, [selected?.id, selected?.kind, selected?.kind === 'offer' ? selected.contentText : undefined, offerContentDraft?.offerId, expandedOfferContentId]);
 

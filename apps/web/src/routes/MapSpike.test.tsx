@@ -277,9 +277,21 @@ function renderOfferInspector(document = offerNeighborhoodDocument(), offerName 
 
 describe('Offer Content Inspector', () => {
   let contentResizeObservers: { callback: ResizeObserverCallback; observed: Set<Element>; disconnected: boolean }[];
+  let fontLoadingDoneListeners: Set<EventListenerOrEventListenerObject>;
+  let resolveFontsReady: (fonts: FontFaceSet) => void;
+  let originalDocumentFonts: PropertyDescriptor | undefined;
 
   beforeEach(() => {
     contentResizeObservers = [];
+    fontLoadingDoneListeners = new Set();
+    originalDocumentFonts = Object.getOwnPropertyDescriptor(document, 'fonts');
+    const ready = new Promise<FontFaceSet>(resolve => { resolveFontsReady = resolve; });
+    const fontSet = {
+      ready,
+      addEventListener: (type: string, listener: EventListenerOrEventListenerObject) => { if (type === 'loadingdone') fontLoadingDoneListeners.add(listener); },
+      removeEventListener: (type: string, listener: EventListenerOrEventListenerObject) => { if (type === 'loadingdone') fontLoadingDoneListeners.delete(listener); },
+    } as FontFaceSet;
+    Object.defineProperty(document, 'fonts', { configurable: true, value: fontSet });
     class ControllableResizeObserver implements ResizeObserver {
       readonly observed = new Set<Element>();
       disconnected = false;
@@ -291,17 +303,29 @@ describe('Offer Content Inspector', () => {
     vi.stubGlobal('ResizeObserver', ControllableResizeObserver);
   });
 
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    if (originalDocumentFonts) Object.defineProperty(document, 'fonts', originalDocumentFonts);
+    else Reflect.deleteProperty(document, 'fonts');
+  });
 
-  function measureOfferContent(inspector: ReturnType<typeof within>, { scrollHeight, clientHeight, width = 320 }: { scrollHeight: number; clientHeight: number; width?: number }) {
+  function measureOfferContent(inspector: ReturnType<typeof within>, { scrollHeight, clientHeight, width = 320, notifyResize = true }: { scrollHeight: number; clientHeight: number; width?: number; notifyResize?: boolean }) {
     const viewport = inspector.getByText((_: string, element: Element | null) => element?.classList.contains('offer-content-text') ?? false);
     Object.defineProperties(viewport, {
       scrollHeight: { configurable: true, value: scrollHeight },
       clientHeight: { configurable: true, value: clientHeight },
       getBoundingClientRect: { configurable: true, value: () => ({ width, height: clientHeight, top: 0, left: 0, right: width, bottom: clientHeight, x: 0, y: 0, toJSON: () => ({}) }) },
     });
-    act(() => contentResizeObservers.forEach(observer => observer.callback([], observer as unknown as ResizeObserver)));
+    if (notifyResize) act(() => contentResizeObservers.forEach(observer => observer.callback([], observer as unknown as ResizeObserver)));
     return viewport;
+  }
+
+  function finishFontLoading() {
+    act(() => fontLoadingDoneListeners.forEach(listener => {
+      const event = new Event('loadingdone');
+      if (typeof listener === 'function') listener(event);
+      else listener.handleEvent(event);
+    }));
   }
 
   it('keeps the text Close control immediately after the heading in one compact header cluster', async () => {
@@ -436,6 +460,56 @@ describe('Offer Content Inspector', () => {
     expect(scrollBy).not.toHaveBeenCalled();
   });
 
+  it('remeasures compact overflow when loaded font metrics change without resizing the viewport', () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Font-sensitive authored content' });
+    const inspector = renderOfferInspector(document);
+
+    measureOfferContent(inspector, { scrollHeight: 60, clientHeight: 72, width: 320 });
+    expect(inspector.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
+
+    measureOfferContent(inspector, { scrollHeight: 120, clientHeight: 72, width: 320, notifyResize: false });
+    finishFontLoading();
+    expect(inspector.getByRole('button', { name: 'Show more' })).toBeInTheDocument();
+
+    measureOfferContent(inspector, { scrollHeight: 60, clientHeight: 72, width: 320, notifyResize: false });
+    finishFontLoading();
+    expect(inspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
+  });
+
+  it('uses fonts.ready once and ignores font callbacks after the measured owner is replaced', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Pending font content' });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    measureOfferContent(inspector, { scrollHeight: 120, clientHeight: 72, notifyResize: false });
+
+    await act(async () => {
+      resolveFontsReady(globalThis.document.fonts);
+      await globalThis.document.fonts.ready;
+    });
+    expect(inspector.getByRole('button', { name: 'Show more' })).toBeInTheDocument();
+
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    expect(fontLoadingDoneListeners.size).toBe(0);
+    finishFontLoading();
+    expect(inspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
+  });
+
+  it('ignores a stale fonts.ready continuation after unmount', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Unmounted font content' });
+    const inspector = renderOfferInspector(document);
+    measureOfferContent(inspector, { scrollHeight: 120, clientHeight: 72, notifyResize: false });
+    cleanup();
+
+    await expect(act(async () => {
+      resolveFontsReady(globalThis.document.fonts);
+      await globalThis.document.fonts.ready;
+    })).resolves.toBeUndefined();
+    expect(fontLoadingDoneListeners.size).toBe(0);
+  });
+
   it('disconnects stale observers and ignores their callbacks after editor replacement and unmount', async () => {
     const document = offerNeighborhoodDocument();
     Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Measured text' });
@@ -486,8 +560,9 @@ describe('Offer Content Inspector', () => {
     expect(contentResizeObservers).toHaveLength(observerCount);
   });
 
-  it('keeps a readable measured read state when ResizeObserver is unavailable', () => {
+  it('keeps a readable measured read state when ResizeObserver and FontFaceSet are unavailable', () => {
     vi.stubGlobal('ResizeObserver', undefined);
+    Reflect.deleteProperty(document, 'fonts');
     const scrollHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollHeight');
     const clientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight');
     Object.defineProperties(HTMLElement.prototype, {
