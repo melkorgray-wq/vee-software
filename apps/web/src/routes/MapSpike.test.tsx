@@ -961,8 +961,10 @@ describe('Offer Content Inspector', () => {
     await user.click(within(first).getByRole('button', { name: 'Delete' }));
     const staleDraft = inspector.getByLabelText('Block title', { selector: '#offer-content-new-block-title' });
     fireEvent.change(staleDraft, { target: { value: 'Do not misplace' } });
+    staleDraft.focus();
     fireEvent.keyDown(staleDraft, { key: 'Enter' });
     expect(inspector.getByRole('alert')).toHaveTextContent('anchor does not belong');
+    expect(staleDraft).toHaveFocus();
     expect((window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a') as Extract<Entity, { kind: 'offer' }>).contentBlocks).toEqual([{ id: 'last', title: 'Last' }]);
   });
 
@@ -984,6 +986,114 @@ describe('Offer Content Inspector', () => {
     const offer = window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a');
     expect(offer).toMatchObject({ contentBlocks: [expect.objectContaining({ title: 'Problem' })] });
     expect((offer as Extract<Entity, { kind: 'offer' }>).contentBlocks?.[0]?.id).toBeTruthy();
+    const createdId = (offer as Extract<Entity, { kind: 'offer' }>).contentBlocks![0]!.id;
+    expect(globalThis.document.getElementById(`offer-content-block-text-${encodeURIComponent(createdId)}`)).toHaveFocus();
+  });
+
+  it('progresses section and anchored new-block title Enter to the created stable block text', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentBlocks: [{ id: 'first', title: 'Same' }, { id: 'last', title: 'Same' }] });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    const editor = inspector.getByLabelText('Offer Content editor');
+
+    await user.click(inspector.getByRole('button', { name: 'Add block' }));
+    await user.type(inspector.getByLabelText('Block title', { selector: '#offer-content-new-block-title' }), 'End{Enter}');
+    let blocks = (window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a') as Extract<Entity, { kind: 'offer' }>).contentBlocks!;
+    const end = blocks.at(-1)!;
+    expect(end.title).toBe('End');
+    expect(globalThis.document.getElementById(`offer-content-block-text-${encodeURIComponent(end.id)}`)).toHaveFocus();
+
+    await user.click(within(editor.querySelector<HTMLElement>('[data-block-id="first"]')!).getByRole('button', { name: 'Add block below' }));
+    await user.type(inspector.getByLabelText('Block title', { selector: '#offer-content-new-block-title' }), 'Anchored{Enter}');
+    blocks = (window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a') as Extract<Entity, { kind: 'offer' }>).contentBlocks!;
+    const anchored = blocks.find(block => block.title === 'Anchored')!;
+    expect(blocks.map(block => block.id)).toEqual(['first', anchored.id, 'last', end.id]);
+    expect(globalThis.document.getElementById(`offer-content-block-text-${encodeURIComponent(anchored.id)}`)).toHaveFocus();
+  });
+
+  it('commits a title once on Enter and focuses text by stable block ID without changing siblings', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentBlocks: [{ id: 'first/id', title: 'Same', text: 'First text' }, { id: 'second', title: 'Same', text: 'Second text' }] });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    const update = vi.spyOn(domain, 'updateOfferContentBlock');
+    const firstCard = inspector.getByLabelText('Offer Content editor').querySelector<HTMLElement>('[data-block-id="first/id"]')!;
+    const title = within(firstCard).getByLabelText('Block title');
+    fireEvent.change(title, { target: { value: 'Renamed' } });
+
+    fireEvent.keyDown(title, { key: 'Enter' });
+
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentBlocks: [
+      { id: 'first/id', title: 'Renamed', text: 'First text' },
+      { id: 'second', title: 'Same', text: 'Second text' },
+    ] });
+    expect(globalThis.document.getElementById(`offer-content-block-text-${encodeURIComponent('first/id')}`)).toHaveFocus();
+    expect(update).toHaveBeenCalledTimes(1);
+    update.mockRestore();
+  });
+
+  it('keeps invalid and failed committed titles focused and recoverable', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentBlocks: [{ id: 'first', title: 'First' }] });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    const title = inspector.getByLabelText('Block title');
+    title.focus();
+    fireEvent.change(title, { target: { value: '' } });
+    fireEvent.keyDown(title, { key: 'Enter' });
+    expect(title).toHaveFocus();
+    expect(inspector.getByRole('alert')).toHaveTextContent('Block title is required');
+
+    fireEvent.change(title, { target: { value: 'Retry me' } });
+    const failure = vi.spyOn(domain, 'updateOfferContentBlock').mockImplementationOnce(() => { throw new Error('The block is stale.'); });
+    fireEvent.keyDown(title, { key: 'Enter' });
+    expect(title).toHaveFocus();
+    expect(inspector.getByRole('alert')).toHaveTextContent('The block is stale.');
+    expect((window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a') as Extract<Entity, { kind: 'offer' }>).contentBlocks).toEqual([{ id: 'first', title: 'First' }]);
+    failure.mockRestore();
+  });
+
+  it('commits title blur without stealing focus from the chosen action surface', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentBlocks: [{ id: 'first', title: 'First' }] });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    const title = inspector.getByLabelText('Block title');
+    title.focus();
+    fireEvent.change(title, { target: { value: 'Blurred' } });
+    const text = inspector.getByLabelText('Block text');
+
+    text.focus();
+
+    expect(text).toHaveFocus();
+    expect((window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a') as Extract<Entity, { kind: 'offer' }>).contentBlocks).toEqual([{ id: 'first', title: 'Blurred' }]);
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    expect(text).toHaveFocus();
+  });
+
+  it('creates a valid new block on blur without redirecting the chosen control to its text', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentBlocks: [{ id: 'first', title: 'First' }] });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    await user.click(inspector.getByRole('button', { name: 'Add block' }));
+    const title = inspector.getByLabelText('Block title', { selector: '#offer-content-new-block-title' });
+    await user.type(title, 'Blur-created');
+    const close = inspector.getByRole('button', { name: 'Close' });
+
+    close.focus();
+
+    const blocks = (window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a') as Extract<Entity, { kind: 'offer' }>).contentBlocks!;
+    expect(blocks.map(block => block.title)).toEqual(['First', 'Blur-created']);
+    expect(close).toHaveFocus();
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    expect(close).toHaveFocus();
   });
 
   it('edits, reorders, and progressively cancels block-local state without changing siblings', async () => {
