@@ -216,6 +216,21 @@ export function offerContentSourceState(document: MapDocument, offerId: string):
   };
 }
 
+/** Assembles the canonical current Offer Content as framework-independent plain text. */
+export function offerContentWholeText(document: MapDocument, offerId: string): string {
+  const offer = entityOfKind(document, offerId, 'offer', 'Offer') as Extract<Entity, { kind: 'offer' }>;
+  const sourceState = offerContentSourceState(document, offerId);
+  if (offer.currentContentSource !== sourceState.currentContentSource) return offer.title;
+  if (sourceState.currentContentSource === 'free_form' && sourceState.freeFormEligible) {
+    return `${offer.title}\n\n${offer.contentText!}`;
+  }
+  if (sourceState.currentContentSource === 'structured' && sourceState.structuredEligible) {
+    const body = (offer.contentBlocks ?? []).flatMap(block => block.text?.trim() ? [block.text.trim()] : []).join('\n\n');
+    return body ? `${offer.title}\n\n${body}` : offer.title;
+  }
+  return offer.title;
+}
+
 /** Selects an eligible canonical Content representation without changing authored Content. */
 export function setOfferCurrentContentSource(document: MapDocument, input: { offerId: string; source: OfferCurrentContentSource }): MapDocument {
   const offer = entityOfKind(document, input.offerId, 'offer', 'Offer') as Extract<Entity, { kind: 'offer' }>;
