@@ -220,7 +220,6 @@ export function offerContentSourceState(document: MapDocument, offerId: string):
 export function offerContentWholeText(document: MapDocument, offerId: string): string {
   const offer = entityOfKind(document, offerId, 'offer', 'Offer') as Extract<Entity, { kind: 'offer' }>;
   const sourceState = offerContentSourceState(document, offerId);
-  if (offer.currentContentSource !== sourceState.currentContentSource) return offer.title;
   if (sourceState.currentContentSource === 'free_form' && sourceState.freeFormEligible) {
     return `${offer.title}\n\n${offer.contentText!}`;
   }
