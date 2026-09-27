@@ -16,11 +16,12 @@ export const EPISTEMIC_STATUSES = ['observed', 'participant_reported', 'business
 export type EpistemicStatus = typeof EPISTEMIC_STATUSES[number];
 
 export interface OfferContentBlock { id: string; title: string; text?: string }
+export type OfferCurrentContentSource = 'free_form' | 'structured';
 
 export type Entity =
   | { id: string; kind: 'touchpoint'; title: string; locatedInId?: string; url?: string }
   | { id: string; kind: 'product'; title: string }
-  | { id: string; kind: 'offer'; title: string; contentUrl?: string; contentText?: string; contentBlocks?: OfferContentBlock[] }
+  | { id: string; kind: 'offer'; title: string; currentContentSource: OfferCurrentContentSource | null; contentUrl?: string; contentText?: string; contentBlocks?: OfferContentBlock[] }
   | { id: string; kind: ClientRootEntityKind | ContextualClientEntityKind | RepulsorEntityKind; title: string };
 export type Relationship =
   | { id: string; kind: 'product_packaged_as_offer'; productId: string; offerId: string }
@@ -173,7 +174,7 @@ export function updateOfferContent(document: MapDocument, input: { offerId: stri
   const replacement: Extract<Entity, { kind: 'offer' }> = { ...offer };
   if (normalized) replacement[input.field] = normalized;
   else delete replacement[input.field];
-  return { ...document, entities: document.entities.map(entity => entity.id === offer.id ? replacement : entity) };
+  return replaceOffer(document, input.field === 'contentText' ? normalizeOfferCurrentContentSource(replacement) : replacement);
 }
 
 function offerContentBlockOwner(document: MapDocument, offerId: string, blockId: string) {
@@ -187,6 +188,29 @@ function replaceOffer(document: MapDocument, offer: Extract<Entity, { kind: 'off
   return { ...document, entities: document.entities.map(entity => entity.id === offer.id ? offer : entity) };
 }
 
+const isOfferFreeFormContentEligible = (offer: Extract<Entity, { kind: 'offer' }>) => Boolean(offer.contentText?.trim());
+const isOfferStructuredContentEligible = (offer: Extract<Entity, { kind: 'offer' }>) => Boolean(offer.contentBlocks?.some(block => block.text?.trim()));
+
+function normalizeOfferCurrentContentSource(offer: Extract<Entity, { kind: 'offer' }>): Extract<Entity, { kind: 'offer' }> {
+  const freeFormEligible = isOfferFreeFormContentEligible(offer);
+  const structuredEligible = isOfferStructuredContentEligible(offer);
+  const current = offer.currentContentSource;
+  const normalized: OfferCurrentContentSource | null = freeFormEligible && structuredEligible
+    ? (current === 'structured' || current === 'free_form' ? current : 'free_form')
+    : freeFormEligible ? 'free_form' : structuredEligible ? 'structured' : null;
+  return current === normalized ? offer : { ...offer, currentContentSource: normalized };
+}
+
+/** Selects an eligible canonical Content representation without changing authored Content. */
+export function setOfferCurrentContentSource(document: MapDocument, input: { offerId: string; source: OfferCurrentContentSource }): MapDocument {
+  const offer = entityOfKind(document, input.offerId, 'offer', 'Offer') as Extract<Entity, { kind: 'offer' }>;
+  if (input.source !== 'free_form' && input.source !== 'structured') throw new DomainError('invalid_offer_current_content_source', 'Current Content source must be free_form or structured.');
+  const eligible = input.source === 'free_form' ? isOfferFreeFormContentEligible(offer) : isOfferStructuredContentEligible(offer);
+  if (!eligible) throw new DomainError('ineligible_offer_content_source', 'Current Content source must reference an eligible representation.');
+  if (offer.currentContentSource === input.source) return document;
+  return replaceOffer(document, { ...offer, currentContentSource: input.source });
+}
+
 /** Inserts one validated structured Content block into its Offer-authored order. */
 export function addOfferContentBlock(document: MapDocument, input: { offerId: string; blockId: string; title: string; text?: string; afterBlockId?: string }): MapDocument {
   const offer = entityOfKind(document, input.offerId, 'offer', 'Offer') as Extract<Entity, { kind: 'offer' }>;
@@ -197,10 +221,10 @@ export function addOfferContentBlock(document: MapDocument, input: { offerId: st
   }
   const block: OfferContentBlock = { id: blockId, title, ...(input.text !== undefined ? { text: input.text } : {}) };
   const contentBlocks = offer.contentBlocks ?? [];
-  if (input.afterBlockId === undefined) return replaceOffer(document, { ...offer, contentBlocks: [...contentBlocks, block] });
+  if (input.afterBlockId === undefined) return replaceOffer(document, normalizeOfferCurrentContentSource({ ...offer, contentBlocks: [...contentBlocks, block] }));
   const anchorIndex = contentBlocks.findIndex(candidate => candidate.id === input.afterBlockId);
   if (anchorIndex < 0) throw new DomainError('unknown_offer_content_block', 'Content block anchor does not belong to the specified Offer.');
-  return replaceOffer(document, { ...offer, contentBlocks: [...contentBlocks.slice(0, anchorIndex + 1), block, ...contentBlocks.slice(anchorIndex + 1)] });
+  return replaceOffer(document, normalizeOfferCurrentContentSource({ ...offer, contentBlocks: [...contentBlocks.slice(0, anchorIndex + 1), block, ...contentBlocks.slice(anchorIndex + 1)] }));
 }
 
 export type UpdateOfferContentBlockInput =
@@ -222,7 +246,7 @@ export function updateOfferContentBlock(document: MapDocument, input: UpdateOffe
   if (input.value === undefined) delete replacement.text;
   else replacement.text = input.value;
   const contentBlocks = offer.contentBlocks!.map((candidate, candidateIndex) => candidateIndex === index ? replacement : candidate);
-  return replaceOffer(document, { ...offer, contentBlocks });
+  return replaceOffer(document, normalizeOfferCurrentContentSource({ ...offer, contentBlocks }));
 }
 
 /** Removes exactly one Offer-owned block and canonicalizes an empty collection to absence. */
@@ -232,7 +256,7 @@ export function removeOfferContentBlock(document: MapDocument, input: { offerId:
   const replacement: Extract<Entity, { kind: 'offer' }> = { ...offer };
   if (contentBlocks.length) replacement.contentBlocks = contentBlocks;
   else delete replacement.contentBlocks;
-  return replaceOffer(document, replacement);
+  return replaceOffer(document, normalizeOfferCurrentContentSource(replacement));
 }
 
 /** Replaces authored order only when the supplied IDs are the exact current block set. */
@@ -893,7 +917,7 @@ export function addEntity(document: MapDocument, input: AddEntityInput): MapDocu
   if (input.kind === 'offer') {
     entityOfKind(document, input.linkedProductId, 'product', 'Linked Product');
     added = [{ id: input.relationshipId, kind: 'product_packaged_as_offer', productId: input.linkedProductId, offerId: input.entityId }];
-    entity = { id: input.entityId, title, kind: 'offer' };
+    entity = { id: input.entityId, title, kind: 'offer', currentContentSource: null };
   } else if (input.kind === 'touchpoint') {
     if (input.locatedInId) assertContainer(document, input.locatedInId);
     if (!input.linkedOfferIds.length) throw new DomainError('missing_linked_offer', 'A Touchpoint must present at least one Offer.');
@@ -1149,6 +1173,8 @@ export function duplicateEntity(document: MapDocument, input: { sourceEntityId: 
     if (source.contentUrl) copy = updateOfferContent(copy, { offerId: input.entityId, field: 'contentUrl', value: source.contentUrl });
     if (source.contentText) copy = updateOfferContent(copy, { offerId: input.entityId, field: 'contentText', value: source.contentText });
     sourceBlocks.forEach((block, index) => { copy = addOfferContentBlock(copy, { offerId: input.entityId, blockId: blockIds[index]!, title: block.title, ...('text' in block ? { text: block.text } : {}) }); });
+    const normalizedSource = normalizeOfferCurrentContentSource(source);
+    if (normalizedSource.currentContentSource) copy = setOfferCurrentContentSource(copy, { offerId: input.entityId, source: normalizedSource.currentContentSource });
     const selected = document.offerJobSelections.filter(selection => selection.offerId === source.id).map(selection => ({ productJobIntentId: selection.productJobIntentId, addressedDesiredOutcomeIds: effectiveOfferDesiredOutcomeIds(document, selection) }));
     copy = setOfferJobSelections(copy, { offerId: input.entityId, selections: selected, newSelectionIds: input.relationshipIds.slice(1, selected.length + 1) });
     const financial = document.offerFinancialIntents.filter(intent => intent.offerId === source.id).map(intent => intent.financialDesiredOutcomeId);

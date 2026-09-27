@@ -9,7 +9,7 @@ function fixture(): MapDocument {
       { id: 'job', kind: 'core_functional_job', title: 'Job' }, { id: 'emotional', kind: 'emotional_job', title: 'Feel safe' },
       { id: 'do-a', kind: 'desired_outcome', title: 'DO A' }, { id: 'do-b', kind: 'desired_outcome', title: 'DO B' },
       { id: 'fdo', kind: 'financial_desired_outcome', title: 'Affordable' }, { id: 'product', kind: 'product', title: 'Product' },
-      { id: 'offer-a', kind: 'offer', title: 'Offer A' }, { id: 'offer-b', kind: 'offer', title: 'Offer B' }, { id: 'touch', kind: 'touchpoint', title: 'Touchpoint' },
+      { id: 'offer-a', kind: 'offer', title: 'Offer A', currentContentSource: null }, { id: 'offer-b', kind: 'offer', title: 'Offer B', currentContentSource: null }, { id: 'touch', kind: 'touchpoint', title: 'Touchpoint' },
     ],
     relationships: [
       { id: 'owns-a', kind: 'job_has_desired_outcome', jobId: 'job', desiredOutcomeId: 'do-a' }, { id: 'owns-b', kind: 'job_has_desired_outcome', jobId: 'job', desiredOutcomeId: 'do-b' },
@@ -28,8 +28,8 @@ function fixture(): MapDocument {
 function tqoDetachSequenceFixture(): MapDocument {
   const document = fixture();
   document.entities.push(
-    { id: 'offer-clarity', kind: 'offer', title: 'Marketing clarity' },
-    { id: 'offer-launch', kind: 'offer', title: 'Launch from scratch' },
+    { id: 'offer-clarity', kind: 'offer', title: 'Marketing clarity', currentContentSource: null },
+    { id: 'offer-launch', kind: 'offer', title: 'Launch from scratch', currentContentSource: null },
     { id: 'tp-leadform', kind: 'touchpoint', title: 'Partnership request' },
     { id: 'tp-book-call', kind: 'touchpoint', title: 'Leadform · Book a call' },
     { id: 'tp-send-context', kind: 'touchpoint', title: 'Leadform · Send context' },
@@ -58,7 +58,7 @@ function tqoDetachSequenceFixture(): MapDocument {
 describe('Touchpoint linked Offer commit', () => {
   it('retains relationship IDs, allocates only additions, removes safely, and does not mutate input', () => {
     const document = fixture();
-    document.entities.push({ id: 'offer-c', kind: 'offer', title: 'Offer C' });
+    document.entities.push({ id: 'offer-c', kind: 'offer', title: 'Offer C', currentContentSource: null });
     const snapshot = structuredClone(document);
     const ids = ['presents-c'];
     const added = commitTouchpointLinkedOffers(document, { touchpointId: 'touch', linkedOfferIds: ['offer-b', 'offer-c'], confirmedRemoval: true, newId: () => ids.shift()! });
@@ -176,7 +176,7 @@ describe('atomic created Offer replacement owners', () => {
     const snapshot = structuredClone(document);
     const next = createSiblingOfferAndReplace(document, { touchpointId: 'touch', departingOfferId: 'offer-a', title: 'Sibling', offerId: 'sibling', productRelationshipId: 'sibling-product', replacementRelationshipId: 'sibling-touch', placement: { viewId: 'view', x: 7, y: 9 } });
     expect(document).toEqual(snapshot);
-    expect(next.entities).toContainEqual({ id: 'sibling', kind: 'offer', title: 'Sibling' });
+    expect(next.entities).toContainEqual({ id: 'sibling', kind: 'offer', title: 'Sibling', currentContentSource: null });
     expect(next.relationships).toContainEqual({ id: 'sibling-product', kind: 'product_packaged_as_offer', productId: 'product', offerId: 'sibling' });
     expect(next.relationships).toContainEqual({ id: 'sibling-touch', kind: 'offer_presented_at_touchpoint', offerId: 'sibling', touchpointId: 'touch' });
     expect(next.offerJobSelections.filter(item => item.offerId === 'sibling')).toEqual([]);
@@ -188,15 +188,15 @@ describe('atomic created Offer replacement owners', () => {
   it('duplicates only canonical Offer-owned state and uses deterministic collision-safe titles', () => {
     const document = soleFixture();
     const departing = document.entities.find(entity => entity.id === 'offer-a' && entity.kind === 'offer')!;
-    Object.assign(departing, { contentUrl: 'https://example.test/brief', contentText: 'Minimal copy', contentBlocks: [{ id: 'source-heading', title: 'Heading' }, { id: 'source-empty', title: 'Empty body', text: '' }] });
-    document.entities.push({ id: 'offer-2', kind: 'offer', title: 'Offer A 2' }, { id: 'similar', kind: 'offer', title: 'Offer A 02' });
+    Object.assign(departing, { currentContentSource: 'free_form', contentUrl: 'https://example.test/brief', contentText: 'Minimal copy', contentBlocks: [{ id: 'source-heading', title: 'Heading' }, { id: 'source-empty', title: 'Empty body', text: '' }] });
+    document.entities.push({ id: 'offer-2', kind: 'offer', title: 'Offer A 2', currentContentSource: null }, { id: 'similar', kind: 'offer', title: 'Offer A 02', currentContentSource: null });
     document.offerFinancialIntents.push({ id: 'financial', offerId: 'offer-a', financialDesiredOutcomeId: 'fdo' });
     expect(collisionSafeOfferTitle(document, 'Offer B')).toBe('Offer B 2');
     expect(collisionSafeOfferTitle(document, 'Offer A')).toBe('Offer A 3');
-    document.entities.push({ id: 'offer-3', kind: 'offer', title: 'Offer A 3' });
+    document.entities.push({ id: 'offer-3', kind: 'offer', title: 'Offer A 3', currentContentSource: null });
     expect(collisionSafeOfferTitle(document, 'Offer A')).toBe('Offer A 4');
     const next = duplicateOfferAndReplace(document, { touchpointId: 'touch', departingOfferId: 'offer-a', offerId: 'copy', duplicationRelationshipIds: ['copy-product', 'copy-job', 'copy-financial'], offerContentBlockIds: ['copy-heading', 'copy-empty'], replacementRelationshipId: 'copy-touch', placement: { viewId: 'view', x: 10, y: 20 } });
-    expect(next.entities).toContainEqual({ id: 'copy', kind: 'offer', title: 'Offer A 4', contentUrl: 'https://example.test/brief', contentText: 'Minimal copy', contentBlocks: [{ id: 'copy-heading', title: 'Heading' }, { id: 'copy-empty', title: 'Empty body', text: '' }] });
+    expect(next.entities).toContainEqual({ id: 'copy', kind: 'offer', title: 'Offer A 4', currentContentSource: 'free_form', contentUrl: 'https://example.test/brief', contentText: 'Minimal copy', contentBlocks: [{ id: 'copy-heading', title: 'Heading' }, { id: 'copy-empty', title: 'Empty body', text: '' }] });
     expect(next.offerJobSelections).toContainEqual(expect.objectContaining({ id: 'copy-job', offerId: 'copy', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a', 'do-b'] }));
     expect(next.offerFinancialIntents).toContainEqual({ id: 'copy-financial', offerId: 'copy', financialDesiredOutcomeId: 'fdo' });
     expect(next.touchpointJobSelections.some(item => item.offerId === 'copy')).toBe(false);
@@ -399,7 +399,7 @@ describe('Touchpoint edit intent draft', () => {
 
   it('discovers ontology-valid title matches with owner-aware branches', () => {
     const document = fixture();
-    document.entities.push({ id: 'offer-match', kind: 'offer', title: 'DO B commercial' }, { id: 'repulsor-match', kind: 'repulsor', title: 'DO B concern' });
+    document.entities.push({ id: 'offer-match', kind: 'offer', title: 'DO B commercial', currentContentSource: null }, { id: 'repulsor-match', kind: 'repulsor', title: 'DO B concern' });
     const result = globalIntentDiscovery(document, { query: 'do b' });
     expect(result.titleMatches.jobGroups).toHaveLength(1);
     expect(result.titleMatches.jobGroups[0]?.job.id).toBe('job');

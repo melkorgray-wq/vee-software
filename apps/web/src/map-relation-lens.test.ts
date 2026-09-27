@@ -5,8 +5,8 @@ import { deriveRelationLensTrace } from './map-relation-lens';
 
 function fixture(): MapDocument {
   const entities: MapDocument['entities'] = [
-    { id: 'product', kind: 'product', title: 'Product' }, { id: 'offer', kind: 'offer', title: 'Offer' },
-    { id: 'sibling-offer', kind: 'offer', title: 'Sibling' }, { id: 'job', kind: 'core_functional_job', title: 'Job' },
+    { id: 'product', kind: 'product', title: 'Product' }, { id: 'offer', kind: 'offer', title: 'Offer', currentContentSource: null },
+    { id: 'sibling-offer', kind: 'offer', title: 'Sibling', currentContentSource: null }, { id: 'job', kind: 'core_functional_job', title: 'Job' },
     { id: 'other-job', kind: 'related_job', title: 'Other job' }, { id: 'a', kind: 'desired_outcome', title: 'A' },
     { id: 'b', kind: 'desired_outcome', title: 'B' }, { id: 'c', kind: 'desired_outcome', title: 'C' },
     { id: 'fdo', kind: 'financial_desired_outcome', title: 'FDO' }, { id: 'touch', kind: 'touchpoint', title: 'Touch' },

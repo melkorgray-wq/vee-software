@@ -156,7 +156,7 @@ The Touchpoint read projection comes from `touchpointClientScope()`. It renders 
 
 **Offer-specific; do not copy literally:** `contentBlocks`; the exact **Add block** labels and `Ctrl+Enter`/`Cmd+Enter` binding; the block title/text schema; deletion threshold; ordering semantics; Offer duplication contents; URL meaning, empty-state copy, and compact-height value; Product → Offer → Touchpoint structure; Offers, Located in, Parent or Children; Touchpoint containment/reassignment; six Client Scope kinds as mandatory sections; contributor propagation; Resistance relevance/mitigation; specific labels, counts or empty copy; Touchpoint candidate eligibility or domain operations.
 
-**Deferred:** an active/current Content source, structured whole-text preview, structured Copy, templates or framework modeling, special block kinds, and drag-and-drop.
+**Deferred presentation:** the canonical current Content source is established in the domain, while its Inspector selector, structured whole-text presentation, source-aware Copy, templates or framework modeling, special block kinds, and drag-and-drop remain deferred. This contract makes no browser-acceptance or runtime-presentation claim for the current source.
 
 A future Inspector first identifies its ontology-owned properties and relations, then applies the common presentation and interaction contracts.
 

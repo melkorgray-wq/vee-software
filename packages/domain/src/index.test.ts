@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addOfferContentBlock, addProductJobIntent, removeOfferContentBlock, removeProductJobIntent, reorderOfferContentBlocks, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateOfferContentBlock, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, changeOfferProduct, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, movePlacement, updateEntity, updateOfferContent, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct, planTouchpointIntentPathChange, commitTouchpointIntentPathPlan, commitTouchpointParent, planTouchpointStructuralChange } from './index';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addOfferContentBlock, addProductJobIntent, removeOfferContentBlock, removeProductJobIntent, reorderOfferContentBlocks, setOfferCurrentContentSource, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateOfferContentBlock, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, changeOfferProduct, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, movePlacement, updateEntity, updateOfferContent, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct, planTouchpointIntentPathChange, commitTouchpointIntentPathPlan, commitTouchpointParent, planTouchpointStructuralChange } from './index';
 
 function completed(result: ReturnType<typeof authorTouchpointIntentBottomUp>) { if (result.status !== 'complete') throw new Error(`Expected complete, got ${result.status}`); return result.document; }
 
@@ -9,6 +9,82 @@ function offerDocument() { let d = addEntity(empty(), { ...place, entityId: 'pro
 function touchpoint(d = offerDocument(), id = 'touch', parent?: string) { return addEntity(d, { ...place, entityId: id, title: id, kind: 'touchpoint', locatedInId: 'site', url: '  /checkout#pay  ', linkedOfferIds: ['offer'], relationshipIds: [`presented-${id}`], ...(parent ? { parentTouchpointId: parent, parentRelationshipId: `contains-${id}` } : {}) }); }
 
 describe('map authoring domain', () => {
+  describe('Offer current Content source', () => {
+    const current = (document: ReturnType<typeof offerDocument>, id = 'offer') =>
+      document.entities.find(entity => entity.id === id && entity.kind === 'offer') as Extract<(typeof document.entities)[number], { kind: 'offer' }>;
+
+    it('starts empty and selects only the first representation with a non-whitespace body', () => {
+      const emptyOffer = offerDocument();
+      expect(current(emptyOffer).currentContentSource).toBeNull();
+      expect(current(updateOfferContent(emptyOffer, { offerId: 'offer', field: 'contentUrl', value: 'https://example.test' })).currentContentSource).toBeNull();
+      for (const text of [undefined, '', ' \n ']) {
+        const block = addOfferContentBlock(emptyOffer, { offerId: 'offer', blockId: `block-${String(text)}`, title: 'Title', ...(text !== undefined ? { text } : {}) });
+        expect(current(block).currentContentSource).toBeNull();
+      }
+      const free = updateOfferContent(emptyOffer, { offerId: 'offer', field: 'contentText', value: ' Body ' });
+      expect(current(free).currentContentSource).toBe('free_form');
+      expect(current(addOfferContentBlock(free, { offerId: 'offer', blockId: 'structured', title: 'Title', text: 'Body' })).currentContentSource).toBe('free_form');
+      const structured = addOfferContentBlock(emptyOffer, { offerId: 'offer', blockId: 'structured', title: 'Title', text: ' Body ' });
+      expect(current(structured).currentContentSource).toBe('structured');
+      expect(current(updateOfferContent(structured, { offerId: 'offer', field: 'contentText', value: 'Free' })).currentContentSource).toBe('structured');
+    });
+
+    it('switches explicitly only to eligible sources and preserves identity for the current source', () => {
+      let both = updateOfferContent(offerDocument(), { offerId: 'offer', field: 'contentText', value: 'Free' });
+      both = addOfferContentBlock(both, { offerId: 'offer', blockId: 'block', title: 'Title', text: 'Structured' });
+      expect(setOfferCurrentContentSource(both, { offerId: 'offer', source: 'free_form' })).toBe(both);
+      const structured = setOfferCurrentContentSource(both, { offerId: 'offer', source: 'structured' });
+      expect(current(structured).currentContentSource).toBe('structured');
+      expect(current(setOfferCurrentContentSource(structured, { offerId: 'offer', source: 'free_form' })).currentContentSource).toBe('free_form');
+      const before = offerDocument();
+      expect(() => setOfferCurrentContentSource(before, { offerId: 'offer', source: 'structured' })).toThrow('eligible');
+      expect(() => setOfferCurrentContentSource(before, { offerId: 'missing', source: 'free_form' })).toThrow();
+      expect(() => setOfferCurrentContentSource(before, { offerId: 'offer', source: null } as never)).toThrow('free_form or structured');
+      expect(before).toEqual(offerDocument());
+    });
+
+    it('normalizes fallbacks atomically across text edits and block removal', () => {
+      let both = updateOfferContent(offerDocument(), { offerId: 'offer', field: 'contentText', value: 'Free' });
+      both = addOfferContentBlock(both, { offerId: 'offer', blockId: 'one', title: 'One', text: 'Structured' });
+      both = addOfferContentBlock(both, { offerId: 'offer', blockId: 'two', title: 'Two', text: 'More' });
+      const structured = setOfferCurrentContentSource(both, { offerId: 'offer', source: 'structured' });
+      const clearedNonCurrent = updateOfferContent(structured, { offerId: 'offer', field: 'contentText', value: ' ' });
+      expect(current(clearedNonCurrent).currentContentSource).toBe('structured');
+      const oneRemoved = removeOfferContentBlock(structured, { offerId: 'offer', blockId: 'one' });
+      expect(current(oneRemoved).currentContentSource).toBe('structured');
+      const fallbackFree = updateOfferContentBlock(oneRemoved, { offerId: 'offer', blockId: 'two', field: 'text', value: '\t' });
+      expect(current(fallbackFree).currentContentSource).toBe('free_form');
+      const fallbackStructured = updateOfferContent(both, { offerId: 'offer', field: 'contentText', value: '' });
+      expect(current(fallbackStructured).currentContentSource).toBe('structured');
+      const none = updateOfferContentBlock(removeOfferContentBlock(fallbackStructured, { offerId: 'offer', blockId: 'one' }), { offerId: 'offer', blockId: 'two', field: 'text', value: '' });
+      expect(current(none).currentContentSource).toBeNull();
+      expect(current(none).contentBlocks?.[0]).toHaveProperty('text', '');
+    });
+
+    it('does not recalculate for title, order, URL, or general Offer updates', () => {
+      let document = addOfferContentBlock(offerDocument(), { offerId: 'offer', blockId: 'one', title: 'One', text: 'Body' });
+      document = addOfferContentBlock(document, { offerId: 'offer', blockId: 'two', title: 'Two' });
+      const titled = updateOfferContentBlock(document, { offerId: 'offer', blockId: 'two', field: 'title', value: 'Renamed' });
+      expect(current(titled).currentContentSource).toBe('structured');
+      expect(current(reorderOfferContentBlocks(titled, { offerId: 'offer', blockIds: ['two', 'one'] })).currentContentSource).toBe('structured');
+      expect(current(updateOfferContent(titled, { offerId: 'offer', field: 'contentUrl', value: 'https://example.test' })).currentContentSource).toBe('structured');
+      const updated = updateEntity(titled, { entityId: 'offer', title: 'Renamed Offer', linkedProductId: 'product' });
+      expect(current(updated)).toMatchObject({ title: 'Renamed Offer', currentContentSource: 'structured', contentBlocks: current(titled).contentBlocks });
+    });
+
+    it('duplicates canonical semantic selection with fresh block IDs and normalizes malformed legacy state', () => {
+      let source = updateOfferContent(offerDocument(), { offerId: 'offer', field: 'contentText', value: 'Free' });
+      source = addOfferContentBlock(source, { offerId: 'offer', blockId: 'block', title: 'Title', text: 'Structured' });
+      source = setOfferCurrentContentSource(source, { offerId: 'offer', source: 'structured' });
+      const copy = duplicateEntity(source, { sourceEntityId: 'offer', entityId: 'copy', viewId: 'view', x: 1, y: 2, relationshipIds: ['copy-product'], offerContentBlockIds: ['fresh'] });
+      expect(current(copy, 'copy')).toMatchObject({ currentContentSource: 'structured', contentText: 'Free', contentBlocks: [{ id: 'fresh', title: 'Title', text: 'Structured' }] });
+      expect(current(source).contentBlocks?.[0]?.id).toBe('block');
+      const malformed = { ...source, entities: source.entities.map(entity => entity.id === 'offer' ? { ...entity, currentContentSource: 'stale' as never } : entity) };
+      const normalized = duplicateEntity(malformed, { sourceEntityId: 'offer', entityId: 'legacy-copy', viewId: 'view', x: 3, y: 4, relationshipIds: ['legacy-product'], offerContentBlockIds: ['legacy-block'] });
+      expect(current(normalized, 'legacy-copy').currentContentSource).toBe('free_form');
+    });
+  });
+
   describe('Offer structured Content blocks', () => {
     function blocks() {
       let document = addOfferContentBlock(offerDocument(), { offerId: 'offer', blockId: 'first', title: ' First ', text: '' });
@@ -137,7 +213,7 @@ describe('map authoring domain', () => {
     expect(both.entities.find(entity => entity.id === 'offer')).toMatchObject({ contentUrl: 'http://example.test/doc', contentText: 'Notes' });
     const clearedUrl = updateOfferContent(both, { offerId: 'offer', field: 'contentUrl', value: '' });
     expect(clearedUrl.entities.find(entity => entity.id === 'offer')).toMatchObject({ contentText: 'Notes' });
-    expect(updateOfferContent(clearedUrl, { offerId: 'offer', field: 'contentText', value: '\n ' }).entities.find(entity => entity.id === 'offer')).toEqual({ id: 'offer', kind: 'offer', title: 'Subscription' });
+    expect(updateOfferContent(clearedUrl, { offerId: 'offer', field: 'contentText', value: '\n ' }).entities.find(entity => entity.id === 'offer')).toEqual({ id: 'offer', kind: 'offer', title: 'Subscription', currentContentSource: null });
   });
   it('rejects unsafe Offer Content URLs and preserves every unrelated document record', () => {
     const before = offerDocument();
@@ -153,7 +229,7 @@ describe('map authoring domain', () => {
     const withUrl = updateOfferContent(offerDocument(), { offerId: 'offer', field: 'contentUrl', value: 'https://example.test/brief' });
     const source = updateOfferContent(withUrl, { offerId: 'offer', field: 'contentText', value: 'Line one\nLine two' });
     const copy = duplicateEntity(source, { sourceEntityId: 'offer', entityId: 'copy', title: 'Copy', viewId: 'view', x: 30, y: 40, relationshipIds: ['copy-product'] });
-    expect(copy.entities.find(entity => entity.id === 'copy')).toEqual({ id: 'copy', kind: 'offer', title: 'Copy', contentUrl: 'https://example.test/brief', contentText: 'Line one\nLine two' });
+    expect(copy.entities.find(entity => entity.id === 'copy')).toEqual({ id: 'copy', kind: 'offer', title: 'Copy', currentContentSource: 'free_form', contentUrl: 'https://example.test/brief', contentText: 'Line one\nLine two' });
   });
   it.each(CLIENT_ROOT_ENTITY_KINDS)('adds and duplicates independent %s roots without relationships or annotations', kind => {
     const business = addEntity(empty(), { ...place, entityId: 'product', title: 'Unrelated Product', kind: 'product' });
@@ -970,7 +1046,7 @@ describe('Touchpoint structural subtree planning', () => {
   function semanticMoveDocument(targetOfferIds: string[] = ['offer-b'], includeSibling = false) {
     let d = offerDocument();
     for (const offerId of [...new Set(targetOfferIds)].filter(id => id !== 'orphan-offer')) d = addEntity(d, { ...place, entityId: offerId, title: offerId, kind: 'offer', linkedProductId: 'product', relationshipId: `packages-${offerId}` });
-    if (targetOfferIds.includes('orphan-offer')) d = { ...d, entities: [...d.entities, { id: 'orphan-offer', title: 'Orphan Offer', kind: 'offer' }] };
+    if (targetOfferIds.includes('orphan-offer')) d = { ...d, entities: [...d.entities, { id: 'orphan-offer', title: 'Orphan Offer', kind: 'offer', currentContentSource: null }] };
     d = addEntity(d, { ...place, entityId: 'old-parent', title: 'Old Parent', kind: 'touchpoint', linkedOfferIds: ['offer'], relationshipIds: ['old-parent-offer'] });
     d = addEntity(d, { ...place, entityId: 'new-parent', title: 'New Parent', kind: 'touchpoint', linkedOfferIds: targetOfferIds, relationshipIds: targetOfferIds.map(id => `new-parent-${id}`) });
     d = addEntity(d, { ...place, entityId: 'moved', title: 'Moved', kind: 'touchpoint', linkedOfferIds: ['offer'], relationshipIds: ['moved-offer'], parentTouchpointId: 'old-parent', parentRelationshipId: 'old-moved' });
