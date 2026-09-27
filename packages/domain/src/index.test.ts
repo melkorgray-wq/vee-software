@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addOfferContentBlock, addProductJobIntent, removeOfferContentBlock, removeProductJobIntent, reorderOfferContentBlocks, setOfferCurrentContentSource, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateOfferContentBlock, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, changeOfferProduct, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, movePlacement, updateEntity, updateOfferContent, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct, planTouchpointIntentPathChange, commitTouchpointIntentPathPlan, commitTouchpointParent, planTouchpointStructuralChange } from './index';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addOfferContentBlock, addProductJobIntent, removeOfferContentBlock, removeProductJobIntent, reorderOfferContentBlocks, setOfferCurrentContentSource, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateOfferContentBlock, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, changeOfferProduct, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, movePlacement, offerContentSourceState, updateEntity, updateOfferContent, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct, planTouchpointIntentPathChange, commitTouchpointIntentPathPlan, commitTouchpointParent, planTouchpointStructuralChange } from './index';
 
 function completed(result: ReturnType<typeof authorTouchpointIntentBottomUp>) { if (result.status !== 'complete') throw new Error(`Expected complete, got ${result.status}`); return result.document; }
 
@@ -12,6 +12,35 @@ describe('map authoring domain', () => {
   describe('Offer current Content source', () => {
     const current = (document: ReturnType<typeof offerDocument>, id = 'offer') =>
       document.entities.find(entity => entity.id === id && entity.kind === 'offer') as Extract<(typeof document.entities)[number], { kind: 'offer' }>;
+
+    it('projects canonical source and eligibility without mutating the document', () => {
+      const emptyOffer = offerDocument();
+      const cases = [
+        [emptyOffer, { currentContentSource: null, freeFormEligible: false, structuredEligible: false }],
+        [updateOfferContent(emptyOffer, { offerId: 'offer', field: 'contentUrl', value: 'https://example.test' }), { currentContentSource: null, freeFormEligible: false, structuredEligible: false }],
+        [updateOfferContent(emptyOffer, { offerId: 'offer', field: 'contentText', value: 'Free' }), { currentContentSource: 'free_form', freeFormEligible: true, structuredEligible: false }],
+        [addOfferContentBlock(emptyOffer, { offerId: 'offer', blockId: 'body', title: 'Title', text: 'Body' }), { currentContentSource: 'structured', freeFormEligible: false, structuredEligible: true }],
+      ] as const;
+      for (const [document, expected] of cases) {
+        expect(offerContentSourceState(document, 'offer')).toEqual(expected);
+        expect(offerContentSourceState(document, 'offer')).toEqual(expected);
+      }
+      for (const text of [undefined, '', ' \n ']) {
+        const document = addOfferContentBlock(emptyOffer, { offerId: 'offer', blockId: `empty-${String(text)}`, title: 'Title', ...(text === undefined ? {} : { text }) });
+        expect(offerContentSourceState(document, 'offer')).toEqual({ currentContentSource: null, freeFormEligible: false, structuredEligible: false });
+      }
+      let both = addOfferContentBlock(updateOfferContent(emptyOffer, { offerId: 'offer', field: 'contentText', value: 'Free' }), { offerId: 'offer', blockId: 'both', title: 'Title', text: 'Body' });
+      expect(offerContentSourceState(both, 'offer')).toEqual({ currentContentSource: 'free_form', freeFormEligible: true, structuredEligible: true });
+      both = setOfferCurrentContentSource(both, { offerId: 'offer', source: 'structured' });
+      expect(offerContentSourceState(both, 'offer')).toEqual({ currentContentSource: 'structured', freeFormEligible: true, structuredEligible: true });
+      const fallback = updateOfferContentBlock(both, { offerId: 'offer', blockId: 'both', field: 'text', value: ' ' });
+      expect(offerContentSourceState(fallback, 'offer').currentContentSource).toBe('free_form');
+      const identity = fallback;
+      offerContentSourceState(fallback, 'offer');
+      expect(fallback).toBe(identity);
+      expect(() => offerContentSourceState(fallback, 'missing')).toThrow('existing entity');
+      expect(() => offerContentSourceState(fallback, 'product')).toThrow('must reference a offer');
+    });
 
     it('starts empty and selects only the first representation with a non-whitespace body', () => {
       const emptyOffer = offerDocument();

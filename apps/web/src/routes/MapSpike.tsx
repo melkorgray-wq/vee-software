@@ -2,7 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useReducer, useRef, useState, typ
 import { createPortal } from 'react-dom';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addOfferContentBlock, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, removeOfferContentBlock, reorderOfferContentBlocks, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateOfferContent, updateOfferContentBlock, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type OfferContentBlock, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addOfferContentBlock, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, offerContentSourceState, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, removeOfferContentBlock, reorderOfferContentBlocks, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferCurrentContentSource, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateOfferContent, updateOfferContentBlock, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type OfferContentBlock, type OfferCurrentContentSource, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, disclosureOverlayPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction, type Point, type WorkspaceShortcutState } from '../map-interaction';
@@ -45,6 +45,7 @@ type OfferContentDraft = {
   contentUrl: string;
   contentText: string;
   error?: string | undefined;
+  currentSourceError?: string | undefined;
   newBlock?: { title: string; placement: OfferContentBlockPlacement; error?: string | undefined } | undefined;
   blocks: Record<string, OfferContentBlockDraft>;
   deleteConfirmationBlockId?: string | undefined;
@@ -960,8 +961,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       setDocument(next);
       const offer = committedOffer(next, draft.offerId)!;
       const synchronizedDraft: OfferContentDraft = field === 'contentUrl'
-        ? { ...draft, contentUrl: offer.contentUrl ?? '', error: undefined }
-        : { ...draft, contentText: offer.contentText ?? '' };
+        ? { ...draft, contentUrl: offer.contentUrl ?? '', error: undefined, currentSourceError: undefined }
+        : { ...draft, contentText: offer.contentText ?? '', currentSourceError: undefined };
       setCurrentOfferContentDraft(synchronizedDraft);
       return true;
     } catch (error) {
@@ -995,7 +996,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       }
       documentRef.current = next;
       setDocument(next);
-      setCurrentOfferContentDraft({ ...draft, newBlock: undefined, blocks: { ...draft.blocks, [added.id]: contentBlockDraft(added) } });
+      setCurrentOfferContentDraft({ ...draft, newBlock: undefined, currentSourceError: undefined, blocks: { ...draft.blocks, [added.id]: contentBlockDraft(added) } });
       activeOfferContentFieldRef.current = null;
       return added.id;
     } catch (error) {
@@ -1017,7 +1018,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       if (!block) throw new Error('The updated block could not be read from the Offer.');
       documentRef.current = next;
       setDocument(next);
-      setCurrentOfferContentDraft({ ...draft, blocks: { ...draft.blocks, [blockId]: { ...contentBlockDraft(block) } } });
+      setCurrentOfferContentDraft({ ...draft, currentSourceError: undefined, blocks: { ...draft.blocks, [blockId]: { ...contentBlockDraft(block) } } });
       return true;
     } catch (error) {
       const errorKey = field === 'title' ? 'titleError' : 'textError';
@@ -3066,6 +3067,23 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const contentExpanded = expandedOfferContentId === selected.id;
     const contentHasCompactOverflow = offerContentHasCompactOverflow;
     const textViewportId = `offer-content-text-${encodeURIComponent(selected.id)}`;
+    const sourceState = offerContentSourceState(document, selected.id);
+    const freeFormCurrentId = `offer-content-current-free-form-${encodeURIComponent(selected.id)}`;
+    const structuredCurrentId = `offer-content-current-structured-${encodeURIComponent(selected.id)}`;
+    const requestOfferCurrentContentSource = (source: OfferCurrentContentSource) => {
+      if (!completeActiveOfferContentField()) return;
+      const draft = offerContentDraftRef.current;
+      if (!draft) return;
+      try {
+        const next = setOfferCurrentContentSource(documentRef.current, { offerId: draft.offerId, source });
+        pendingLocalFocusIdsRef.current = [source === 'free_form' ? freeFormCurrentId : structuredCurrentId];
+        documentRef.current = next;
+        setCurrentOfferContentDraft({ ...draft, currentSourceError: undefined });
+        setDocument(next);
+      } catch (error) {
+        setCurrentOfferContentDraft({ ...draft, currentSourceError: error instanceof Error ? error.message : 'Current Content source could not be updated. Try again.' });
+      }
+    };
     const openEditor = () => {
       closeConnectedTouchpointsEditor('switch-editor');
       closeRelationEditor('switch-editor');
@@ -3197,10 +3215,14 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       {editing ? <div className="offer-content-heading"><h4 id="offer-content-heading">Offer Content</h4><button data-offer-content-close type="button" className="inspector-secondary-action" onClick={() => closeOfferContentEditor('explicit')}>Close</button></div> : <h4 id="offer-content-heading" aria-label="Offer Content"><button ref={offerContentButtonRef} data-touchpoint-editor-affordance type="button" className="inspector-property-heading-action" aria-label={selected.contentUrl || selected.contentText || selected.contentBlocks?.length ? 'Edit Offer Content' : 'Add content'} onClick={openEditor}>{selected.contentUrl || selected.contentText || selected.contentBlocks?.length ? 'Offer Content' : 'Add content'}<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h4>}
       {editing ? <div className="inspector-relation-editor offer-content-editor" aria-label="Offer Content editor">
         <label>External document URL<input autoFocus type="url" value={offerContentDraft.contentUrl} aria-invalid={Boolean(offerContentDraft.error)} aria-describedby={offerContentDraft.error ? 'offer-content-url-error' : undefined} onFocus={() => { activeOfferContentFieldRef.current = { kind: 'contentUrl' }; }} onChange={event => setCurrentOfferContentDraft({ ...offerContentDraft, contentUrl: event.target.value, error: undefined })} onBlur={event => { if (!dismissingOfferContentRef.current && !(event.relatedTarget instanceof HTMLElement && event.relatedTarget.matches('[data-offer-content-close]')) && commitContentField('contentUrl')) activeOfferContentFieldRef.current = null; }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); if (commitContentField('contentUrl')) activeOfferContentFieldRef.current = null; } }} /></label>
-        <label>Content text<textarea rows={6} value={offerContentDraft.contentText} onFocus={() => { activeOfferContentFieldRef.current = { kind: 'contentText' }; }} onChange={event => setCurrentOfferContentDraft({ ...offerContentDraft, contentText: event.target.value })} onBlur={event => { if (!dismissingOfferContentRef.current && !(event.relatedTarget instanceof HTMLElement && event.relatedTarget.matches('[data-offer-content-close]')) && commitContentField('contentText')) activeOfferContentFieldRef.current = null; }} /></label>
+        <div className="offer-content-representation">
+          <div className="offer-content-representation-heading"><label htmlFor="offer-content-free-form">Free-form Content</label>{sourceState.freeFormEligible && sourceState.currentContentSource === 'free_form' ? <span id={freeFormCurrentId} className="offer-content-current-marker" tabIndex={-1}>Current</span> : sourceState.freeFormEligible && sourceState.structuredEligible ? <button type="button" className="inspector-secondary-action" aria-label="Make Free-form Content current" onClick={() => requestOfferCurrentContentSource('free_form')}>Make current</button> : null}</div>
+          <textarea id="offer-content-free-form" aria-label="Content text" rows={6} value={offerContentDraft.contentText} onFocus={() => { activeOfferContentFieldRef.current = { kind: 'contentText' }; }} onChange={event => setCurrentOfferContentDraft({ ...offerContentDraft, contentText: event.target.value })} onBlur={event => { if (!dismissingOfferContentRef.current && !(event.relatedTarget instanceof HTMLElement && event.relatedTarget.matches('[data-offer-content-close]')) && commitContentField('contentText')) activeOfferContentFieldRef.current = null; }} />
+        </div>
         {offerContentDraft.error && <p id="offer-content-url-error" className="error-message" role="alert">{offerContentDraft.error}</p>}
+        {offerContentDraft.currentSourceError && <p className="error-message" role="alert">{offerContentDraft.currentSourceError}</p>}
         <section className="offer-structured-content" aria-labelledby="offer-structured-content-heading">
-          <div className="offer-structured-content-heading"><h5 id="offer-structured-content-heading">Structured Content</h5><button id="offer-content-add-block" type="button" className="inspector-secondary-action" onClick={() => startNewBlockDraft({ kind: 'end' })}>Add block</button></div>
+          <div className="offer-structured-content-heading"><h5 id="offer-structured-content-heading">Structured Content</h5>{sourceState.structuredEligible && sourceState.currentContentSource === 'structured' ? <span id={structuredCurrentId} className="offer-content-current-marker" tabIndex={-1}>Current</span> : sourceState.structuredEligible && sourceState.freeFormEligible ? <button type="button" className="inspector-secondary-action" aria-label="Make Structured Content current" onClick={() => requestOfferCurrentContentSource('structured')}>Make current</button> : null}<button id="offer-content-add-block" type="button" className="inspector-secondary-action" onClick={() => startNewBlockDraft({ kind: 'end' })}>Add block</button></div>
           <p className="offer-structured-content-help">Structure the Offer as named blocks. Think PAS, AIDA, BAB or 4Ps — or mix the logic and build your own.</p>
           <div className="offer-content-block-list">
             {(selected.contentBlocks ?? []).map((block, index) => {

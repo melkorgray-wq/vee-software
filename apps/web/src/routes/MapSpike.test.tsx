@@ -895,6 +895,108 @@ describe('Offer Content Inspector', () => {
     expect(cluster.nextElementSibling).toHaveClass('offer-structured-content-help');
   });
 
+  it.each([
+    ['free-form only', { contentText: 'Free form' }, 'Free-form Content'],
+    ['structured body only', { contentBlocks: [{ id: 'body', title: 'Title', text: 'Body' }] }, 'Structured Content'],
+  ])('shows only the canonical Current state for %s', async (_name, authored, currentLabel) => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, authored);
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    const current = inspector.getByText('Current');
+    expect(current.closest('.offer-content-representation-heading, .offer-structured-content-heading')).toHaveTextContent(currentLabel);
+    expect(inspector.queryByRole('button', { name: /Make .* current/ })).not.toBeInTheDocument();
+    expect(current).not.toHaveAttribute('role', 'button');
+  });
+
+  it.each([
+    ['URL only', { contentUrl: 'https://example.test/source' }],
+    ['title only', { contentBlocks: [{ id: 'title', title: 'Title' }] }],
+    ['empty body', { contentBlocks: [{ id: 'empty', title: 'Title', text: '' }] }],
+    ['whitespace body', { contentBlocks: [{ id: 'space', title: 'Title', text: ' \n ' }] }],
+  ])('does not offer Current controls for %s content', async (_name, authored) => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, authored);
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    expect(inspector.queryByText('Current')).not.toBeInTheDocument();
+    expect(inspector.queryByRole('button', { name: /Make .* current/ })).not.toBeInTheDocument();
+  });
+
+  it('switches each eligible representation canonically, preserves authored state, and transfers focus to Current', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, {
+      currentContentSource: 'free_form',
+      contentUrl: 'https://example.test/source',
+      contentText: 'Free form',
+      contentBlocks: [{ id: 'first', title: 'First', text: 'Body' }, { id: 'second', title: 'Second' }],
+    });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    const before = structuredClone(window.__VEE_DEV__!.dump());
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    expect(inspector.getByText('Current').parentElement).toHaveTextContent('Free-form Content');
+    expect(inspector.getByRole('button', { name: 'Make Structured Content current' })).toHaveTextContent('Make current');
+    expect(inspector.queryByRole('button', { name: 'Make Free-form Content current' })).not.toBeInTheDocument();
+
+    await user.click(inspector.getByRole('button', { name: 'Make Structured Content current' }));
+    await waitFor(() => expect(inspector.getByText('Current')).toHaveFocus());
+    expect(inspector.getByText('Current').parentElement).toHaveTextContent('Structured Content');
+    expect(inspector.getByRole('button', { name: 'Make Free-form Content current' })).toHaveTextContent('Make current');
+    let after = window.__VEE_DEV__!.dump();
+    expect(after).toEqual({ ...before, entities: before.entities.map(entity => entity.id === 'offer-a' ? { ...entity, currentContentSource: 'structured' } : entity) });
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+
+    await user.click(inspector.getByRole('button', { name: 'Make Free-form Content current' }));
+    await waitFor(() => expect(inspector.getByText('Current')).toHaveFocus());
+    after = window.__VEE_DEV__!.dump();
+    expect(after).toEqual(before);
+    expect(inspector.queryByRole('button', { name: /clear|null|remove current/i })).not.toBeInTheDocument();
+  });
+
+  it('completes an active Content field before switching and blocks the switch on field validation', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { currentContentSource: 'free_form', contentText: 'Free', contentBlocks: [{ id: 'body', title: 'Title', text: 'Body' }] });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    const free = inspector.getByLabelText('Content text');
+    await user.clear(free);
+    await user.type(free, 'Edited once');
+    await user.click(inspector.getByRole('button', { name: 'Make Structured Content current' }));
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentText: 'Edited once', currentContentSource: 'structured' });
+
+    const url = inspector.getByLabelText('External document URL');
+    await user.type(url, 'javascript:invalid');
+    await user.click(inspector.getByRole('button', { name: 'Make Free-form Content current' }));
+    expect(inspector.getByRole('alert')).toHaveTextContent('absolute http: or https:');
+    expect(inspector.getByLabelText('Offer Content editor')).toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ currentContentSource: 'structured' });
+  });
+
+  it('commits block edits before switching and shows automatic fallback after the current body is cleared', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { currentContentSource: 'structured', contentText: 'Free', contentBlocks: [{ id: 'body', title: 'Title', text: 'Body' }] });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    const title = inspector.getByLabelText('Block title');
+    await user.clear(title);
+    await user.type(title, 'Renamed');
+    await user.click(inspector.getByRole('button', { name: 'Make Free-form Content current' }));
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ currentContentSource: 'free_form', contentBlocks: [{ id: 'body', title: 'Renamed', text: 'Body' }] });
+
+    await user.click(inspector.getByRole('button', { name: 'Make Structured Content current' }));
+    const body = inspector.getByLabelText('Block text');
+    await user.clear(body);
+    await user.click(inspector.getByLabelText('Content text'));
+    await waitFor(() => expect(inspector.getByText('Current').parentElement).toHaveTextContent('Free-form Content'));
+    expect(inspector.queryByRole('button', { name: /Make .* current/ })).not.toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ currentContentSource: 'free_form', contentBlocks: [{ id: 'body', title: 'Renamed' }] });
+  });
+
   it('anchors one focused local draft below its committed block and preserves that anchor through reorder and Cancel', async () => {
     const document = offerNeighborhoodDocument();
     Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentBlocks: [{ id: 'first', title: 'First' }, { id: 'middle', title: 'Middle' }, { id: 'last', title: 'Last' }] });
