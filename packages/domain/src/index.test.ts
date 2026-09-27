@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addOfferContentBlock, addProductJobIntent, removeOfferContentBlock, removeProductJobIntent, reorderOfferContentBlocks, setOfferCurrentContentSource, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateOfferContentBlock, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, changeOfferProduct, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, movePlacement, offerContentSourceState, updateEntity, updateOfferContent, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct, planTouchpointIntentPathChange, commitTouchpointIntentPathPlan, commitTouchpointParent, planTouchpointStructuralChange } from './index';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addOfferContentBlock, addProductJobIntent, removeOfferContentBlock, removeProductJobIntent, reorderOfferContentBlocks, setOfferCurrentContentSource, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateOfferContentBlock, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, changeOfferProduct, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, movePlacement, offerContentSourceState, offerContentWholeText, updateEntity, updateOfferContent, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct, planTouchpointIntentPathChange, commitTouchpointIntentPathPlan, commitTouchpointParent, planTouchpointStructuralChange } from './index';
 
 function completed(result: ReturnType<typeof authorTouchpointIntentBottomUp>) { if (result.status !== 'complete') throw new Error(`Expected complete, got ${result.status}`); return result.document; }
 
@@ -9,6 +9,76 @@ function offerDocument() { let d = addEntity(empty(), { ...place, entityId: 'pro
 function touchpoint(d = offerDocument(), id = 'touch', parent?: string) { return addEntity(d, { ...place, entityId: id, title: id, kind: 'touchpoint', locatedInId: 'site', url: '  /checkout#pay  ', linkedOfferIds: ['offer'], relationshipIds: [`presented-${id}`], ...(parent ? { parentTouchpointId: parent, parentRelationshipId: `contains-${id}` } : {}) }); }
 
 describe('map authoring domain', () => {
+  describe('Offer Content whole text', () => {
+    function bothRepresentations() {
+      let document = updateOfferContent(offerDocument(), { offerId: 'offer', field: 'contentText', value: 'Free\nbody' });
+      document = addOfferContentBlock(document, { offerId: 'offer', blockId: 'first', title: 'First title', text: '  First\nblock  ' });
+      document = addOfferContentBlock(document, { offerId: 'offer', blockId: 'missing', title: 'Missing text' });
+      document = addOfferContentBlock(document, { offerId: 'offer', blockId: 'empty', title: 'Empty text', text: '' });
+      document = addOfferContentBlock(document, { offerId: 'offer', blockId: 'space', title: 'Whitespace text', text: ' \n\t ' });
+      return addOfferContentBlock(document, { offerId: 'offer', blockId: 'last', title: 'Last title', text: '\n Last\nblock \t' });
+    }
+
+    it('returns only the title when no eligible canonical body is current', () => {
+      const document = offerDocument();
+      expect(offerContentWholeText(document, 'offer')).toBe('Subscription');
+      const urlOnly = updateOfferContent(document, { offerId: 'offer', field: 'contentUrl', value: 'https://example.test/content' });
+      expect(offerContentWholeText(urlOnly, 'offer')).toBe('Subscription');
+      const titleOnlyStructured = addOfferContentBlock(document, { offerId: 'offer', blockId: 'heading', title: 'Heading' });
+      expect(offerContentWholeText(titleOnlyStructured, 'offer')).toBe('Subscription');
+    });
+
+    it('preserves committed free-form content and excludes alternate content and URL', () => {
+      const document = updateOfferContent(bothRepresentations(), { offerId: 'offer', field: 'contentUrl', value: 'https://example.test/content' });
+      expect(offerContentWholeText(document, 'offer')).toBe('Subscription\n\nFree\nbody');
+      const withoutUrl = updateOfferContent(document, { offerId: 'offer', field: 'contentUrl' });
+      expect(offerContentWholeText(withoutUrl, 'offer')).toBe('Subscription\n\nFree\nbody');
+    });
+
+    it('assembles only nonblank block text in authored order with normalized outer whitespace', () => {
+      const document = setOfferCurrentContentSource(bothRepresentations(), { offerId: 'offer', source: 'structured' });
+      expect(offerContentWholeText(document, 'offer')).toBe('Subscription\n\nFirst\nblock\n\nLast\nblock');
+      expect(offerContentWholeText(document, 'offer')).not.toMatch(/First title|Last title|first|last/);
+      const reordered = reorderOfferContentBlocks(document, { offerId: 'offer', blockIds: ['last', 'missing', 'empty', 'space', 'first'] });
+      expect(offerContentWholeText(reordered, 'offer')).toBe('Subscription\n\nLast\nblock\n\nFirst\nblock');
+      const retitled = updateOfferContentBlock(reordered, { offerId: 'offer', blockId: 'first', field: 'title', value: 'Changed heading' });
+      expect(offerContentWholeText(retitled, 'offer')).toBe(offerContentWholeText(reordered, 'offer'));
+    });
+
+    it('tracks only canonical Current and the Offer title without changing authored bodies', () => {
+      const freeForm = bothRepresentations();
+      const beforeOffer = freeForm.entities.find(entity => entity.id === 'offer');
+      const structured = setOfferCurrentContentSource(freeForm, { offerId: 'offer', source: 'structured' });
+      expect(offerContentWholeText(freeForm, 'offer')).toBe('Subscription\n\nFree\nbody');
+      expect(offerContentWholeText(structured, 'offer')).toBe('Subscription\n\nFirst\nblock\n\nLast\nblock');
+      expect(structured.entities.find(entity => entity.id === 'offer')).toMatchObject({ contentText: 'Free\nbody', contentBlocks: (beforeOffer as Extract<typeof beforeOffer, { kind: 'offer' }>).contentBlocks });
+      const renamed = updateEntity(structured, { entityId: 'offer', title: 'Renamed', linkedProductId: 'product' });
+      expect(offerContentWholeText(renamed, 'offer')).toBe('Renamed\n\nFirst\nblock\n\nLast\nblock');
+    });
+
+    it('keeps duplicate block IDs out and gives a canonical duplicate equivalent body text', () => {
+      const source = setOfferCurrentContentSource(bothRepresentations(), { offerId: 'offer', source: 'structured' });
+      const copy = duplicateEntity(source, { sourceEntityId: 'offer', entityId: 'copy', title: 'Copied', viewId: 'view', x: 30, y: 40, relationshipIds: ['copy-product'], offerContentBlockIds: ['fresh-first', 'fresh-missing', 'fresh-empty', 'fresh-space', 'fresh-last'] });
+      expect(offerContentWholeText(copy, 'copy')).toBe('Copied\n\nFirst\nblock\n\nLast\nblock');
+      expect(offerContentWholeText(copy, 'copy')).not.toContain('fresh-');
+      expect(offerContentWholeText(copy, 'copy').replace('Copied', 'Subscription')).toBe(offerContentWholeText(source, 'offer'));
+    });
+
+    it('rejects invalid owners, refuses malformed fallback, and is a pure repeatable read', () => {
+      const document = bothRepresentations();
+      expect(() => offerContentWholeText(document, 'missing')).toThrow('existing entity');
+      expect(() => offerContentWholeText(document, 'product')).toThrow('must reference a offer');
+      const malformed = { ...document, entities: document.entities.map(entity => entity.id === 'offer' && entity.kind === 'offer' ? { ...entity, currentContentSource: 'structured' as const, contentBlocks: [{ id: 'blank', title: 'Title', text: ' ' }] } : entity) };
+      expect(offerContentSourceState(malformed, 'offer')).toMatchObject({ currentContentSource: 'free_form', structuredEligible: false });
+      expect(offerContentWholeText(malformed, 'offer')).toBe('Subscription');
+      const snapshot = structuredClone(document);
+      const entities = document.entities;
+      expect(offerContentWholeText(document, 'offer')).toBe(offerContentWholeText(document, 'offer'));
+      expect(document).toEqual(snapshot);
+      expect(document.entities).toBe(entities);
+    });
+  });
+
   describe('Offer current Content source', () => {
     const current = (document: ReturnType<typeof offerDocument>, id = 'offer') =>
       document.entities.find(entity => entity.id === id && entity.kind === 'offer') as Extract<(typeof document.entities)[number], { kind: 'offer' }>;
