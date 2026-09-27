@@ -17,6 +17,11 @@ export type EpistemicStatus = typeof EPISTEMIC_STATUSES[number];
 
 export interface OfferContentBlock { id: string; title: string; text?: string }
 export type OfferCurrentContentSource = 'free_form' | 'structured';
+export interface OfferContentSourceState {
+  currentContentSource: OfferCurrentContentSource | null;
+  freeFormEligible: boolean;
+  structuredEligible: boolean;
+}
 
 export type Entity =
   | { id: string; kind: 'touchpoint'; title: string; locatedInId?: string; url?: string }
@@ -199,6 +204,16 @@ function normalizeOfferCurrentContentSource(offer: Extract<Entity, { kind: 'offe
     ? (current === 'structured' || current === 'free_form' ? current : 'free_form')
     : freeFormEligible ? 'free_form' : structuredEligible ? 'structured' : null;
   return current === normalized ? offer : { ...offer, currentContentSource: normalized };
+}
+
+/** Projects canonical Content-source presentation state without changing the document. */
+export function offerContentSourceState(document: MapDocument, offerId: string): OfferContentSourceState {
+  const offer = entityOfKind(document, offerId, 'offer', 'Offer') as Extract<Entity, { kind: 'offer' }>;
+  return {
+    currentContentSource: normalizeOfferCurrentContentSource(offer).currentContentSource,
+    freeFormEligible: isOfferFreeFormContentEligible(offer),
+    structuredEligible: isOfferStructuredContentEligible(offer),
+  };
 }
 
 /** Selects an eligible canonical Content representation without changing authored Content. */
