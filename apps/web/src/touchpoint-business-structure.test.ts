@@ -28,7 +28,7 @@ function fixture(): MapDocument {
     touchpointContainers: [{ id: 'web', title: 'Website' }],
     entities: [
       { id: 'p-a', kind: 'product', title: 'Growth' }, { id: 'p-b', kind: 'product', title: 'Other' },
-      { id: 'o-b', kind: 'offer', title: 'Beta' }, { id: 'o-a', kind: 'offer', title: 'Alpha' },
+      { id: 'o-b', kind: 'offer', title: 'Beta', currentContentSource: null }, { id: 'o-a', kind: 'offer', title: 'Alpha', currentContentSource: null },
       { id: 'parent', kind: 'touchpoint', title: 'Front Page', locatedInId: 'web' },
       { id: 'touch', kind: 'touchpoint', title: 'Pricing', locatedInId: 'web', url: 'https://example.com/pricing' },
       { id: 'child', kind: 'touchpoint', title: 'FAQ' }, { id: 'grandchild', kind: 'touchpoint', title: 'Answer' },

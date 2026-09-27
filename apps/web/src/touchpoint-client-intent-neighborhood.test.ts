@@ -11,8 +11,8 @@ function fixture(): MapDocument {
     id: 'map', title: 'Map', views: [], placements: [], epistemicAnnotations: [], touchpointContainers: [],
     entities: [
       { id: 'product-a', kind: 'product', title: 'Product A' }, { id: 'product-b', kind: 'product', title: 'Product B' },
-      { id: 'offer-z', kind: 'offer', title: 'Zulu Offer' }, { id: 'offer-a', kind: 'offer', title: 'Alpha Offer' },
-      { id: 'offer-b', kind: 'offer', title: 'Beta Offer' },
+      { id: 'offer-z', kind: 'offer', title: 'Zulu Offer', currentContentSource: null }, { id: 'offer-a', kind: 'offer', title: 'Alpha Offer', currentContentSource: null },
+      { id: 'offer-b', kind: 'offer', title: 'Beta Offer', currentContentSource: null },
       { id: 'touch-z', kind: 'touchpoint', title: 'Zulu Touchpoint' }, { id: 'touch-a', kind: 'touchpoint', title: 'Alpha Touchpoint' },
       { id: 'touch-b', kind: 'touchpoint', title: 'Beta Touchpoint' }, { id: 'child', kind: 'touchpoint', title: 'Child' },
       { id: 'cfj', kind: 'core_functional_job', title: 'Build' }, { id: 'rj', kind: 'related_job', title: 'Coordinate' },

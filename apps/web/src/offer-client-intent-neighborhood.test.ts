@@ -13,9 +13,9 @@ function fixture(): MapDocument {
     entities: [
       { id: 'product-a', kind: 'product', title: 'Product A' },
       { id: 'product-b', kind: 'product', title: 'Product B' },
-      { id: 'offer-z', kind: 'offer', title: 'Zulu' },
-      { id: 'offer-b', kind: 'offer', title: 'Beta' },
-      { id: 'offer-a', kind: 'offer', title: 'Alpha' },
+      { id: 'offer-z', kind: 'offer', title: 'Zulu', currentContentSource: null },
+      { id: 'offer-b', kind: 'offer', title: 'Beta', currentContentSource: null },
+      { id: 'offer-a', kind: 'offer', title: 'Alpha', currentContentSource: null },
       { id: 'cfj', kind: 'core_functional_job', title: 'Build' },
       { id: 'rj', kind: 'related_job', title: 'Coordinate' },
       { id: 'ccj', kind: 'consumption_chain_job', title: 'Acquire' },

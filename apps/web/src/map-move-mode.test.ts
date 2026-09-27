@@ -4,7 +4,7 @@ import { enterMoveMode, inactiveMoveMode, MOVE_STEP, moveInMode, moveVectorForKe
 
 const document = (): MapDocument => ({
   id: 'map', title: 'Map', views: [{ id: 'view', title: 'View' }],
-  entities: [{ id: 'focused', kind: 'product', title: 'Focused' }, { id: 'neighbor', kind: 'offer', title: 'Neighbor' }],
+  entities: [{ id: 'focused', kind: 'product', title: 'Focused' }, { id: 'neighbor', kind: 'offer', title: 'Neighbor', currentContentSource: null }],
   relationships: [{ id: 'relationship', kind: 'product_packaged_as_offer', productId: 'focused', offerId: 'neighbor' }],
   placements: [{ viewId: 'view', entityId: 'focused', x: 10, y: 20 }, { viewId: 'view', entityId: 'neighbor', x: 100, y: 200 }],
   touchpointContainers: [], epistemicAnnotations: [], productJobIntents: [], offerJobSelections: [], offerFinancialIntents: [], touchpointJobSelections: [], touchpointFinancialSelections: [],

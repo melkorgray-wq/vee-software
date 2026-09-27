@@ -8,7 +8,7 @@ function fixture(): MapDocument {
     ...base,
     entities: [
       { id: 'product', kind: 'product', title: 'Product' },
-      { id: 'offer', kind: 'offer', title: 'Offer' },
+      { id: 'offer', kind: 'offer', title: 'Offer', currentContentSource: null },
       { id: 'touch-z', kind: 'touchpoint', title: 'Beta' },
       { id: 'touch-b', kind: 'touchpoint', title: 'Alpha' },
       { id: 'touch-a', kind: 'touchpoint', title: 'Alpha' },
@@ -54,7 +54,7 @@ describe('deriveOfferBusinessStructure', () => {
 describe('projectConnectedTouchpointCandidates', () => {
   it('projects committed Root/Child metadata, unique valid Offer counts, and deterministic title/ID order', () => {
     const document = fixture();
-    document.entities.push({ id: 'offer-b', kind: 'offer', title: 'Offer B' });
+    document.entities.push({ id: 'offer-b', kind: 'offer', title: 'Offer B', currentContentSource: null });
     document.relationships.push(
       { id: 'a', kind: 'offer_presented_at_touchpoint', offerId: 'offer', touchpointId: 'touch-a' },
       { id: 'a-duplicate', kind: 'offer_presented_at_touchpoint', offerId: 'offer', touchpointId: 'touch-a' },

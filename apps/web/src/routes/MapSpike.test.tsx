@@ -46,8 +46,8 @@ function RenameableMapNode({ initialTitle }: { initialTitle: string }) {
 function touchpointInspectorDocument(twoOffers = false): MapDocument {
   const entities: MapDocument['entities'] = [
     { id: 'product', kind: 'product', title: 'Orbit' },
-    { id: 'offer-a', kind: 'offer', title: 'Subscription' },
-    ...(twoOffers ? [{ id: 'offer-b', kind: 'offer' as const, title: 'Consulting' }] : []),
+    { id: 'offer-a', kind: 'offer', title: 'Subscription', currentContentSource: null },
+    ...(twoOffers ? [{ id: 'offer-b', kind: 'offer' as const, title: 'Consulting', currentContentSource: null }] : []),
     { id: 'touch', kind: 'touchpoint', title: 'Checkout' },
     { id: 'job', kind: 'core_functional_job', title: 'Make progress' },
     { id: 'do-a', kind: 'desired_outcome', title: 'Finish faster' },
@@ -72,9 +72,9 @@ function touchpointInspectorDocument(twoOffers = false): MapDocument {
 function offerNeighborhoodDocument(): MapDocument {
   const document = touchpointInspectorDocument(true);
   document.entities.push(
-    { id: 'offer-c', kind: 'offer', title: 'Advisory' },
+    { id: 'offer-c', kind: 'offer', title: 'Advisory', currentContentSource: null },
     { id: 'product-other', kind: 'product', title: 'Other Product' },
-    { id: 'offer-other', kind: 'offer', title: 'Unrelated Offer' },
+    { id: 'offer-other', kind: 'offer', title: 'Unrelated Offer', currentContentSource: null },
   );
   document.relationships.push(
     { id: 'packages-c', kind: 'product_packaged_as_offer', productId: 'product', offerId: 'offer-c' },
@@ -96,9 +96,9 @@ function coPresentedOfferNeighborhoodDocument(): MapDocument {
     { id: 'touch-a-2', kind: 'touchpoint', title: 'Alpha room' },
     { id: 'touch-empty', kind: 'touchpoint', title: 'Empty room' },
     { id: 'touch-parent', kind: 'touchpoint', title: 'Parent room' },
-    { id: 'offer-shared', kind: 'offer', title: 'Shared Offer' },
-    { id: 'offer-first-b', kind: 'offer', title: 'First Offer' },
-    { id: 'offer-first-a', kind: 'offer', title: 'First Offer' },
+    { id: 'offer-shared', kind: 'offer', title: 'Shared Offer', currentContentSource: null },
+    { id: 'offer-first-b', kind: 'offer', title: 'First Offer', currentContentSource: null },
+    { id: 'offer-first-a', kind: 'offer', title: 'First Offer', currentContentSource: null },
   ];
   document.entities.push(...addedEntities);
   document.placements.push(...addedEntities.map((entity, index) => ({ viewId: 'spike-view', entityId: entity.id, x: 1540 + index * 140, y: 0 })));
@@ -1551,7 +1551,7 @@ describe('Touchpoint Business structure Inspector', () => {
     counts.forEach((count, groupIndex) => {
       const offerId = groupIndex === 0 ? 'offer-a' : `offer-${groupIndex}`;
       if (groupIndex > 0) {
-        document.entities.push({ id: offerId, kind: 'offer', title: `Offer ${groupIndex + 1}` });
+        document.entities.push({ id: offerId, kind: 'offer', title: `Offer ${groupIndex + 1}`, currentContentSource: null });
         document.placements.push({ viewId: 'spike-view', entityId: offerId, x: 900 + groupIndex * 140, y: 140 });
       }
       document.relationships.push({ id: `selected-${offerId}`, kind: 'offer_presented_at_touchpoint', offerId, touchpointId: 'touch' });
@@ -1856,7 +1856,7 @@ describe('Touchpoint Business structure Inspector', () => {
     const user = userEvent.setup(); const document = structureDocument();
     const offerCount = document.entities.filter(entity => entity.kind === 'offer').length;
     for (let index = offerCount; index < RELATION_EDITOR_SEARCH_THRESHOLD; index += 1) {
-      document.entities.push({ id: `extra-offer-${index}`, kind: 'offer', title: `Extra Offer ${index}` });
+      document.entities.push({ id: `extra-offer-${index}`, kind: 'offer', title: `Extra Offer ${index}`, currentContentSource: null });
     }
     const inspector = renderTouchpointInspector(document);
     const offers = within(inspector.getByRole('group', { name: 'Offers property' })); const parent = within(inspector.getByRole('group', { name: 'Parent property' }));
@@ -3976,7 +3976,7 @@ describe('searchable Touchpoint connection picker', () => {
   });
   it('keeps Parent-source editing open and uses the projected owning Job and Child contributor', async () => {
     const document = touchpointInspectorDocument();
-    document.entities.push({ id: 'parent-offer', kind: 'offer', title: 'Parent provenance' }, { id: 'parent', kind: 'touchpoint', title: 'Parent' });
+    document.entities.push({ id: 'parent-offer', kind: 'offer', title: 'Parent provenance', currentContentSource: null }, { id: 'parent', kind: 'touchpoint', title: 'Parent' });
     document.relationships.push(
       { id: 'package-parent', kind: 'product_packaged_as_offer', productId: 'product', offerId: 'parent-offer' },
       { id: 'present-parent', kind: 'offer_presented_at_touchpoint', offerId: 'parent-offer', touchpointId: 'parent' },
