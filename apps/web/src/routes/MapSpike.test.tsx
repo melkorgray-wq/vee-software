@@ -1134,15 +1134,50 @@ describe('Offer Content Inspector', () => {
     const inspector = renderOfferInspector(document);
     await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
 
-    const actions = inspector.getAllByRole('button', { name: 'Add block below' });
-    expect(actions).toHaveLength(3);
-    for (const action of actions) {
-      expect(action).toHaveAttribute('aria-keyshortcuts', 'Control+Enter Meta+Enter');
-      const hint = globalThis.document.getElementById(action.getAttribute('aria-describedby')!);
-      expect(hint).toHaveTextContent('from Block text: Ctrl/⌘ + Enter');
-      expect(hint?.querySelector('button, a, input, textarea, select')).toBeNull();
-    }
-    expect(inspector.getAllByText('Ctrl/⌘ + Enter')).toHaveLength(3);
+    const editor = inspector.getByLabelText('Offer Content editor');
+    const assertLocalShortcutStructure = () => {
+      const actions = inspector.getAllByRole('button', { name: 'Add block below' });
+      const descriptions = Array.from(editor.querySelectorAll<HTMLElement>('.offer-content-block-continuation > .visually-hidden'));
+      const tooltips = Array.from(editor.querySelectorAll<HTMLElement>('.offer-content-block-shortcut-hint'));
+      expect(actions).toHaveLength(editor.querySelectorAll('[data-block-id]').length);
+      expect(new Set(descriptions.map(description => description.id)).size).toBe(descriptions.length);
+      expect(new Set(tooltips.map(tooltip => tooltip.id)).size).toBe(tooltips.length);
+      expect(new Set([...descriptions, ...tooltips].map(element => element.id)).size).toBe(descriptions.length + tooltips.length);
+
+      for (const action of actions) {
+        expect(action).toHaveAccessibleName('Add block below');
+        expect(action).toHaveAttribute('aria-keyshortcuts', 'Control+Enter Meta+Enter');
+        const descriptionId = action.getAttribute('aria-describedby');
+        expect(descriptionId?.trim().split(/\s+/)).toHaveLength(1);
+        const description = globalThis.document.getElementById(descriptionId!);
+        expect(description).toHaveClass('visually-hidden');
+        expect(description).toHaveTextContent('From Block text, press Control or Command plus Enter to add a block below');
+        expect(action).toHaveAccessibleDescription('From Block text, press Control or Command plus Enter to add a block below');
+
+        const wrapper = action.closest('.offer-content-block-continuation');
+        const blockId = action.closest<HTMLElement>('[data-block-id]')!.dataset.blockId!;
+        const tooltip = wrapper?.querySelector<HTMLElement>('.offer-content-block-shortcut-hint');
+        expect(description?.id).toBe(`offer-content-block-shortcut-description-${encodeURIComponent(blockId)}`);
+        expect(tooltip?.id).toBe(`offer-content-block-shortcut-tooltip-${encodeURIComponent(blockId)}`);
+        expect(tooltip).toHaveAttribute('aria-hidden', 'true');
+        expect(tooltip).toHaveTextContent('From Block text: Ctrl/⌘ + Enter');
+        expect(tooltip?.querySelector('button, a, input, textarea, select, [tabindex]')).toBeNull();
+        expect(wrapper).toContainElement(description);
+        expect(wrapper).toContainElement(tooltip ?? null);
+        expect(action).not.toHaveAttribute('aria-describedby', tooltip?.id);
+      }
+    };
+
+    assertLocalShortcutStructure();
+    await user.click(within(editor.querySelector<HTMLElement>('[data-block-id="first"]')!).getByRole('button', { name: 'Move down' }));
+    assertLocalShortcutStructure();
+
+    await user.click(within(editor.querySelector<HTMLElement>('[data-block-id="middle"]')!).getByRole('button', { name: 'Add block below' }));
+    await user.type(inspector.getByLabelText('Block title', { selector: '#offer-content-new-block-title' }), 'Created{Enter}');
+    assertLocalShortcutStructure();
+    const createdId = (window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a') as Extract<Entity, { kind: 'offer' }>).contentBlocks?.find(block => block.title === 'Created')!.id;
+    await user.click(within(editor.querySelector<HTMLElement>(`[data-block-id="${createdId}"]`)!).getByRole('button', { name: 'Delete' }));
+    assertLocalShortcutStructure();
   });
 
 });

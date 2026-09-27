@@ -100,9 +100,10 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .offer-content-block textarea { min-height: 5.5rem; line-height: 1.45; }
 .offer-content-block-actions, .offer-content-block-confirmation > div { display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: .4rem; min-width: 0; }
 .offer-content-block-actions > *, .offer-content-block-confirmation button, .offer-content-new-block > button { width: auto; max-width: 100%; }
-.offer-content-block-continuation { display: inline-flex; align-items: center; flex-wrap: wrap; gap: .25rem .4rem; min-width: 0; }
-.offer-content-block-shortcut-hint { color: rgba(255,255,255,.68); font-size: .68rem; font-weight: 400; line-height: 1.3; overflow-wrap: anywhere; }
-.offer-content-block-shortcut-hint kbd { padding: .08rem .25rem; border: 1px solid var(--border-soft); border-radius: .25rem; background: rgba(255,255,255,.045); color: rgba(255,255,255,.82); font: inherit; white-space: nowrap; }
+.offer-content-block-continuation { position: relative; display: inline-flex; align-items: center; flex-wrap: wrap; min-width: 0; }
+.offer-content-block-shortcut-hint { top: calc(100% + .3rem); left: 0; width: max-content; max-width: min(18rem, calc(100vw - 3rem)); color: var(--color-foreground); white-space: normal; overflow-wrap: anywhere; }
+.offer-content-block-continuation:hover > .offer-content-block-shortcut-hint,
+.offer-content-block-continuation:focus-within > .offer-content-block-shortcut-hint { visibility: visible; opacity: 1; }
 .offer-content-new-block > button { justify-self: start; }
 .offer-content-block-confirmation { display: grid; gap: .4rem; min-width: 0; padding: .5rem; border: 1px solid var(--border-soft); border-radius: .35rem; background: rgba(255,255,255,.035); }
 .offer-content-block-confirmation p, .offer-content-structured-indicator { margin: 0; overflow-wrap: anywhere; }
@@ -189,7 +190,9 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .inspector-property-heading-action:not(:disabled):hover { background: var(--surface-3); box-shadow: inset 0 -1px var(--color-accent); }
 .inspector-property-heading-action:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; box-shadow: inset 0 -1px var(--color-accent); }
 .inspector-property-heading-action:disabled { background: transparent; box-shadow: none; cursor: not-allowed; opacity: .5; }
-.inspector-property-heading-hint { position: absolute; z-index: 2; top: calc(100% + .3rem); left: 0; visibility: hidden; opacity: 0; padding: .18rem .35rem; border: 1px solid var(--border-subtle); border-radius: .2rem; background: var(--surface-solid-2); color: var(--color-foreground); font-size: .7rem; font-weight: 400; line-height: 1.2; letter-spacing: normal; text-transform: none; white-space: nowrap; pointer-events: none; }
+.inspector-property-heading-hint,
+.offer-content-block-shortcut-hint { position: absolute; z-index: 6; visibility: hidden; opacity: 0; padding: .18rem .35rem; border: 1px solid var(--border-subtle); border-radius: .2rem; background: var(--surface-solid-2); font-size: .7rem; font-weight: 400; line-height: 1.2; letter-spacing: normal; text-transform: none; pointer-events: none; }
+.inspector-property-heading-hint { top: calc(100% + .3rem); left: 0; color: var(--color-foreground); white-space: nowrap; }
 .inspector-property-heading-action:not(:disabled):hover > .inspector-property-heading-hint,
 .inspector-property-heading-action:not(:disabled):focus-visible > .inspector-property-heading-hint { visibility: visible; opacity: 1; }
 .inspector-secondary-action { border: 1px solid var(--border-soft); border-radius: .25rem; background: rgba(255,255,255,.06); color: rgba(255,255,255,.9); font-size: .75rem; line-height: 1.2; }
