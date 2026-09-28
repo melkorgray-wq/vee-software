@@ -2,7 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useReducer, useRef, useState, typ
 import { createPortal } from 'react-dom';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addOfferContentBlock, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, offerContentSourceState, offerContentWholeText, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, removeOfferContentBlock, reorderOfferContentBlocks, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferCurrentContentSource, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateOfferContent, updateOfferContentBlock, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type OfferContentBlock, type OfferCurrentContentSource, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
+import { CLIENT_ROOT_ENTITY_KINDS, DomainError, addEntity, addOfferContentBlock, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, offerContentSourceState, offerContentWholeText, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, removeOfferContentBlock, reorderOfferContentBlocks, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferContentExternalCopyUrl, setOfferCurrentContentSource, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateOfferContent, updateOfferContentBlock, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type OfferContentBlock, type OfferCurrentContentSource, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, disclosureOverlayPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction, type Point, type WorkspaceShortcutState } from '../map-interaction';
@@ -66,6 +66,7 @@ type OfferContentDisclosureSnapshot = {
   renderedText: string;
   pendingRestore: boolean;
 };
+type ExternalCopyEditor = { offerId: string; source: OfferCurrentContentSource; draftUrl: string; error?: string };
 type LocationDraft = { kind: 'none' } | { kind: 'existing'; containerId: string } | { kind: 'new'; title: string };
 type EditDraft = {
   title: string;
@@ -675,6 +676,14 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const inspectorTitleButtonRef = useRef<HTMLButtonElement>(null);
   const [offerContentDraft, setOfferContentDraft] = useState<OfferContentDraft | null>(null);
   const [offerContentCopyStatus, setOfferContentCopyStatus] = useState<string | null>(null);
+  const [externalCopyEditor, setExternalCopyEditor] = useState<ExternalCopyEditor | null>(null);
+  const externalCopyEditorRef = useRef(externalCopyEditor);
+  const externalCopyEditorRegionRef = useRef<HTMLDivElement>(null);
+  const externalCopyInputRef = useRef<HTMLInputElement>(null);
+  const externalCopyActionRef = useRef<HTMLButtonElement>(null);
+  const suppressExternalCopyBlurRef = useRef(false);
+  const restoreExternalCopyFocusRef = useRef(false);
+  externalCopyEditorRef.current = externalCopyEditor;
   const [expandedOfferContentId, setExpandedOfferContentId] = useState<string | null>(null);
   const [offerContentOverflowMeasurement, setOfferContentOverflowMeasurement] = useState<OfferContentOverflowMeasurement | null>(null);
   const offerContentTextRef = useRef<HTMLParagraphElement>(null);
@@ -733,6 +742,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setInspectorTitleEdit(null);
     setOfferContentDraft(null);
     setOfferContentCopyStatus(null);
+    setExternalCopyEditor(null);
     offerContentDisclosureSnapshotRef.current = null;
     setExpandedOfferContentId(null);
     setInlineEdit(null);
@@ -793,6 +803,12 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     pendingNewBlockFocusRef.current = false;
     globalThis.document.getElementById('offer-content-new-block-title')?.focus();
   }, [offerContentDraft?.newBlock]);
+
+  useLayoutEffect(() => {
+    if (externalCopyEditor || !restoreExternalCopyFocusRef.current) return;
+    restoreExternalCopyFocusRef.current = false;
+    externalCopyActionRef.current?.focus();
+  }, [externalCopyEditor]);
 
   useLayoutEffect(() => {
     const offerId = selected?.kind === 'offer' ? selected.id : null;
@@ -1100,6 +1116,34 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     if (reason === 'explicit') requestAnimationFrame(() => connectionPickerButtonRef.current?.focus());
     return true;
   }
+  function closeExternalCopyEditor(restoreFocus = false) {
+    suppressExternalCopyBlurRef.current = true;
+    restoreExternalCopyFocusRef.current = restoreFocus;
+    setExternalCopyEditor(null);
+    requestAnimationFrame(() => {
+      suppressExternalCopyBlurRef.current = false;
+    });
+  }
+  function commitExternalCopyUrl() {
+    const editor = externalCopyEditorRef.current;
+    if (!editor) return true;
+    try {
+      const next = setOfferContentExternalCopyUrl(documentRef.current, {
+        offerId: editor.offerId,
+        source: editor.source,
+        value: editor.draftUrl,
+      });
+      documentRef.current = next;
+      setDocument(next);
+      closeExternalCopyEditor();
+      return true;
+    } catch (error) {
+      const message = error instanceof DomainError ? error.message : 'External copy URL could not be updated. Try again.';
+      setExternalCopyEditor({ ...editor, error: message });
+      requestAnimationFrame(() => externalCopyInputRef.current?.focus());
+      return false;
+    }
+  }
   function cancelLocalRemoval() {
     if (!localRemoval) return;
     pendingLocalFocusIdsRef.current = [localRemoval.cancelFocusId];
@@ -1199,6 +1243,33 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       globalThis.document.removeEventListener('keydown', dismissOnEscape);
     };
   }, [offerContentDraft, selected]);
+  useEffect(() => {
+    if (!externalCopyEditor) return;
+    if (selected?.kind !== 'offer' || selected.id !== externalCopyEditor.offerId || offerContentSourceState(document, selected.id).currentContentSource !== externalCopyEditor.source) {
+      closeExternalCopyEditor();
+    }
+  }, [document, externalCopyEditor, selected]);
+  useEffect(() => {
+    if (!externalCopyEditor) return;
+    const dismissOnPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof globalThis.Node) || externalCopyEditorRegionRef.current?.contains(target)) return;
+      if (!commitExternalCopyUrl()) event.preventDefault();
+    };
+    const dismissOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      closeExternalCopyEditor(true);
+    };
+    globalThis.document.addEventListener('pointerdown', dismissOnPointerDown);
+    globalThis.document.addEventListener('keydown', dismissOnEscape);
+    return () => {
+      globalThis.document.removeEventListener('pointerdown', dismissOnPointerDown);
+      globalThis.document.removeEventListener('keydown', dismissOnEscape);
+    };
+  }, [externalCopyEditor]);
   useEffect(() => {
     if (!offersPicker && !parentPicker && !productPicker) return;
     const dismissOnPointerDown = (event: PointerEvent) => {
@@ -3068,6 +3139,12 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const contentHasCompactOverflow = offerContentHasCompactOverflow;
     const textViewportId = `offer-content-text-${encodeURIComponent(selected.id)}`;
     const sourceState = offerContentSourceState(document, selected.id);
+    const externalCopySource = sourceState.currentContentSource;
+    const externalCopyUrl = externalCopySource === 'free_form'
+      ? selected.freeFormExternalCopyUrl
+      : externalCopySource === 'structured'
+        ? selected.structuredExternalCopyUrl
+        : undefined;
     const wholeText = offerContentWholeText(document, selected.id);
     const freeFormCurrentId = `offer-content-current-free-form-${encodeURIComponent(selected.id)}`;
     const structuredCurrentId = `offer-content-current-structured-${encodeURIComponent(selected.id)}`;
@@ -3130,6 +3207,30 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         setOfferContentCopyStatus('Offer content copied.');
       } catch {
         setOfferContentCopyStatus('Offer content could not be copied.');
+      }
+    };
+    const openExternalCopyEditor = () => {
+      if (!externalCopySource) return;
+      closeConnectedTouchpointsEditor('switch-editor');
+      closeRelationEditor('switch-editor');
+      closeChildrenEditor('switch-editor');
+      if (!closeClientScopeEditor('switch-editor')) return;
+      setBusinessInlineEdit(null);
+      setExternalCopyEditor({ offerId: selected.id, source: externalCopySource, draftUrl: externalCopyUrl ?? '' });
+    };
+    const clearExternalCopyUrl = () => {
+      if (!externalCopySource) return;
+      try {
+        const next = setOfferContentExternalCopyUrl(documentRef.current, { offerId: selected.id, source: externalCopySource, value: '' });
+        documentRef.current = next;
+        setDocument(next);
+      } catch (error) {
+        setExternalCopyEditor({
+          offerId: selected.id,
+          source: externalCopySource,
+          draftUrl: externalCopyUrl ?? '',
+          error: error instanceof DomainError ? error.message : 'External copy URL could not be cleared. Try again.',
+        });
       }
     };
     const cancelNewBlock = () => {
@@ -3254,6 +3355,28 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         </div>
         {!!selected.contentBlocks?.length && <p className="offer-content-structured-indicator">Structured content · {selected.contentBlocks.length} {selected.contentBlocks.length === 1 ? 'block' : 'blocks'}</p>}
         {offerContentCopyStatus && <p className="offer-content-copy-status" role="status" aria-live="polite">{offerContentCopyStatus}</p>}
+        {externalCopySource && <div ref={externalCopyEditorRegionRef} className="offer-content-external-copy" role="group" aria-labelledby="offer-content-external-copy-heading">
+          <h5 id="offer-content-external-copy-heading">External copy</h5>
+          {externalCopyEditor?.offerId === selected.id && externalCopyEditor.source === externalCopySource ? <div className="offer-content-external-copy-editor">
+            <label>{`External copy URL for ${externalCopySource === 'free_form' ? 'Free-form Content' : 'Structured Content'}`}<input ref={externalCopyInputRef} autoFocus type="url" value={externalCopyEditor.draftUrl} aria-invalid={Boolean(externalCopyEditor.error)} onChange={event => setExternalCopyEditor({ offerId: externalCopyEditor.offerId, source: externalCopyEditor.source, draftUrl: event.target.value })} onBlur={() => { if (!suppressExternalCopyBlurRef.current) commitExternalCopyUrl(); }} onKeyDown={event => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                commitExternalCopyUrl();
+              } else if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                closeExternalCopyEditor(true);
+              }
+            }} /></label>
+            {externalCopyEditor.error && <p className="error-message" role="alert">{externalCopyEditor.error}</p>}
+          </div> : externalCopyUrl ? <>
+            {safeUrl(externalCopyUrl) ? <a className="business-structure-external-link offer-content-external-copy-link" href={safeUrl(externalCopyUrl)} target="_blank" rel="noopener noreferrer">{externalCopyUrl}</a> : <span className="offer-content-external-copy-link">{externalCopyUrl}</span>}
+            <div className="offer-content-external-copy-actions"><button ref={externalCopyActionRef} type="button" className="inspector-secondary-action" onClick={openExternalCopyEditor}>Edit link</button><button type="button" className="inspector-secondary-action" onPointerDown={() => { suppressExternalCopyBlurRef.current = true; }} onClick={() => { suppressExternalCopyBlurRef.current = false; clearExternalCopyUrl(); }}>Clear link</button></div>
+          </> : <>
+            <p>Save where an external copy of this text lives.</p>
+            <button ref={externalCopyActionRef} type="button" className="inspector-secondary-action" onClick={openExternalCopyEditor}>Add link</button>
+          </>}
+        </div>}
       </div>}
     </section>;
   }
