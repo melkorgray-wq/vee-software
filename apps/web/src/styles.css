@@ -81,7 +81,6 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .offer-content { display: grid; gap: .65rem; min-width: 0; margin: 0; padding: 0; border: 0; background: transparent; }
 .offer-content-heading { display: flex; align-items: baseline; justify-content: flex-start; flex-wrap: wrap; gap: .35rem .55rem; width: fit-content; max-width: 100%; min-width: 0; }
 .offer-content-read { display: grid; gap: .55rem; min-width: 0; }
-.offer-content-link { width: fit-content; max-width: 100%; }
 .offer-content-source-marker { width: fit-content; max-width: 100%; color: rgba(255,255,255,.58); font-size: .7rem; font-weight: 650; letter-spacing: .035em; line-height: 1.2; }
 .offer-content-text-row { display: grid; gap: .45rem; min-width: 0; }
 .offer-content-text { --offer-content-compact-height: 4.5rem; min-width: 0; max-height: var(--offer-content-compact-height); margin: 0; overflow: hidden; color: rgba(255,255,255,.9); white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -97,6 +96,11 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .offer-content-editor input, .offer-content-editor textarea { width: 100%; min-width: 0; padding: .45rem; }
 .offer-content-editor textarea { resize: vertical; white-space: pre-wrap; }
 .offer-content-copy-status { margin: 0; color: rgba(255,255,255,.7); font-size: .75rem; }
+.offer-content-document { display: grid; justify-items: start; gap: .35rem; min-width: 0; padding-top: .55rem; border-top: 1px dashed var(--border-subtle); }
+.offer-content-document h5, .offer-content-document p { margin: 0; }
+.offer-content-document h5 { color: rgba(255,255,255,.62); font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; }
+.offer-content-document p { color: rgba(255,255,255,.66); font-size: .75rem; line-height: 1.4; }
+.offer-content-document-link { width: fit-content; max-width: 100%; overflow-wrap: anywhere; }
 .offer-content-external-copy { display: grid; justify-items: start; gap: .35rem; min-width: 0; padding-top: .55rem; border-top: 1px dashed var(--border-subtle); }
 .offer-content-external-copy h5, .offer-content-external-copy p { margin: 0; }
 .offer-content-external-copy h5 { color: rgba(255,255,255,.62); font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; }

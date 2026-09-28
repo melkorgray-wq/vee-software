@@ -3149,6 +3149,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         ? selected.structuredExternalCopyUrl
         : undefined;
     const wholeText = offerContentWholeText(document, selected.id);
+    const offerDocumentUrl = selected.contentUrl ? safeUrl(selected.contentUrl) : undefined;
     const freeFormCurrentId = `offer-content-current-free-form-${encodeURIComponent(selected.id)}`;
     const structuredCurrentId = `offer-content-current-structured-${encodeURIComponent(selected.id)}`;
     const requestOfferCurrentContentSource = (source: OfferCurrentContentSource) => {
@@ -3363,7 +3364,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
           </div>
         </section>
       </div> : <div className="offer-content-read">
-        {selected.contentUrl && <a className="business-structure-external-link offer-content-link" href={selected.contentUrl} target="_blank" rel="noopener noreferrer">{selected.contentUrl}</a>}
         {sourceState.currentContentSource && <span className="offer-content-source-marker">Current · {sourceState.currentContentSource === 'free_form' ? 'Free-form' : 'Structured'}</span>}
         <div className="offer-content-text-row">
           <p ref={offerContentTextRef} id={textViewportId} className={`offer-content-text${contentExpanded && contentHasCompactOverflow ? ' is-expanded' : ''}`}>{wholeText}</p>
@@ -3374,6 +3374,11 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         </div>
         {!!selected.contentBlocks?.length && <p className="offer-content-structured-indicator">Structured content · {selected.contentBlocks.length} {selected.contentBlocks.length === 1 ? 'block' : 'blocks'}</p>}
         {offerContentCopyStatus && <p className="offer-content-copy-status" role="status" aria-live="polite">{offerContentCopyStatus}</p>}
+        {selected.contentUrl && <div className="offer-content-document" role="group" aria-labelledby="offer-content-document-heading">
+          <h5 id="offer-content-document-heading">Offer document</h5>
+          <p>An external document describing this Offer, not a Connected Touchpoint where customers encounter it.</p>
+          {offerDocumentUrl && <a className="business-structure-external-link offer-content-document-link" href={offerDocumentUrl} target="_blank" rel="noopener noreferrer">{selected.contentUrl}</a>}
+        </div>}
         {externalCopySource && <div ref={externalCopyEditorRegionRef} className="offer-content-external-copy" role="group" aria-labelledby="offer-content-external-copy-heading">
           <h5 id="offer-content-external-copy-heading">External copy</h5>
           {externalCopyEditor?.offerId === selected.id && externalCopyEditor.source === externalCopySource ? <div className="offer-content-external-copy-editor">
