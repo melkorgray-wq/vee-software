@@ -320,6 +320,8 @@ describe('Offer Content Inspector', () => {
     return viewport;
   }
 
+  const subscriptionWholeText = (body?: string) => body ? `Subscription\n\n${body}` : 'Subscription';
+
   function finishFontLoading() {
     act(() => fontLoadingDoneListeners.forEach(listener => {
       const event = new Event('loadingdone');
@@ -355,7 +357,7 @@ describe('Offer Content Inspector', () => {
     expect(neighborhood.parentElement).toBe(business.parentElement);
     expect(business.nextElementSibling).toBe(content);
     expect(content.nextElementSibling).toBe(neighborhood);
-    expect(within(content).getByText('No content documented')).toBeInTheDocument();
+    expect(within(content).getByText('Subscription')).toHaveClass('offer-content-text');
     const add = within(content).getByRole('button', { name: 'Add content' });
     expect(add).toHaveTextContent('Click to edit');
     await user.click(add);
@@ -388,6 +390,48 @@ describe('Offer Content Inspector', () => {
     expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentUrl: 'https://example.test/a/very/long/document', contentText: 'First line\nSecond line' });
   });
 
+  it('presents canonical Free-form Current whole text without source-switch actions', () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { currentContentSource: 'free_form', contentText: 'First line\nSecond line' });
+    const inspector = renderOfferInspector(document);
+
+    const marker = inspector.getByText('Current · Free-form');
+    expect(marker.tagName).toBe('SPAN');
+    expect(marker).not.toHaveAttribute('tabindex');
+    expect(inspector.getByText((_, element) => element?.classList.contains('offer-content-text') ?? false).textContent).toBe('Subscription\n\nFirst line\nSecond line');
+    expect(inspector.queryByRole('button', { name: /Make .* current/ })).not.toBeInTheDocument();
+  });
+
+  it('presents canonical Structured Current ordered block bodies instead of non-current free-form text or block titles', () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, {
+      currentContentSource: 'structured',
+      contentText: 'Non-current free-form body',
+      contentBlocks: [
+        { id: 'first', title: 'First internal title', text: 'First structured body' },
+        { id: 'empty', title: 'Empty internal title', text: '   ' },
+        { id: 'last', title: 'Last internal title', text: 'Last structured\nbody' },
+      ],
+    });
+    const inspector = renderOfferInspector(document);
+    const text = inspector.getByText((_, element) => element?.classList.contains('offer-content-text') ?? false);
+
+    expect(inspector.getByText('Current · Structured')).toBeInTheDocument();
+    expect(text.textContent).toBe('Subscription\n\nFirst structured body\n\nLast structured\nbody');
+    expect(text).not.toHaveTextContent('Non-current free-form body');
+    expect(text).not.toHaveTextContent(/internal title/);
+    expect(inspector.queryByRole('button', { name: /Make .* current/ })).not.toBeInTheDocument();
+  });
+
+  it('presents a title-only Offer as canonical document text without a Current marker or source-switch action', () => {
+    const inspector = renderOfferInspector();
+    const text = inspector.getByText((_, element) => element?.classList.contains('offer-content-text') ?? false);
+
+    expect(text.textContent).toBe('Subscription');
+    expect(inspector.queryByText(/Current ·/)).not.toBeInTheDocument();
+    expect(inspector.queryByRole('button', { name: /Make .* current/ })).not.toBeInTheDocument();
+  });
+
   it('uses rendered compact overflow for a long single paragraph and toggles the unchanged full text without activating Apply', async () => {
     const document = offerNeighborhoodDocument();
     const contentText = 'A single authored paragraph that is long enough to wrap through the compact viewport without any blank paragraph separators.';
@@ -397,13 +441,13 @@ describe('Offer Content Inspector', () => {
     const before = window.__VEE_DEV__!.dump();
     const text = measureOfferContent(inspector, { scrollHeight: 180, clientHeight: 72 });
 
-    expect(text.textContent).toBe(contentText);
+    expect(text.textContent).toBe(subscriptionWholeText(contentText));
     expect(inspector.queryByRole('button', { name: 'Show less' })).not.toBeInTheDocument();
     await user.click(inspector.getByRole('button', { name: 'Show more' }));
-    expect(text.textContent).toBe(contentText);
+    expect(text.textContent).toBe(subscriptionWholeText(contentText));
     expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
     await user.click(inspector.getByRole('button', { name: 'Show less' }));
-    expect(text.textContent).toBe(contentText);
+    expect(text.textContent).toBe(subscriptionWholeText(contentText));
     expect(text).not.toHaveClass('is-expanded');
     expect(window.__VEE_DEV__!.dump()).toEqual(before);
     expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
@@ -414,7 +458,7 @@ describe('Offer Content Inspector', () => {
     Object.assign(multiParagraph.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'One\n\nTwo' });
     let inspector = renderOfferInspector(multiParagraph);
     let text = measureOfferContent(inspector, { scrollHeight: 60, clientHeight: 72 });
-    expect(text.textContent).toBe('One\n\nTwo');
+    expect(text.textContent).toBe(subscriptionWholeText('One\n\nTwo'));
     expect(inspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
 
     cleanup();
@@ -422,7 +466,7 @@ describe('Offer Content Inspector', () => {
     Object.assign(singleParagraph.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Short text' });
     inspector = renderOfferInspector(singleParagraph);
     text = measureOfferContent(inspector, { scrollHeight: 24, clientHeight: 72 });
-    expect(text.textContent).toBe('Short text');
+    expect(text.textContent).toBe(subscriptionWholeText('Short text'));
     expect(inspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
   });
 
@@ -433,7 +477,7 @@ describe('Offer Content Inspector', () => {
     const inspector = renderOfferInspector(document);
     const text = measureOfferContent(inspector, { scrollHeight: 120, clientHeight: 72 });
     const disclosure = inspector.getByRole('button', { name: 'Show more' });
-    expect(text.textContent).toBe(contentText);
+    expect(text.textContent).toBe(subscriptionWholeText(contentText));
     expect(disclosure).toHaveAttribute('aria-expanded', 'false');
     expect(disclosure).toHaveAttribute('aria-controls', text.id);
   });
@@ -454,9 +498,9 @@ describe('Offer Content Inspector', () => {
     await user.click(showMore);
     expect(inspector.getByRole('button', { name: 'Show less' })).toHaveAttribute('aria-expanded', 'true');
 
-    measureOfferContent(inspector, { scrollHeight: 60, clientHeight: 72, width: 520 });
+    const text = measureOfferContent(inspector, { scrollHeight: 60, clientHeight: 72, width: 520 });
     expect(inspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
-    expect(inspector.getByText('Responsive authored content')).not.toHaveClass('is-expanded');
+    expect(text).not.toHaveClass('is-expanded');
     expect(scrollBy).not.toHaveBeenCalled();
   });
 
@@ -541,9 +585,7 @@ describe('Offer Content Inspector', () => {
     await user.type(textarea, 'Short replacement');
     await user.click(inspector.getByRole('button', { name: 'Close' }));
 
-    expect(inspector.getByText('Short replacement').textContent).toBe('Short replacement');
-    expect(inspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
-    measureOfferContent(inspector, { scrollHeight: 24, clientHeight: 72, width: 320 });
+    expect(measureOfferContent(inspector, { scrollHeight: 24, clientHeight: 72, width: 320 }).textContent).toBe(subscriptionWholeText('Short replacement'));
     expect(inspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
     expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentText: 'Short replacement' });
   });
@@ -573,7 +615,7 @@ describe('Offer Content Inspector', () => {
       const document = offerNeighborhoodDocument();
       Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Fallback overflow text' });
       const inspector = renderOfferInspector(document);
-      expect(inspector.getByText('Fallback overflow text')).toBeInTheDocument();
+      expect(inspector.getByText((_, element) => element?.classList.contains('offer-content-text') ?? false)).toHaveTextContent('Fallback overflow text');
       expect(inspector.getByRole('button', { name: 'Show more' })).toBeInTheDocument();
     } finally {
       if (scrollHeight) Object.defineProperty(HTMLElement.prototype, 'scrollHeight', scrollHeight);
@@ -696,7 +738,7 @@ describe('Offer Content Inspector', () => {
     expect(inspector.getByText(/Subscription preview/)).toHaveTextContent('Subscription detail');
     await user.click(inspector.getAllByRole('button', { name: 'Consulting' })[0]!);
     measureOfferContent(inspector, { scrollHeight: 160, clientHeight: 72 });
-    expect(inspector.getByText(/Consulting preview/).textContent).toBe('Consulting preview\n\nConsulting detail');
+    expect(inspector.getByText(/Consulting preview/).textContent).toBe('Consulting\n\nConsulting preview\n\nConsulting detail');
     expect(inspector.getByRole('button', { name: 'Show more' })).toBeInTheDocument();
   });
 
@@ -799,7 +841,7 @@ describe('Offer Content Inspector', () => {
 
     const heading = inspector.getByRole('button', { name: 'Edit Offer Content' });
     await waitFor(() => expect(heading).toHaveFocus());
-    expect(inspector.getByText('Close-completed text')).toBeInTheDocument();
+    expect(inspector.getByText(/Close-completed text/)).toHaveTextContent('Subscription Close-completed text');
   });
 
   it.each(['outside', 'Close', 'switch-editor'] as const)('keeps an invalid URL recoverable for %s dismissal', async (dismissal) => {
@@ -858,7 +900,7 @@ describe('Offer Content Inspector', () => {
     expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentUrl: 'https://example.test/first', contentText: 'Second transaction' });
     await user.click(inspector.getByRole('button', { name: 'Close' }));
     expect(inspector.getByRole('link', { name: 'https://example.test/first' })).toBeInTheDocument();
-    expect(inspector.getByText('Second transaction')).toBeInTheDocument();
+    expect(inspector.getByText(/Second transaction/)).toHaveTextContent('Subscription Second transaction');
   });
 
   it('completes active text before switching editors and preserves the new editor focus', async () => {
