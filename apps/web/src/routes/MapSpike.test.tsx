@@ -355,6 +355,80 @@ describe('Offer Content Inspector', () => {
     expect(within(inspector.getByRole('group', { name: 'External copy' })).getByRole('link', { name: 'https://example.test/structured' })).toBeInTheDocument();
   });
 
+  it('shows a safe Offer document after Title-only whole text and actions without inventing a Current source', () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentUrl: 'https://example.test/document' });
+    const inspector = renderOfferInspector(document);
+    const content = inspector.getByRole('heading', { name: 'Offer Content' }).closest('section')!;
+    const wholeText = content.querySelector('.offer-content-text')!;
+    const actions = content.querySelector('.offer-content-actions')!;
+    const offerDocument = within(content).getByRole('group', { name: 'Offer document' });
+    const link = within(offerDocument).getByRole('link', { name: 'https://example.test/document' });
+
+    expect(wholeText).toHaveTextContent('Subscription');
+    expect(within(actions as HTMLElement).getByRole('button', { name: 'Copy' })).toBeInTheDocument();
+    expect(wholeText.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(actions.compareDocumentPosition(offerDocument) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(link).toHaveAttribute('href', 'https://example.test/document');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(within(offerDocument).getByText('An external document describing this Offer, not a Connected Touchpoint where customers encounter it.')).toBeInTheDocument();
+    expect(within(content).queryByText(/^Current ·/)).not.toBeInTheDocument();
+    expect(within(content).queryByRole('group', { name: 'External copy' })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['free-form', { currentContentSource: 'free_form', contentText: 'Free copy' }, 'Subscription Free copy'],
+    ['structured', { currentContentSource: 'structured', contentBlocks: [{ id: 'block', title: 'Structured title', text: 'Structured copy' }] }, 'Subscription Structured copy'],
+  ] as const)('orders %s Current whole text, Offer document, and External copy without replacing canonical text', (_name, authored, expectedWholeText) => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, {
+      ...authored,
+      contentUrl: 'https://example.test/document',
+      ...(authored.currentContentSource === 'free_form'
+        ? { freeFormExternalCopyUrl: 'https://example.test/external-copy' }
+        : { structuredExternalCopyUrl: 'https://example.test/external-copy' }),
+    });
+    const inspector = renderOfferInspector(document);
+    const content = inspector.getByRole('heading', { name: 'Offer Content' }).closest('section')!;
+    const marker = within(content).getByText(/^Current ·/);
+    const wholeText = content.querySelector('.offer-content-text')!;
+    const actions = content.querySelector('.offer-content-actions')!;
+    const offerDocument = within(content).getByRole('group', { name: 'Offer document' });
+    const externalCopy = within(content).getByRole('group', { name: 'External copy' });
+
+    expect(wholeText).toHaveTextContent(expectedWholeText);
+    expect(marker.compareDocumentPosition(wholeText) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(wholeText.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(actions.compareDocumentPosition(offerDocument) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(offerDocument.compareDocumentPosition(externalCopy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('keeps matching Offer document and External copy URLs in separate labelled regions', () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, {
+      currentContentSource: 'free_form', contentText: 'Free copy', contentUrl: 'https://example.test/shared', freeFormExternalCopyUrl: 'https://example.test/shared',
+    });
+    const inspector = renderOfferInspector(document);
+    const offerDocument = inspector.getByRole('group', { name: 'Offer document' });
+    const externalCopy = inspector.getByRole('group', { name: 'External copy' });
+
+    expect(within(offerDocument).getByRole('link', { name: 'https://example.test/shared' })).toBeInTheDocument();
+    expect(within(externalCopy).getByRole('link', { name: 'https://example.test/shared' })).toBeInTheDocument();
+  });
+
+  it('hides Offer document when contentUrl is absent without affecting whole text or External copy', () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, {
+      currentContentSource: 'free_form', contentText: 'Free copy', freeFormExternalCopyUrl: 'https://example.test/external-copy',
+    });
+    const inspector = renderOfferInspector(document);
+
+    expect(inspector.queryByRole('group', { name: 'Offer document' })).not.toBeInTheDocument();
+    expect(inspector.getByRole('heading', { name: 'Offer Content' }).closest('section')!.querySelector('.offer-content-text')).toHaveTextContent('Subscription Free copy');
+    expect(within(inspector.getByRole('group', { name: 'External copy' })).getByRole('link', { name: 'https://example.test/external-copy' })).toBeInTheDocument();
+  });
+
   it('offers the external document beside Add link only when the Current source has no external-copy URL', () => {
     const eligible = offerNeighborhoodDocument();
     Object.assign(eligible.entities.find(entity => entity.id === 'offer-a')!, {
