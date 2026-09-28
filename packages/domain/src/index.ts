@@ -26,7 +26,7 @@ export interface OfferContentSourceState {
 export type Entity =
   | { id: string; kind: 'touchpoint'; title: string; locatedInId?: string; url?: string }
   | { id: string; kind: 'product'; title: string }
-  | { id: string; kind: 'offer'; title: string; currentContentSource: OfferCurrentContentSource | null; contentUrl?: string; contentText?: string; contentBlocks?: OfferContentBlock[] }
+  | { id: string; kind: 'offer'; title: string; currentContentSource: OfferCurrentContentSource | null; contentUrl?: string; contentText?: string; contentBlocks?: OfferContentBlock[]; freeFormExternalCopyUrl?: string; structuredExternalCopyUrl?: string }
   | { id: string; kind: ClientRootEntityKind | ContextualClientEntityKind | RepulsorEntityKind; title: string };
 export type Relationship =
   | { id: string; kind: 'product_packaged_as_offer'; productId: string; offerId: string }
@@ -180,6 +180,19 @@ export function updateOfferContent(document: MapDocument, input: { offerId: stri
   if (normalized) replacement[input.field] = normalized;
   else delete replacement[input.field];
   return replaceOffer(document, input.field === 'contentText' ? normalizeOfferCurrentContentSource(replacement) : replacement);
+}
+
+/** Updates the external-copy URL owned by exactly one Offer Content source. */
+export function setOfferContentExternalCopyUrl(document: MapDocument, input: { offerId: string; source: OfferCurrentContentSource; value?: string }): MapDocument {
+  const offer = entityOfKind(document, input.offerId, 'offer', 'Offer') as Extract<Entity, { kind: 'offer' }>;
+  if (input.source !== 'free_form' && input.source !== 'structured') throw new DomainError('invalid_offer_content_source', 'Offer Content source must be free_form or structured.');
+  const normalized = safeAbsoluteHttpUrl(input.value);
+  const field = input.source === 'free_form' ? 'freeFormExternalCopyUrl' : 'structuredExternalCopyUrl';
+  if (offer[field] === normalized) return document;
+  const replacement: Extract<Entity, { kind: 'offer' }> = { ...offer };
+  if (normalized) replacement[field] = normalized;
+  else delete replacement[field];
+  return replaceOffer(document, replacement);
 }
 
 function offerContentBlockOwner(document: MapDocument, offerId: string, blockId: string) {
@@ -1199,6 +1212,8 @@ export function duplicateEntity(document: MapDocument, input: { sourceEntityId: 
     if (blockIds.some(id => occupiedBlockIds.has(id))) throw new DomainError('duplicate_offer_content_block_id', 'Content block ID already exists.');
     const relation = document.relationships.find((r): r is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => r.kind === 'product_packaged_as_offer' && r.offerId === source.id)!;
     let copy = addEntity(document, { entityId: input.entityId, title, kind: 'offer', linkedProductId: relation.productId, relationshipId: input.relationshipIds[0]!, viewId: input.viewId, x: input.x, y: input.y });
+    const createdOffer = entityOfKind(copy, input.entityId, 'offer', 'Offer') as Extract<Entity, { kind: 'offer' }>;
+    copy = replaceOffer(copy, { ...createdOffer, ...('freeFormExternalCopyUrl' in source ? { freeFormExternalCopyUrl: source.freeFormExternalCopyUrl } : {}), ...('structuredExternalCopyUrl' in source ? { structuredExternalCopyUrl: source.structuredExternalCopyUrl } : {}) });
     if (source.contentUrl) copy = updateOfferContent(copy, { offerId: input.entityId, field: 'contentUrl', value: source.contentUrl });
     if (source.contentText) copy = updateOfferContent(copy, { offerId: input.entityId, field: 'contentText', value: source.contentText });
     sourceBlocks.forEach((block, index) => { copy = addOfferContentBlock(copy, { offerId: input.entityId, blockId: blockIds[index]!, title: block.title, ...('text' in block ? { text: block.text } : {}) }); });
