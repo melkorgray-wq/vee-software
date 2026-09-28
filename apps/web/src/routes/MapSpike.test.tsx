@@ -366,11 +366,11 @@ describe('Offer Content Inspector', () => {
     expect(renderTouchpointInspector().queryByRole('region', { name: 'Offer Content' })).not.toBeInTheDocument();
   });
 
-  it('renders URL and multiline text independently and together, with safe linking and text-only Copy feedback', async () => {
+  it('copies exact Free-form Current whole text without including its URL and keeps accessible failure feedback', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     const document = offerNeighborhoodDocument();
     const offer = document.entities.find(entity => entity.id === 'offer-a')!;
-    Object.assign(offer, { contentUrl: 'https://example.test/a/very/long/document', contentText: 'First line\nSecond line' });
+    Object.assign(offer, { currentContentSource: 'free_form', contentUrl: 'https://example.test/a/very/long/document', contentText: 'First line\nSecond line' });
     const user = userEvent.setup();
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
     const inspector = renderOfferInspector(document);
@@ -382,8 +382,9 @@ describe('Offer Content Inspector', () => {
     expect(text).toHaveTextContent('First line Second line');
     expect(inspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
     await user.click(inspector.getByRole('button', { name: 'Copy' }));
-    expect(writeText).toHaveBeenCalledWith('First line\nSecond line');
-    expect(inspector.getByRole('status')).toHaveTextContent('Content text copied');
+    expect(writeText).toHaveBeenCalledWith('Subscription\n\nFirst line\nSecond line');
+    expect(writeText.mock.calls[0]![0]).not.toContain('https://example.test/a/very/long/document');
+    expect(inspector.getByRole('status')).toHaveTextContent('Offer content copied');
     writeText.mockRejectedValueOnce(new Error('denied'));
     await user.click(inspector.getByRole('button', { name: 'Copy' }));
     expect(inspector.getByRole('status')).toHaveTextContent('could not be copied');
@@ -402,22 +403,30 @@ describe('Offer Content Inspector', () => {
     expect(inspector.queryByRole('button', { name: /Make .* current/ })).not.toBeInTheDocument();
   });
 
-  it('presents canonical Structured Current ordered block bodies instead of non-current free-form text or block titles', () => {
+  it('presents and copies canonical Structured Current block bodies in authored order', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
     const document = offerNeighborhoodDocument();
     Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, {
       currentContentSource: 'structured',
       contentText: 'Non-current free-form body',
       contentBlocks: [
-        { id: 'first', title: 'First internal title', text: 'First structured body' },
-        { id: 'empty', title: 'Empty internal title', text: '   ' },
-        { id: 'last', title: 'Last internal title', text: 'Last structured\nbody' },
+        { id: 'block-id-alpha', title: 'First internal title', text: 'First structured body' },
+        { id: 'block-id-empty', title: 'Empty internal title', text: '   ' },
+        { id: 'block-id-omega', title: 'Last internal title', text: 'Last structured\nbody' },
       ],
     });
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
     const inspector = renderOfferInspector(document);
     const text = inspector.getByText((_, element) => element?.classList.contains('offer-content-text') ?? false);
 
     expect(inspector.getByText('Current · Structured')).toBeInTheDocument();
     expect(text.textContent).toBe('Subscription\n\nFirst structured body\n\nLast structured\nbody');
+    await user.click(inspector.getByRole('button', { name: 'Copy' }));
+    expect(writeText).toHaveBeenCalledWith('Subscription\n\nFirst structured body\n\nLast structured\nbody');
+    expect(writeText.mock.calls[0]![0]).not.toContain('First internal title');
+    expect(writeText.mock.calls[0]![0]).not.toContain('block-id-alpha');
+    expect(writeText.mock.calls[0]![0]).not.toContain('Non-current free-form body');
     expect(text).not.toHaveTextContent('Non-current free-form body');
     expect(text).not.toHaveTextContent(/internal title/);
     expect(inspector.queryByRole('button', { name: /Make .* current/ })).not.toBeInTheDocument();
@@ -764,8 +773,9 @@ describe('Offer Content Inspector', () => {
     const expandedCopy = within(expandedActions).getByRole('button', { name: 'Copy' });
     expect(showLess.compareDocumentPosition(expandedCopy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await user.click(expandedCopy);
-    expect(writeText).toHaveBeenNthCalledWith(1, contentText);
-    expect(writeText).toHaveBeenNthCalledWith(2, contentText);
+    const wholeText = `Subscription\n\n${contentText}`;
+    expect(writeText).toHaveBeenNthCalledWith(1, wholeText);
+    expect(writeText).toHaveBeenNthCalledWith(2, wholeText);
 
     cleanup();
     const singleParagraphDocument = offerNeighborhoodDocument();
@@ -777,22 +787,19 @@ describe('Offer Content Inspector', () => {
     expect(singleParagraphInspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
   });
 
-  it('omits text actions for URL-only content and preserves link plus controls when text is added', () => {
+  it('shows Copy for a title-only projection and copies only the Offer title', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
     const urlOnly = offerNeighborhoodDocument();
     Object.assign(urlOnly.entities.find(entity => entity.id === 'offer-a')!, { contentUrl: 'https://example.test/source' });
-    let inspector = renderOfferInspector(urlOnly);
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const inspector = renderOfferInspector(urlOnly);
     expect(inspector.getByRole('link', { name: 'https://example.test/source' })).toBeInTheDocument();
-    expect(inspector.queryByRole('button', { name: 'Copy' })).not.toBeInTheDocument();
+    const copy = inspector.getByRole('button', { name: 'Copy' });
     expect(inspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
-
-    cleanup();
-    const combined = offerNeighborhoodDocument();
-    Object.assign(combined.entities.find(entity => entity.id === 'offer-a')!, { contentUrl: 'https://example.test/source', contentText: 'Preview\n\nDetail' });
-    inspector = renderOfferInspector(combined);
-    measureOfferContent(inspector, { scrollHeight: 160, clientHeight: 72 });
-    expect(inspector.getByRole('link', { name: 'https://example.test/source' })).toHaveAttribute('href', 'https://example.test/source');
-    expect(inspector.getByRole('button', { name: 'Show more' })).toBeInTheDocument();
-    expect(inspector.getByRole('button', { name: 'Copy' })).toBeInTheDocument();
+    expect(within(copy.closest<HTMLElement>('.offer-content-actions')!).getAllByRole('button')).toEqual([copy]);
+    await user.click(copy);
+    expect(writeText).toHaveBeenCalledWith('Subscription');
   });
 
   it('completes only the active field before outside pointer dismissal without stealing focus', async () => {
