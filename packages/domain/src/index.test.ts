@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addOfferContentBlock, addProductJobIntent, removeOfferContentBlock, removeProductJobIntent, reorderOfferContentBlocks, setOfferCurrentContentSource, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateOfferContentBlock, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, changeOfferProduct, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, movePlacement, offerContentSourceState, offerContentWholeText, updateEntity, updateOfferContent, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct, planTouchpointIntentPathChange, commitTouchpointIntentPathPlan, commitTouchpointParent, planTouchpointStructuralChange } from './index';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addOfferContentBlock, addProductJobIntent, removeOfferContentBlock, removeProductJobIntent, reorderOfferContentBlocks, setOfferContentExternalCopyUrl, setOfferCurrentContentSource, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateOfferContentBlock, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, changeOfferProduct, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, movePlacement, offerContentSourceState, offerContentWholeText, updateEntity, updateOfferContent, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct, planTouchpointIntentPathChange, commitTouchpointIntentPathPlan, commitTouchpointParent, planTouchpointStructuralChange } from './index';
 
 function completed(result: ReturnType<typeof authorTouchpointIntentBottomUp>) { if (result.status !== 'complete') throw new Error(`Expected complete, got ${result.status}`); return result.document; }
 
@@ -181,6 +181,81 @@ describe('map authoring domain', () => {
       const malformed = { ...source, entities: source.entities.map(entity => entity.id === 'offer' ? { ...entity, currentContentSource: 'stale' as never } : entity) };
       const normalized = duplicateEntity(malformed, { sourceEntityId: 'offer', entityId: 'legacy-copy', viewId: 'view', x: 3, y: 4, relationshipIds: ['legacy-product'], offerContentBlockIds: ['legacy-block'] });
       expect(current(normalized, 'legacy-copy').currentContentSource).toBe('free_form');
+    });
+  });
+
+  describe('Offer Content external-copy URLs', () => {
+    const offer = (document: ReturnType<typeof offerDocument>, id = 'offer') => document.entities.find((entity): entity is Extract<(typeof document.entities)[number], { kind: 'offer' }> => entity.id === id && entity.kind === 'offer')!;
+
+    it('authors each source independently without eligibility and permits the same URL for both', () => {
+      const titleOnly = addOfferContentBlock(offerDocument(), { offerId: 'offer', blockId: 'heading', title: 'Heading only' });
+      const freeForm = setOfferContentExternalCopyUrl(titleOnly, { offerId: 'offer', source: 'free_form', value: '  https://example.test/copy  ' });
+      expect(offer(freeForm)).toMatchObject({ freeFormExternalCopyUrl: 'https://example.test/copy', currentContentSource: null });
+      expect(offer(freeForm)).not.toHaveProperty('structuredExternalCopyUrl');
+
+      const both = setOfferContentExternalCopyUrl(freeForm, { offerId: 'offer', source: 'structured', value: 'https://example.test/copy' });
+      expect(offer(both)).toMatchObject({
+        freeFormExternalCopyUrl: 'https://example.test/copy',
+        structuredExternalCopyUrl: 'https://example.test/copy',
+        contentBlocks: [{ id: 'heading', title: 'Heading only' }],
+        currentContentSource: null,
+      });
+    });
+
+    it('clears only the selected field and preserves identity for normalized no-ops', () => {
+      let document = setOfferContentExternalCopyUrl(offerDocument(), { offerId: 'offer', source: 'free_form', value: 'https://example.test/free' });
+      document = setOfferContentExternalCopyUrl(document, { offerId: 'offer', source: 'structured', value: 'http://example.test/structured' });
+      expect(setOfferContentExternalCopyUrl(document, { offerId: 'offer', source: 'free_form', value: ' https://example.test/free ' })).toBe(document);
+
+      const cleared = setOfferContentExternalCopyUrl(document, { offerId: 'offer', source: 'free_form', value: ' \n\t ' });
+      expect(offer(cleared)).not.toHaveProperty('freeFormExternalCopyUrl');
+      expect(offer(cleared).structuredExternalCopyUrl).toBe('http://example.test/structured');
+      expect(setOfferContentExternalCopyUrl(cleared, { offerId: 'offer', source: 'free_form', value: '' })).toBe(cleared);
+      expect(setOfferContentExternalCopyUrl(cleared, { offerId: 'offer', source: 'free_form' })).toBe(cleared);
+    });
+
+    it('accepts absolute HTTP(S), rejects other URL forms and unsupported sources atomically', () => {
+      const before = offerDocument();
+      expect(offer(setOfferContentExternalCopyUrl(before, { offerId: 'offer', source: 'free_form', value: 'http://example.test/copy' })).freeFormExternalCopyUrl).toBe('http://example.test/copy');
+      expect(offer(setOfferContentExternalCopyUrl(before, { offerId: 'offer', source: 'structured', value: 'https://example.test/copy' })).structuredExternalCopyUrl).toBe('https://example.test/copy');
+      const snapshot = structuredClone(before);
+      for (const value of ['/relative', 'not a url', 'javascript:alert(1)', 'ftp://example.test/file', 'mailto:author@example.test']) {
+        expect(() => setOfferContentExternalCopyUrl(before, { offerId: 'offer', source: 'free_form', value })).toThrow('absolute http: or https:');
+        expect(before).toEqual(snapshot);
+      }
+      expect(() => setOfferContentExternalCopyUrl(before, { offerId: 'offer', source: 'other' as never, value: 'https://example.test' })).toThrow('free_form or structured');
+      expect(() => setOfferContentExternalCopyUrl(before, { offerId: 'product', source: 'free_form', value: 'https://example.test' })).toThrow('must reference a offer');
+      expect(before).toEqual(snapshot);
+    });
+
+    it('preserves Content, Current, relationships, and unrelated document data across URL and Current edits', () => {
+      let document = updateOfferContent(offerDocument(), { offerId: 'offer', field: 'contentUrl', value: 'https://example.test/content' });
+      document = updateOfferContent(document, { offerId: 'offer', field: 'contentText', value: 'Free body' });
+      document = addOfferContentBlock(document, { offerId: 'offer', blockId: 'body', title: 'Structured', text: 'Structured body' });
+      document = setOfferContentExternalCopyUrl(document, { offerId: 'offer', source: 'free_form', value: 'https://example.test/free-copy' });
+      const beforeExternalEdit = document;
+      const next = setOfferContentExternalCopyUrl(document, { offerId: 'offer', source: 'structured', value: 'https://example.test/structured-copy' });
+      expect({ ...offer(next), structuredExternalCopyUrl: undefined }).toEqual({ ...offer(beforeExternalEdit), structuredExternalCopyUrl: undefined });
+      expect(next.relationships).toBe(beforeExternalEdit.relationships);
+      expect(next.touchpointContainers).toBe(beforeExternalEdit.touchpointContainers);
+
+      const structured = setOfferCurrentContentSource(next, { offerId: 'offer', source: 'structured' });
+      const changedContentUrl = updateOfferContent(structured, { offerId: 'offer', field: 'contentUrl', value: 'http://example.test/new-content' });
+      expect(offer(changedContentUrl)).toMatchObject({
+        contentUrl: 'http://example.test/new-content', contentText: 'Free body',
+        contentBlocks: [{ id: 'body', title: 'Structured', text: 'Structured body' }], currentContentSource: 'structured',
+        freeFormExternalCopyUrl: 'https://example.test/free-copy', structuredExternalCopyUrl: 'https://example.test/structured-copy',
+      });
+    });
+
+    it('duplicates both authored URLs unchanged and independently of body or Current', () => {
+      let source = setOfferContentExternalCopyUrl(offerDocument(), { offerId: 'offer', source: 'free_form', value: 'https://example.test/free-copy' });
+      source = setOfferContentExternalCopyUrl(source, { offerId: 'offer', source: 'structured', value: 'http://example.test/structured-copy' });
+      const copy = duplicateEntity(source, { sourceEntityId: 'offer', entityId: 'copy', viewId: 'view', x: 30, y: 40, relationshipIds: ['copy-product'] });
+      expect(offer(copy, 'copy')).toEqual({
+        id: 'copy', kind: 'offer', title: 'Subscription', currentContentSource: null,
+        freeFormExternalCopyUrl: 'https://example.test/free-copy', structuredExternalCopyUrl: 'http://example.test/structured-copy',
+      });
     });
   });
 
