@@ -3126,10 +3126,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     };
     const copyText = async () => {
       try {
-        await navigator.clipboard.writeText(selected.contentText ?? '');
-        setOfferContentCopyStatus('Content text copied.');
+        await navigator.clipboard.writeText(wholeText);
+        setOfferContentCopyStatus('Offer content copied.');
       } catch {
-        setOfferContentCopyStatus('Content text could not be copied.');
+        setOfferContentCopyStatus('Offer content could not be copied.');
       }
     };
     const cancelNewBlock = () => {
@@ -3247,10 +3247,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         {sourceState.currentContentSource && <span className="offer-content-source-marker">Current · {sourceState.currentContentSource === 'free_form' ? 'Free-form' : 'Structured'}</span>}
         <div className="offer-content-text-row">
           <p ref={offerContentTextRef} id={textViewportId} className={`offer-content-text${contentExpanded && contentHasCompactOverflow ? ' is-expanded' : ''}`}>{wholeText}</p>
-          {(contentHasCompactOverflow || selected.contentText) && <div className="offer-content-actions">
+          <div className="offer-content-actions">
             {contentHasCompactOverflow && <button ref={offerContentDisclosureRef} type="button" className="inspector-secondary-action" aria-expanded={contentExpanded} aria-controls={textViewportId} onClick={toggleContentDisclosure}>{contentExpanded ? 'Show less' : 'Show more'}</button>}
-            {selected.contentText && <button type="button" className="inspector-secondary-action" onClick={copyText}>Copy</button>}
-          </div>}
+            <button type="button" className="inspector-secondary-action" onClick={copyText}>Copy</button>
+          </div>
         </div>
         {!!selected.contentBlocks?.length && <p className="offer-content-structured-indicator">Structured content · {selected.contentBlocks.length} {selected.contentBlocks.length === 1 ? 'block' : 'blocks'}</p>}
         {offerContentCopyStatus && <p className="offer-content-copy-status" role="status" aria-live="polite">{offerContentCopyStatus}</p>}
