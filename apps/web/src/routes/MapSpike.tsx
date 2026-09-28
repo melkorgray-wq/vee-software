@@ -67,6 +67,7 @@ type OfferContentDisclosureSnapshot = {
   pendingRestore: boolean;
 };
 type ExternalCopyEditor = { offerId: string; source: OfferCurrentContentSource; draftUrl: string; error?: string };
+type ExternalCopyError = { offerId: string; source: OfferCurrentContentSource; message: string };
 type LocationDraft = { kind: 'none' } | { kind: 'existing'; containerId: string } | { kind: 'new'; title: string };
 type EditDraft = {
   title: string;
@@ -677,6 +678,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [offerContentDraft, setOfferContentDraft] = useState<OfferContentDraft | null>(null);
   const [offerContentCopyStatus, setOfferContentCopyStatus] = useState<string | null>(null);
   const [externalCopyEditor, setExternalCopyEditor] = useState<ExternalCopyEditor | null>(null);
+  const [externalCopyError, setExternalCopyError] = useState<ExternalCopyError | null>(null);
   const externalCopyEditorRef = useRef(externalCopyEditor);
   const externalCopyEditorRegionRef = useRef<HTMLDivElement>(null);
   const externalCopyInputRef = useRef<HTMLInputElement>(null);
@@ -743,6 +745,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setOfferContentDraft(null);
     setOfferContentCopyStatus(null);
     setExternalCopyEditor(null);
+    setExternalCopyError(null);
     offerContentDisclosureSnapshotRef.current = null;
     setExpandedOfferContentId(null);
     setInlineEdit(null);
@@ -3216,7 +3219,23 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       closeChildrenEditor('switch-editor');
       if (!closeClientScopeEditor('switch-editor')) return;
       setBusinessInlineEdit(null);
+      setExternalCopyError(null);
       setExternalCopyEditor({ offerId: selected.id, source: externalCopySource, draftUrl: externalCopyUrl ?? '' });
+    };
+    const useExternalDocument = () => {
+      if (!externalCopySource || !selected.contentUrl || externalCopyUrl) return;
+      try {
+        const next = setOfferContentExternalCopyUrl(documentRef.current, { offerId: selected.id, source: externalCopySource, value: selected.contentUrl });
+        documentRef.current = next;
+        setExternalCopyError(null);
+        setDocument(next);
+      } catch (error) {
+        setExternalCopyError({
+          offerId: selected.id,
+          source: externalCopySource,
+          message: error instanceof DomainError ? error.message : 'External copy URL could not be updated. Try again.',
+        });
+      }
     };
     const clearExternalCopyUrl = () => {
       if (!externalCopySource) return;
@@ -3374,7 +3393,11 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             <div className="offer-content-external-copy-actions"><button ref={externalCopyActionRef} type="button" className="inspector-secondary-action" onClick={openExternalCopyEditor}>Edit link</button><button type="button" className="inspector-secondary-action" onPointerDown={() => { suppressExternalCopyBlurRef.current = true; }} onClick={() => { suppressExternalCopyBlurRef.current = false; clearExternalCopyUrl(); }}>Clear link</button></div>
           </> : <>
             <p>Save where an external copy of this text lives.</p>
-            <button ref={externalCopyActionRef} type="button" className="inspector-secondary-action" onClick={openExternalCopyEditor}>Add link</button>
+            <div className="offer-content-external-copy-actions">
+              <button ref={externalCopyActionRef} type="button" className="inspector-secondary-action" onClick={openExternalCopyEditor}>Add link</button>
+              {selected.contentUrl && <button type="button" className="inspector-secondary-action" onClick={useExternalDocument}>Use this document</button>}
+            </div>
+            {externalCopyError?.offerId === selected.id && externalCopyError.source === externalCopySource && <p className="error-message" role="alert">{externalCopyError.message}</p>}
           </>}
         </div>}
       </div>}
