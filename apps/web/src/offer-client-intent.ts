@@ -83,11 +83,13 @@ const byTitleThenId = <T extends { title: string; id: string }>(left: T, right: 
 function desiredOutcomesFor(
   document: MapDocument,
   selection: OfferJobSelection,
+  intent: ProductJobIntent,
   job: JobEntity,
   entitiesById: Map<string, Entity>,
 ): DesiredOutcomeEntity[] {
   if (!DO_BEARING_JOB_KINDS.has(job.kind)) return [];
 
+  const productOutcomeIds = new Set(intent.addressedDesiredOutcomeIds);
   const linkedIds = new Set(document.relationships.flatMap((relationship) =>
     relationship.kind === 'job_has_desired_outcome' && relationship.jobId === job.id
       ? [relationship.desiredOutcomeId]
@@ -97,7 +99,9 @@ function desiredOutcomesFor(
   return [...new Set(effectiveOfferDesiredOutcomeIds(document, selection))]
     .flatMap((id) => {
       const entity = entitiesById.get(id);
-      return entity?.kind === 'desired_outcome' && linkedIds.has(id) ? [entity as DesiredOutcomeEntity] : [];
+      return entity?.kind === 'desired_outcome' && linkedIds.has(id) && productOutcomeIds.has(id)
+        ? [entity as DesiredOutcomeEntity]
+        : [];
     })
     .sort(byTitleThenId);
 }
@@ -109,7 +113,7 @@ function jobItem(
   job: JobEntity,
   entitiesById: Map<string, Entity>,
 ): OfferClientIntentJobItem {
-  const desiredOutcomes = desiredOutcomesFor(document, selection, job, entitiesById);
+  const desiredOutcomes = desiredOutcomesFor(document, selection, intent, job, entitiesById);
   return {
     id: selection.id,
     kind: job.kind,
@@ -128,6 +132,12 @@ export function offerClientIntent(document: MapDocument, offerId: string): Offer
   if (!inspectedOffer) return undefined;
 
   const entitiesById = new Map(document.entities.map((entity) => [entity.id, entity]));
+  const packaged = document.relationships.find((relationship) =>
+    relationship.kind === 'product_packaged_as_offer' && relationship.offerId === inspectedOffer.id);
+  const productId = packaged?.kind === 'product_packaged_as_offer'
+    && entitiesById.get(packaged.productId)?.kind === 'product'
+    ? packaged.productId
+    : undefined;
   const intentsById = new Map(document.productJobIntents.map((intent) => [intent.id, intent]));
   const jobItems = new Map<OfferClientIntentJobKind, OfferClientIntentJobItem[]>();
 
@@ -135,7 +145,8 @@ export function offerClientIntent(document: MapDocument, offerId: string): Offer
     if (selection.offerId !== inspectedOffer.id) continue;
     const intent = intentsById.get(selection.productJobIntentId);
     const job = intent ? entitiesById.get(intent.jobId) : undefined;
-    if (!intent || !job || !JOB_KINDS.has(job.kind as OfferClientIntentJobKind)) continue;
+    if (!intent || intent.productId !== productId || !job
+      || !JOB_KINDS.has(job.kind as OfferClientIntentJobKind)) continue;
     const typedJob = job as JobEntity;
     const items = jobItems.get(typedJob.kind) ?? [];
     items.push(jobItem(document, selection, intent, typedJob, entitiesById));

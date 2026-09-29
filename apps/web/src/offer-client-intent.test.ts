@@ -11,6 +11,7 @@ function fixture(): MapDocument {
     id: 'map', title: 'Map', views: [], placements: [], epistemicAnnotations: [], touchpointContainers: [],
     entities: [
       { id: 'product', kind: 'product', title: 'Product' },
+      { id: 'other-product', kind: 'product', title: 'Other Product' },
       { id: 'offer', kind: 'offer', title: 'Offer', currentContentSource: null },
       { id: 'other-offer', kind: 'offer', title: 'Other Offer', currentContentSource: null },
       { id: 'cfj-z', kind: 'core_functional_job', title: 'Zulu job' },
@@ -23,13 +24,17 @@ function fixture(): MapDocument {
       { id: 'do-z', kind: 'desired_outcome', title: 'Zulu outcome' },
       { id: 'do-a', kind: 'desired_outcome', title: 'Alpha outcome' },
       { id: 'do-other', kind: 'desired_outcome', title: 'Other outcome' },
+      { id: 'do-outside-intent', kind: 'desired_outcome', title: 'Outside Product intent' },
       { id: 'fdo-z', kind: 'financial_desired_outcome', title: 'Zulu financial' },
       { id: 'fdo-a', kind: 'financial_desired_outcome', title: 'Alpha financial' },
       { id: 'wrong-kind', kind: 'product', title: 'Wrong kind' },
     ],
     relationships: [
+      { id: 'product-offer', kind: 'product_packaged_as_offer', productId: 'product', offerId: 'offer' },
+      { id: 'product-other-offer', kind: 'product_packaged_as_offer', productId: 'product', offerId: 'other-offer' },
       { id: 'cfj-z-do-z', kind: 'job_has_desired_outcome', jobId: 'cfj-z', desiredOutcomeId: 'do-z' },
       { id: 'cfj-z-do-a', kind: 'job_has_desired_outcome', jobId: 'cfj-z', desiredOutcomeId: 'do-a' },
+      { id: 'cfj-z-do-outside', kind: 'job_has_desired_outcome', jobId: 'cfj-z', desiredOutcomeId: 'do-outside-intent' },
       { id: 'rj-do-other', kind: 'job_has_desired_outcome', jobId: 'rj', desiredOutcomeId: 'do-other' },
     ],
     productJobIntents: [
@@ -119,12 +124,31 @@ describe('Offer Client-intent read projection', () => {
   it('filters duplicate, stale, wrong-kind, and other-Job outcome IDs', () => {
     const document = fixture();
     document.offerJobSelections.push(selection('selection', 'offer', 'intent-cfj-z', [
-      'do-z', 'do-z', 'missing', 'wrong-kind', 'do-other', 'do-a',
+      'do-z', 'do-z', 'missing', 'wrong-kind', 'do-other', 'do-outside-intent', 'do-a',
     ]));
     const group = offerClientIntent(document, 'offer')!.groups.find((candidate) => candidate.kind === 'core_functional_job');
     const item = group?.items[0];
     expect(item).toMatchObject({ desiredOutcomeIds: ['do-a', 'do-z'] });
     expect(item?.desiredOutcomes.map((outcome) => outcome.id)).toEqual(['do-a', 'do-z']);
+  });
+
+  it('excludes selections whose Product intent does not belong to the inspected Offer Product', () => {
+    const document = fixture();
+    document.productJobIntents.push({
+      id: 'other-product-intent', productId: 'other-product', jobId: 'cfj-z', addressedDesiredOutcomeIds: ['do-z'],
+    });
+    document.offerJobSelections.push(selection('wrong-product', 'offer', 'other-product-intent', ['do-z']));
+    expect(offerClientIntent(document, 'offer')).toEqual({ offerId: 'offer', groups: [] });
+  });
+
+  it('does not project Job selections without a valid Product-to-Offer relationship but keeps FDO intent', () => {
+    const document = fixture();
+    document.relationships = document.relationships.filter((relationship) => relationship.id !== 'product-offer');
+    document.offerJobSelections.push(selection('job-selection', 'offer', 'intent-cfj-z', ['do-z']));
+    document.offerFinancialIntents.push({ id: 'financial', offerId: 'offer', financialDesiredOutcomeId: 'fdo-a' });
+    expect(offerClientIntent(document, 'offer')!.groups).toMatchObject([{
+      kind: 'financial_desired_outcome', items: [{ id: 'financial', financialDesiredOutcomeId: 'fdo-a' }],
+    }]);
   });
 
   it('never adds an ordinary Desired Outcome layer to Emotional or Social Jobs', () => {
