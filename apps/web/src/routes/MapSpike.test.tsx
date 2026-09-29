@@ -335,10 +335,13 @@ describe('Offer Client intent presentation', () => {
     document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
     const inspector = renderOfferInspector(document);
     const section = inspector.getByRole('region', { name: 'Client intent' });
+    expect(section).toHaveClass('touchpoint-client-scope', 'offer-client-intent');
     expect(within(section).getByText('No Client intent selected.')).toBeInTheDocument();
     expect(within(section).queryByRole('checkbox')).not.toBeInTheDocument();
 
     await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
+    expect(section).toHaveClass('is-editing');
+    expect(section.querySelector('.touchpoint-client-scope-heading')).toContainElement(within(section).getByRole('button', { name: 'Close Client intent editor' }));
     const editor = within(section).getByRole('group', { name: 'Client intent' });
     const job = within(editor).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ });
     await user.click(job);
@@ -355,6 +358,26 @@ describe('Offer Client intent presentation', () => {
     await user.click(within(section).getByRole('button', { name: 'Close Client intent editor' }));
     expect(within(section).queryByText('No Client intent selected.')).not.toBeInTheDocument();
     expect(within(section).getByRole('button', { name: 'Core Functional Job, 1' })).toBeInTheDocument();
+  });
+
+  it('clears Offer editor and disclosure presentation state when the document is replaced', async () => {
+    const user = userEvent.setup();
+    const document = semanticOfferNeighborhoodDocument();
+    const inspector = renderOfferInspector(document);
+    let section = inspector.getByRole('region', { name: 'Client intent' });
+    const related = within(section).getByRole('button', { name: 'Related Job, 1' });
+    expect(related).toHaveAttribute('aria-expanded', 'false');
+    await user.click(related);
+    expect(related).toHaveAttribute('aria-expanded', 'true');
+    await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
+    expect(within(section).getByRole('button', { name: 'Close Client intent editor' })).toBeInTheDocument();
+
+    act(() => window.__VEE_DEV__!.load(structuredClone(document)));
+    expect(screen.getByText('Select an entity on the Map to inspect it.')).toBeInTheDocument();
+    fireEvent.click(globalThis.document.querySelector<HTMLElement>('[data-node-id="offer-a"]')!);
+    section = inspector.getByRole('region', { name: 'Client intent' });
+    expect(within(section).getByRole('button', { name: 'Edit Client intent' })).toBeInTheDocument();
+    expect(within(section).getByRole('button', { name: 'Related Job, 1' })).toHaveAttribute('aria-expanded', 'false');
   });
 });
 

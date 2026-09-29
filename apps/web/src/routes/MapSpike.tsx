@@ -766,6 +766,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setConnectionPicker(null);
     setExpandedClientSources({});
     setExpandedClientScopePanels({});
+    setExpandedOfferIntentPanels({});
+    setOfferIntentEditors({});
     setLocalRemoval(null);
     const neutralRelationsMode = inactiveRelationsMode();
     setRelationsMode(neutralRelationsMode);
@@ -2830,7 +2832,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const renderGroup = (group: OfferClientIntentGroup) => group.kind === 'financial_desired_outcome'
       ? group.items.map(item => <div className="touchpoint-client-financial" key={item.id}><button type="button" onClick={() => navigateInspector(item.financialDesiredOutcome.id)}>{item.financialDesiredOutcome.title}</button></div>)
       : renderJobGroup(group);
-    return <section className={`offer-client-intent${editing ? ' is-editing' : ''}`} aria-labelledby="offer-client-intent-heading">
+    return <section className={`touchpoint-client-scope offer-client-intent${editing ? ' is-editing' : ''}`} aria-labelledby="offer-client-intent-heading">
       <div className="touchpoint-client-scope-heading">{editing
         ? <><h4 id="offer-client-intent-heading">Client intent</h4><button type="button" className="inspector-secondary-action" aria-label="Close Client intent editor" onClick={() => setOfferIntentEditors(current => ({ ...current, [selected.id]: false }))}>Close</button></>
         : <h4 id="offer-client-intent-heading" aria-label="Client intent"><button type="button" className="inspector-property-heading-action" aria-label="Edit Client intent" onClick={() => setOfferIntentEditors(current => ({ ...current, [selected.id]: true }))}>Client intent<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h4>}
