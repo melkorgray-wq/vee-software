@@ -3820,7 +3820,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             <nav className="inspector-history" aria-label="Inspector history">
               <button type="button" aria-label="Inspector Back" disabled={!traverseInspectorHistory(inspectorHistory, 'back', id => document.entities.some(entity => entity.id === id))} onClick={() => traverseInspector('back')}>Back</button>
               <button type="button" aria-label="Inspector Forward" disabled={!traverseInspectorHistory(inspectorHistory, 'forward', id => document.entities.some(entity => entity.id === id))} onClick={() => traverseInspector('forward')}>Forward</button>
-              {selected?.kind === 'offer' && <button type="button" aria-label="Duplicate Offer" onClick={() => duplicate(selected.id)}>Duplicate</button>}
+              {mode !== 'create' && selected?.kind === 'offer' && <button type="button" aria-label="Duplicate Offer" onClick={() => duplicate(selected.id)}>Duplicate</button>}
             </nav>
           </header>
           {message && !quick && (

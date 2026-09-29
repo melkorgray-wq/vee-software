@@ -5732,6 +5732,21 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
     expect(inspector.getByRole('button', { name: 'Inspector Forward' })).toBeInTheDocument();
   });
 
+  it('hides Offer Header Duplicate during Inspector root creation without disrupting the form', async () => {
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector();
+    expect(inspector.getByRole('button', { name: 'Duplicate Offer' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Add element' }));
+    expect(inspector.queryByRole('button', { name: 'Duplicate Offer' })).not.toBeInTheDocument();
+    const creationForm = inspector.getByRole('heading', { name: 'Add an element' }).closest('form')!;
+    expect(within(creationForm).getByRole('button', { name: 'Business side' })).toBeInTheDocument();
+    expect(within(creationForm).getByRole('button', { name: 'Client side' })).toBeInTheDocument();
+    expect(within(creationForm).getByLabelText('Title')).toBeInTheDocument();
+    expect(within(creationForm).getByRole('button', { name: 'Create' })).toBeInTheDocument();
+    expect(within(creationForm).getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+  });
+
   it('duplicates an inspected Offer independently with canonical relationships and source-to-copy history', async () => {
     const document = touchpointInspectorDocument();
     document.entities.push({ id: 'touch-second', kind: 'touchpoint', title: 'Consultation' });
