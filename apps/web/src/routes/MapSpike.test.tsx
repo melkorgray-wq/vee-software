@@ -404,7 +404,7 @@ describe('Offer Content Inspector', () => {
     expect(offerDocument.compareDocumentPosition(externalCopy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('keeps matching Offer document and External copy URLs in separate labelled regions', () => {
+  it('presents an exact Current external-copy match once while preserving its source actions', () => {
     const document = offerNeighborhoodDocument();
     Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, {
       currentContentSource: 'free_form', contentText: 'Free copy', contentUrl: 'https://example.test/shared', freeFormExternalCopyUrl: 'https://example.test/shared',
@@ -414,7 +414,29 @@ describe('Offer Content Inspector', () => {
     const externalCopy = inspector.getByRole('group', { name: 'External copy' });
 
     expect(within(offerDocument).getByRole('link', { name: 'https://example.test/shared' })).toBeInTheDocument();
-    expect(within(externalCopy).getByRole('link', { name: 'https://example.test/shared' })).toBeInTheDocument();
+    expect(within(externalCopy).getByText('Same as Offer document')).toBeInTheDocument();
+    expect(within(externalCopy).queryByRole('link')).not.toBeInTheDocument();
+    expect(within(externalCopy).getByRole('button', { name: 'Edit link' })).toBeInTheDocument();
+    expect(within(externalCopy).getByRole('button', { name: 'Clear link' })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['case', 'https://EXAMPLE.test/document'],
+    ['trailing slash', 'https://example.test/document/'],
+    ['query', 'https://example.test/document?copy=1'],
+    ['hash', 'https://example.test/document#copy'],
+  ])('does not treat a URL differing only by %s as the Offer document', (_difference, externalCopyUrl) => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, {
+      currentContentSource: 'free_form', contentText: 'Free copy', contentUrl: 'https://example.test/document', freeFormExternalCopyUrl: externalCopyUrl,
+    });
+    const inspector = renderOfferInspector(document);
+    const offerDocument = inspector.getByRole('group', { name: 'Offer document' });
+    const externalCopy = inspector.getByRole('group', { name: 'External copy' });
+
+    expect(within(offerDocument).getByRole('link', { name: 'https://example.test/document' })).toBeInTheDocument();
+    expect(within(externalCopy).getByRole('link', { name: externalCopyUrl })).toBeInTheDocument();
+    expect(within(externalCopy).queryByText('Same as Offer document')).not.toBeInTheDocument();
   });
 
   it('hides Offer document when contentUrl is absent without affecting whole text or External copy', () => {
@@ -494,12 +516,74 @@ describe('Offer Content Inspector', () => {
       [otherField]: 'https://example.test/other-source',
     });
     const region = inspector.getByRole('group', { name: 'External copy' });
-    expect(within(region).getByRole('link', { name: 'https://example.test/document' })).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(within(region).getByText('Same as Offer document')).toBeInTheDocument();
+    expect(within(region).queryByRole('link')).not.toBeInTheDocument();
     expect(within(region).getByRole('button', { name: 'Edit link' })).toBeInTheDocument();
     expect(within(region).getByRole('button', { name: 'Clear link' })).toBeInTheDocument();
     expect(within(region).queryByRole('button', { name: 'Use this document' })).not.toBeInTheDocument();
     expect(writeText).not.toHaveBeenCalled();
     expect(open).not.toHaveBeenCalled();
+  });
+
+  it('clears only the Current external-copy field from a matching presentation', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, {
+      currentContentSource: 'free_form', contentUrl: 'https://example.test/shared', contentText: 'Free copy',
+      contentBlocks: [{ id: 'block', title: 'Structured', text: 'Structured copy' }],
+      freeFormExternalCopyUrl: 'https://example.test/shared', structuredExternalCopyUrl: 'https://example.test/structured',
+    });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+
+    await user.click(within(inspector.getByRole('group', { name: 'External copy' })).getByRole('button', { name: 'Clear link' }));
+
+    expect(inspector.getByRole('group', { name: 'Offer document' })).toHaveTextContent('https://example.test/shared');
+    expect(inspector.queryByText('Same as Offer document')).not.toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Add link' })).toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({
+      currentContentSource: 'free_form', contentUrl: 'https://example.test/shared', contentText: 'Free copy',
+      contentBlocks: [{ id: 'block', title: 'Structured', text: 'Structured copy' }], structuredExternalCopyUrl: 'https://example.test/structured',
+    });
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).not.toHaveProperty('freeFormExternalCopyUrl');
+  });
+
+  it('recomputes the exact match after editing and when Current changes without altering authored values', async () => {
+    const document = offerNeighborhoodDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, {
+      currentContentSource: 'free_form', contentUrl: 'https://example.test/shared', contentText: 'Free copy',
+      contentBlocks: [{ id: 'block', title: 'Structured', text: 'Structured copy' }],
+      freeFormExternalCopyUrl: 'https://example.test/shared', structuredExternalCopyUrl: 'https://example.test/structured',
+    });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    expect(inspector.getByText('Same as Offer document')).toBeInTheDocument();
+
+    await user.click(inspector.getByRole('button', { name: 'Edit link' }));
+    const external = inspector.getByLabelText('External copy URL for Free-form Content');
+    await user.clear(external);
+    await user.type(external, 'https://example.test/free{Enter}');
+    expect(within(inspector.getByRole('group', { name: 'External copy' })).getByRole('link', { name: 'https://example.test/free' })).toBeInTheDocument();
+
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    await user.click(inspector.getByRole('button', { name: 'Make Structured Content current' }));
+    await user.click(inspector.getByRole('button', { name: 'Close' }));
+    expect(within(inspector.getByRole('group', { name: 'External copy' })).getByRole('link', { name: 'https://example.test/structured' })).toBeInTheDocument();
+
+    await user.click(inspector.getByRole('button', { name: 'Edit link' }));
+    const structured = inspector.getByLabelText('External copy URL for Structured Content');
+    await user.clear(structured);
+    await user.type(structured, 'https://example.test/shared{Enter}');
+    expect(inspector.getByText('Same as Offer document')).toBeInTheDocument();
+
+    await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
+    await user.click(inspector.getByRole('button', { name: 'Make Free-form Content current' }));
+    await user.click(inspector.getByRole('button', { name: 'Close' }));
+    expect(within(inspector.getByRole('group', { name: 'External copy' })).getByRole('link', { name: 'https://example.test/free' })).toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({
+      currentContentSource: 'free_form', contentUrl: 'https://example.test/shared', contentText: 'Free copy',
+      contentBlocks: [{ id: 'block', title: 'Structured', text: 'Structured copy' }],
+      freeFormExternalCopyUrl: 'https://example.test/free', structuredExternalCopyUrl: 'https://example.test/shared',
+    });
   });
 
   it('adds by Enter and blur, edits, clears only Current, and permits the same URL for both sources', async () => {
