@@ -2106,6 +2106,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         x: placement.x + 40,
         y: placement.y + 40,
         relationshipIds: Array.from({ length: source.relationships.length + 2 }, () => crypto.randomUUID()),
+        ...(sourceEntity.kind === 'offer' ? { title: collisionSafeOfferTitle(source, sourceEntity.title) } : {}),
         ...(sourceEntity.kind === 'offer' && sourceEntity.contentBlocks
           ? { offerContentBlockIds: sourceEntity.contentBlocks.map(() => crypto.randomUUID()) }
           : {}),
