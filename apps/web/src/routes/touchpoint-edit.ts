@@ -403,12 +403,22 @@ export function planFutureTouchpointOfferReplacement(document: MapDocument, inpu
   return getTouchpointLinkedOfferChangeImpact(document, { touchpointId: input.touchpointId, linkedOfferIds: [] });
 }
 
-/** Deterministically names an Offer copy without depending on storage order or IDs. */
-export function collisionSafeOfferTitle(document: MapDocument, sourceTitle: string): string {
-  const occupied = new Set(document.entities.filter(entity => entity.kind === 'offer').map(entity => entity.title));
+/** Deterministically names a same-kind copy without depending on storage order or IDs. */
+function collisionSafeEntityTitle(document: MapDocument, sourceTitle: string, kind: Entity['kind']): string {
+  const occupied = new Set(document.entities.filter(entity => entity.kind === kind).map(entity => entity.title));
   let suffix = 2;
   while (occupied.has(`${sourceTitle} ${suffix}`)) suffix += 1;
   return `${sourceTitle} ${suffix}`;
+}
+
+/** Preserves the Offer-specific naming API used by canonical Offer replacement. */
+export function collisionSafeOfferTitle(document: MapDocument, sourceTitle: string): string {
+  return collisionSafeEntityTitle(document, sourceTitle, 'offer');
+}
+
+/** Names an independent Touchpoint copy within the Touchpoint title namespace. */
+export function collisionSafeTouchpointTitle(document: MapDocument, sourceTitle: string): string {
+  return collisionSafeEntityTitle(document, sourceTitle, 'touchpoint');
 }
 
 export type OfferReplacementPlacement = { viewId: string; x: number; y: number };

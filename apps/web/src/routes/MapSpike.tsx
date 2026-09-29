@@ -15,7 +15,7 @@ import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, recons
 import { nearestSpatialCandidate, spatialDirectionForKey } from '../map-spatial-navigation';
 import { enterMoveMode, inactiveMoveMode, moveInMode, moveVectorForKey, type MoveMode } from '../map-move-mode';
 import { Link } from '../router';
-import { collisionSafeOfferTitle, commitOfferConnectedTouchpoint, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, createSiblingOfferAndReplace, createTouchpointIntentDraft, duplicateOfferAndReplace, entityTitle, equalTouchpointIntentDraft, globalIntentDiscovery, planFutureTouchpointOfferReplacement, replaceTouchpointLinkedOffer, touchpointClientScope, touchpointUpstreamSources, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft, type UpstreamLeaf } from './touchpoint-edit';
+import { collisionSafeOfferTitle, collisionSafeTouchpointTitle, commitOfferConnectedTouchpoint, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, createSiblingOfferAndReplace, createTouchpointIntentDraft, duplicateOfferAndReplace, entityTitle, equalTouchpointIntentDraft, globalIntentDiscovery, planFutureTouchpointOfferReplacement, replaceTouchpointLinkedOffer, touchpointClientScope, touchpointUpstreamSources, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft, type UpstreamLeaf } from './touchpoint-edit';
 import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
 import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets } from '../touchpoint-business-structure';
 import { deriveOfferBusinessStructure, projectConnectedTouchpointCandidates } from '../offer-business-structure';
@@ -2106,7 +2106,11 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         x: placement.x + 40,
         y: placement.y + 40,
         relationshipIds: Array.from({ length: source.relationships.length + 2 }, () => crypto.randomUUID()),
-        ...(sourceEntity.kind === 'offer' ? { title: collisionSafeOfferTitle(source, sourceEntity.title) } : {}),
+        ...(sourceEntity.kind === 'offer'
+          ? { title: collisionSafeOfferTitle(source, sourceEntity.title) }
+          : sourceEntity.kind === 'touchpoint'
+            ? { title: collisionSafeTouchpointTitle(source, sourceEntity.title) }
+            : {}),
         ...(sourceEntity.kind === 'offer' && sourceEntity.contentBlocks
           ? { offerContentBlockIds: sourceEntity.contentBlocks.map(() => crypto.randomUUID()) }
           : {}),

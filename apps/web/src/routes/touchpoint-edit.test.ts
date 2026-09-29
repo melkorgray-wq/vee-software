@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyMapDocument, relevantRepulsorsForTouchpoint, type MapDocument } from '@vee/domain';
-import { applyTouchpointEditDraft, collisionSafeOfferTitle, commitOfferConnectedTouchpoint, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, connectionPickerCatalogue, createSiblingOfferAndReplace, createTouchpointIntentDraft, duplicateOfferAndReplace, equalTouchpointIntentDraft, filterConnectionCandidates, globalIntentDiscovery, planFutureTouchpointOfferReplacement, replaceTouchpointLinkedOffer, selectCurrentOfferIntent, touchpointClientScope, touchpointIntentCatalogue, touchpointUpstreamSources, validateTouchpointIntentDraft } from './touchpoint-edit';
+import { applyTouchpointEditDraft, collisionSafeOfferTitle, collisionSafeTouchpointTitle, commitOfferConnectedTouchpoint, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, connectionPickerCatalogue, createSiblingOfferAndReplace, createTouchpointIntentDraft, duplicateOfferAndReplace, equalTouchpointIntentDraft, filterConnectionCandidates, globalIntentDiscovery, planFutureTouchpointOfferReplacement, replaceTouchpointLinkedOffer, selectCurrentOfferIntent, touchpointClientScope, touchpointIntentCatalogue, touchpointUpstreamSources, validateTouchpointIntentDraft } from './touchpoint-edit';
 
 function fixture(): MapDocument {
   return {
@@ -67,6 +67,35 @@ describe('Touchpoint linked Offer commit', () => {
     expect(added.relationships).not.toContainEqual(expect.objectContaining({ id: 'presents-a' }));
     expect(added.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint')).toEqual(document.relationships.filter(relation => relation.kind !== 'offer_presented_at_touchpoint'));
     expect(document).toEqual(snapshot);
+  });
+});
+
+describe('collision-safe Touchpoint titles', () => {
+  it('starts at suffix 2 and ignores an identical Offer title', () => {
+    const document = fixture();
+    document.entities.push({ id: 'same-title-offer', kind: 'offer', title: 'Checkout 2', currentContentSource: null });
+
+    expect(collisionSafeTouchpointTitle(document, 'Checkout')).toBe('Checkout 2');
+  });
+
+  it('advances through occupied consecutive suffixes regardless of record order', () => {
+    const document = fixture();
+    document.entities.push(
+      { id: 'checkout-3', kind: 'touchpoint', title: 'Checkout 3' },
+      { id: 'checkout-2', kind: 'touchpoint', title: 'Checkout 2' },
+    );
+
+    expect(collisionSafeTouchpointTitle(document, 'Checkout')).toBe('Checkout 4');
+  });
+
+  it('chooses the first free suffix across a gap', () => {
+    const document = fixture();
+    document.entities.push(
+      { id: 'checkout-4', kind: 'touchpoint', title: 'Checkout 4' },
+      { id: 'checkout-2', kind: 'touchpoint', title: 'Checkout 2' },
+    );
+
+    expect(collisionSafeTouchpointTitle(document, 'Checkout')).toBe('Checkout 3');
   });
 });
 
@@ -189,7 +218,11 @@ describe('atomic created Offer replacement owners', () => {
     const document = soleFixture();
     const departing = document.entities.find(entity => entity.id === 'offer-a' && entity.kind === 'offer')!;
     Object.assign(departing, { currentContentSource: 'free_form', contentUrl: 'https://example.test/brief', contentText: 'Minimal copy', contentBlocks: [{ id: 'source-heading', title: 'Heading' }, { id: 'source-empty', title: 'Empty body', text: '' }] });
-    document.entities.push({ id: 'offer-2', kind: 'offer', title: 'Offer A 2', currentContentSource: null }, { id: 'similar', kind: 'offer', title: 'Offer A 02', currentContentSource: null });
+    document.entities.push(
+      { id: 'offer-2', kind: 'offer', title: 'Offer A 2', currentContentSource: null },
+      { id: 'similar', kind: 'offer', title: 'Offer A 02', currentContentSource: null },
+      { id: 'touch-offer-b-2', kind: 'touchpoint', title: 'Offer B 2' },
+    );
     document.offerFinancialIntents.push({ id: 'financial', offerId: 'offer-a', financialDesiredOutcomeId: 'fdo' });
     expect(collisionSafeOfferTitle(document, 'Offer B')).toBe('Offer B 2');
     expect(collisionSafeOfferTitle(document, 'Offer A')).toBe('Offer A 3');
