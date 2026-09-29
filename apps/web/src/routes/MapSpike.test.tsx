@@ -4363,6 +4363,32 @@ describe('map-first authoring interactions', () => {
     expect(screen.queryByRole('button', { name: 'Checkout' })).not.toBeInTheDocument(); await user.click(editor.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('button', { name: 'Checkout' })).not.toBeInTheDocument(); expect(document.querySelectorAll('[data-edge-type="mapEdge"]')).toHaveLength(edgeCount);
   });
+  it('assigns Map-duplicated Offers the first available collision-safe suffix', async () => {
+    const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user);
+    const createOffer = async (title: string) => {
+      await user.click(screen.getByRole('button', { name: 'Orbit' })); fireEvent.keyDown(window, { key: 'Tab' }); await user.click(screen.getByRole('menuitem', { name: 'Offer' }));
+      const editor = contextualEditor('Add Offer'); await user.type(editor.getByLabelText('Title'), title); await user.click(editor.getByRole('button', { name: 'Create' }));
+    };
+    const duplicateOffer = async (title: string) => {
+      fireEvent.contextMenu(screen.getByRole('button', { name: title })); await user.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+    };
+
+    await createOffer('Original Title');
+    await duplicateOffer('Original Title'); expect(screen.getByRole('button', { name: 'Original Title 2' })).toBeInTheDocument();
+    await duplicateOffer('Original Title'); expect(screen.getByRole('button', { name: 'Original Title 3' })).toBeInTheDocument();
+
+    await createOffer('Collision Title 3'); await createOffer('Collision Title'); await duplicateOffer('Collision Title');
+    expect(screen.getByRole('button', { name: 'Collision Title 2' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Collision Title' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: 'Collision Title 4' })).not.toBeInTheDocument();
+  });
+  it('preserves the source title when a Touchpoint is duplicated from the Map', async () => {
+    const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await quickOffer(user);
+    await user.click(screen.getByRole('button', { name: 'Subscription' })); fireEvent.keyDown(window, { key: 'Tab' }); await user.click(screen.getByRole('menuitem', { name: 'Touchpoint' }));
+    const editor = contextualEditor('Add Touchpoint'); await user.type(editor.getByLabelText('Title'), 'Front Page'); await user.click(editor.getByRole('button', { name: 'Create' }));
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Front Page' })); await user.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+    expect(screen.getAllByRole('button', { name: 'Front Page' })).toHaveLength(2);
+  });
   it('duplicates through node context action and exposes safe URL editing/opening', async () => { const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); fireEvent.contextMenu(screen.getByRole('button', { name: 'Orbit' })); await user.click(screen.getByRole('menuitem', { name: 'Duplicate' })); expect(screen.getAllByRole('button', { name: 'Orbit' })).toHaveLength(2); expect(screen.getByText('Element duplicated.')).toBeInTheDocument(); });
   it('uses a duplicated Touchpoint as the selected structural parent', async () => {
     const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await quickOffer(user);
