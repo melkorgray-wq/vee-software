@@ -5598,15 +5598,54 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
   ])('opens a context-menu duplicated %s in Inspector with source-to-copy history', async (_, sourceTitle, copyTitle) => {
     const user = userEvent.setup();
     render(<MapSpike initialDocument={touchpointInspectorDocument()} />);
+    const sourceId = screen.getByRole('button', { name: sourceTitle }).getAttribute('data-node-id');
     fireEvent.contextMenu(screen.getByRole('button', { name: sourceTitle }));
     await user.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
 
     const inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
+    const copyId = globalThis.document.querySelector<HTMLElement>('[data-selected="true"]')?.dataset.nodeId;
+    expect(copyId).toBeTruthy();
+    expect(copyId).not.toBe(sourceId);
     expect(inspector.getByRole('heading', { name: copyTitle })).toBeInTheDocument();
     await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    expect(globalThis.document.querySelector<HTMLElement>('[data-selected="true"]')?.dataset.nodeId).toBe(sourceId);
     expect(inspector.getByRole('heading', { name: sourceTitle })).toBeInTheDocument();
     await user.click(inspector.getByRole('button', { name: 'Inspector Forward' }));
+    expect(globalThis.document.querySelector<HTMLElement>('[data-selected="true"]')?.dataset.nodeId).toBe(copyId);
     expect(inspector.getByRole('heading', { name: copyTitle })).toBeInTheDocument();
+  });
+
+  it('opens a duplicated Product in Inspector and traverses the distinct source and copy entities', async () => {
+    const user = userEvent.setup();
+    render(<MapSpike initialDocument={touchpointInspectorDocument()} />);
+    const source = screen.getByRole('button', { name: 'Orbit' });
+    const sourceId = source.getAttribute('data-node-id');
+    fireEvent.contextMenu(source);
+    await user.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+
+    const inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
+    const copyId = globalThis.document.querySelector<HTMLElement>('[data-selected="true"]')?.dataset.nodeId;
+    expect(copyId).toBeTruthy();
+    expect(copyId).not.toBe(sourceId);
+    expect(inspector.getByRole('heading', { name: 'Orbit' })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    expect(globalThis.document.querySelector<HTMLElement>('[data-selected="true"]')?.dataset.nodeId).toBe(sourceId);
+    await user.click(inspector.getByRole('button', { name: 'Inspector Forward' }));
+    expect(globalThis.document.querySelector<HTMLElement>('[data-selected="true"]')?.dataset.nodeId).toBe(copyId);
+  });
+
+  it('clears an entity-specific editor through the shared selection transition after duplication', async () => {
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(touchpointInspectorDocument());
+    await openMap(user);
+    fireEvent.keyDown(window, { key: 'c', ctrlKey: true });
+    await openInspector(user);
+    await user.click(inspector.getByRole('button', { name: 'Edit Product' }));
+    expect(inspector.getByLabelText('Product editor')).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'v', ctrlKey: true });
+    expect(inspector.getByRole('heading', { name: 'Subscription 2' })).toBeInTheDocument();
+    expect(inspector.queryByLabelText('Product editor')).not.toBeInTheDocument();
   });
 
   it('uses the clipboard source rather than current selection and preserves preceding Inspector history', async () => {

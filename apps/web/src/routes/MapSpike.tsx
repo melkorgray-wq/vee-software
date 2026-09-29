@@ -2111,14 +2111,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
           ? { offerContentBlockIds: sourceEntity.contentBlocks.map(() => crypto.randomUUID()) }
           : {}),
       });
-      const created = next.entities.find((e) => e.id === entityId)!;
       documentRef.current = next;
       setDocument(next);
-      setSelectedId(entityId);
-      selectedRef.current = entityId;
+      if (!performSelect(entityId)) return;
       dispatchInspectorHistory({ type: 'append-copy-path', sourceEntityId: id, copiedEntityId: entityId });
-      setEditDraft(draftFor(created, next));
-      setMenu(null);
       setActiveWorkspaceView('inspector');
       activeWorkspaceViewRef.current = 'inspector';
       publishSuccess('Element duplicated.');
