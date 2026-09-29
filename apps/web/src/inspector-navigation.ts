@@ -3,6 +3,7 @@ export type InspectorHistory = { entries: string[]; index: number };
 export type InspectorHistoryAction =
   | { type: 'start'; entityId: string | null }
   | { type: 'push'; entityId: string }
+  | { type: 'append-copy-path'; sourceEntityId: string; copiedEntityId: string }
   | { type: 'replace'; history: InspectorHistory };
 
 export const emptyInspectorHistory = (): InspectorHistory => ({ entries: [], index: -1 });
@@ -11,6 +12,14 @@ export const emptyInspectorHistory = (): InspectorHistory => ({ entries: [], ind
 export function inspectorHistoryReducer(history: InspectorHistory, action: InspectorHistoryAction): InspectorHistory {
   if (action.type === 'start') return action.entityId === null ? emptyInspectorHistory() : { entries: [action.entityId], index: 0 };
   if (action.type === 'replace') return action.history;
+  if (action.type === 'append-copy-path') {
+    const precedingEntries = history.entries.slice(0, history.index + 1);
+    const sourcePath = precedingEntries.at(-1) === action.sourceEntityId ? precedingEntries : [...precedingEntries, action.sourceEntityId];
+    return {
+      entries: [...sourcePath, action.copiedEntityId],
+      index: sourcePath.length,
+    };
+  }
   if (history.entries[history.index] === action.entityId) return history;
   return {
     entries: [...history.entries.slice(0, history.index + 1), action.entityId],

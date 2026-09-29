@@ -2092,7 +2092,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
     return submitter?.value === 'inspector' ? 'inspector' : 'map';
   }
-  function duplicate(id: string) {
+  function commitDuplicate(id: string) {
     const source = documentRef.current;
     const placement = source.placements.find((p) => p.entityId === id && p.viewId === VIEW_ID);
     const sourceEntity = source.entities.find((entity) => entity.id === id);
@@ -2112,17 +2112,29 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
           : {}),
       });
       const created = next.entities.find((e) => e.id === entityId)!;
+      documentRef.current = next;
       setDocument(next);
       setSelectedId(entityId);
       selectedRef.current = entityId;
-      dispatchInspectorHistory({ type: 'start', entityId });
+      dispatchInspectorHistory({ type: 'append-copy-path', sourceEntityId: id, copiedEntityId: entityId });
       setEditDraft(draftFor(created, next));
       setMenu(null);
+      setActiveWorkspaceView('inspector');
+      activeWorkspaceViewRef.current = 'inspector';
       publishSuccess('Element duplicated.');
-      requestAnimationFrame(() => revealEntities(next, [entityId, id]));
     } catch (error) {
       publishError(error instanceof Error ? error.message : 'Element could not be duplicated.');
     }
+  }
+  function duplicate(id: string) {
+    if (!closeOfferContentEditor('switch-editor')) return;
+    const pending = () => commitDuplicate(id);
+    const selectedEntity = documentRef.current.entities.find(entity => entity.id === selectedRef.current);
+    if (guardsDirtySession(selectedEntity)) {
+      setProductConfirmation({ mode: 'dirty', pending, returnFocus: globalThis.document.activeElement as HTMLElement | null });
+      return;
+    }
+    pending();
   }
 
   useEffect(() => {
