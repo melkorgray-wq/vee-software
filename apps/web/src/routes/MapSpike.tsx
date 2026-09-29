@@ -3148,6 +3148,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       : externalCopySource === 'structured'
         ? selected.structuredExternalCopyUrl
         : undefined;
+    const externalCopyMatchesOfferDocument = Boolean(externalCopyUrl && selected.contentUrl && externalCopyUrl === selected.contentUrl);
     const wholeText = offerContentWholeText(document, selected.id);
     const offerDocumentUrl = selected.contentUrl ? safeUrl(selected.contentUrl) : undefined;
     const freeFormCurrentId = `offer-content-current-free-form-${encodeURIComponent(selected.id)}`;
@@ -3394,7 +3395,9 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             }} /></label>
             {externalCopyEditor.error && <p className="error-message" role="alert">{externalCopyEditor.error}</p>}
           </div> : externalCopyUrl ? <>
-            {safeUrl(externalCopyUrl) ? <a className="business-structure-external-link offer-content-external-copy-link" href={safeUrl(externalCopyUrl)} target="_blank" rel="noopener noreferrer">{externalCopyUrl}</a> : <span className="offer-content-external-copy-link">{externalCopyUrl}</span>}
+            {externalCopyMatchesOfferDocument
+              ? <p>Same as Offer document</p>
+              : safeUrl(externalCopyUrl) ? <a className="business-structure-external-link offer-content-external-copy-link" href={safeUrl(externalCopyUrl)} target="_blank" rel="noopener noreferrer">{externalCopyUrl}</a> : <span className="offer-content-external-copy-link">{externalCopyUrl}</span>}
             <div className="offer-content-external-copy-actions"><button ref={externalCopyActionRef} type="button" className="inspector-secondary-action" onClick={openExternalCopyEditor}>Edit link</button><button type="button" className="inspector-secondary-action" onPointerDown={() => { suppressExternalCopyBlurRef.current = true; }} onClick={() => { suppressExternalCopyBlurRef.current = false; clearExternalCopyUrl(); }}>Clear link</button></div>
           </> : <>
             <p>Save where an external copy of this text lives.</p>
