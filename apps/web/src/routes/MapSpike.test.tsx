@@ -5719,32 +5719,119 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
     expect(inspector.getByRole('button', { name: 'Inspector Forward' })).toBeDisabled();
   });
 
-  it('shows Header Duplicate only for an Offer while retaining the history controls', async () => {
+  it('shows the entity-specific Header Duplicate only for Offers and Touchpoints while retaining the history controls', async () => {
     const user = userEvent.setup();
     const inspector = renderTouchpointInspector();
+    expect(inspector.getByRole('button', { name: 'Duplicate Touchpoint' })).toHaveTextContent('Duplicate');
     expect(inspector.queryByRole('button', { name: 'Duplicate Offer' })).not.toBeInTheDocument();
     expect(inspector.getByRole('button', { name: 'Inspector Back' })).toBeInTheDocument();
     expect(inspector.getByRole('button', { name: 'Inspector Forward' })).toBeInTheDocument();
 
     await user.click(within(inspector.getByRole('group', { name: 'Offers property' })).getByRole('button', { name: 'Subscription' }));
     expect(inspector.getByRole('button', { name: 'Duplicate Offer' })).toHaveTextContent('Duplicate');
+    expect(inspector.queryByRole('button', { name: 'Duplicate Touchpoint' })).not.toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Inspector Back' })).toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Inspector Forward' })).toBeInTheDocument();
+
+    await user.click(inspector.getByRole('button', { name: 'Orbit' }));
+    expect(inspector.queryByRole('button', { name: 'Duplicate Offer' })).not.toBeInTheDocument();
+    expect(inspector.queryByRole('button', { name: 'Duplicate Touchpoint' })).not.toBeInTheDocument();
     expect(inspector.getByRole('button', { name: 'Inspector Back' })).toBeInTheDocument();
     expect(inspector.getByRole('button', { name: 'Inspector Forward' })).toBeInTheDocument();
   });
 
-  it('hides Offer Header Duplicate during Inspector root creation without disrupting the form', async () => {
+  it.each([
+    ['Offer', renderOfferInspector],
+    ['Touchpoint', renderTouchpointInspector],
+  ])('hides entity-specific Header Duplicate after entering root creation from an existing %s without disrupting the form', async (_, renderInspector) => {
     const user = userEvent.setup();
-    const inspector = renderOfferInspector();
-    expect(inspector.getByRole('button', { name: 'Duplicate Offer' })).toBeInTheDocument();
+    const inspector = renderInspector();
 
     await user.click(screen.getByRole('button', { name: 'Add element' }));
     expect(inspector.queryByRole('button', { name: 'Duplicate Offer' })).not.toBeInTheDocument();
+    expect(inspector.queryByRole('button', { name: 'Duplicate Touchpoint' })).not.toBeInTheDocument();
     const creationForm = inspector.getByRole('heading', { name: 'Add an element' }).closest('form')!;
     expect(within(creationForm).getByRole('button', { name: 'Business side' })).toBeInTheDocument();
     expect(within(creationForm).getByRole('button', { name: 'Client side' })).toBeInTheDocument();
     expect(within(creationForm).getByLabelText('Title')).toBeInTheDocument();
     expect(within(creationForm).getByRole('button', { name: 'Create' })).toBeInTheDocument();
     expect(within(creationForm).getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+  });
+
+  it('duplicates an inspected Touchpoint through the canonical path and traverses source and copy by stable ID', async () => {
+    const document = touchpointInspectorDocument(true);
+    const source = document.entities.find(entity => entity.id === 'touch')!;
+    Object.assign(source, { url: 'https://example.com/checkout', locatedInId: 'website' });
+    document.touchpointContainers.push({ id: 'website', title: 'Website' });
+    document.entities.push(
+      { id: 'parent-touch', kind: 'touchpoint', title: 'Journey' },
+      { id: 'child-touch', kind: 'touchpoint', title: 'Confirmation' },
+      { id: 'repulsor', kind: 'repulsor', title: 'Unexpected fees' },
+    );
+    document.placements.push(
+      { viewId: 'spike-view', entityId: 'parent-touch', x: 1120, y: 0 },
+      { viewId: 'spike-view', entityId: 'child-touch', x: 1260, y: 0 },
+      { viewId: 'spike-view', entityId: 'repulsor', x: 1400, y: 0 },
+    );
+    document.relationships.push(
+      { id: 'parent-source', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'parent-touch', childTouchpointId: 'touch' },
+      { id: 'source-child', kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'touch', childTouchpointId: 'child-touch' },
+      { id: 'resists-job', kind: 'repulsor_resists', repulsorId: 'repulsor', targetEntityId: 'job' },
+      { id: 'source-mitigation', kind: 'touchpoint_mitigates_repulsor', touchpointId: 'touch', repulsorId: 'repulsor' },
+    );
+    document.productJobIntents.push({ id: 'job-intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
+    document.offerJobSelections.push(
+      { id: 'offer-job-a', offerId: 'offer-a', productJobIntentId: 'job-intent', addressedDesiredOutcomeIds: ['do-a'] },
+      { id: 'offer-job-b', offerId: 'offer-b', productJobIntentId: 'job-intent', addressedDesiredOutcomeIds: ['do-a'] },
+    );
+    document.offerFinancialIntents.push({ id: 'financial-intent', offerId: 'offer-a', financialDesiredOutcomeId: 'fdo' });
+    document.touchpointJobSelections.push(
+      { id: 'touch-job-a', touchpointId: 'touch', offerId: 'offer-a', productJobIntentId: 'job-intent', addressedDesiredOutcomeIds: ['do-a'] },
+      { id: 'touch-job-b', touchpointId: 'touch', offerId: 'offer-b', productJobIntentId: 'job-intent', addressedDesiredOutcomeIds: ['do-a'] },
+    );
+    document.touchpointFinancialSelections.push({ id: 'touch-financial', touchpointId: 'touch', offerId: 'offer-a', offerFinancialIntentId: 'financial-intent', financialDesiredOutcomeId: 'fdo' });
+    const user = userEvent.setup();
+    const inspector = renderTouchpointInspector(document);
+    const sourceId = 'touch';
+
+    await user.click(within(inspector.getByRole('group', { name: 'Offers property' })).getByRole('button', { name: 'Subscription' }));
+    await user.click(within(inspector.getByRole('group', { name: 'Connected Touchpoints property' })).getByRole('button', { name: 'Checkout' }));
+    await user.click(inspector.getByRole('button', { name: 'Duplicate Touchpoint' }));
+    const committed = window.__VEE_DEV__!.dump();
+    const copies = committed.entities.filter(entity => entity.kind === 'touchpoint' && entity.title === 'Checkout' && entity.id !== sourceId);
+    expect(copies).toHaveLength(1);
+    const copy = copies[0]!;
+    expect(copy).toMatchObject({ title: 'Checkout', url: 'https://example.com/checkout', locatedInId: 'website' });
+    expect(copy.id).not.toBe(sourceId);
+    expect(committed.relationships.flatMap(relationship => relationship.kind === 'offer_presented_at_touchpoint' && relationship.touchpointId === copy.id ? [relationship.offerId] : [])).toEqual(['offer-a', 'offer-b']);
+    expect(committed.relationships).toContainEqual(expect.objectContaining({ kind: 'touchpoint_contains_touchpoint', parentTouchpointId: 'parent-touch', childTouchpointId: copy.id }));
+    expect(committed.relationships).not.toContainEqual(expect.objectContaining({ kind: 'touchpoint_contains_touchpoint', parentTouchpointId: copy.id, childTouchpointId: 'child-touch' }));
+    expect(committed.touchpointJobSelections.filter(selection => selection.touchpointId === copy.id)).toEqual([
+      expect.objectContaining({ offerId: 'offer-a', productJobIntentId: 'job-intent', addressedDesiredOutcomeIds: ['do-a'] }),
+      expect.objectContaining({ offerId: 'offer-b', productJobIntentId: 'job-intent', addressedDesiredOutcomeIds: ['do-a'] }),
+    ]);
+    expect(committed.touchpointFinancialSelections).toContainEqual(expect.objectContaining({ touchpointId: copy.id, offerId: 'offer-a', offerFinancialIntentId: 'financial-intent', financialDesiredOutcomeId: 'fdo' }));
+    expect(committed.relationships).toContainEqual(expect.objectContaining({ kind: 'touchpoint_mitigates_repulsor', touchpointId: copy.id, repulsorId: 'repulsor' }));
+
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    await user.click(inspector.getByRole('button', { name: 'Edit title, Checkout' }));
+    const titleEditor = inspector.getByRole('textbox', { name: 'Edit title, Checkout' });
+    await user.clear(titleEditor);
+    await user.type(titleEditor, 'Checkout source');
+    await user.keyboard('{Enter}');
+    const renamed = window.__VEE_DEV__!.dump();
+    expect(renamed.entities.find(entity => entity.id === sourceId)?.title).toBe('Checkout source');
+    expect(renamed.entities.find(entity => entity.id === copy.id)?.title).toBe('Checkout');
+
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Forward' }));
+    expect(inspector.getByRole('heading', { name: 'Checkout source' })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Forward' }));
+    expect(inspector.getByRole('heading', { name: 'Checkout' })).toBeInTheDocument();
+    const afterForward = window.__VEE_DEV__!.dump();
+    expect(afterForward.entities.find(entity => entity.id === copy.id)?.title).toBe('Checkout');
+    expect(afterForward.entities.find(entity => entity.id === sourceId)?.title).toBe('Checkout source');
   });
 
   it('duplicates an inspected Offer independently with canonical relationships and source-to-copy history', async () => {
