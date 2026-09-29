@@ -4213,7 +4213,7 @@ describe('map-first authoring interactions', () => {
     await user.click(resists.getByLabelText(/Progress/)); await user.click(inspector.getByRole('button', { name: 'Apply changes' })); expect(screen.getByText('Changes applied.')).toBeInTheDocument();
     await user.click(within(inspector.getByRole('group', { name: 'Resists' })).getByLabelText(/Belong/)); await user.click(inspector.getByRole('button', { name: 'Apply changes' })); expect(screen.getByRole('status')).toHaveTextContent('at least one'); await user.click(within(inspector.getByRole('group', { name: 'Resists' })).getByLabelText(/Progress/));
     await openMap(user); fireEvent.keyDown(window, { key: 'Enter' }); expect(contextualEditor('Add Repulsor').getByText('Resists: Belong')).toBeInTheDocument(); await user.click(contextualEditor('Add Repulsor').getByRole('button', { name: 'Cancel' }));
-    const reverseTab = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, cancelable: true }); fireEvent(window, reverseTab); expect(reverseTab.defaultPrevented).toBe(false); fireEvent.contextMenu(screen.getByRole('button', { name: 'Fear delay' })); expect(screen.queryByRole('menuitem', { name: 'Add' })).not.toBeInTheDocument(); expect(screen.queryByRole('menuitem', { name: 'Repulsor' })).not.toBeInTheDocument(); await user.click(screen.getByRole('menuitem', { name: 'Duplicate' })); expect(screen.getAllByRole('button', { name: 'Fear delay' })).toHaveLength(2);
+    const reverseTab = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, cancelable: true }); fireEvent(window, reverseTab); expect(reverseTab.defaultPrevented).toBe(false); fireEvent.contextMenu(screen.getByRole('button', { name: 'Fear delay' })); expect(screen.queryByRole('menuitem', { name: 'Add' })).not.toBeInTheDocument(); expect(screen.queryByRole('menuitem', { name: 'Repulsor' })).not.toBeInTheDocument(); await user.click(screen.getByRole('menuitem', { name: 'Duplicate' })); await openMap(user); expect(screen.getAllByRole('button', { name: 'Fear delay' })).toHaveLength(2);
   });
   it('uses one canonical grouped Core Functional Job menu for Tab and right click', async () => {
     const user = userEvent.setup(); render(<MapSpike />);
@@ -4261,7 +4261,7 @@ describe('map-first authoring interactions', () => {
     await user.click(screen.getByRole('button', { name: 'Core A' })); fireEvent.keyDown(window, { key: 'Tab' }); await user.click(screen.getByRole('menuitem', { name: 'Desired Outcome' })); let editor = contextualEditor('Add Desired Outcome'); await user.type(editor.getByLabelText('Title'), 'Faster'); await user.click(editor.getByRole('button', { name: 'Create' }));
     fireEvent.keyDown(window, { key: 'Enter' }); editor = contextualEditor('Add Desired Outcome'); expect(editor.getByLabelText('Title')).toHaveValue(''); await user.type(editor.getByLabelText('Title'), 'Safer'); await user.click(editor.getByRole('button', { name: 'Create' }));
     const inspector = await openInspector(user); expect(inspector.getByLabelText('Semantic parent')).not.toHaveValue(''); await user.selectOptions(inspector.getByLabelText('Semantic parent'), within(inspector.getByLabelText('Semantic parent')).getByRole('option', { name: 'Core B' })); await user.click(inspector.getByRole('button', { name: 'Apply changes' })); expect(screen.getByText('Changes applied.')).toBeInTheDocument();
-    await openMap(user); fireEvent.contextMenu(screen.getByRole('button', { name: 'Safer' })); expect(screen.queryByRole('menuitem', { name: 'Add' })).not.toBeInTheDocument(); expect(screen.queryByRole('menuitem', { name: 'Repulsor' })).not.toBeInTheDocument(); await user.click(screen.getByRole('menuitem', { name: 'Duplicate' })); expect(screen.getAllByRole('button', { name: 'Safer' })).toHaveLength(2);
+    await openMap(user); fireEvent.contextMenu(screen.getByRole('button', { name: 'Safer' })); expect(screen.queryByRole('menuitem', { name: 'Add' })).not.toBeInTheDocument(); expect(screen.queryByRole('menuitem', { name: 'Repulsor' })).not.toBeInTheDocument(); await user.click(screen.getByRole('menuitem', { name: 'Duplicate' })); await openMap(user); expect(screen.getAllByRole('button', { name: 'Safer' })).toHaveLength(2);
   });
   it('creates same-kind Client-side siblings and duplicates without inventing a Tab child', async () => {
     const user = userEvent.setup(); render(<MapSpike />);
@@ -4284,6 +4284,7 @@ describe('map-first authoring interactions', () => {
     await user.click(contextualEditor('Add Emotional Job').getByRole('button', { name: 'Cancel' }));
 
     fireEvent.keyDown(window, { key: 'c', ctrlKey: true }); fireEvent.keyDown(window, { key: 'v', ctrlKey: true });
+    await openMap(user);
     expect(screen.getAllByRole('button', { name: 'Feel confident' })).toHaveLength(2);
     expect(screen.getAllByText('Emotional Job')).toHaveLength(2);
   });
@@ -4325,7 +4326,7 @@ describe('map-first authoring interactions', () => {
   it('uses Product + Tab for contextual Offer creation while Tab in inputs stays native', async () => { const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await quickOffer(user); expect(screen.queryByText('packaged as')).not.toBeInTheDocument(); const inspector = await openInspector(user); await user.click(inspector.getByRole('button', { name: 'Edit title, Subscription' })); const title = inspector.getByRole('textbox', { name: 'Edit title, Subscription' }); title.focus(); const event = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true }); title.dispatchEvent(event); expect(event.defaultPrevented).toBe(false); const reverse = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, cancelable: true }); title.dispatchEvent(reverse); expect(reverse.defaultPrevented).toBe(false); });
   it('uses Enter for an empty sibling editor and activates the Inspector title button', async () => { const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await user.click(screen.getByRole('button', { name: 'Orbit' })); fireEvent.keyDown(window, { key: 'Enter' }); const editor = contextualEditor('Add Product'); const title = editor.getByLabelText('Title'); expect(title).toHaveFocus(); expect(title).toHaveValue(''); await user.type(title, 'Nova{Enter}'); expect(screen.getByRole('button', { name: 'Nova' })).toBeInTheDocument(); expect(screen.queryByRole('heading', { name: 'Add Product' })).not.toBeInTheDocument(); const inspector = await openInspector(user); const inspectorTitle = inspector.getByRole('button', { name: 'Edit title, Nova' }); inspectorTitle.focus(); await user.keyboard('{Enter}'); expect(inspector.getByRole('textbox', { name: 'Edit title, Nova' })).toHaveFocus(); expect(screen.queryByRole('heading', { name: 'Add Product' })).not.toBeInTheDocument(); });
   it('offers the same sibling flow from the node context menu without overlapping the selected root', async () => { const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); const original = screen.getByRole('button', { name: 'Orbit' }); const before = { x: original.getAttribute('data-x'), y: original.getAttribute('data-y') }; fireEvent.contextMenu(original); await user.click(screen.getByRole('menuitem', { name: 'Add sibling' })); const editor = contextualEditor('Add Product'); expect(editor.getByLabelText('Title')).toHaveValue(''); await user.type(editor.getByLabelText('Title'), 'Nova'); await user.click(editor.getByRole('button', { name: 'Create' })); const sibling = screen.getByRole('button', { name: 'Nova' }); const dx = Number(sibling.getAttribute('data-x')) - Number(before.x); const dy = Number(sibling.getAttribute('data-y')) - Number(before.y); expect(Math.abs(dx) >= 136 || Math.abs(dy) >= 136).toBe(true); expect(original).toHaveAttribute('data-x', before.x); expect(original).toHaveAttribute('data-y', before.y); });
-  it('keeps clipboard duplication distinct from empty sibling creation', async () => { const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await user.click(screen.getByRole('button', { name: 'Orbit' })); fireEvent.keyDown(window, { key: 'c', ctrlKey: true }); fireEvent.keyDown(window, { key: 'v', ctrlKey: true }); expect(screen.getAllByRole('button', { name: 'Orbit' })).toHaveLength(2); });
+  it('keeps clipboard duplication distinct from empty sibling creation', async () => { const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await user.click(screen.getByRole('button', { name: 'Orbit' })); fireEvent.keyDown(window, { key: 'c', ctrlKey: true }); fireEvent.keyDown(window, { key: 'v', ctrlKey: true }); await openMap(user); expect(screen.getAllByRole('button', { name: 'Orbit' })).toHaveLength(2); });
   it('creates Touchpoint and Child Touchpoint through the compact structural form', async () => {
     const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await quickOffer(user);
     await user.click(screen.getByRole('button', { name: 'Subscription' })); fireEvent.keyDown(window, { key: 'Tab' });
@@ -4371,6 +4372,7 @@ describe('map-first authoring interactions', () => {
     };
     const duplicateOffer = async (title: string) => {
       fireEvent.contextMenu(screen.getByRole('button', { name: title })); await user.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+      await openMap(user);
     };
 
     await createOffer('Original Title');
@@ -4387,9 +4389,10 @@ describe('map-first authoring interactions', () => {
     await user.click(screen.getByRole('button', { name: 'Subscription' })); fireEvent.keyDown(window, { key: 'Tab' }); await user.click(screen.getByRole('menuitem', { name: 'Touchpoint' }));
     const editor = contextualEditor('Add Touchpoint'); await user.type(editor.getByLabelText('Title'), 'Front Page'); await user.click(editor.getByRole('button', { name: 'Create' }));
     fireEvent.contextMenu(screen.getByRole('button', { name: 'Front Page' })); await user.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+    await openMap(user);
     expect(screen.getAllByRole('button', { name: 'Front Page' })).toHaveLength(2);
   });
-  it('duplicates through node context action and exposes safe URL editing/opening', async () => { const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); fireEvent.contextMenu(screen.getByRole('button', { name: 'Orbit' })); await user.click(screen.getByRole('menuitem', { name: 'Duplicate' })); expect(screen.getAllByRole('button', { name: 'Orbit' })).toHaveLength(2); expect(screen.getByText('Element duplicated.')).toBeInTheDocument(); });
+  it('duplicates through node context action and exposes safe URL editing/opening', async () => { const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); fireEvent.contextMenu(screen.getByRole('button', { name: 'Orbit' })); await user.click(screen.getByRole('menuitem', { name: 'Duplicate' })); expect(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).toHaveTextContent('Orbit'); expect(screen.getByText('Element duplicated.')).toBeInTheDocument(); await openMap(user); expect(screen.getAllByRole('button', { name: 'Orbit' })).toHaveLength(2); });
   it('uses a duplicated Touchpoint as the selected structural parent', async () => {
     const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await quickOffer(user);
     await user.click(screen.getByRole('button', { name: 'Subscription' })); fireEvent.keyDown(window, { key: 'Tab' }); await user.click(screen.getByRole('menuitem', { name: 'Touchpoint' })); let editor = contextualEditor('Add Touchpoint');
@@ -5511,8 +5514,8 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
     await openMap(user);
     await user.click(screen.getByRole('button', { name: 'Subscription' }));
     await openInspector(user);
-    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
-    expect(inspector.getByRole('button', { name: 'Inspector Back' })).toBeDisabled();
+    expect(inspector.getByRole('heading', { name: 'Subscription', hidden: true })).toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Inspector Back', hidden: true })).toBeDisabled();
     expect(inspector.getByRole('button', { name: 'Inspector Forward' })).toBeDisabled();
 
     await user.click(inspector.getByRole('button', { name: 'Orbit' }));
@@ -5587,6 +5590,127 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
     await user.click(within(screen.getByRole('dialog', { name: 'Unsaved Product changes' })).getByRole('button', { name: 'Discard' }));
     expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
     expect(inspector.getByRole('button', { name: 'Inspector Back' })).toBeEnabled();
+  });
+
+  it.each([
+    ['Offer', 'Subscription', 'Subscription 2'],
+    ['Touchpoint', 'Checkout', 'Checkout'],
+  ])('opens a context-menu duplicated %s in Inspector with source-to-copy history', async (_, sourceTitle, copyTitle) => {
+    const user = userEvent.setup();
+    render(<MapSpike initialDocument={touchpointInspectorDocument()} />);
+    const sourceId = screen.getByRole('button', { name: sourceTitle }).getAttribute('data-node-id');
+    fireEvent.contextMenu(screen.getByRole('button', { name: sourceTitle }));
+    await user.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+
+    const inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
+    const copyId = globalThis.document.querySelector<HTMLElement>('[data-selected="true"]')?.dataset.nodeId;
+    expect(copyId).toBeTruthy();
+    expect(copyId).not.toBe(sourceId);
+    expect(inspector.getByRole('heading', { name: copyTitle })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    expect(globalThis.document.querySelector<HTMLElement>('[data-selected="true"]')?.dataset.nodeId).toBe(sourceId);
+    expect(inspector.getByRole('heading', { name: sourceTitle })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Forward' }));
+    expect(globalThis.document.querySelector<HTMLElement>('[data-selected="true"]')?.dataset.nodeId).toBe(copyId);
+    expect(inspector.getByRole('heading', { name: copyTitle })).toBeInTheDocument();
+  });
+
+  it('opens a duplicated Product in Inspector and traverses the distinct source and copy entities', async () => {
+    const user = userEvent.setup();
+    render(<MapSpike initialDocument={touchpointInspectorDocument()} />);
+    const source = screen.getByRole('button', { name: 'Orbit' });
+    const sourceId = source.getAttribute('data-node-id');
+    fireEvent.contextMenu(source);
+    await user.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+
+    const inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
+    const copyId = globalThis.document.querySelector<HTMLElement>('[data-selected="true"]')?.dataset.nodeId;
+    expect(copyId).toBeTruthy();
+    expect(copyId).not.toBe(sourceId);
+    expect(inspector.getByRole('heading', { name: 'Orbit' })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    expect(globalThis.document.querySelector<HTMLElement>('[data-selected="true"]')?.dataset.nodeId).toBe(sourceId);
+    await user.click(inspector.getByRole('button', { name: 'Inspector Forward' }));
+    expect(globalThis.document.querySelector<HTMLElement>('[data-selected="true"]')?.dataset.nodeId).toBe(copyId);
+  });
+
+  it('clears an entity-specific editor through the shared selection transition after duplication', async () => {
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(touchpointInspectorDocument());
+    await openMap(user);
+    fireEvent.keyDown(window, { key: 'c', ctrlKey: true });
+    await openInspector(user);
+    await user.click(inspector.getByRole('button', { name: 'Edit Product' }));
+    expect(inspector.getByLabelText('Product editor')).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'v', ctrlKey: true });
+    expect(inspector.getByRole('heading', { name: 'Subscription 2' })).toBeInTheDocument();
+    expect(inspector.queryByLabelText('Product editor')).not.toBeInTheDocument();
+  });
+
+  it('uses the clipboard source rather than current selection and preserves preceding Inspector history', async () => {
+    const user = userEvent.setup();
+    const inspector = renderTouchpointInspector();
+    await openMap(user);
+    await user.click(screen.getByRole('button', { name: 'Subscription' }));
+    fireEvent.keyDown(window, { key: 'c', ctrlKey: true });
+    await user.click(screen.getByRole('button', { name: 'Checkout' }));
+    await openInspector(user);
+    await user.click(within(inspector.getByRole('group', { name: 'Offers property' })).getByRole('button', { name: 'Subscription' }));
+    await user.click(inspector.getByRole('button', { name: 'Orbit' }));
+    await openMap(user);
+
+    fireEvent.keyDown(window, { key: 'v', ctrlKey: true });
+    expect(inspector.getByRole('heading', { name: 'Subscription 2' })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    expect(inspector.getByRole('heading', { name: 'Orbit' })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Forward' }));
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Forward' }));
+    expect(inspector.getByRole('heading', { name: 'Subscription 2' })).toBeInTheDocument();
+  });
+
+  it('keeps document, selection, workspace, and history unchanged when duplication is cancelled or fails', async () => {
+    const document = touchpointInspectorDocument();
+    document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(document);
+    await openMap(user);
+    fireEvent.keyDown(window, { key: 'c', ctrlKey: true });
+    await openInspector(user);
+    const intent = inspector.getByRole('group', { name: 'Client intent' });
+    await user.click(within(intent).getByRole('button', { name: 'Expand Make progress' }));
+    await user.click(within(intent).getByLabelText('Finish faster'));
+
+    fireEvent.keyDown(window, { key: 'v', ctrlKey: true });
+    await user.click(within(screen.getByRole('dialog', { name: 'Unsaved Offer changes' })).getByRole('button', { name: 'Keep editing' }));
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Inspector Back' })).toBeDisabled();
+    expect(screen.getByRole('tab', { name: 'Entity Inspector' })).toHaveAttribute('aria-selected', 'true');
+
+    await user.click(within(intent).getByLabelText('Finish faster'));
+    await user.click(inspector.getByRole('button', { name: 'Add content' }));
+    await user.type(inspector.getByLabelText('External document URL'), 'not-a-url');
+    fireEvent.keyDown(window, { key: 'v', ctrlKey: true });
+    expect(inspector.getByLabelText('External document URL')).toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Inspector Back' })).toBeDisabled();
+
+  });
+
+  it('preserves the current Inspector session when the domain duplication operation fails', async () => {
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(touchpointInspectorDocument());
+    const failure = vi.spyOn(domain, 'duplicateEntity').mockImplementationOnce(() => { throw new Error('Entity id already exists.'); });
+    await openMap(user);
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Subscription' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+    expect(await screen.findByText('Entity id already exists.')).toBeInTheDocument();
+    expect(inspector.getByRole('heading', { name: 'Subscription', hidden: true })).toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Inspector Back', hidden: true })).toBeDisabled();
+    expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
+    failure.mockRestore();
   });
 
   it('history controls expose exact accessible names', () => {

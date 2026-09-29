@@ -37,6 +37,21 @@ describe('Inspector entity history', () => {
     expect(inspectorHistoryReducer(history, { type: 'push', entityId: 'product' })).toBe(history);
   });
 
+  it.each([
+    ['when source is current', { entries: ['product', 'source'], index: 1 }, ['product', 'source', 'copy']],
+    ['when selection differs from source', { entries: ['product', 'selection'], index: 1 }, ['product', 'selection', 'source', 'copy']],
+    ['when earlier history exists', { entries: ['root', 'product', 'source'], index: 2 }, ['root', 'product', 'source', 'copy']],
+    ['when a forward branch exists', { entries: ['root', 'selection', 'forward-a', 'forward-b'], index: 1 }, ['root', 'selection', 'source', 'copy']],
+  ])('appends a source-to-copy path %s', (_, initial, entries) => {
+    const history = inspectorHistoryReducer(initial, { type: 'append-copy-path', sourceEntityId: 'source', copiedEntityId: 'copy' });
+    expect(history).toEqual({ entries, index: entries.length - 1 });
+
+    const back = traverseInspectorHistory(history, 'back', () => true)!;
+    expect(back.targetId).toBe('source');
+    const forward = traverseInspectorHistory(back.history, 'forward', () => true)!;
+    expect(forward.targetId).toBe('copy');
+  });
+
   it('handles a missing history target deterministically', () => {
     const history = { entries: ['product', 'deleted-offer', 'touchpoint'], index: 2 };
     expect(traverseInspectorHistory(history, 'back', id => id !== 'deleted-offer')).toEqual({
