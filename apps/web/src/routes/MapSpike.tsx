@@ -19,6 +19,7 @@ import { collisionSafeOfferTitle, collisionSafeTouchpointTitle, commitOfferConne
 import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
 import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets } from '../touchpoint-business-structure';
 import { deriveOfferBusinessStructure, projectConnectedTouchpointCandidates } from '../offer-business-structure';
+import { offerClientIntent, type OfferClientIntentGroup, type OfferClientIntentJobGroup } from '../offer-client-intent';
 import { initialCompactOverviewExpandedGroupIds } from '../compact-overview-presentation';
 import { useClientScopePackedLayout, usePackedPanelLayout } from '../client-scope-packed-layout';
 import { deriveOfferClientIntentNeighborhood, type OfferClientIntentGround, type OfferClientIntentJobComparison, type OfferClientIntentGroundTypeId } from '../offer-client-intent-neighborhood';
@@ -655,6 +656,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [connectionPicker, setConnectionPicker] = useState<ClientScopeEditor | null>(null);
   const [expandedClientSources, setExpandedClientSources] = useState<Record<string, boolean>>({});
   const [expandedClientScopePanels, setExpandedClientScopePanels] = useState<Record<string, Partial<Record<ClientScopePanelKind, boolean>>>>({});
+  const [expandedOfferIntentPanels, setExpandedOfferIntentPanels] = useState<Record<string, Partial<Record<ClientScopePanelKind, boolean>>>>({});
+  const [offerIntentEditors, setOfferIntentEditors] = useState<Record<string, boolean>>({});
   const [localRemoval, setLocalRemoval] = useState<{ plans: TouchpointIntentPathPlan[]; mitigationRelationshipIds: string[]; cancelFocusId: string; commitFocusIds: string[] } | null>(null);
   const pendingLocalFocusIdsRef = useRef<string[]>([]);
   const connectionPickerButtonRef = useRef<HTMLButtonElement>(null);
@@ -763,6 +766,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setConnectionPicker(null);
     setExpandedClientSources({});
     setExpandedClientScopePanels({});
+    setExpandedOfferIntentPanels({});
+    setOfferIntentEditors({});
     setLocalRemoval(null);
     const neutralRelationsMode = inactiveRelationsMode();
     setRelationsMode(neutralRelationsMode);
@@ -2800,6 +2805,52 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       </>
     );
   }
+  function offerClientIntentSection() {
+    if (selected?.kind !== 'offer' || !editDraft) return null;
+    const projection = offerClientIntent(document, selected.id);
+    if (!projection) return null;
+    const editing = Boolean(offerIntentEditors[selected.id]);
+    const panelId = (kind: ClientScopePanelKind) => `offer-client-intent-${encodeURIComponent(selected.id)}-${kind}`;
+    const renderedGroups = CLIENT_SCOPE_KIND_ORDER.flatMap(kind => {
+      const group = projection.groups.find(candidate => candidate.kind === kind);
+      return group ? [{ id: panelId(kind), count: group.items.length, group }] : [];
+    });
+    const initialExpansion = initialCompactOverviewExpandedGroupIds(renderedGroups);
+    const storedExpansion = expandedOfferIntentPanels[selected.id];
+    const isExpanded = ({ id, group }: (typeof renderedGroups)[number]) =>
+      storedExpansion?.[group.kind] ?? (storedExpansion ? false : initialExpansion.has(id));
+    const groups = [...renderedGroups].sort((left, right) => Number(isExpanded(right)) - Number(isExpanded(left)));
+    const togglePanel = (kind: ClientScopePanelKind) => setExpandedOfferIntentPanels(current => {
+      const existing = current[selected.id];
+      const snapshot = existing ?? Object.fromEntries(renderedGroups.map(panel => [panel.group.kind, initialExpansion.has(panel.id)]));
+      return { ...current, [selected.id]: { ...snapshot, [kind]: !(snapshot[kind] ?? false) } };
+    });
+    const renderJobGroup = (group: OfferClientIntentJobGroup) => group.items.map(item => <div className={`touchpoint-client-job ${item.desiredOutcomes.length ? 'has-outcomes' : 'direct-job'}`} key={item.id}>
+      <button type="button" onClick={() => navigateInspector(item.job.id)}>{item.job.title}</button>
+      {item.desiredOutcomes.length > 0 && <ul>{item.desiredOutcomes.map(outcome => <li key={outcome.id}><button type="button" onClick={() => navigateInspector(outcome.id)}>{outcome.title}</button></li>)}</ul>}
+    </div>);
+    const renderGroup = (group: OfferClientIntentGroup) => group.kind === 'financial_desired_outcome'
+      ? group.items.map(item => <div className="touchpoint-client-financial" key={item.id}><button type="button" onClick={() => navigateInspector(item.financialDesiredOutcome.id)}>{item.financialDesiredOutcome.title}</button></div>)
+      : renderJobGroup(group);
+    return <section className={`touchpoint-client-scope offer-client-intent${editing ? ' is-editing' : ''}`} aria-labelledby="offer-client-intent-heading">
+      <div className="touchpoint-client-scope-heading">{editing
+        ? <><h4 id="offer-client-intent-heading">Client intent</h4><button type="button" className="inspector-secondary-action" aria-label="Close Client intent editor" onClick={() => setOfferIntentEditors(current => ({ ...current, [selected.id]: false }))}>Close</button></>
+        : <h4 id="offer-client-intent-heading" aria-label="Client intent"><button type="button" className="inspector-property-heading-action" aria-label="Edit Client intent" onClick={() => setOfferIntentEditors(current => ({ ...current, [selected.id]: true }))}>Client intent<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h4>}
+      </div>
+      {!editing && groups.length > 0 && <ClientScopePackedGroups panelIds={groups.map(panel => panel.id)}>{groups.map(panel => {
+        const expanded = isExpanded(panel);
+        const contentId = `${panel.id}-content`;
+        return <section className="client-scope-view-panel" key={panel.id}>
+          <button type="button" className="client-scope-view-disclosure" aria-expanded={expanded} aria-controls={contentId} aria-label={`${KIND_LABELS[panel.group.kind]}, ${panel.group.items.length}`} onClick={() => togglePanel(panel.group.kind)}>
+            <span aria-hidden="true">{expanded ? '▾' : '▸'}</span><span>{KIND_LABELS[panel.group.kind]}</span><span className="client-scope-view-count">{panel.group.items.length}</span>
+          </button>
+          {expanded && <div className="client-scope-view-content" id={contentId}>{renderGroup(panel.group)}</div>}
+        </section>;
+      })}</ClientScopePackedGroups>}
+      {!editing && groups.length === 0 && <p className="touchpoint-client-scope-empty">No Client intent selected.</p>}
+      {editing && offerIntentFields(editDraft, setEditDraft)}
+    </section>;
+  }
   function closeMenuAndRestoreFocus() {
     const owner = menuOwnerRef.current;
     const entityId = menu?.type === 'node' ? menu.entityId : undefined;
@@ -4009,7 +4060,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               {offerContentSection()}
               {offerNeighborhoodSection()}
               {productIntentFields(editDraft, setEditDraft)}
-              {offerIntentFields(editDraft, setEditDraft)}
+              {offerClientIntentSection()}
               {resistanceImpactFields(selected)}
               {semanticParentField(editDraft, setEditDraft)}
               {contextualJobFields(editDraft, setEditDraft)}
