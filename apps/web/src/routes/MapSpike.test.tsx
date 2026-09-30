@@ -3530,15 +3530,17 @@ describe('Offer Inspector derived neighborhood', () => {
     expect(document).toEqual(snapshot);
   });
 
-  it('commits Product locally while retaining unrelated draft edits and their dirty navigation guard', async () => {
+  it('commits Product locally while retaining committed Financial intent without a false dirty guard', async () => {
     const user = userEvent.setup();
     const document = offerNeighborhoodDocument();
     let inspector = await inspectOffer(user, document);
     await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
     const financial = inspector.getByRole('checkbox', { name: /Stay affordable/ }) as HTMLInputElement;
     await user.click(financial);
-    const dirtyFinancialState = financial.checked;
-    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
+    expect(financial).toBeChecked();
+    expect(window.__VEE_DEV__!.dump().offerFinancialIntents).toEqual([expect.objectContaining({ offerId: 'offer-a', financialDesiredOutcomeId: 'fdo' })]);
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
     const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
     await user.click(structure.getByRole('button', { name: 'Edit Product' }));
     expect(inspector.queryByLabelText('Linked Product')).not.toBeInTheDocument();
@@ -3547,14 +3549,10 @@ describe('Offer Inspector derived neighborhood', () => {
     await user.click(editor.getByRole('radio', { name: 'Other Product' }));
     expect(inspector.queryByLabelText('Product editor')).not.toBeInTheDocument();
     expect(structure.getByRole('button', { name: 'Other Product' })).toBeInTheDocument();
-    expect((inspector.getByRole('checkbox', { name: /Stay affordable/ }) as HTMLInputElement).checked).toBe(dirtyFinancialState);
-    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
-    await user.click(structure.getByRole('button', { name: 'Other Product' }));
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
-    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Keep editing' }));
-    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
-    await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
+    expect(inspector.getByRole('checkbox', { name: /Stay affordable/ })).toBeChecked();
+    expect(window.__VEE_DEV__!.dump().offerFinancialIntents).toEqual([expect.objectContaining({ offerId: 'offer-a', financialDesiredOutcomeId: 'fdo' })]);
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
     await user.click(structure.getByRole('button', { name: 'Other Product' }));
     inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
     expect(inspector.getByRole('heading', { name: 'Other Product' })).toBeInTheDocument();
@@ -3620,14 +3618,16 @@ describe('Offer Inspector derived neighborhood', () => {
   it('immediately attaches and detaches Connected Touchpoints, stays open, and preserves an unrelated Offer draft', async () => {
     const user = userEvent.setup();
     const source = offerNeighborhoodDocument();
+    source.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
     source.entities.push({ id: 'touch-other', kind: 'touchpoint', title: 'Consultation room' });
     source.relationships.push({ id: 'other-offer', kind: 'offer_presented_at_touchpoint', offerId: 'offer-b', touchpointId: 'touch-other' });
     source.placements.push({ viewId: 'spike-view', entityId: 'touch-other', x: 3000, y: 0 });
     const inspector = await inspectOffer(user, source);
     await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
-    const financial = inspector.getByRole('checkbox', { name: /Stay affordable/ }) as HTMLInputElement;
-    await user.click(financial);
-    const dirtyFinancialState = financial.checked;
+    const job = inspector.getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ });
+    await user.click(job);
+    expect(job).toBeChecked();
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
     const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
     expect(structure.getAllByText('Click to edit')).toHaveLength(2);
     await user.click(structure.getByRole('button', { name: 'Edit Connected Touchpoints' }));
@@ -3639,11 +3639,12 @@ describe('Offer Inspector derived neighborhood', () => {
     expect(other).toBeChecked();
     expect(inspector.getByLabelText('Connected Touchpoints editor')).toBeInTheDocument();
     expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
-    expect((inspector.getByRole('checkbox', { name: /Stay affordable/ }) as HTMLInputElement).checked).toBe(dirtyFinancialState);
+    expect(job).toBeChecked();
     await user.click(other);
     expect(other).not.toBeChecked();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(inspector.getByLabelText('Connected Touchpoints editor')).toBeInTheDocument();
+    expect(job).toBeChecked();
   });
 
   it('replaces the required final connection atomically with progressive cancellation and preserves editor focus behavior', async () => {
