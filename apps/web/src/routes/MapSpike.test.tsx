@@ -279,7 +279,7 @@ describe('Offer Client intent presentation', () => {
   afterEach(cleanup);
 
   function financialCheckbox(inspector: ReturnType<typeof within>) {
-    return within(inspector.getByRole('group', { name: 'Financial intent' })).getByRole('checkbox', { name: /^Stay affordable\s*Financial Desired Outcome$/ });
+    return within(inspector.getByRole('group', { name: 'Financial intent' })).getByRole('checkbox', { name: 'Stay affordable' });
   }
 
   function documentWithOfferFinancialImpact() {
@@ -350,7 +350,7 @@ describe('Offer Client intent presentation', () => {
     expect(within(section).queryByRole('checkbox', { name: /^Stay affordable/ })).not.toBeInTheDocument();
     await user.clear(search);
     await user.type(search, 'Stay affordable');
-    expect(within(section).getByRole('checkbox', { name: /^Stay affordable\s*Financial Desired Outcome$/ })).not.toBeChecked();
+    expect(within(section).getByRole('checkbox', { name: 'Stay affordable' })).not.toBeChecked();
     expect(within(section).queryByText(/via /i)).not.toBeInTheDocument();
     expect(within(section).queryByText(/Parent/)).not.toBeInTheDocument();
     expect(window.__VEE_DEV__!.dump()).toEqual(before);
@@ -371,7 +371,7 @@ describe('Offer Client intent presentation', () => {
     expect(source).toHaveAttribute('aria-expanded', 'false');
     await user.type(search, 'Make progress');
     expect(source).toHaveAttribute('aria-expanded', 'true');
-    expect(within(section).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ })).toBeVisible();
+    expect(within(section).getByRole('checkbox', { name: 'Make progress' })).toBeVisible();
     await user.clear(search);
     expect(source).toHaveAttribute('aria-expanded', 'false');
 
@@ -389,6 +389,50 @@ describe('Offer Client intent presentation', () => {
     await user.clear(search);
     expect(source).toHaveAttribute('aria-expanded', 'false');
     expect(window.__VEE_DEV__!.dump()).toEqual(before);
+  });
+
+  it('shares the semantic candidate-row and Job-group hierarchy with Touchpoint while keeping Offer-only ontology out', async () => {
+    const user = userEvent.setup();
+    const document = touchpointInspectorDocument();
+    document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a', 'do-b'] });
+    document.entities.push({ id: 'emotion', kind: 'emotional_job', title: 'Feel assured' });
+    document.productJobIntents.push({ id: 'emotion-intent', productId: 'product', jobId: 'emotion', addressedDesiredOutcomeIds: [] });
+    let inspector = renderOfferInspector(document);
+    const offerSection = inspector.getByRole('region', { name: 'Client intent' });
+    await user.click(within(offerSection).getByRole('button', { name: 'Edit Client intent' }));
+
+    const offerJob = within(offerSection).getByRole('checkbox', { name: 'Make progress' }).closest('.touchpoint-client-job')!;
+    const offerMembership = within(offerJob as HTMLElement).getByRole('checkbox', { name: 'Make progress' });
+    const offerOutcome = within(offerJob as HTMLElement).getByRole('checkbox', { name: 'Finish faster' });
+    expect(offerJob.firstElementChild).toHaveTextContent('Core Functional Job');
+    expect(offerMembership.closest('.intent-semantic-leaf')).toHaveClass('job-membership-row');
+    expect(offerOutcome.closest('.intent-leaves')).toHaveClass('desired-outcome-rows');
+    expect(offerMembership.closest('.intent-path-row')).toContainElement(offerMembership.closest('label'));
+    expect(offerMembership.closest('label')).toHaveClass('intent-selection-surface');
+    expect(offerMembership.closest('label')!.querySelector('button, a')).toBeNull();
+    expect(offerJob.querySelector('.intent-job-branch, .intent-job.selected')).toBeNull();
+    const uncheckedStructure = offerMembership.closest('.intent-path-row')!.innerHTML.replace('checked=""', '');
+    await user.click(offerMembership);
+    expect(offerMembership.closest('.intent-path-row')!.innerHTML.replace('checked=""', '')).toBe(uncheckedStructure);
+    const directJob = within(offerSection).getByRole('checkbox', { name: 'Feel assured' }).closest('.touchpoint-client-job')!;
+    expect(directJob.querySelector('.desired-outcome-rows')).toBeNull();
+    const productSource = within(offerSection).getByRole('button', { name: 'Product · Orbit' }).nextElementSibling!;
+    expect(productSource).toContainElement(offerMembership);
+    const financial = within(offerSection).getByRole('checkbox', { name: 'Stay affordable' });
+    expect(productSource).not.toContainElement(financial);
+    expect(financial.closest('.intent-path-row')).not.toBeNull();
+    expect(offerSection.querySelector('.contributor-attributions, .contributor-chooser')).toBeNull();
+    expect(offerSection).not.toHaveTextContent('Parent provenance');
+
+    cleanup();
+    inspector = renderTouchpointInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
+    const touchpointSection = inspector.getByRole('region', { name: 'Find Client intent' });
+    await user.type(within(touchpointSection).getByRole('searchbox', { name: 'Search Client intent' }), 'Make progress');
+    const touchpointJob = within(touchpointSection).getByRole('checkbox', { name: 'Make progress' }).closest('.touchpoint-client-job')!;
+    expect(touchpointJob.firstElementChild).toHaveTextContent('Core Functional Job');
+    expect(touchpointJob.querySelector('.job-membership-row > .intent-path-row > .intent-checkbox > .intent-selection-surface')).not.toBeNull();
+    expect(touchpointJob.querySelector('.desired-outcome-rows > .intent-semantic-leaf > .intent-path-row')).not.toBeNull();
   });
 
   it('clears Offer discovery and source-disclosure state when a replacement document reuses the Offer ID', async () => {
@@ -498,14 +542,12 @@ describe('Offer Client intent presentation', () => {
     expect(section).toHaveClass('is-editing');
     expect(section.querySelector('.touchpoint-client-scope-heading')).toContainElement(within(section).getByRole('button', { name: 'Close Client intent editor' }));
     const editor = within(section).getByRole('group', { name: 'Client intent' });
-    const job = within(editor).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ });
+    const job = within(editor).getByRole('checkbox', { name: 'Make progress' });
     await user.click(job);
-    await user.click(within(editor).getByRole('button', { name: 'Expand Make progress' }));
     await user.click(within(editor).getByRole('checkbox', { name: 'Finish faster' }));
     expect(window.__VEE_DEV__!.dump().offerJobSelections).toEqual([expect.objectContaining({ offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] })]);
     expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
     expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
-    expect(within(editor).getByRole('button', { name: 'Collapse Make progress' })).toBeInTheDocument();
     await user.click(within(section).getByRole('button', { name: 'Close Client intent editor' }));
     expect(within(section).queryByText('No Client intent selected.')).not.toBeInTheDocument();
     expect(within(section).getByRole('button', { name: 'Core Functional Job, 1' })).toBeInTheDocument();
@@ -545,7 +587,7 @@ describe('Offer Client intent presentation', () => {
     expect(financialCheckbox(inspector)).toBeChecked();
 
     const jobs = within(section).getByRole('group', { name: 'Client intent' });
-    await user.click(within(jobs).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ }));
+    await user.click(within(jobs).getByRole('checkbox', { name: 'Make progress' }));
     expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
     expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
     const committed = window.__VEE_DEV__!.dump();
@@ -561,7 +603,6 @@ describe('Offer Client intent presentation', () => {
     const section = inspector.getByRole('region', { name: 'Client intent' });
     await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
     const jobs = within(section).getByRole('group', { name: 'Client intent' });
-    await user.click(within(jobs).getByRole('button', { name: 'Expand Make progress' }));
     await user.click(within(jobs).getByRole('checkbox', { name: 'Reduce errors' }));
 
     await user.click(financialCheckbox(inspector));
@@ -579,7 +620,6 @@ describe('Offer Client intent presentation', () => {
     const section = inspector.getByRole('region', { name: 'Client intent' });
     await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
     let jobs = within(section).getByRole('group', { name: 'Client intent' });
-    await user.click(within(jobs).getByRole('button', { name: 'Expand Make progress' }));
     await user.click(within(jobs).getByRole('checkbox', { name: 'Reduce errors' }));
     let checkbox = financialCheckbox(inspector);
 
@@ -630,13 +670,13 @@ describe('Offer Client intent presentation', () => {
     const section = inspector.getByRole('region', { name: 'Client intent' });
     await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
     const jobs = within(section).getByRole('group', { name: 'Client intent' });
-    await user.click(within(jobs).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ }));
+    await user.click(within(jobs).getByRole('checkbox', { name: 'Make progress' }));
 
     await user.click(financialCheckbox(inspector));
 
     expect(window.__VEE_DEV__!.dump().offerFinancialIntents).toEqual([]);
     expect(financialCheckbox(inspector)).not.toBeChecked();
-    expect(within(jobs).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ })).toBeChecked();
+    expect(within(jobs).getByRole('checkbox', { name: 'Make progress' })).toBeChecked();
     expect(inspector.getByRole('status')).toHaveTextContent('Financial commit failed.');
     commit.mockRestore();
   });
@@ -649,13 +689,12 @@ describe('Offer Client intent presentation', () => {
     const section = inspector.getByRole('region', { name: 'Client intent' });
     await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
     const editor = within(section).getByRole('group', { name: 'Client intent' });
-    await user.click(within(editor).getByRole('button', { name: 'Expand Make progress' }));
 
     await user.click(within(editor).getByRole('checkbox', { name: 'Finish faster' }));
     let committed = window.__VEE_DEV__!.dump();
     expect(committed.offerJobSelections).toEqual([expect.objectContaining({ productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] })]);
     const selectionId = committed.offerJobSelections[0]!.id;
-    expect(within(editor).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ })).toBeChecked();
+    expect(within(editor).getByRole('checkbox', { name: 'Make progress' })).toBeChecked();
     expect(within(editor).getByRole('checkbox', { name: 'Reduce errors' })).not.toBeChecked();
 
     await user.click(within(editor).getByRole('checkbox', { name: 'Reduce errors' }));
@@ -665,7 +704,6 @@ describe('Offer Client intent presentation', () => {
     await user.click(within(editor).getByRole('checkbox', { name: 'Reduce errors' }));
     committed = window.__VEE_DEV__!.dump();
     expect(committed.offerJobSelections).toEqual([{ id: selectionId, offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] }]);
-    expect(within(editor).getByRole('button', { name: 'Collapse Make progress' })).toBeInTheDocument();
   });
 
   it('reviews destructive Job removal with exact impact and supports Cancel, Escape, and one Confirm commit', async () => {
@@ -678,7 +716,7 @@ describe('Offer Client intent presentation', () => {
     const section = inspector.getByRole('region', { name: 'Client intent' });
     await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
     const editor = within(section).getByRole('group', { name: 'Client intent' });
-    const checkbox = within(editor).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ });
+    const checkbox = within(editor).getByRole('checkbox', { name: 'Make progress' });
 
     await user.click(checkbox);
     let review = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
@@ -698,7 +736,7 @@ describe('Offer Client intent presentation', () => {
     await user.click(within(review).getByRole('button', { name: 'Confirm removal' }));
     expect(window.__VEE_DEV__!.dump().offerJobSelections).toEqual([]);
     expect(window.__VEE_DEV__!.dump().touchpointJobSelections).toEqual([]);
-    expect(within(editor).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ })).not.toBeChecked();
+    expect(within(editor).getByRole('checkbox', { name: 'Make progress' })).not.toBeChecked();
     expect(within(section).getByRole('button', { name: 'Close Client intent editor' })).toBeInTheDocument();
   });
 
@@ -715,8 +753,8 @@ describe('Offer Client intent presentation', () => {
     await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
     const editor = within(section).getByRole('group', { name: 'Client intent' });
     expect(within(editor).queryByRole('button', { name: /Feel assured/ })).not.toBeInTheDocument();
-    await user.click(within(editor).getByRole('checkbox', { name: /^Feel assured\s*Emotional Job$/ }));
-    await user.click(within(editor).getByRole('checkbox', { name: /^Signal expertise\s*Social Job$/ }));
+    await user.click(within(editor).getByRole('checkbox', { name: 'Feel assured' }));
+    await user.click(within(editor).getByRole('checkbox', { name: 'Signal expertise' }));
     expect(window.__VEE_DEV__!.dump().offerJobSelections.map(selection => [selection.productJobIntentId, selection.addressedDesiredOutcomeIds])).toEqual([
       ['emotion-intent', []],
       ['social-intent', []],
@@ -731,7 +769,7 @@ describe('Offer Client intent presentation', () => {
     const inspector = renderOfferInspector(document);
     const section = inspector.getByRole('region', { name: 'Client intent' });
     await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
-    const checkbox = within(section).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ });
+    const checkbox = within(section).getByRole('checkbox', { name: 'Make progress' });
     await user.click(checkbox);
     expect(window.__VEE_DEV__!.dump().offerJobSelections).toEqual([]);
     expect(checkbox).not.toBeChecked();
@@ -3882,7 +3920,7 @@ describe('Offer Inspector derived neighborhood', () => {
     source.placements.push({ viewId: 'spike-view', entityId: 'touch-other', x: 3000, y: 0 });
     const inspector = await inspectOffer(user, source);
     await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
-    const job = inspector.getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ });
+    const job = inspector.getByRole('checkbox', { name: 'Make progress' });
     await user.click(job);
     expect(job).toBeChecked();
     expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
@@ -4809,9 +4847,9 @@ describe('map-first authoring interactions', () => {
     const initialEdgeCount = document.querySelectorAll('[data-edge-type="mapEdge"]').length; await user.type(offer.getByLabelText('Title'), 'Cancelled'); expect(screen.queryByRole('button', { name: 'Cancelled' })).not.toBeInTheDocument(); expect(document.querySelectorAll('[data-edge-type="mapEdge"]')).toHaveLength(initialEdgeCount); await user.click(offer.getByRole('button', { name: 'Cancel' })); expect(screen.queryByRole('button', { name: 'Cancelled' })).not.toBeInTheDocument(); expect(document.querySelectorAll('[data-edge-type="mapEdge"]')).toHaveLength(initialEdgeCount);
     fireEvent.keyDown(window, { key: 'Tab' }); await user.click(screen.getByRole('menuitem', { name: 'Offer' })); offer = contextualEditor('Add Offer'); await user.type(offer.getByLabelText('Title'), 'Subscription'); await user.click(offer.getByRole('button', { name: 'Create' }));
     expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true'); expect(screen.getByRole('button', { name: 'Subscription' })).toBeInTheDocument(); expect(document.querySelectorAll('[data-edge-type="mapEdge"]')).toHaveLength(initialEdgeCount + 1);
-    const offerInspector = await openInspector(user); expect(offerInspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument(); await user.click(offerInspector.getByRole('button', { name: 'Edit Client intent' })); const offerJobs = offerInspector.getByRole('group', { name: 'Client intent' }); const jobSelection = within(offerJobs).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ }); expect(jobSelection).not.toBeChecked();
-    await user.click(within(offerJobs).getByRole('button', { name: 'Expand Make progress' })); expect(jobSelection).not.toBeChecked(); expect(within(offerJobs).getByRole('checkbox', { name: 'Finish faster' })).not.toBeChecked();
-    const financial = offerInspector.getByRole('group', { name: 'Financial intent' }); expect(within(financial).getByRole('checkbox', { name: /^Stay affordable\s*Financial Desired Outcome$/ })).not.toBeChecked(); expect(offerInspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
+    const offerInspector = await openInspector(user); expect(offerInspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument(); await user.click(offerInspector.getByRole('button', { name: 'Edit Client intent' })); const offerJobs = offerInspector.getByRole('group', { name: 'Client intent' }); const jobSelection = within(offerJobs).getByRole('checkbox', { name: 'Make progress' }); expect(jobSelection).not.toBeChecked();
+    expect(jobSelection).not.toBeChecked(); expect(within(offerJobs).getByRole('checkbox', { name: 'Finish faster' })).not.toBeChecked();
+    const financial = offerInspector.getByRole('group', { name: 'Financial intent' }); expect(within(financial).getByRole('checkbox', { name: 'Stay affordable' })).not.toBeChecked(); expect(offerInspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
   });
   it('uses Product + Tab for contextual Offer creation while Tab in inputs stays native', async () => { const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await quickOffer(user); expect(screen.queryByText('packaged as')).not.toBeInTheDocument(); const inspector = await openInspector(user); await user.click(inspector.getByRole('button', { name: 'Edit title, Subscription' })); const title = inspector.getByRole('textbox', { name: 'Edit title, Subscription' }); title.focus(); const event = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true }); title.dispatchEvent(event); expect(event.defaultPrevented).toBe(false); const reverse = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, cancelable: true }); title.dispatchEvent(reverse); expect(reverse.defaultPrevented).toBe(false); });
   it('uses Enter for an empty sibling editor and activates the Inspector title button', async () => { const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await user.click(screen.getByRole('button', { name: 'Orbit' })); fireEvent.keyDown(window, { key: 'Enter' }); const editor = contextualEditor('Add Product'); const title = editor.getByLabelText('Title'); expect(title).toHaveFocus(); expect(title).toHaveValue(''); await user.type(title, 'Nova{Enter}'); expect(screen.getByRole('button', { name: 'Nova' })).toBeInTheDocument(); expect(screen.queryByRole('heading', { name: 'Add Product' })).not.toBeInTheDocument(); const inspector = await openInspector(user); const inspectorTitle = inspector.getByRole('button', { name: 'Edit title, Nova' }); inspectorTitle.focus(); await user.keyboard('{Enter}'); expect(inspector.getByRole('textbox', { name: 'Edit title, Nova' })).toHaveFocus(); expect(screen.queryByRole('heading', { name: 'Add Product' })).not.toBeInTheDocument(); });
@@ -5962,7 +6000,6 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
     await user.click(within(inspector.getByRole('group', { name: 'Offers property' })).getByRole('button', { name: 'Subscription' }));
     await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
     const intent = inspector.getByRole('group', { name: 'Client intent' });
-    await user.click(within(intent).getByRole('button', { name: 'Expand Make progress' }));
     await user.click(within(intent).getByRole('checkbox', { name: 'Reduce errors' }));
     const review = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
     expect(within(review).getByRole('button', { name: 'Confirm removal' })).toBeInTheDocument();
@@ -6183,7 +6220,6 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
     await openInspector(user);
     await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
     const intent = inspector.getByRole('group', { name: 'Client intent' });
-    await user.click(within(intent).getByRole('button', { name: 'Expand Make progress' }));
     await user.click(within(intent).getByLabelText('Finish faster'));
 
     fireEvent.keyDown(window, { key: 'v', ctrlKey: true });
@@ -6355,7 +6391,6 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
     const inspector = renderOfferInspector(document);
     await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
     const intent = inspector.getByRole('group', { name: 'Client intent' });
-    await user.click(within(intent).getByRole('button', { name: 'Expand Make progress' }));
     await user.click(within(intent).getByLabelText('Finish faster'));
 
     await user.click(inspector.getByRole('button', { name: 'Duplicate Offer' }));
