@@ -291,6 +291,63 @@ describe('Offer Client intent presentation', () => {
     return document;
   }
 
+  it('owns opening and explicit/Escape focus through the local editor lifecycle', async () => {
+    const user = userEvent.setup();
+    const document = touchpointInspectorDocument();
+    document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
+    const inspector = renderOfferInspector(document);
+    const section = inspector.getByRole('region', { name: 'Client intent' });
+
+    await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
+    const firstJob = within(section).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ });
+    await waitFor(() => expect(firstJob).toHaveFocus());
+    const headingCluster = section.querySelector('.embedded-editor-heading-actions')!;
+    const close = within(section).getByRole('button', { name: 'Close Client intent editor' });
+    expect(headingCluster).toContainElement(close);
+    expect(headingCluster.firstElementChild?.nextElementSibling).toBe(close);
+
+    await user.click(close);
+    await waitFor(() => expect(within(section).getByRole('button', { name: 'Edit Client intent' })).toHaveFocus());
+    await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
+    await waitFor(() => expect(within(section).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ })).toHaveFocus());
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(within(section).getByRole('button', { name: 'Edit Client intent' })).toHaveFocus());
+  });
+
+  it('falls back from Job to Financial and then Close for deliberate opening focus', async () => {
+    const user = userEvent.setup();
+    const financialOnly = touchpointInspectorDocument();
+    let inspector = renderOfferInspector(financialOnly);
+    let section = inspector.getByRole('region', { name: 'Client intent' });
+    await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
+    await waitFor(() => expect(financialCheckbox(inspector)).toHaveFocus());
+
+    cleanup();
+    const empty = touchpointInspectorDocument();
+    empty.entities = empty.entities.filter(entity => entity.kind !== 'financial_desired_outcome');
+    inspector = renderOfferInspector(empty);
+    section = inspector.getByRole('region', { name: 'Client intent' });
+    await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
+    await waitFor(() => expect(within(section).getByRole('button', { name: 'Close Client intent editor' })).toHaveFocus());
+  });
+
+  it('dismisses only on an outside pointer and preserves the outside focus owner and document', async () => {
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector();
+    const section = inspector.getByRole('region', { name: 'Client intent' });
+    await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
+    const before = structuredClone(window.__VEE_DEV__!.dump());
+    fireEvent.pointerDown(within(section).getByRole('group', { name: 'Financial intent' }));
+    expect(within(section).getByRole('button', { name: 'Close Client intent editor' })).toBeInTheDocument();
+
+    const outside = inspector.getByRole('button', { name: 'Add content' });
+    outside.focus();
+    fireEvent.pointerDown(outside);
+    await waitFor(() => expect(within(section).getByRole('button', { name: 'Edit Client intent' })).toBeInTheDocument());
+    expect(outside).toHaveFocus();
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+  });
+
   it('renders the committed projection with shared panels, ontology-aware leaves, navigation, and Offer-scoped disclosure', async () => {
     const user = userEvent.setup();
     const document = semanticOfferNeighborhoodDocument();
@@ -436,10 +493,10 @@ describe('Offer Client intent presentation', () => {
     const inspector = renderOfferInspector(documentWithOfferFinancialImpact());
     const section = inspector.getByRole('region', { name: 'Client intent' });
     await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
-    const jobs = within(section).getByRole('group', { name: 'Client intent' });
+    let jobs = within(section).getByRole('group', { name: 'Client intent' });
     await user.click(within(jobs).getByRole('button', { name: 'Expand Make progress' }));
     await user.click(within(jobs).getByRole('checkbox', { name: 'Reduce errors' }));
-    const checkbox = financialCheckbox(inspector);
+    let checkbox = financialCheckbox(inspector);
 
     await user.click(checkbox);
     const dialog = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
@@ -456,8 +513,15 @@ describe('Offer Client intent presentation', () => {
     await user.keyboard('{Escape}');
     await waitFor(() => expect(checkbox).toHaveFocus());
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(within(section).getByRole('button', { name: 'Close Client intent editor' })).toBeInTheDocument();
     expect(window.__VEE_DEV__!.dump().touchpointFinancialSelections.map(item => item.id)).toEqual(['touch-financial']);
     expect(within(jobs).getByRole('checkbox', { name: 'Reduce errors' })).toBeChecked();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(within(section).getByRole('button', { name: 'Edit Client intent' })).toHaveFocus());
+    await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
+    checkbox = financialCheckbox(inspector);
+    jobs = within(section).getByRole('group', { name: 'Client intent' });
 
     await user.click(checkbox);
     expect(checkbox).toBeChecked();
@@ -3658,7 +3722,7 @@ describe('Offer Inspector derived neighborhood', () => {
     await user.click(editor.getByRole('radio', { name: 'Other Product' }));
     expect(inspector.queryByLabelText('Product editor')).not.toBeInTheDocument();
     expect(structure.getByRole('button', { name: 'Other Product' })).toBeInTheDocument();
-    expect(inspector.getByRole('checkbox', { name: /Stay affordable/ })).toBeChecked();
+    expect(within(inspector.getByRole('region', { name: 'Client intent' })).getByRole('button', { name: 'Financial Desired Outcome, 1' })).toBeInTheDocument();
     expect(window.__VEE_DEV__!.dump().offerFinancialIntents).toEqual([expect.objectContaining({ offerId: 'offer-a', financialDesiredOutcomeId: 'fdo' })]);
     expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
     expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
@@ -3880,7 +3944,6 @@ describe('Offer Inspector derived neighborhood', () => {
     await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
     const financial = inspector.getByRole('checkbox', { name: /Stay affordable/ }) as HTMLInputElement;
     await user.click(financial);
-    const dirtyFinancialState = financial.checked;
     const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
     await user.click(structure.getByRole('button', { name: 'Edit Connected Touchpoints' }));
     let checkout = within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: /^Checkout,/ });
@@ -3891,14 +3954,14 @@ describe('Offer Inspector derived neighborhood', () => {
     checkout = within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: /^Checkout,/ });
     expect(checkout).toBeChecked();
     await waitFor(() => expect(checkout).toHaveFocus());
-    expect((inspector.getByRole('checkbox', { name: /Stay affordable/ }) as HTMLInputElement).checked).toBe(dirtyFinancialState);
+    expect(within(inspector.getByRole('region', { name: 'Client intent' })).getByRole('button', { name: 'Financial Desired Outcome, 1' })).toBeInTheDocument();
     await user.click(checkout);
     dialog = within(screen.getByRole('dialog'));
     await user.click(dialog.getByRole('button', { name: 'Confirm removal' }));
     checkout = within(inspector.getByLabelText('Connected Touchpoints editor')).getByRole('checkbox', { name: /^Checkout,/ });
     expect(checkout).not.toBeChecked();
     await waitFor(() => expect(checkout).toHaveFocus());
-    expect((inspector.getByRole('checkbox', { name: /Stay affordable/ }) as HTMLInputElement).checked).toBe(dirtyFinancialState);
+    expect(within(inspector.getByRole('region', { name: 'Client intent' })).getByRole('button', { name: 'Financial Desired Outcome, 1' })).toBeInTheDocument();
     expect(inspector.getByLabelText('Connected Touchpoints editor')).toBeInTheDocument();
   });
 

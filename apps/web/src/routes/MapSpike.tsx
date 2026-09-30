@@ -655,6 +655,11 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [expandedClientScopePanels, setExpandedClientScopePanels] = useState<Record<string, Partial<Record<ClientScopePanelKind, boolean>>>>({});
   const [expandedOfferIntentPanels, setExpandedOfferIntentPanels] = useState<Record<string, Partial<Record<ClientScopePanelKind, boolean>>>>({});
   const [offerIntentEditors, setOfferIntentEditors] = useState<Record<string, boolean>>({});
+  const offerIntentEditorsRef = useRef(offerIntentEditors);
+  offerIntentEditorsRef.current = offerIntentEditors;
+  const offerIntentEditorRef = useRef<HTMLElement>(null);
+  const offerIntentEditButtonRef = useRef<HTMLButtonElement>(null);
+  const offerIntentCloseButtonRef = useRef<HTMLButtonElement>(null);
   const [localRemoval, setLocalRemoval] = useState<{ plans: TouchpointIntentPathPlan[]; mitigationRelationshipIds: string[]; cancelFocusId: string; commitFocusIds: string[] } | null>(null);
   const pendingLocalFocusIdsRef = useRef<string[]>([]);
   const connectionPickerButtonRef = useRef<HTMLButtonElement>(null);
@@ -1102,6 +1107,30 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     });
     return true;
   }
+  type OfferIntentEditorCloseReason = 'explicit' | 'escape' | 'pointer' | 'switch-editor';
+  function closeOfferIntentEditor(reason: OfferIntentEditorCloseReason, offerId = selectedRef.current ?? undefined) {
+    if (!offerId || !offerIntentEditors[offerId]) return;
+    setOfferIntentEditors(current => ({ ...current, [offerId]: false }));
+    if (reason === 'explicit' || reason === 'escape') requestAnimationFrame(() => {
+      if (selectedRef.current === offerId && !offerIntentEditorsRef.current[offerId]) offerIntentEditButtonRef.current?.focus();
+    });
+  }
+  function openOfferIntentEditor(offerId: string) {
+    if (!closeOfferContentEditor('switch-editor')) return;
+    closeOfferIntentEditor('switch-editor');
+    closeConnectedTouchpointsEditor('switch-editor');
+    closeRelationEditor('switch-editor');
+    closeChildrenEditor('switch-editor');
+    if (!closeClientScopeEditor('switch-editor')) return;
+    setBusinessInlineEdit(null);
+    setOfferIntentEditors(current => ({ ...current, [offerId]: true }));
+    requestAnimationFrame(() => {
+      if (selectedRef.current !== offerId || !offerIntentEditorsRef.current[offerId]) return;
+      const firstJob = offerIntentEditorRef.current?.querySelector<HTMLInputElement>('.client-intent .intent-selection input:not(:disabled)');
+      const firstFinancial = offerIntentEditorRef.current?.querySelector<HTMLInputElement>('.financial-intent input:not(:disabled)');
+      (firstJob ?? firstFinancial ?? offerIntentCloseButtonRef.current)?.focus();
+    });
+  }
   type RelationEditorCloseReason = 'explicit' | 'commit' | 'pointer' | 'switch-editor';
   function closeRelationEditor(reason: RelationEditorCloseReason) {
     const focusTarget = offersPicker ? offersPickerButtonRef : parentPicker ? parentPickerButtonRef : productPicker ? productPickerButtonRef : null;
@@ -1157,6 +1186,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   }
   function openOffersEditor() {
     if (!closeOfferContentEditor('switch-editor')) return;
+    closeOfferIntentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
     setChildrenEditor(null);
     closeRelationEditor('switch-editor');
@@ -1166,6 +1196,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   }
   function openProductEditor() {
     if (!closeOfferContentEditor('switch-editor')) return;
+    closeOfferIntentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
     setChildrenEditor(null);
     closeRelationEditor('switch-editor');
@@ -1175,6 +1206,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   }
   function openParentEditor() {
     if (!closeOfferContentEditor('switch-editor')) return;
+    closeOfferIntentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
     setChildrenEditor(null);
     closeRelationEditor('switch-editor');
@@ -1184,6 +1216,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   }
   function openLocatedInEditor(containerTitle: string) {
     if (!closeOfferContentEditor('switch-editor')) return;
+    closeOfferIntentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
     closeRelationEditor('switch-editor');
     closeChildrenEditor('switch-editor');
@@ -1192,6 +1225,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   }
   function openUrlEditor(storedUrl: string) {
     if (!closeOfferContentEditor('switch-editor')) return;
+    closeOfferIntentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
     closeRelationEditor('switch-editor');
     closeChildrenEditor('switch-editor');
@@ -1204,6 +1238,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   }
   function openChildrenEditor() {
     if (!closeOfferContentEditor('switch-editor')) return;
+    closeOfferIntentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
     closeRelationEditor('switch-editor');
     if (!closeClientScopeEditor('switch-editor')) return;
@@ -1249,6 +1284,17 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       globalThis.document.removeEventListener('keydown', dismissOnEscape);
     };
   }, [offerContentDraft, selected]);
+  useEffect(() => {
+    const offerId = selected?.kind === 'offer' && offerIntentEditors[selected.id] ? selected.id : null;
+    if (!offerId) return;
+    const dismissOnPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof globalThis.Node) || offerIntentEditorRef.current?.contains(target) || productConfirmation) return;
+      closeOfferIntentEditor('pointer', offerId);
+    };
+    globalThis.document.addEventListener('pointerdown', dismissOnPointerDown);
+    return () => globalThis.document.removeEventListener('pointerdown', dismissOnPointerDown);
+  }, [offerIntentEditors, productConfirmation, selected]);
   useEffect(() => {
     if (!externalCopyEditor) return;
     if (selected?.kind !== 'offer' || selected.id !== externalCopyEditor.offerId || offerContentSourceState(document, selected.id).currentContentSource !== externalCopyEditor.source) {
@@ -1442,6 +1488,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   }
   function openConnectedTouchpointsEditor() {
     if (!closeOfferContentEditor('switch-editor')) return;
+    closeOfferIntentEditor('switch-editor');
     closeRelationEditor('switch-editor');
     closeChildrenEditor('switch-editor');
     if (!closeClientScopeEditor('switch-editor')) return;
@@ -1752,6 +1799,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   }
   function performSelect(id: string | null) {
     if (!closeOfferContentEditor('switch-editor')) return false;
+    closeOfferIntentEditor('switch-editor');
     setRelationsMode(inactiveRelationsMode());
     setMoveMode(inactiveMoveMode());
     setSelectedId(id);
@@ -2223,6 +2271,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   }
   function duplicate(id: string) {
     if (!closeOfferContentEditor('switch-editor')) return;
+    closeOfferIntentEditor('switch-editor');
     const pending = () => commitDuplicate(id);
     const selectedEntity = documentRef.current.entities.find(entity => entity.id === selectedRef.current);
     if (guardsDirtySession(selectedEntity)) {
@@ -2386,6 +2435,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   }
   function performRootCreation() {
     if (!closeOfferContentEditor('switch-editor')) return;
+    closeOfferIntentEditor('switch-editor');
     setInspectorTitleEdit(null);
     setMode('create');
     setOffersPicker(null);
@@ -2908,10 +2958,15 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const renderGroup = (group: OfferClientIntentGroup) => group.kind === 'financial_desired_outcome'
       ? group.items.map(item => <div className="touchpoint-client-financial" key={item.id}><button type="button" onClick={() => navigateInspector(item.financialDesiredOutcome.id)}>{item.financialDesiredOutcome.title}</button></div>)
       : renderJobGroup(group);
-    return <section className={`touchpoint-client-scope offer-client-intent${editing ? ' is-editing' : ''}`} aria-labelledby="offer-client-intent-heading">
-      <div className="touchpoint-client-scope-heading">{editing
-        ? <><h4 id="offer-client-intent-heading">Client intent</h4><button type="button" className="inspector-secondary-action" aria-label="Close Client intent editor" onClick={() => setOfferIntentEditors(current => ({ ...current, [selected.id]: false }))}>Close</button></>
-        : <h4 id="offer-client-intent-heading" aria-label="Client intent"><button type="button" className="inspector-property-heading-action" aria-label="Edit Client intent" onClick={() => setOfferIntentEditors(current => ({ ...current, [selected.id]: true }))}>Client intent<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h4>}
+    return <section ref={editing ? offerIntentEditorRef : undefined} className={`touchpoint-client-scope offer-client-intent${editing ? ' is-editing' : ''}`} aria-labelledby="offer-client-intent-heading" aria-label={editing ? 'Client intent editor' : undefined} onKeyDown={editing ? event => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeOfferIntentEditor('escape', selected.id);
+    } : undefined}>
+      <div className="touchpoint-client-scope-heading embedded-editor-heading-actions">{editing
+        ? <><h4 id="offer-client-intent-heading">Client intent</h4><button ref={offerIntentCloseButtonRef} type="button" className="inspector-secondary-action" aria-label="Close Client intent editor" onClick={() => closeOfferIntentEditor('explicit', selected.id)}>Close</button></>
+        : <h4 id="offer-client-intent-heading" aria-label="Client intent"><button ref={offerIntentEditButtonRef} type="button" className="inspector-property-heading-action" aria-label="Edit Client intent" onClick={() => openOfferIntentEditor(selected.id)}>Client intent<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h4>}
       </div>
       {!editing && groups.length > 0 && <ClientScopePackedGroups panelIds={groups.map(panel => panel.id)}>{groups.map(panel => {
         const expanded = isExpanded(panel);
@@ -4144,7 +4199,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       </div>
       {productConfirmation && (
         <div className="confirmation-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !(productConfirmation.mode === 'impact' && (productConfirmation.owner === 'touchpoint' || productConfirmation.owner === 'touchpoint-replacement' || productConfirmation.owner === 'touchpoint-created-replacement'))) closeProductConfirmation(); }}>
-          <div ref={confirmationRef} role="dialog" aria-modal="true" aria-labelledby="product-confirmation-title" className="confirmation-dialog" onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); closeProductConfirmation(); } }}>
+          <div ref={confirmationRef} role="dialog" aria-modal="true" aria-labelledby="product-confirmation-title" className="confirmation-dialog" onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeProductConfirmation(); } }}>
             <h2 id="product-confirmation-title">{productConfirmation.mode === 'dirty' ? 'Unsaved Product changes' : productConfirmation.owner === 'touchpoint-replacement' || productConfirmation.owner === 'touchpoint-created-replacement' ? 'Replace this Touchpoint Offer?' : 'This change affects downstream intent'}</h2>
             {productConfirmation.mode === 'impact' && productConfirmation.owner === 'touchpoint-replacement' && <p>Replace <strong>{entityTitle(document, productConfirmation.departingOfferId)}</strong> with <strong>{entityTitle(document, productConfirmation.replacementOfferId)}</strong> at <strong>{entityTitle(document, productConfirmation.touchpointId)}</strong>?</p>}
             {productConfirmation.mode === 'impact' && productConfirmation.owner === 'touchpoint-created-replacement' && <p>{productConfirmation.operationKind === 'sibling' ? 'Create' : 'Duplicate as'} <strong>{productConfirmation.plannedOfferTitle}</strong> and replace <strong>{entityTitle(document, productConfirmation.departingOfferId)}</strong> at <strong>{entityTitle(document, productConfirmation.touchpointId)}</strong>?</p>}
