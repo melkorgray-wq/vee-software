@@ -76,8 +76,6 @@ type EditDraft = {
   kind: ProvisionalEntityKind;
   linkedProductId: string;
   linkedOfferIds: string[];
-  selectedIntentIds: string[];
-  offerIntentOutcomes: Record<string, string[]>;
   productIntentOutcomes: Record<string, string[]>;
   stagedClientEntities: { id: string; kind: 'core_functional_job' | 'emotional_job' | 'social_job' | 'consumption_chain_job' | 'desired_outcome'; title: string; parentEntityId?: string }[];
   locatedInId: string;
@@ -125,9 +123,9 @@ type EntityContextCommandGroup = { id: string; heading: string; commands: Entity
 type ProductConfirmation =
   | { mode: 'dirty'; pending: () => void; returnFocus: HTMLElement | null }
   | { mode: 'impact'; owner: 'product'; pending?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getProductIntentChangeImpact> }
-  | { mode: 'impact'; owner: 'offer'; pending?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getOfferIntentChangeImpact> }
   | { mode: 'impact'; owner: 'offer-product'; immediateCommit: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getOfferIntentChangeImpact> }
   | { mode: 'impact'; owner: 'offer-financial'; immediateCommit: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getOfferIntentChangeImpact> }
+  | { mode: 'impact'; owner: 'offer-job'; immediateCommit: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getOfferIntentChangeImpact> }
   | { mode: 'impact'; owner: 'touchpoint'; immediateCommit: () => void; returnFocus: HTMLElement | null; returnFocusId?: string; impact: ReturnType<typeof getTouchpointLinkedOfferChangeImpact> }
   | { mode: 'impact'; owner: 'touchpoint-replacement'; immediateCommit: () => void; returnFocus: HTMLElement | null; returnFocusId: string; impact: ReturnType<typeof getTouchpointLinkedOfferChangeImpact>; touchpointId: string; departingOfferId: string; replacementOfferId: string }
   | { mode: 'impact'; owner: 'touchpoint-created-replacement'; operationKind: 'sibling' | 'duplicate'; immediateCommit: () => void; returnFocus: HTMLElement | null; returnFocusId: string; impact: ReturnType<typeof getTouchpointLinkedOfferChangeImpact>; touchpointId: string; departingOfferId: string; plannedOfferTitle: string };
@@ -170,8 +168,6 @@ const draft = (kind: ProvisionalEntityKind = 'product'): EditDraft => ({
   kind,
   linkedProductId: '',
   linkedOfferIds: [],
-  selectedIntentIds: [],
-  offerIntentOutcomes: {},
   productIntentOutcomes: {},
   stagedClientEntities: [],
   locatedInId: '',
@@ -663,8 +659,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const pendingLocalFocusIdsRef = useRef<string[]>([]);
   const connectionPickerButtonRef = useRef<HTMLButtonElement>(null);
   const clientScopeEditorRef = useRef<HTMLElement>(null);
-  const [offerIntentSectionIds, setOfferIntentSectionIds] = useState<Record<string, string[]>>({});
-  const [, setOfferSelectionMemory] = useState<Record<string, string[]>>({});
   const [productIntentSectionIds, setProductIntentSectionIds] = useState<string[]>([]);
   const [rememberedProductOutcomes, setRememberedProductOutcomes] = useState<Record<string, string[]>>({});
   const rememberedProductOutcomesRef = useRef<Record<string, string[]>>({});
@@ -739,10 +733,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const offerBusinessStructure = selected?.kind === 'offer'
     ? deriveOfferBusinessStructure(document, selected.id)
     : undefined;
-  const inspectorDirty = Boolean(selected && editDraft && (() => {
+  const inspectorDirty = Boolean(selected && selected.kind !== 'offer' && editDraft && (() => {
     const baseline = draftFor(selected);
-    const comparableDraft = { ...editDraft, touchpointIntent: undefined, ...(selected.kind === 'offer' ? { financialOutcomeIds: undefined } : {}) };
-    const comparableBaseline = { ...baseline, touchpointIntent: undefined, ...(selected.kind === 'offer' ? { financialOutcomeIds: undefined } : {}) };
+    const comparableDraft = { ...editDraft, touchpointIntent: undefined };
+    const comparableBaseline = { ...baseline, touchpointIntent: undefined };
     return JSON.stringify(comparableDraft) !== JSON.stringify(comparableBaseline) || Boolean(editDraft.touchpointIntent && baseline.touchpointIntent && !equalTouchpointIntentDraft(editDraft.touchpointIntent, baseline.touchpointIntent));
   })());
 
@@ -789,8 +783,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setOfferExpanded({});
     setNeighborhoodExpanded({});
     setOfferNeighborhoodExpanded({});
-    setOfferIntentSectionIds({});
-    setOfferSelectionMemory({});
     setProductIntentSectionIds([]);
     setRememberedProductOutcomes({});
     rememberedProductOutcomesRef.current = {};
@@ -1352,10 +1344,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     if (entity.kind === 'offer') {
       result.financialOutcomeIds = source.offerFinancialIntents.filter((intent) => intent.offerId === entity.id).map((intent) => intent.financialDesiredOutcomeId);
       result.linkedProductId = source.relationships.find((r): r is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => r.kind === 'product_packaged_as_offer' && r.offerId === entity.id)?.productId ?? '';
-      for (const selection of source.offerJobSelections.filter((selection) => selection.offerId === entity.id)) {
-        result.selectedIntentIds.push(selection.productJobIntentId);
-        result.offerIntentOutcomes[selection.productJobIntentId] = effectiveOfferDesiredOutcomeIds(source, selection);
-      }
     }
     if (entity.kind === 'touchpoint') {
       result.linkedOfferIds = linkedOfferIds(source, entity.id);
@@ -1586,15 +1574,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       const committed = changeOfferProduct(before, { offerId, productId, confirmedImpact });
       const next = reconsiderPlacementAfterRelationCommit(before, committed, VIEW_ID, offerId);
       setDocument(next);
-      setEditDraft(current => current ? {
-        ...current,
-        linkedProductId: productId,
-        selectedIntentIds: [],
-        offerIntentOutcomes: {},
-      } : current);
+      setEditDraft(current => current ? { ...current, linkedProductId: productId } : current);
       setOfferExpanded({});
-      setOfferIntentSectionIds({ [productId]: [] });
-      setOfferSelectionMemory({ [productId]: [] });
       closeRelationEditor('commit');
       publishSuccess('Product updated.');
     } catch (error) {
@@ -1662,6 +1643,72 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     }
     commitOfferFinancialIntentImmediately(offerId, outcomeId, checked);
   }
+  type OfferJobSelectionProposal = { productJobIntentId: string; addressedDesiredOutcomeIds: string[] };
+  function committedOfferJobSelectionProposal(source: MapDocument, offerId: string): OfferJobSelectionProposal[] {
+    return source.offerJobSelections.filter(selection => selection.offerId === offerId).map(selection => ({
+      productJobIntentId: selection.productJobIntentId,
+      addressedDesiredOutcomeIds: effectiveOfferDesiredOutcomeIds(source, selection),
+    }));
+  }
+  function commitOfferJobSelectionsImmediately(offerId: string, proposed: OfferJobSelectionProposal[]) {
+    try {
+      const before = documentRef.current;
+      const offer = before.entities.find(entity => entity.id === offerId && entity.kind === 'offer');
+      const productId = before.relationships.find((relation): relation is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => relation.kind === 'product_packaged_as_offer' && relation.offerId === offer?.id)?.productId;
+      if (!offer || !productId) throw new Error('Offer Product could not be resolved.');
+      const committedSelectionIntentIds = new Set(before.offerJobSelections.filter(selection => selection.offerId === offerId).map(selection => selection.productJobIntentId));
+      const committed = setOfferJobSelections(before, {
+        offerId,
+        selections: proposed,
+        newSelectionIds: proposed.filter(selection => !committedSelectionIntentIds.has(selection.productJobIntentId)).map(() => crypto.randomUUID()),
+      });
+      const next = reconsiderPlacementAfterRelationCommit(before, committed, VIEW_ID, offerId);
+      setDocument(next);
+      publishSuccess('Offer intent updated.');
+    } catch (error) {
+      publishError(error instanceof Error ? error.message : 'Offer intent could not be updated.');
+    }
+  }
+  function requestOfferJobSelectionCommit(productJobIntentId: string, desiredOutcomeId: string | undefined, checked: boolean, returnFocus: HTMLElement | null) {
+    if (selected?.kind !== 'offer') return;
+    const offerId = selected.id;
+    const durable = documentRef.current;
+    const offer = durable.entities.find(entity => entity.id === offerId && entity.kind === 'offer');
+    const productId = durable.relationships.find((relation): relation is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => relation.kind === 'product_packaged_as_offer' && relation.offerId === offer?.id)?.productId;
+    if (!offer || !productId) {
+      publishError('Offer Product could not be resolved.');
+      return;
+    }
+    const committed = committedOfferJobSelectionProposal(durable, offerId);
+    const existing = committed.find(selection => selection.productJobIntentId === productJobIntentId);
+    let proposed: OfferJobSelectionProposal[];
+    if (desiredOutcomeId) {
+      if (existing) {
+        proposed = committed.map(selection => selection.productJobIntentId !== productJobIntentId ? selection : {
+          ...selection,
+          addressedDesiredOutcomeIds: checked
+            ? [...new Set([...selection.addressedDesiredOutcomeIds, desiredOutcomeId])]
+            : selection.addressedDesiredOutcomeIds.filter(id => id !== desiredOutcomeId),
+        });
+      } else {
+        if (!checked) return;
+        proposed = [...committed, { productJobIntentId, addressedDesiredOutcomeIds: [desiredOutcomeId] }];
+      }
+    } else {
+      if (Boolean(existing) === checked) return;
+      proposed = checked ? [...committed, { productJobIntentId, addressedDesiredOutcomeIds: [] }] : committed.filter(selection => selection.productJobIntentId !== productJobIntentId);
+    }
+    const immediateCommit = () => commitOfferJobSelectionsImmediately(offerId, proposed);
+    if (!checked) {
+      const financialDesiredOutcomeIds = durable.offerFinancialIntents.filter(intent => intent.offerId === offerId).map(intent => intent.financialDesiredOutcomeId);
+      const impact = getOfferIntentChangeImpact(durable, { offerId, productId, selections: proposed, financialDesiredOutcomeIds });
+      if (impact.touchpointJobSelectionIds.length || impact.narrowedTouchpointSelections.length) {
+        setProductConfirmation({ mode: 'impact', owner: 'offer-job', impact, returnFocus, immediateCommit });
+        return;
+      }
+    }
+    immediateCommit();
+  }
   function commitParentImmediately(touchpointId: string, parentTouchpointId: string) {
     const before = documentRef.current;
     const currentParentId = before.relationships.find((relation): relation is Extract<Relationship, { kind: 'touchpoint_contains_touchpoint' }> => relation.kind === 'touchpoint_contains_touchpoint' && relation.childTouchpointId === touchpointId)?.parentTouchpointId ?? '';
@@ -1691,18 +1738,9 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setProductInlineTitle('');
     setProductIntentSectionIds(entity?.kind === 'product' ? source.productJobIntents.filter(intent => intent.productId === entity.id).map(intent => intent.jobId) : []);
     setOfferExpanded({});
-    if (entity?.kind === 'offer') {
-      const productId = source.relationships.find((relation): relation is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => relation.kind === 'product_packaged_as_offer' && relation.offerId === entity.id)?.productId ?? '';
-      const selectedIds = source.offerJobSelections.filter(selection => selection.offerId === entity.id).map(selection => selection.productJobIntentId);
-      setOfferIntentSectionIds({ [productId]: selectedIds });
-      setOfferSelectionMemory({ [productId]: selectedIds });
-    } else {
-      setOfferIntentSectionIds({});
-      setOfferSelectionMemory({});
-    }
   }
   function guardsDirtySession(entity: Entity | undefined): boolean {
-    return Boolean(entity && (entity.kind === 'product' || entity.kind === 'offer') && inspectorDirty);
+    return Boolean(entity?.kind === 'product' && inspectorDirty);
   }
   function discardDirtySession(pending: () => void) {
     const durable = documentRef.current;
@@ -2792,41 +2830,32 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       {inline?.kind === 'job' ? <input autoFocus aria-label="New Client Job title" value={inlineTitle} onChange={event => setInlineTitle(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); finishInline(); } if (event.key === 'Escape') { event.preventDefault(); setInline(null); setInlineTitle(''); } }} /> : addingKind ? <div className="choice-row" role="group" aria-label="Client Job kind">{(['core_functional_job','emotional_job','social_job','consumption_chain_job'] as const).map(kind => <button type="button" key={kind} onClick={() => { setInline({ kind: 'job', entityKind: kind }); setInlineTitle(''); }}>{KIND_LABELS[kind]}</button>)}<button type="button" onClick={() => setAddingKind(false)}>Cancel</button></div> : <button type="button" className="text-action" onClick={() => setAddingKind(true)}>+ Add Client Job</button>}
     </fieldset>;
   }
-  function offerIntentFields(d: EditDraft, setter: (d: EditDraft) => void) {
+  function offerIntentFields(d: EditDraft) {
     if (d.kind !== 'offer' || !d.linkedProductId) return null;
     const intents = document.productJobIntents.filter((intent) => intent.productId === d.linkedProductId);
-    const sectionIds = offerIntentSectionIds[d.linkedProductId] ?? [];
+    const committedSelections = document.offerJobSelections.filter(selection => selection.offerId === selected?.id);
     const renderIntent = (intent: (typeof intents)[number]) => {
       const job = document.entities.find((entity) => entity.id === intent.jobId)!;
       const bearsOutcomes = job.kind === 'core_functional_job' || job.kind === 'related_job' || job.kind === 'consumption_chain_job';
       const outcomes = intent.addressedDesiredOutcomeIds.flatMap(id => document.entities.filter(entity => entity.id === id));
       const related = job.kind === 'related_job' ? document.relationships.find((relation): relation is Extract<Relationship, { kind: 'core_functional_job_has_related_job' }> => relation.kind === 'core_functional_job_has_related_job' && relation.relatedJobId === job.id) : undefined;
       const relatedTitle = related && document.entities.find(entity => entity.id === related.coreFunctionalJobId)?.title;
-      const selected = d.selectedIntentIds.includes(intent.id);
-      const selectedOutcomes = d.offerIntentOutcomes[intent.id] ?? [];
-      const setJobSelected = (checked: boolean) => setter({
-        ...d,
-        selectedIntentIds: checked ? [...new Set([...d.selectedIntentIds, intent.id])] : d.selectedIntentIds.filter(id => id !== intent.id),
-        offerIntentOutcomes: { ...d.offerIntentOutcomes, [intent.id]: checked ? selectedOutcomes : [] },
-      });
-      const setOutcomeSelected = (outcomeId: string, checked: boolean) => setter({
-        ...d,
-        selectedIntentIds: [...new Set([...d.selectedIntentIds, intent.id])],
-        offerIntentOutcomes: { ...d.offerIntentOutcomes, [intent.id]: checked ? [...new Set([...selectedOutcomes, outcomeId])] : selectedOutcomes.filter(id => id !== outcomeId) },
-      });
+      const committedSelection = committedSelections.find(selection => selection.productJobIntentId === intent.id);
+      const selected = Boolean(committedSelection);
+      const selectedOutcomes = committedSelection ? effectiveOfferDesiredOutcomeIds(document, committedSelection) : [];
       return <div className={`intent-job ${selected ? 'selected' : ''}`} key={intent.id}>
         <div className="intent-job-heading">
           {bearsOutcomes ? <button type="button" className="disclosure" aria-label={`${offerExpanded[intent.id] ? 'Collapse' : 'Expand'} ${job.title}`} aria-expanded={Boolean(offerExpanded[intent.id])} onClick={() => setOfferExpanded(current => ({ ...current, [intent.id]: !current[intent.id] }))}>{offerExpanded[intent.id] ? '▾' : '▸'}</button> : <span className="disclosure-placeholder" />}
-          <label className="intent-selection"><input type="checkbox" checked={selected} onChange={event => setJobSelected(event.target.checked)} /><span><strong>{job.title}</strong><small>{KIND_LABELS[job.kind]}</small>{relatedTitle && <small className="related-context">Related to: {relatedTitle}</small>}</span></label>
+          <label className="intent-selection"><input type="checkbox" checked={selected} onChange={event => requestOfferJobSelectionCommit(intent.id, undefined, event.target.checked, event.currentTarget)} /><span><strong>{job.title}</strong><small>{KIND_LABELS[job.kind]}</small>{relatedTitle && <small className="related-context">Related to: {relatedTitle}</small>}</span></label>
         </div>
         {bearsOutcomes && offerExpanded[intent.id] && <div className="intent-branches">
-          {outcomes.map(outcome => <label className="intent-outcome" key={outcome.id}><input type="checkbox" checked={selected && selectedOutcomes.includes(outcome.id)} onChange={event => setOutcomeSelected(outcome.id, event.target.checked)} />{outcome.title}</label>)}
+          {outcomes.map(outcome => <label className="intent-outcome" key={outcome.id}><input type="checkbox" checked={selected && selectedOutcomes.includes(outcome.id)} onChange={event => requestOfferJobSelectionCommit(intent.id, outcome.id, event.target.checked, event.currentTarget)} />{outcome.title}</label>)}
           {!outcomes.length && <span className="unfinished-branch">Desired Outcome not described yet</span>}
         </div>}
       </div>;
     };
-    const offered = intents.filter(intent => sectionIds.includes(intent.id));
-    const other = intents.filter(intent => !sectionIds.includes(intent.id));
+    const offered = intents.filter(intent => committedSelections.some(selection => selection.productJobIntentId === intent.id));
+    const other = intents.filter(intent => !committedSelections.some(selection => selection.productJobIntentId === intent.id));
     return (
       <>
         <fieldset className="client-intent">
@@ -2895,7 +2924,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         </section>;
       })}</ClientScopePackedGroups>}
       {!editing && groups.length === 0 && <p className="touchpoint-client-scope-empty">No Client intent selected.</p>}
-      {editing && offerIntentFields(editDraft, setEditDraft)}
+      {editing && offerIntentFields(editDraft)}
     </section>;
   }
   function closeMenuAndRestoreFocus() {
@@ -4002,7 +4031,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             <form
               onSubmit={(e: FormEvent) => {
                 e.preventDefault();
-                if (selected.kind === 'touchpoint') {
+                if (selected.kind === 'touchpoint' || selected.kind === 'offer') {
                   return;
                 }
                 try {
@@ -4014,18 +4043,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                     }
                     productApplyBypassRef.current = false;
                   }
-                  if (selected.kind === 'offer') {
-                    const durable = documentRef.current;
-                    const offerSelections = editDraft.selectedIntentIds.map(productJobIntentId => ({ productJobIntentId, addressedDesiredOutcomeIds: editDraft.offerIntentOutcomes[productJobIntentId] ?? [] }));
-                    const financialDesiredOutcomeIds = durable.offerFinancialIntents.filter(intent => intent.offerId === selected.id).map(intent => intent.financialDesiredOutcomeId);
-                    const impact = getOfferIntentChangeImpact(durable, { offerId: selected.id, productId: editDraft.linkedProductId, selections: offerSelections, financialDesiredOutcomeIds });
-                    if (!productApplyBypassRef.current && (impact.touchpointJobSelectionIds.length || impact.narrowedTouchpointSelections.length || impact.touchpointFinancialSelectionIds.length)) {
-                      setProductConfirmation({ mode: 'impact', owner: 'offer', impact, returnFocus: globalThis.document.activeElement as HTMLElement | null });
-                      return;
-                    }
-                    productApplyBypassRef.current = false;
-                  }
-                  const applySource = selected.kind === 'offer' ? documentRef.current : document;
+                  const applySource = document;
                   const old = applySource.relationships.filter((r) => r.kind === 'offer_presented_at_touchpoint' && r.touchpointId === selected.id);
                   const parent = applySource.relationships.find((r) => r.kind === 'touchpoint_contains_touchpoint' && r.childTouchpointId === selected.id);
                   let next = updateEntity(applySource, {
@@ -4074,15 +4092,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                     }
                     next = applyProductIntentDraft(next, selected.id, editDraft.productIntentOutcomes);
                   }
-                  if (selected.kind === 'offer') {
-                    const retained = next.offerJobSelections.filter((selection) => selection.offerId === selected.id).map((selection) => selection.productJobIntentId);
-                    const additions = editDraft.selectedIntentIds.filter((id) => !retained.includes(id));
-                    next = setOfferJobSelections(next, {
-                      offerId: selected.id,
-                      selections: editDraft.selectedIntentIds.map(productJobIntentId => ({ productJobIntentId, addressedDesiredOutcomeIds: editDraft.offerIntentOutcomes[productJobIntentId] ?? [] })),
-                      newSelectionIds: additions.map(() => crypto.randomUUID()),
-                    });
-                  }
                   next = reconsiderPlacementAfterRelationCommit(applySource, next, VIEW_ID, selected.id);
                   setDocument(next);
                   const appliedEntity = next.entities.find(entity => entity.id === selected.id)!;
@@ -4111,7 +4120,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               {repulsorTargetsField(editDraft, setEditDraft)}
               {touchFields(editDraft, setEditDraft, true, false)}
               {selected.kind === 'touchpoint' && touchpointIntentFields()}
-              {selected.kind !== 'touchpoint' && connectionPicker === null && <div className={`apply-footer ${inspectorDirty ? 'dirty' : ''}`}>
+              {selected.kind !== 'touchpoint' && selected.kind !== 'offer' && connectionPicker === null && <div className={`apply-footer ${inspectorDirty ? 'dirty' : ''}`}>
                 {inspectorDirty && <span>Unsaved changes</span>}
                 <button className="primary" disabled={!inspectorDirty || Boolean(editDraft.touchpointIntent && validateTouchpointIntentDraft(editDraft.touchpointIntent, editDraft.linkedOfferIds))}>Apply changes</button>
               </div>}
@@ -4136,7 +4145,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       {productConfirmation && (
         <div className="confirmation-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !(productConfirmation.mode === 'impact' && (productConfirmation.owner === 'touchpoint' || productConfirmation.owner === 'touchpoint-replacement' || productConfirmation.owner === 'touchpoint-created-replacement'))) closeProductConfirmation(); }}>
           <div ref={confirmationRef} role="dialog" aria-modal="true" aria-labelledby="product-confirmation-title" className="confirmation-dialog" onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); closeProductConfirmation(); } }}>
-            <h2 id="product-confirmation-title">{productConfirmation.mode === 'dirty' ? `Unsaved ${selected?.kind === 'offer' ? 'Offer' : 'Product'} changes` : productConfirmation.owner === 'touchpoint-replacement' || productConfirmation.owner === 'touchpoint-created-replacement' ? 'Replace this Touchpoint Offer?' : 'This change affects downstream intent'}</h2>
+            <h2 id="product-confirmation-title">{productConfirmation.mode === 'dirty' ? 'Unsaved Product changes' : productConfirmation.owner === 'touchpoint-replacement' || productConfirmation.owner === 'touchpoint-created-replacement' ? 'Replace this Touchpoint Offer?' : 'This change affects downstream intent'}</h2>
             {productConfirmation.mode === 'impact' && productConfirmation.owner === 'touchpoint-replacement' && <p>Replace <strong>{entityTitle(document, productConfirmation.departingOfferId)}</strong> with <strong>{entityTitle(document, productConfirmation.replacementOfferId)}</strong> at <strong>{entityTitle(document, productConfirmation.touchpointId)}</strong>?</p>}
             {productConfirmation.mode === 'impact' && productConfirmation.owner === 'touchpoint-created-replacement' && <p>{productConfirmation.operationKind === 'sibling' ? 'Create' : 'Duplicate as'} <strong>{productConfirmation.plannedOfferTitle}</strong> and replace <strong>{entityTitle(document, productConfirmation.departingOfferId)}</strong> at <strong>{entityTitle(document, productConfirmation.touchpointId)}</strong>?</p>}
             {productConfirmation.mode === 'impact' && productConfirmation.owner === 'product' && (
@@ -4147,7 +4156,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 {productConfirmation.impact.narrowedTouchpointSelections.map(item => { const selection = document.touchpointJobSelections.find(candidate => candidate.id === item.touchpointJobSelectionId); const touchpoint = document.entities.find(entity => entity.id === selection?.touchpointId); return <p key={item.touchpointJobSelectionId}><strong>{touchpoint?.title}</strong><span>loses {item.removedDesiredOutcomeIds.map(id => document.entities.find(entity => entity.id === id)?.title).join(', ')}</span></p>; })}
               </div>
             )}
-            {productConfirmation.mode === 'impact' && (productConfirmation.owner === 'offer' || productConfirmation.owner === 'offer-product' || productConfirmation.owner === 'offer-financial') && (
+            {productConfirmation.mode === 'impact' && (productConfirmation.owner === 'offer-product' || productConfirmation.owner === 'offer-financial' || productConfirmation.owner === 'offer-job') && (
               <div className="impact-list">
                 {productConfirmation.impact.touchpointJobSelectionIds.map(id => { const selection = document.touchpointJobSelections.find(item => item.id === id); const touchpoint = document.entities.find(entity => entity.id === selection?.touchpointId); const intent = document.productJobIntents.find(item => item.id === selection?.productJobIntentId); const job = document.entities.find(entity => entity.id === intent?.jobId); return <p key={id}><strong>{touchpoint?.title}</strong><span>loses {job?.title}</span></p>; })}
                 {productConfirmation.impact.narrowedTouchpointSelections.map(item => { const selection = document.touchpointJobSelections.find(candidate => candidate.id === item.touchpointJobSelectionId); const touchpoint = document.entities.find(entity => entity.id === selection?.touchpointId); return <p key={item.touchpointJobSelectionId}><strong>{touchpoint?.title}</strong><span>loses {item.removedDesiredOutcomeIds.map(id => document.entities.find(entity => entity.id === id)?.title).join(', ')}</span></p>; })}
@@ -4166,7 +4175,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 <button type="button" onClick={closeProductConfirmation}>Keep editing</button>
               </> : <>
                 <button type="button" onClick={closeProductConfirmation}>Cancel</button>
-                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; setProductConfirmation(null); if (confirmation.owner === 'touchpoint' || confirmation.owner === 'touchpoint-replacement' || confirmation.owner === 'touchpoint-created-replacement' || confirmation.owner === 'offer-product' || confirmation.owner === 'offer-financial') { confirmation.immediateCommit(); if (confirmation.owner !== 'touchpoint-created-replacement') requestAnimationFrame(() => ((confirmation.owner === 'touchpoint' || confirmation.owner === 'touchpoint-replacement') && confirmation.returnFocusId ? globalThis.document.getElementById(confirmation.returnFocusId) : confirmation.returnFocus)?.focus()); } else { productApplyBypassRef.current = true; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>{productConfirmation.owner === 'touchpoint-created-replacement' ? 'Confirm' : productConfirmation.owner === 'touchpoint-replacement' ? 'Replace Offer' : productConfirmation.owner === 'touchpoint' || productConfirmation.owner === 'offer-product' || productConfirmation.owner === 'offer-financial' ? 'Confirm removal' : 'Apply changes'}</button>
+                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; setProductConfirmation(null); if (confirmation.owner === 'touchpoint' || confirmation.owner === 'touchpoint-replacement' || confirmation.owner === 'touchpoint-created-replacement' || confirmation.owner === 'offer-product' || confirmation.owner === 'offer-financial' || confirmation.owner === 'offer-job') { confirmation.immediateCommit(); if (confirmation.owner !== 'touchpoint-created-replacement') requestAnimationFrame(() => ((confirmation.owner === 'touchpoint' || confirmation.owner === 'touchpoint-replacement') && confirmation.returnFocusId ? globalThis.document.getElementById(confirmation.returnFocusId) : confirmation.returnFocus)?.focus()); } else { productApplyBypassRef.current = true; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>{productConfirmation.owner === 'touchpoint-created-replacement' ? 'Confirm' : productConfirmation.owner === 'touchpoint-replacement' ? 'Replace Offer' : productConfirmation.owner === 'touchpoint' || productConfirmation.owner === 'offer-product' || productConfirmation.owner === 'offer-financial' || productConfirmation.owner === 'offer-job' ? 'Confirm removal' : 'Apply changes'}</button>
               </>}
             </div>
           </div>
