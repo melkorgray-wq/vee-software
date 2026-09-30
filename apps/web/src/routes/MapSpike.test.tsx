@@ -356,6 +356,66 @@ describe('Offer Client intent presentation', () => {
     expect(window.__VEE_DEV__!.dump()).toEqual(before);
   });
 
+  it('temporarily reveals a collapsed Product source for Job and DO discovery, then restores browse disclosure', async () => {
+    const user = userEvent.setup();
+    const document = touchpointInspectorDocument();
+    document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
+    const inspector = renderOfferInspector(document);
+    const section = inspector.getByRole('region', { name: 'Client intent' });
+    await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
+    const source = within(section).getByRole('button', { name: 'Product · Orbit' });
+    const search = within(section).getByRole('searchbox', { name: 'Search Client intent' });
+    const before = structuredClone(window.__VEE_DEV__!.dump());
+
+    await user.click(source);
+    expect(source).toHaveAttribute('aria-expanded', 'false');
+    await user.type(search, 'Make progress');
+    expect(source).toHaveAttribute('aria-expanded', 'true');
+    expect(within(section).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ })).toBeVisible();
+    await user.clear(search);
+    expect(source).toHaveAttribute('aria-expanded', 'false');
+
+    await user.type(search, 'Finish faster');
+    expect(source).toHaveAttribute('aria-expanded', 'true');
+    expect(within(section).getByText('Make progress')).toBeVisible();
+    expect(within(section).getByRole('checkbox', { name: 'Finish faster' })).toBeVisible();
+    await user.clear(search);
+    expect(source).toHaveAttribute('aria-expanded', 'false');
+
+    await user.type(search, 'do');
+    await user.click(within(section).getByRole('button', { name: 'Browse Desired Outcome' }));
+    expect(source).toHaveAttribute('aria-expanded', 'true');
+    expect(within(section).getByRole('checkbox', { name: 'Finish faster' })).toBeVisible();
+    await user.clear(search);
+    expect(source).toHaveAttribute('aria-expanded', 'false');
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+  });
+
+  it('clears Offer discovery and source-disclosure state when a replacement document reuses the Offer ID', async () => {
+    const user = userEvent.setup();
+    const document = touchpointInspectorDocument();
+    document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
+    let inspector = renderOfferInspector(document);
+    let section = inspector.getByRole('region', { name: 'Client intent' });
+    await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
+    await user.click(within(section).getByRole('button', { name: 'Product · Orbit' }));
+    const search = within(section).getByRole('searchbox', { name: 'Search Client intent' });
+    await user.type(search, 'do');
+    await user.click(within(section).getByRole('button', { name: 'Browse Desired Outcome' }));
+    expect(within(section).getByText('Desired Outcome', { selector: '.kind-shortcut-heading strong' })).toBeInTheDocument();
+
+    act(() => window.__VEE_DEV__!.load(structuredClone(document)));
+    await openMap(user);
+    await user.click(screen.getByRole('button', { name: 'Subscription' }));
+    inspector = await openInspector(user);
+    section = inspector.getByRole('region', { name: 'Client intent' });
+    await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
+    expect(within(section).getByRole('searchbox', { name: 'Search Client intent' })).toHaveValue('');
+    expect(within(section).queryByText('Back to results for “do”')).not.toBeInTheDocument();
+    expect(within(section).getByRole('button', { name: 'Product · Orbit' })).toHaveAttribute('aria-expanded', 'true');
+    expect(window.__VEE_DEV__!.dump()).toEqual(document);
+  });
+
   it('dismisses only on an outside pointer and preserves the outside focus owner and document', async () => {
     const user = userEvent.setup();
     const inspector = renderOfferInspector();

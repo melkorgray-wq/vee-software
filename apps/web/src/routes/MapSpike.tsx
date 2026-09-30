@@ -776,6 +776,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setExpandedClientScopePanels({});
     setExpandedOfferIntentPanels({});
     setOfferIntentEditors({});
+    setOfferIntentDiscoveryState({});
+    setExpandedOfferIntentSources({});
     setLocalRemoval(null);
     const neutralRelationsMode = inactiveRelationsMode();
     setRelationsMode(neutralRelationsMode);
@@ -2888,7 +2890,9 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const state = offerIntentDiscoveryState[selected.id] ?? { query: '' };
     const discovery = offerClientIntentDiscovery(document, selected.id, state);
     const sourceId = `offer-intent-source-${encodeURIComponent(selected.id)}`;
-    const sourceExpanded = expandedOfferIntentSources[sourceId] ?? true;
+    const browseSourceExpanded = expandedOfferIntentSources[sourceId] ?? true;
+    const discoveryActive = Boolean(state.query.trim() || state.kind);
+    const sourceExpanded = discoveryActive || browseSourceExpanded;
     const setState = (next: { query: string; kind?: ClientIntentDiscoveryKind }) => setOfferIntentDiscoveryState(current => ({ ...current, [selected.id]: next }));
     const row = (checked: boolean, checkboxId: string, title: string, subtitle: string, change: (checked: boolean, element: HTMLInputElement) => void, titleOnlyName = false) => <label key={checkboxId} className="intent-checkbox" htmlFor={checkboxId}><span className="intent-selection-surface"><input id={checkboxId} aria-label={titleOnlyName ? title : undefined} type="checkbox" checked={checked} onChange={event => change(event.target.checked, event.currentTarget)} /><span className="intent-selection-title"><strong>{title}</strong><small>{subtitle}</small></span></span></label>;
     const renderJob = (group: OfferIntentDiscoveryJob) => {
@@ -2907,7 +2911,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         {state.kind ? <div className="kind-shortcut-heading"><button type="button" className="text-action" onClick={() => setState({ query: state.query })}>Back to results for “{state.query}”</button><strong>{KIND_LABELS[state.kind]}</strong></div> : state.query && <div className="kind-shortcut-results" aria-label="Kind shortcuts">{discovery.kindShortcutMatches.map(shortcut => <button type="button" key={shortcut.kind} onClick={() => setState({ query: state.query, kind: shortcut.kind })}>Browse {shortcut.label}</button>)}</div>}
       </section>
       {discovery.status === 'unavailable' ? <p role="status" className="touchpoint-client-scope-empty">Client intent is unavailable until this Offer has a valid Product.</p> : <>
-        {discovery.source && <fieldset className="client-intent"><legend>Client intent</legend><div className="intent-source-list"><section className="intent-source-disclosure"><button type="button" className="intent-source-toggle" aria-expanded={sourceExpanded} aria-controls={sourceId} onClick={() => setExpandedOfferIntentSources(current => ({ ...current, [sourceId]: !sourceExpanded }))}><span aria-hidden="true">{sourceExpanded ? '▾' : '▸'}</span>Product · {discovery.source.product.title}</button>{sourceExpanded && <div id={sourceId} className="intent-source-dendrite">{discovery.source.jobGroups.map(renderJob)}{!discovery.source.jobGroups.length && <p className="touchpoint-client-scope-empty">No matching Product Job intent.</p>}</div>}</section></div></fieldset>}
+        {discovery.source && <fieldset className="client-intent"><legend>Client intent</legend><div className="intent-source-list"><section className="intent-source-disclosure"><button type="button" className="intent-source-toggle" aria-expanded={sourceExpanded} aria-controls={sourceId} onClick={() => { if (!discoveryActive) setExpandedOfferIntentSources(current => ({ ...current, [sourceId]: !browseSourceExpanded })); }}><span aria-hidden="true">{sourceExpanded ? '▾' : '▸'}</span>Product · {discovery.source.product.title}</button>{sourceExpanded && <div id={sourceId} className="intent-source-dendrite">{discovery.source.jobGroups.map(renderJob)}{!discovery.source.jobGroups.length && <p className="touchpoint-client-scope-empty">No matching Product Job intent.</p>}</div>}</section></div></fieldset>}
         <fieldset className="intent-source-block"><legend>Financial intent</legend><div className="intent-source-heading"><strong>Financial Desired Outcomes</strong><small>Direct candidates</small></div>{discovery.financialCandidates.map(outcome => row(outcome.checked, outcome.checkboxId, outcome.entity.title, 'Financial Desired Outcome', (checked, element) => requestOfferFinancialIntentCommit(outcome.id, checked, element)))}{!discovery.financialCandidates.length && <p className="touchpoint-client-scope-empty">No matching Financial Desired Outcomes.</p>}</fieldset>
         {!hasResults && (state.query || state.kind) && <p role="status" className="touchpoint-client-scope-empty">No eligible Client intent matches this discovery view.</p>}
       </>}

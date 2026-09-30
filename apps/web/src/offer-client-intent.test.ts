@@ -258,6 +258,7 @@ describe('Offer Client-intent discovery projection', () => {
     expect(shortcuts).toEqual(expect.arrayContaining(['desired_outcome', 'financial_desired_outcome']));
     const desired = offerClientIntentDiscovery(fixture(), 'offer', { query: 'do', kind: 'desired_outcome' });
     expect(desired.source?.jobGroups.every(group => !group.showJobCandidate)).toBe(true);
+    expect(desired.source?.jobGroups.flatMap(group => group.desiredOutcomes.map(outcome => outcome.id))).toEqual(['do-other', 'do-a', 'do-z']);
     expect(desired.financialCandidates).toEqual([]);
   });
 

@@ -272,13 +272,14 @@ export function offerClientIntentDiscovery(
   const jobGroups = allJobs.flatMap(group => {
     const jobKindSelected = !input.kind || input.kind === group.job.kind;
     const outcomeKindSelected = !input.kind || input.kind === 'desired_outcome';
-    const jobMatches = clientIntentTitleMatches(group.job.title, query);
-    const outcomes = outcomeKindSelected ? group.desiredOutcomes.filter(outcome => !query || jobMatches || clientIntentTitleMatches(outcome.entity.title, query)) : [];
-    const showJobCandidate = jobKindSelected && (!query || jobMatches);
+    const titleQuery = input.kind ? '' : query;
+    const jobMatches = clientIntentTitleMatches(group.job.title, titleQuery);
+    const outcomes = outcomeKindSelected ? group.desiredOutcomes.filter(outcome => !titleQuery || jobMatches || clientIntentTitleMatches(outcome.entity.title, titleQuery)) : [];
+    const showJobCandidate = jobKindSelected && (!titleQuery || jobMatches);
     return showJobCandidate || outcomes.length ? [{ ...group, showJobCandidate, desiredOutcomes: outcomes }] : [];
   });
   const financialCandidates = document.entities.flatMap(entity => {
-    if (entity.kind !== 'financial_desired_outcome' || (input.kind && input.kind !== entity.kind) || !clientIntentTitleMatches(entity.title, query)) return [];
+    if (entity.kind !== 'financial_desired_outcome' || (input.kind && input.kind !== entity.kind) || !clientIntentTitleMatches(entity.title, input.kind ? '' : query)) return [];
     return [{ id: entity.id, checkboxId: `offer-intent:${offerId}:${entity.id}`, entity: entity as FinancialDesiredOutcomeEntity, checked: document.offerFinancialIntents.some(intent => intent.offerId === offerId && intent.financialDesiredOutcomeId === entity.id) }];
   }).sort((left, right) => byTitleThenId(left.entity, right.entity));
 
