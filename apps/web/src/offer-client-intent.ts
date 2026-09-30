@@ -5,6 +5,7 @@ import {
   type OfferJobSelection,
   type ProductJobIntent,
 } from '@vee/domain';
+import { clientIntentKindShortcutMatches, clientIntentTitleMatches, normalizeClientIntentQuery, type ClientIntentDiscoveryKind } from './client-intent-discovery';
 
 export const OFFER_CLIENT_INTENT_KINDS = [
   'core_functional_job',
@@ -62,6 +63,40 @@ export type OfferClientIntentGroup =
 export interface OfferClientIntent {
   offerId: string;
   groups: OfferClientIntentGroup[];
+}
+
+export interface OfferIntentDiscoveryOutcome {
+  id: string;
+  checkboxId: string;
+  entity: DesiredOutcomeEntity;
+  checked: boolean;
+}
+
+export interface OfferIntentDiscoveryJob {
+  id: string;
+  checkboxId: string;
+  productJobIntentId: string;
+  job: JobEntity;
+  checked: boolean;
+  showJobCandidate: boolean;
+  desiredOutcomes: OfferIntentDiscoveryOutcome[];
+}
+
+export interface OfferIntentDiscoveryFinancial {
+  id: string;
+  checkboxId: string;
+  entity: FinancialDesiredOutcomeEntity;
+  checked: boolean;
+}
+
+export interface OfferClientIntentDiscovery {
+  status: 'available' | 'unavailable';
+  offerId?: string;
+  source?: { productId: string; product: Entity; jobGroups: OfferIntentDiscoveryJob[] };
+  financialCandidates: OfferIntentDiscoveryFinancial[];
+  kindShortcutMatches: { kind: ClientIntentDiscoveryKind; label: string }[];
+  query: string;
+  selectedKind?: ClientIntentDiscoveryKind;
 }
 
 const JOB_KINDS = new Set<OfferClientIntentJobKind>([
@@ -184,4 +219,73 @@ export function offerClientIntent(document: MapDocument, offerId: string): Offer
   }
 
   return { offerId: inspectedOffer.id, groups };
+}
+
+/** Offer-owned candidate projection. Filtering can only narrow the linked Product eligibility universe. */
+export function offerClientIntentDiscovery(
+  document: MapDocument,
+  offerId: string,
+  input: { query: string; kind?: ClientIntentDiscoveryKind },
+): OfferClientIntentDiscovery {
+  const offer = document.entities.find(entity => entity.id === offerId && entity.kind === 'offer');
+  const query = normalizeClientIntentQuery(input.query);
+  if (!offer) return { status: 'unavailable', financialCandidates: [], kindShortcutMatches: clientIntentKindShortcutMatches(query), query, ...(input.kind ? { selectedKind: input.kind } : {}) };
+  const entities = new Map(document.entities.map(entity => [entity.id, entity]));
+  const packaged = document.relationships.find(relation => relation.kind === 'product_packaged_as_offer' && relation.offerId === offerId);
+  const product = packaged?.kind === 'product_packaged_as_offer' ? entities.get(packaged.productId) : undefined;
+  if (!product || product.kind !== 'product') return { status: 'unavailable', offerId, financialCandidates: [], kindShortcutMatches: clientIntentKindShortcutMatches(query), query, ...(input.kind ? { selectedKind: input.kind } : {}) };
+
+  const selections = new Map(document.offerJobSelections.filter(selection => selection.offerId === offerId).map(selection => [selection.productJobIntentId, selection]));
+  const relationshipOutcomes = new Map<string, Set<string>>();
+  for (const relation of document.relationships) {
+    if (relation.kind !== 'job_has_desired_outcome') continue;
+    const ids = relationshipOutcomes.get(relation.jobId) ?? new Set<string>();
+    ids.add(relation.desiredOutcomeId);
+    relationshipOutcomes.set(relation.jobId, ids);
+  }
+  const seenIntents = new Set<string>();
+  const allJobs: OfferIntentDiscoveryJob[] = [];
+  for (const intent of document.productJobIntents) {
+    if (intent.productId !== product.id || seenIntents.has(intent.id)) continue;
+    seenIntents.add(intent.id);
+    const candidate = entities.get(intent.jobId);
+    if (!candidate || !JOB_KINDS.has(candidate.kind as OfferClientIntentJobKind)) continue;
+    const job = candidate as JobEntity;
+    const selection = selections.get(intent.id);
+    const checkedOutcomeIds = new Set(selection ? effectiveOfferDesiredOutcomeIds(document, selection) : []);
+    const seenOutcomes = new Set<string>();
+    const desiredOutcomes = DO_BEARING_JOB_KINDS.has(job.kind) ? intent.addressedDesiredOutcomeIds.flatMap(id => {
+      if (seenOutcomes.has(id) || !relationshipOutcomes.get(job.id)?.has(id)) return [];
+      seenOutcomes.add(id);
+      const outcome = entities.get(id);
+      return outcome?.kind === 'desired_outcome' ? [{
+        id: outcome.id,
+        checkboxId: `offer-intent:${offerId}:${intent.id}:${outcome.id}`,
+        entity: outcome as DesiredOutcomeEntity,
+        checked: Boolean(selection && checkedOutcomeIds.has(outcome.id)),
+      }] : [];
+    }).sort((left, right) => byTitleThenId(left.entity, right.entity)) : [];
+    allJobs.push({ id: intent.id, checkboxId: `offer-intent:${offerId}:${intent.id}`, productJobIntentId: intent.id, job, checked: Boolean(selection), showJobCandidate: true, desiredOutcomes });
+  }
+  allJobs.sort((left, right) => byTitleThenId(left.job, right.job) || left.id.localeCompare(right.id));
+
+  const jobGroups = allJobs.flatMap(group => {
+    const jobKindSelected = !input.kind || input.kind === group.job.kind;
+    const outcomeKindSelected = !input.kind || input.kind === 'desired_outcome';
+    const jobMatches = clientIntentTitleMatches(group.job.title, query);
+    const outcomes = outcomeKindSelected ? group.desiredOutcomes.filter(outcome => !query || jobMatches || clientIntentTitleMatches(outcome.entity.title, query)) : [];
+    const showJobCandidate = jobKindSelected && (!query || jobMatches);
+    return showJobCandidate || outcomes.length ? [{ ...group, showJobCandidate, desiredOutcomes: outcomes }] : [];
+  });
+  const financialCandidates = document.entities.flatMap(entity => {
+    if (entity.kind !== 'financial_desired_outcome' || (input.kind && input.kind !== entity.kind) || !clientIntentTitleMatches(entity.title, query)) return [];
+    return [{ id: entity.id, checkboxId: `offer-intent:${offerId}:${entity.id}`, entity: entity as FinancialDesiredOutcomeEntity, checked: document.offerFinancialIntents.some(intent => intent.offerId === offerId && intent.financialDesiredOutcomeId === entity.id) }];
+  }).sort((left, right) => byTitleThenId(left.entity, right.entity));
+
+  return {
+    status: 'available', offerId,
+    source: { productId: product.id, product, jobGroups },
+    financialCandidates,
+    kindShortcutMatches: clientIntentKindShortcutMatches(query), query, ...(input.kind ? { selectedKind: input.kind } : {}),
+  };
 }

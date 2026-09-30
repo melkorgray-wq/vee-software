@@ -19,7 +19,8 @@ import { collisionSafeOfferTitle, collisionSafeTouchpointTitle, commitOfferConne
 import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
 import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets } from '../touchpoint-business-structure';
 import { deriveOfferBusinessStructure, projectConnectedTouchpointCandidates } from '../offer-business-structure';
-import { offerClientIntent, type OfferClientIntentGroup, type OfferClientIntentJobGroup } from '../offer-client-intent';
+import { offerClientIntent, offerClientIntentDiscovery, type OfferClientIntentGroup, type OfferClientIntentJobGroup, type OfferIntentDiscoveryJob } from '../offer-client-intent';
+import type { ClientIntentDiscoveryKind } from '../client-intent-discovery';
 import { initialCompactOverviewExpandedGroupIds } from '../compact-overview-presentation';
 import { useClientScopePackedLayout, usePackedPanelLayout } from '../client-scope-packed-layout';
 import { deriveOfferClientIntentNeighborhood, type OfferClientIntentGround, type OfferClientIntentJobComparison, type OfferClientIntentGroundTypeId } from '../offer-client-intent-neighborhood';
@@ -655,6 +656,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [expandedClientScopePanels, setExpandedClientScopePanels] = useState<Record<string, Partial<Record<ClientScopePanelKind, boolean>>>>({});
   const [expandedOfferIntentPanels, setExpandedOfferIntentPanels] = useState<Record<string, Partial<Record<ClientScopePanelKind, boolean>>>>({});
   const [offerIntentEditors, setOfferIntentEditors] = useState<Record<string, boolean>>({});
+  const [offerIntentDiscoveryState, setOfferIntentDiscoveryState] = useState<Record<string, { query: string; kind?: ClientIntentDiscoveryKind }>>({});
+  const [expandedOfferIntentSources, setExpandedOfferIntentSources] = useState<Record<string, boolean>>({});
   const offerIntentEditorsRef = useRef(offerIntentEditors);
   offerIntentEditorsRef.current = offerIntentEditors;
   const offerIntentEditorRef = useRef<HTMLElement>(null);
@@ -1111,6 +1114,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   function closeOfferIntentEditor(reason: OfferIntentEditorCloseReason, offerId = selectedRef.current ?? undefined) {
     if (!offerId || !offerIntentEditors[offerId]) return;
     setOfferIntentEditors(current => ({ ...current, [offerId]: false }));
+    setOfferIntentDiscoveryState(current => ({ ...current, [offerId]: { query: '' } }));
     if (reason === 'explicit' || reason === 'escape') requestAnimationFrame(() => {
       if (selectedRef.current === offerId && !offerIntentEditorsRef.current[offerId]) offerIntentEditButtonRef.current?.focus();
     });
@@ -1126,9 +1130,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setOfferIntentEditors(current => ({ ...current, [offerId]: true }));
     requestAnimationFrame(() => {
       if (selectedRef.current !== offerId || !offerIntentEditorsRef.current[offerId]) return;
-      const firstJob = offerIntentEditorRef.current?.querySelector<HTMLInputElement>('.client-intent .intent-selection input:not(:disabled)');
-      const firstFinancial = offerIntentEditorRef.current?.querySelector<HTMLInputElement>('.financial-intent input:not(:disabled)');
-      (firstJob ?? firstFinancial ?? offerIntentCloseButtonRef.current)?.focus();
+      const search = offerIntentEditorRef.current?.querySelector<HTMLInputElement>('input[type="search"]');
+      (search ?? offerIntentCloseButtonRef.current)?.focus();
     });
   }
   type RelationEditorCloseReason = 'explicit' | 'commit' | 'pointer' | 'switch-editor';
@@ -2881,55 +2884,34 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     </fieldset>;
   }
   function offerIntentFields(d: EditDraft) {
-    if (d.kind !== 'offer' || !d.linkedProductId) return null;
-    const intents = document.productJobIntents.filter((intent) => intent.productId === d.linkedProductId);
-    const committedSelections = document.offerJobSelections.filter(selection => selection.offerId === selected?.id);
-    const renderIntent = (intent: (typeof intents)[number]) => {
-      const job = document.entities.find((entity) => entity.id === intent.jobId)!;
-      const bearsOutcomes = job.kind === 'core_functional_job' || job.kind === 'related_job' || job.kind === 'consumption_chain_job';
-      const outcomes = intent.addressedDesiredOutcomeIds.flatMap(id => document.entities.filter(entity => entity.id === id));
-      const related = job.kind === 'related_job' ? document.relationships.find((relation): relation is Extract<Relationship, { kind: 'core_functional_job_has_related_job' }> => relation.kind === 'core_functional_job_has_related_job' && relation.relatedJobId === job.id) : undefined;
-      const relatedTitle = related && document.entities.find(entity => entity.id === related.coreFunctionalJobId)?.title;
-      const committedSelection = committedSelections.find(selection => selection.productJobIntentId === intent.id);
-      const selected = Boolean(committedSelection);
-      const selectedOutcomes = committedSelection ? effectiveOfferDesiredOutcomeIds(document, committedSelection) : [];
-      return <div className={`intent-job ${selected ? 'selected' : ''}`} key={intent.id}>
-        <div className="intent-job-heading">
-          {bearsOutcomes ? <button type="button" className="disclosure" aria-label={`${offerExpanded[intent.id] ? 'Collapse' : 'Expand'} ${job.title}`} aria-expanded={Boolean(offerExpanded[intent.id])} onClick={() => setOfferExpanded(current => ({ ...current, [intent.id]: !current[intent.id] }))}>{offerExpanded[intent.id] ? '▾' : '▸'}</button> : <span className="disclosure-placeholder" />}
-          <label className="intent-selection"><input type="checkbox" checked={selected} onChange={event => requestOfferJobSelectionCommit(intent.id, undefined, event.target.checked, event.currentTarget)} /><span><strong>{job.title}</strong><small>{KIND_LABELS[job.kind]}</small>{relatedTitle && <small className="related-context">Related to: {relatedTitle}</small>}</span></label>
-        </div>
-        {bearsOutcomes && offerExpanded[intent.id] && <div className="intent-branches">
-          {outcomes.map(outcome => <label className="intent-outcome" key={outcome.id}><input type="checkbox" checked={selected && selectedOutcomes.includes(outcome.id)} onChange={event => requestOfferJobSelectionCommit(intent.id, outcome.id, event.target.checked, event.currentTarget)} />{outcome.title}</label>)}
-          {!outcomes.length && <span className="unfinished-branch">Desired Outcome not described yet</span>}
-        </div>}
-      </div>;
+    if (d.kind !== 'offer' || !selected || selected.kind !== 'offer') return null;
+    const state = offerIntentDiscoveryState[selected.id] ?? { query: '' };
+    const discovery = offerClientIntentDiscovery(document, selected.id, state);
+    const sourceId = `offer-intent-source-${encodeURIComponent(selected.id)}`;
+    const sourceExpanded = expandedOfferIntentSources[sourceId] ?? true;
+    const setState = (next: { query: string; kind?: ClientIntentDiscoveryKind }) => setOfferIntentDiscoveryState(current => ({ ...current, [selected.id]: next }));
+    const row = (checked: boolean, checkboxId: string, title: string, subtitle: string, change: (checked: boolean, element: HTMLInputElement) => void, titleOnlyName = false) => <label key={checkboxId} className="intent-checkbox" htmlFor={checkboxId}><span className="intent-selection-surface"><input id={checkboxId} aria-label={titleOnlyName ? title : undefined} type="checkbox" checked={checked} onChange={event => change(event.target.checked, event.currentTarget)} /><span className="intent-selection-title"><strong>{title}</strong><small>{subtitle}</small></span></span></label>;
+    const renderJob = (group: OfferIntentDiscoveryJob) => {
+      const expandable = group.desiredOutcomes.length > 0;
+      const expanded = Boolean(state.query || state.kind || offerExpanded[group.id]);
+      return <div className="intent-job-branch" key={group.id}><div className="intent-job-heading">
+        {expandable && !state.query && !state.kind ? <button type="button" className="disclosure" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${group.job.title}`} aria-expanded={expanded} onClick={() => setOfferExpanded(current => ({ ...current, [group.id]: !current[group.id] }))}>{expanded ? '▾' : '▸'}</button> : <span className="disclosure-placeholder" />}
+        {group.showJobCandidate ? row(group.checked, group.checkboxId, group.job.title, KIND_LABELS[group.job.kind], (checked, element) => requestOfferJobSelectionCommit(group.productJobIntentId, undefined, checked, element)) : <strong>{group.job.title}</strong>}
+      </div>{expandable && expanded && <div className="desired-outcome-rows">{group.desiredOutcomes.map(outcome => row(outcome.checked, outcome.checkboxId, outcome.entity.title, 'Desired Outcome', (checked, element) => requestOfferJobSelectionCommit(group.productJobIntentId, outcome.id, checked, element), true))}</div>}
+    </div>;
     };
-    const offered = intents.filter(intent => committedSelections.some(selection => selection.productJobIntentId === intent.id));
-    const other = intents.filter(intent => !committedSelections.some(selection => selection.productJobIntentId === intent.id));
-    return (
-      <>
-        <fieldset className="client-intent">
-          <legend>Client intent</legend>
-          <h4>Offer intent</h4>{offered.length ? offered.map(renderIntent) : <p className="immutable-note">No Product intent selected.</p>}
-          <h4>Other Product intent</h4>{other.length ? other.map(renderIntent) : <p className="immutable-note">No other Product intent.</p>}
-        </fieldset>
-        <fieldset>
-          <legend>Financial intent</legend>
-          {document.entities
-            .filter((entity) => entity.kind === 'financial_desired_outcome')
-            .map((outcome) => (
-              <label className="intent-selection financial-intent" key={outcome.id}>
-                <input
-                  type="checkbox"
-                  checked={document.offerFinancialIntents.some(intent => intent.offerId === selected?.id && intent.financialDesiredOutcomeId === outcome.id)}
-                  onChange={(event) => requestOfferFinancialIntentCommit(outcome.id, event.target.checked, event.currentTarget)}
-                />
-                <span><strong>{outcome.title}</strong><small>Financial Desired Outcome</small></span>
-              </label>
-            ))}
-        </fieldset>
-      </>
-    );
+    const hasResults = Boolean(discovery.source?.jobGroups.length || discovery.financialCandidates.length);
+    return <div className="touchpoint-client-scope-content inline-intent-editor">
+      <section className="global-intent-discovery" aria-label="Find Client intent">
+        <label>Search Client intent<input autoFocus type="search" value={state.query} onChange={event => setState({ query: event.target.value })} /></label>
+        {state.kind ? <div className="kind-shortcut-heading"><button type="button" className="text-action" onClick={() => setState({ query: state.query })}>Back to results for “{state.query}”</button><strong>{KIND_LABELS[state.kind]}</strong></div> : state.query && <div className="kind-shortcut-results" aria-label="Kind shortcuts">{discovery.kindShortcutMatches.map(shortcut => <button type="button" key={shortcut.kind} onClick={() => setState({ query: state.query, kind: shortcut.kind })}>Browse {shortcut.label}</button>)}</div>}
+      </section>
+      {discovery.status === 'unavailable' ? <p role="status" className="touchpoint-client-scope-empty">Client intent is unavailable until this Offer has a valid Product.</p> : <>
+        {discovery.source && <fieldset className="client-intent"><legend>Client intent</legend><div className="intent-source-list"><section className="intent-source-disclosure"><button type="button" className="intent-source-toggle" aria-expanded={sourceExpanded} aria-controls={sourceId} onClick={() => setExpandedOfferIntentSources(current => ({ ...current, [sourceId]: !sourceExpanded }))}><span aria-hidden="true">{sourceExpanded ? '▾' : '▸'}</span>Product · {discovery.source.product.title}</button>{sourceExpanded && <div id={sourceId} className="intent-source-dendrite">{discovery.source.jobGroups.map(renderJob)}{!discovery.source.jobGroups.length && <p className="touchpoint-client-scope-empty">No matching Product Job intent.</p>}</div>}</section></div></fieldset>}
+        <fieldset className="intent-source-block"><legend>Financial intent</legend><div className="intent-source-heading"><strong>Financial Desired Outcomes</strong><small>Direct candidates</small></div>{discovery.financialCandidates.map(outcome => row(outcome.checked, outcome.checkboxId, outcome.entity.title, 'Financial Desired Outcome', (checked, element) => requestOfferFinancialIntentCommit(outcome.id, checked, element)))}{!discovery.financialCandidates.length && <p className="touchpoint-client-scope-empty">No matching Financial Desired Outcomes.</p>}</fieldset>
+        {!hasResults && (state.query || state.kind) && <p role="status" className="touchpoint-client-scope-empty">No eligible Client intent matches this discovery view.</p>}
+      </>}
+    </div>;
   }
   function offerClientIntentSection() {
     if (selected?.kind !== 'offer' || !editDraft) return null;

@@ -3,6 +3,7 @@ import type { MapDocument, OfferJobSelection } from '@vee/domain';
 import {
   OFFER_CLIENT_INTENT_KINDS,
   offerClientIntent,
+  offerClientIntentDiscovery,
   type OfferClientIntentJobItem,
 } from './offer-client-intent';
 
@@ -211,5 +212,62 @@ describe('Offer Client-intent read projection', () => {
     const unrelatedDraft = { offerJobSelections: [selection('draft', 'offer', 'intent-rj')] };
     expect(unrelatedDraft.offerJobSelections).toHaveLength(1);
     expect(offerClientIntent(withTouchpointRecords, 'offer')).toEqual(expected);
+  });
+});
+
+describe('Offer Client-intent discovery projection', () => {
+  it('projects only the linked Product universe with valid owning DO relationships and direct FDOs', () => {
+    const document = fixture();
+    document.productJobIntents.push({ id: 'other-intent', productId: 'other-product', jobId: 'cfj-a1', addressedDesiredOutcomeIds: [] });
+    const discovery = offerClientIntentDiscovery(document, 'offer', { query: '' });
+    expect(discovery.status).toBe('available');
+    expect(discovery.source?.productId).toBe('product');
+    expect(discovery.source?.jobGroups.map(group => group.productJobIntentId)).not.toContain('other-intent');
+    expect(discovery.source?.jobGroups.find(group => group.job.id === 'cfj-z')?.desiredOutcomes.map(outcome => outcome.id)).toEqual(['do-a', 'do-z']);
+    expect(discovery.source?.jobGroups.find(group => group.job.id === 'rj')?.desiredOutcomes.map(outcome => outcome.id)).toEqual(['do-other']);
+    expect(discovery.financialCandidates.map(candidate => candidate.id)).toEqual(['fdo-a', 'fdo-z']);
+  });
+
+  it('keeps membership for DO-bearing Jobs and never gives Emotional or Social Jobs a DO layer', () => {
+    const discovery = offerClientIntentDiscovery(fixture(), 'offer', { query: '' });
+    expect(discovery.source?.jobGroups.find(group => group.job.id === 'ccj')).toMatchObject({ showJobCandidate: true, desiredOutcomes: [] });
+    expect(discovery.source?.jobGroups.find(group => group.job.id === 'ej')?.desiredOutcomes).toEqual([]);
+    expect(discovery.source?.jobGroups.find(group => group.job.id === 'sj')?.desiredOutcomes).toEqual([]);
+  });
+
+  it('derives checked state solely from committed Offer records', () => {
+    const document = fixture();
+    document.offerJobSelections.push(selection('selected', 'offer', 'intent-cfj-z', ['do-z']));
+    document.offerFinancialIntents.push({ id: 'selected-fdo', offerId: 'offer', financialDesiredOutcomeId: 'fdo-a' });
+    const discovery = offerClientIntentDiscovery(document, 'offer', { query: '' });
+    const job = discovery.source?.jobGroups.find(group => group.job.id === 'cfj-z');
+    expect(job?.checked).toBe(true);
+    expect(job?.desiredOutcomes.map(outcome => [outcome.id, outcome.checked])).toEqual([['do-a', false], ['do-z', true]]);
+    expect(discovery.financialCandidates.map(outcome => [outcome.id, outcome.checked])).toEqual([['fdo-a', true], ['fdo-z', false]]);
+  });
+
+  it('matches Job, nested DO and FDO titles while preserving owning Job context', () => {
+    expect(offerClientIntentDiscovery(fixture(), 'offer', { query: 'Zulu job' }).source?.jobGroups.map(group => group.job.id)).toEqual(['cfj-z']);
+    const outcome = offerClientIntentDiscovery(fixture(), 'offer', { query: 'Alpha outcome' });
+    expect(outcome.source?.jobGroups).toMatchObject([{ job: { id: 'cfj-z' }, showJobCandidate: false, desiredOutcomes: [{ id: 'do-a' }] }]);
+    expect(offerClientIntentDiscovery(fixture(), 'offer', { query: 'Zulu financial' }).financialCandidates.map(item => item.id)).toEqual(['fdo-z']);
+  });
+
+  it('uses shared kind aliases and kind filtering never expands eligibility', () => {
+    const shortcuts = offerClientIntentDiscovery(fixture(), 'offer', { query: 'do' }).kindShortcutMatches.map(item => item.kind);
+    expect(shortcuts).toEqual(expect.arrayContaining(['desired_outcome', 'financial_desired_outcome']));
+    const desired = offerClientIntentDiscovery(fixture(), 'offer', { query: 'do', kind: 'desired_outcome' });
+    expect(desired.source?.jobGroups.every(group => !group.showJobCandidate)).toBe(true);
+    expect(desired.financialCandidates).toEqual([]);
+  });
+
+  it('returns an explicit unavailable result, excludes malformed data, and does not mutate the document', () => {
+    const document = fixture();
+    document.productJobIntents.push({ id: 'stale', productId: 'product', jobId: 'missing', addressedDesiredOutcomeIds: ['missing'] });
+    const before = structuredClone(document);
+    expect(offerClientIntentDiscovery(document, 'offer', { query: '' }).source?.jobGroups.some(group => group.id === 'stale')).toBe(false);
+    expect(document).toEqual(before);
+    document.relationships = document.relationships.filter(relation => relation.id !== 'product-offer');
+    expect(offerClientIntentDiscovery(document, 'offer', { query: '' })).toMatchObject({ status: 'unavailable', offerId: 'offer', financialCandidates: [] });
   });
 });
