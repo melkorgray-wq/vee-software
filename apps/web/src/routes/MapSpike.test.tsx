@@ -278,6 +278,19 @@ function renderOfferInspector(document = offerNeighborhoodDocument(), offerName 
 describe('Offer Client intent presentation', () => {
   afterEach(cleanup);
 
+  function financialCheckbox(inspector: ReturnType<typeof within>) {
+    return within(inspector.getByRole('group', { name: 'Financial intent' })).getByRole('checkbox', { name: /^Stay affordable\s*Financial Desired Outcome$/ });
+  }
+
+  function documentWithOfferFinancialImpact() {
+    const document = touchpointInspectorDocument();
+    document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a', 'do-b'] });
+    document.offerJobSelections.push({ id: 'offer-job', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] });
+    document.offerFinancialIntents.push({ id: 'offer-financial', offerId: 'offer-a', financialDesiredOutcomeId: 'fdo' });
+    document.touchpointFinancialSelections.push({ id: 'touch-financial', touchpointId: 'touch', offerId: 'offer-a', offerFinancialIntentId: 'offer-financial', financialDesiredOutcomeId: 'fdo' });
+    return document;
+  }
+
   it('renders the committed projection with shared panels, ontology-aware leaves, navigation, and Offer-scoped disclosure', async () => {
     const user = userEvent.setup();
     const document = semanticOfferNeighborhoodDocument();
@@ -358,6 +371,116 @@ describe('Offer Client intent presentation', () => {
     await user.click(within(section).getByRole('button', { name: 'Close Client intent editor' }));
     expect(within(section).queryByText('No Client intent selected.')).not.toBeInTheDocument();
     expect(within(section).getByRole('button', { name: 'Core Functional Job, 1' })).toBeInTheDocument();
+  });
+
+  it('commits Financial Desired Outcome addition immediately without false dirty state and preserves later Job draft Apply', async () => {
+    const user = userEvent.setup();
+    const document = touchpointInspectorDocument();
+    document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
+    const inspector = renderOfferInspector(document);
+    const section = inspector.getByRole('region', { name: 'Client intent' });
+    await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
+    const checkbox = financialCheckbox(inspector);
+
+    await user.click(checkbox);
+
+    expect(checkbox).toBeChecked();
+    expect(window.__VEE_DEV__!.dump().offerFinancialIntents).toEqual([expect.objectContaining({ offerId: 'offer-a', financialDesiredOutcomeId: 'fdo' })]);
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
+    await user.click(within(section).getByRole('button', { name: 'Close Client intent editor' }));
+    expect(within(section).getByRole('button', { name: 'Financial Desired Outcome, 1' })).toBeInTheDocument();
+    await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
+    expect(financialCheckbox(inspector)).toBeChecked();
+
+    const jobs = within(section).getByRole('group', { name: 'Client intent' });
+    await user.click(within(jobs).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ }));
+    expect(inspector.getByText('Unsaved changes')).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
+    const committed = window.__VEE_DEV__!.dump();
+    expect(committed.offerJobSelections).toEqual([expect.objectContaining({ offerId: 'offer-a', productJobIntentId: 'intent' })]);
+    expect(committed.offerFinancialIntents).toEqual([expect.objectContaining({ offerId: 'offer-a', financialDesiredOutcomeId: 'fdo' })]);
+  });
+
+  it('removes Financial Desired Outcome immediately when no downstream selection exists while preserving the Job draft', async () => {
+    const user = userEvent.setup();
+    const document = documentWithOfferFinancialImpact();
+    document.touchpointFinancialSelections = [];
+    const inspector = renderOfferInspector(document);
+    const section = inspector.getByRole('region', { name: 'Client intent' });
+    await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
+    const jobs = within(section).getByRole('group', { name: 'Client intent' });
+    await user.click(within(jobs).getByRole('button', { name: 'Expand Make progress' }));
+    await user.click(within(jobs).getByRole('checkbox', { name: 'Reduce errors' }));
+
+    await user.click(financialCheckbox(inspector));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(financialCheckbox(inspector)).not.toBeChecked();
+    expect(window.__VEE_DEV__!.dump().offerFinancialIntents).toEqual([]);
+    expect(within(jobs).getByRole('checkbox', { name: 'Reduce errors' })).toBeChecked();
+    expect(inspector.getByText('Unsaved changes')).toBeInTheDocument();
+  });
+
+  it('reviews exact Financial impact, preserves committed state and Job draft on Cancel/Escape, then prunes through domain commit on Confirm', async () => {
+    const user = userEvent.setup();
+    const inspector = renderOfferInspector(documentWithOfferFinancialImpact());
+    const section = inspector.getByRole('region', { name: 'Client intent' });
+    await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
+    const jobs = within(section).getByRole('group', { name: 'Client intent' });
+    await user.click(within(jobs).getByRole('button', { name: 'Expand Make progress' }));
+    await user.click(within(jobs).getByRole('checkbox', { name: 'Reduce errors' }));
+    const checkbox = financialCheckbox(inspector);
+
+    await user.click(checkbox);
+    let dialog = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
+    expect(within(dialog).getAllByText('Checkout')).toHaveLength(1);
+    expect(within(dialog).getByText('loses Stay affordable')).toBeInTheDocument();
+    expect(checkbox).toBeChecked();
+    expect(window.__VEE_DEV__!.dump().touchpointFinancialSelections.map(item => item.id)).toEqual(['touch-financial']);
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(checkbox).toHaveFocus());
+    expect(checkbox).toBeChecked();
+    expect(within(jobs).getByRole('checkbox', { name: 'Reduce errors' })).toBeChecked();
+
+    await user.click(checkbox);
+    dialog = screen.getByRole('dialog');
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(checkbox).toHaveFocus());
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump().touchpointFinancialSelections.map(item => item.id)).toEqual(['touch-financial']);
+    expect(within(jobs).getByRole('checkbox', { name: 'Reduce errors' })).toBeChecked();
+
+    await user.click(checkbox);
+    expect(checkbox).toBeChecked();
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Confirm removal' }));
+    const committed = window.__VEE_DEV__!.dump();
+    expect(committed.offerFinancialIntents).toEqual([]);
+    expect(committed.touchpointFinancialSelections).toEqual([]);
+    expect(checkbox).not.toBeChecked();
+    expect(within(jobs).getByRole('checkbox', { name: 'Reduce errors' })).toBeChecked();
+    await user.click(within(section).getByRole('button', { name: 'Close Client intent editor' }));
+    expect(within(section).queryByRole('button', { name: /Financial Desired Outcome/ })).not.toBeInTheDocument();
+    expect(inspector.getByText('Unsaved changes')).toBeInTheDocument();
+  });
+
+  it('keeps the document and Job draft recoverable when the Financial domain commit fails', async () => {
+    const user = userEvent.setup();
+    const commit = vi.spyOn(domain, 'setOfferFinancialIntents').mockImplementationOnce(() => { throw new Error('Financial commit failed.'); });
+    const document = touchpointInspectorDocument();
+    document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
+    const inspector = renderOfferInspector(document);
+    const section = inspector.getByRole('region', { name: 'Client intent' });
+    await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
+    const jobs = within(section).getByRole('group', { name: 'Client intent' });
+    await user.click(within(jobs).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ }));
+
+    await user.click(financialCheckbox(inspector));
+
+    expect(window.__VEE_DEV__!.dump().offerFinancialIntents).toEqual([]);
+    expect(financialCheckbox(inspector)).not.toBeChecked();
+    expect(within(jobs).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ })).toBeChecked();
+    expect(inspector.getByRole('status')).toHaveTextContent('Financial commit failed.');
+    commit.mockRestore();
   });
 
   it('clears Offer editor and disclosure presentation state when the document is replaced', async () => {

@@ -127,6 +127,7 @@ type ProductConfirmation =
   | { mode: 'impact'; owner: 'product'; pending?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getProductIntentChangeImpact> }
   | { mode: 'impact'; owner: 'offer'; pending?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getOfferIntentChangeImpact> }
   | { mode: 'impact'; owner: 'offer-product'; immediateCommit: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getOfferIntentChangeImpact> }
+  | { mode: 'impact'; owner: 'offer-financial'; immediateCommit: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getOfferIntentChangeImpact> }
   | { mode: 'impact'; owner: 'touchpoint'; immediateCommit: () => void; returnFocus: HTMLElement | null; returnFocusId?: string; impact: ReturnType<typeof getTouchpointLinkedOfferChangeImpact> }
   | { mode: 'impact'; owner: 'touchpoint-replacement'; immediateCommit: () => void; returnFocus: HTMLElement | null; returnFocusId: string; impact: ReturnType<typeof getTouchpointLinkedOfferChangeImpact>; touchpointId: string; departingOfferId: string; replacementOfferId: string }
   | { mode: 'impact'; owner: 'touchpoint-created-replacement'; operationKind: 'sibling' | 'duplicate'; immediateCommit: () => void; returnFocus: HTMLElement | null; returnFocusId: string; impact: ReturnType<typeof getTouchpointLinkedOfferChangeImpact>; touchpointId: string; departingOfferId: string; plannedOfferTitle: string };
@@ -738,7 +739,12 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const offerBusinessStructure = selected?.kind === 'offer'
     ? deriveOfferBusinessStructure(document, selected.id)
     : undefined;
-  const inspectorDirty = Boolean(selected && editDraft && (() => { const baseline = draftFor(selected); return JSON.stringify({ ...editDraft, touchpointIntent: undefined }) !== JSON.stringify({ ...baseline, touchpointIntent: undefined }) || Boolean(editDraft.touchpointIntent && baseline.touchpointIntent && !equalTouchpointIntentDraft(editDraft.touchpointIntent, baseline.touchpointIntent)); })());
+  const inspectorDirty = Boolean(selected && editDraft && (() => {
+    const baseline = draftFor(selected);
+    const comparableDraft = { ...editDraft, touchpointIntent: undefined, ...(selected.kind === 'offer' ? { financialOutcomeIds: undefined } : {}) };
+    const comparableBaseline = { ...baseline, touchpointIntent: undefined, ...(selected.kind === 'offer' ? { financialOutcomeIds: undefined } : {}) };
+    return JSON.stringify(comparableDraft) !== JSON.stringify(comparableBaseline) || Boolean(editDraft.touchpointIntent && baseline.touchpointIntent && !equalTouchpointIntentDraft(editDraft.touchpointIntent, baseline.touchpointIntent));
+  })());
 
   function resetDocumentInteractionState() {
     setSelectedId(null);
@@ -1609,6 +1615,52 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       return;
     }
     commitOfferProductImmediately(offerId, productId);
+  }
+  function commitOfferFinancialIntentImmediately(offerId: string, outcomeId: string, checked: boolean) {
+    try {
+      const before = documentRef.current;
+      const committedIds = before.offerFinancialIntents.filter(intent => intent.offerId === offerId).map(intent => intent.financialDesiredOutcomeId);
+      const alreadyChecked = committedIds.includes(outcomeId);
+      if (alreadyChecked === checked) return;
+      const financialDesiredOutcomeIds = checked ? [...committedIds, outcomeId] : committedIds.filter(id => id !== outcomeId);
+      const committed = setOfferFinancialIntents(before, {
+        offerId,
+        financialDesiredOutcomeIds,
+        newIntentIds: checked ? [crypto.randomUUID()] : [],
+      });
+      const next = reconsiderPlacementAfterRelationCommit(before, committed, VIEW_ID, offerId);
+      setDocument(next);
+      const nextFinancialIds = next.offerFinancialIntents.filter(intent => intent.offerId === offerId).map(intent => intent.financialDesiredOutcomeId);
+      setEditDraft(current => current ? { ...current, financialOutcomeIds: nextFinancialIds } : current);
+      publishSuccess('Financial intent updated.');
+    } catch (error) {
+      publishError(error instanceof Error ? error.message : 'Financial intent could not be updated.');
+    }
+  }
+  function requestOfferFinancialIntentCommit(outcomeId: string, checked: boolean, returnFocus: HTMLElement | null) {
+    if (selected?.kind !== 'offer') return;
+    const offerId = selected.id;
+    const durable = documentRef.current;
+    const committedIds = durable.offerFinancialIntents.filter(intent => intent.offerId === offerId).map(intent => intent.financialDesiredOutcomeId);
+    if (committedIds.includes(outcomeId) === checked) return;
+    const financialDesiredOutcomeIds = checked ? [...committedIds, outcomeId] : committedIds.filter(id => id !== outcomeId);
+    if (!checked) {
+      const productId = durable.relationships.find((relation): relation is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => relation.kind === 'product_packaged_as_offer' && relation.offerId === offerId)?.productId;
+      if (!productId) {
+        publishError('Offer Product could not be resolved.');
+        return;
+      }
+      const selections = durable.offerJobSelections.filter(selection => selection.offerId === offerId).map(selection => ({
+        productJobIntentId: selection.productJobIntentId,
+        addressedDesiredOutcomeIds: effectiveOfferDesiredOutcomeIds(durable, selection),
+      }));
+      const impact = getOfferIntentChangeImpact(durable, { offerId, productId, selections, financialDesiredOutcomeIds });
+      if (impact.touchpointFinancialSelectionIds.length) {
+        setProductConfirmation({ mode: 'impact', owner: 'offer-financial', impact, returnFocus, immediateCommit: () => commitOfferFinancialIntentImmediately(offerId, outcomeId, false) });
+        return;
+      }
+    }
+    commitOfferFinancialIntentImmediately(offerId, outcomeId, checked);
   }
   function commitParentImmediately(touchpointId: string, parentTouchpointId: string) {
     const before = documentRef.current;
@@ -2790,13 +2842,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               <label className="intent-selection financial-intent" key={outcome.id}>
                 <input
                   type="checkbox"
-                  checked={d.financialOutcomeIds.includes(outcome.id)}
-                  onChange={(event) =>
-                    setter({
-                      ...d,
-                      financialOutcomeIds: event.target.checked ? [...d.financialOutcomeIds, outcome.id] : d.financialOutcomeIds.filter((id) => id !== outcome.id),
-                    })
-                  }
+                  checked={document.offerFinancialIntents.some(intent => intent.offerId === selected?.id && intent.financialDesiredOutcomeId === outcome.id)}
+                  onChange={(event) => requestOfferFinancialIntentCommit(outcome.id, event.target.checked, event.currentTarget)}
                 />
                 <span><strong>{outcome.title}</strong><small>Financial Desired Outcome</small></span>
               </label>
@@ -3968,17 +4015,20 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                     productApplyBypassRef.current = false;
                   }
                   if (selected.kind === 'offer') {
+                    const durable = documentRef.current;
                     const offerSelections = editDraft.selectedIntentIds.map(productJobIntentId => ({ productJobIntentId, addressedDesiredOutcomeIds: editDraft.offerIntentOutcomes[productJobIntentId] ?? [] }));
-                    const impact = getOfferIntentChangeImpact(document, { offerId: selected.id, productId: editDraft.linkedProductId, selections: offerSelections, financialDesiredOutcomeIds: editDraft.financialOutcomeIds });
+                    const financialDesiredOutcomeIds = durable.offerFinancialIntents.filter(intent => intent.offerId === selected.id).map(intent => intent.financialDesiredOutcomeId);
+                    const impact = getOfferIntentChangeImpact(durable, { offerId: selected.id, productId: editDraft.linkedProductId, selections: offerSelections, financialDesiredOutcomeIds });
                     if (!productApplyBypassRef.current && (impact.touchpointJobSelectionIds.length || impact.narrowedTouchpointSelections.length || impact.touchpointFinancialSelectionIds.length)) {
                       setProductConfirmation({ mode: 'impact', owner: 'offer', impact, returnFocus: globalThis.document.activeElement as HTMLElement | null });
                       return;
                     }
                     productApplyBypassRef.current = false;
                   }
-                  const old = document.relationships.filter((r) => r.kind === 'offer_presented_at_touchpoint' && r.touchpointId === selected.id);
-                  const parent = document.relationships.find((r) => r.kind === 'touchpoint_contains_touchpoint' && r.childTouchpointId === selected.id);
-                  let next = updateEntity(document, {
+                  const applySource = selected.kind === 'offer' ? documentRef.current : document;
+                  const old = applySource.relationships.filter((r) => r.kind === 'offer_presented_at_touchpoint' && r.touchpointId === selected.id);
+                  const parent = applySource.relationships.find((r) => r.kind === 'touchpoint_contains_touchpoint' && r.childTouchpointId === selected.id);
+                  let next = updateEntity(applySource, {
                     entityId: selected.id,
                     title: editDraft.title,
                     linkedProductId: editDraft.linkedProductId,
@@ -4032,14 +4082,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                       selections: editDraft.selectedIntentIds.map(productJobIntentId => ({ productJobIntentId, addressedDesiredOutcomeIds: editDraft.offerIntentOutcomes[productJobIntentId] ?? [] })),
                       newSelectionIds: additions.map(() => crypto.randomUUID()),
                     });
-                    const retainedFinancial = next.offerFinancialIntents.filter((intent) => intent.offerId === selected.id).map((intent) => intent.financialDesiredOutcomeId);
-                    next = setOfferFinancialIntents(next, {
-                      offerId: selected.id,
-                      financialDesiredOutcomeIds: editDraft.financialOutcomeIds,
-                      newIntentIds: editDraft.financialOutcomeIds.filter((id) => !retainedFinancial.includes(id)).map(() => crypto.randomUUID()),
-                    });
                   }
-                  next = reconsiderPlacementAfterRelationCommit(document, next, VIEW_ID, selected.id);
+                  next = reconsiderPlacementAfterRelationCommit(applySource, next, VIEW_ID, selected.id);
                   setDocument(next);
                   const appliedEntity = next.entities.find(entity => entity.id === selected.id)!;
                   setEditDraft(draftFor(appliedEntity, next));
@@ -4103,7 +4147,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 {productConfirmation.impact.narrowedTouchpointSelections.map(item => { const selection = document.touchpointJobSelections.find(candidate => candidate.id === item.touchpointJobSelectionId); const touchpoint = document.entities.find(entity => entity.id === selection?.touchpointId); return <p key={item.touchpointJobSelectionId}><strong>{touchpoint?.title}</strong><span>loses {item.removedDesiredOutcomeIds.map(id => document.entities.find(entity => entity.id === id)?.title).join(', ')}</span></p>; })}
               </div>
             )}
-            {productConfirmation.mode === 'impact' && (productConfirmation.owner === 'offer' || productConfirmation.owner === 'offer-product') && (
+            {productConfirmation.mode === 'impact' && (productConfirmation.owner === 'offer' || productConfirmation.owner === 'offer-product' || productConfirmation.owner === 'offer-financial') && (
               <div className="impact-list">
                 {productConfirmation.impact.touchpointJobSelectionIds.map(id => { const selection = document.touchpointJobSelections.find(item => item.id === id); const touchpoint = document.entities.find(entity => entity.id === selection?.touchpointId); const intent = document.productJobIntents.find(item => item.id === selection?.productJobIntentId); const job = document.entities.find(entity => entity.id === intent?.jobId); return <p key={id}><strong>{touchpoint?.title}</strong><span>loses {job?.title}</span></p>; })}
                 {productConfirmation.impact.narrowedTouchpointSelections.map(item => { const selection = document.touchpointJobSelections.find(candidate => candidate.id === item.touchpointJobSelectionId); const touchpoint = document.entities.find(entity => entity.id === selection?.touchpointId); return <p key={item.touchpointJobSelectionId}><strong>{touchpoint?.title}</strong><span>loses {item.removedDesiredOutcomeIds.map(id => document.entities.find(entity => entity.id === id)?.title).join(', ')}</span></p>; })}
@@ -4122,7 +4166,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 <button type="button" onClick={closeProductConfirmation}>Keep editing</button>
               </> : <>
                 <button type="button" onClick={closeProductConfirmation}>Cancel</button>
-                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; setProductConfirmation(null); if (confirmation.owner === 'touchpoint' || confirmation.owner === 'touchpoint-replacement' || confirmation.owner === 'touchpoint-created-replacement' || confirmation.owner === 'offer-product') { confirmation.immediateCommit(); if (confirmation.owner !== 'touchpoint-created-replacement') requestAnimationFrame(() => ((confirmation.owner === 'touchpoint' || confirmation.owner === 'touchpoint-replacement') && confirmation.returnFocusId ? globalThis.document.getElementById(confirmation.returnFocusId) : confirmation.returnFocus)?.focus()); } else { productApplyBypassRef.current = true; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>{productConfirmation.owner === 'touchpoint-created-replacement' ? 'Confirm' : productConfirmation.owner === 'touchpoint-replacement' ? 'Replace Offer' : productConfirmation.owner === 'touchpoint' || productConfirmation.owner === 'offer-product' ? 'Confirm removal' : 'Apply changes'}</button>
+                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; setProductConfirmation(null); if (confirmation.owner === 'touchpoint' || confirmation.owner === 'touchpoint-replacement' || confirmation.owner === 'touchpoint-created-replacement' || confirmation.owner === 'offer-product' || confirmation.owner === 'offer-financial') { confirmation.immediateCommit(); if (confirmation.owner !== 'touchpoint-created-replacement') requestAnimationFrame(() => ((confirmation.owner === 'touchpoint' || confirmation.owner === 'touchpoint-replacement') && confirmation.returnFocusId ? globalThis.document.getElementById(confirmation.returnFocusId) : confirmation.returnFocus)?.focus()); } else { productApplyBypassRef.current = true; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>{productConfirmation.owner === 'touchpoint-created-replacement' ? 'Confirm' : productConfirmation.owner === 'touchpoint-replacement' ? 'Replace Offer' : productConfirmation.owner === 'touchpoint' || productConfirmation.owner === 'offer-product' || productConfirmation.owner === 'offer-financial' ? 'Confirm removal' : 'Apply changes'}</button>
               </>}
             </div>
           </div>
