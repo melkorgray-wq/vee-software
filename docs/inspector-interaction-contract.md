@@ -131,7 +131,7 @@ Portable interaction grammar:
 1. An editable property heading opens a local embedded editor, separate from value navigation.
 2. Multi-select stays open until explicit Close or dismissal; every complete toggle is already committed.
 3. Single-select closes after a complete selection. Optional Clear is an explicit local action, never a fake candidate; mandatory relations omit it.
-4. Search appears only for sufficient candidate space. `RELATION_EDITOR_SEARCH_THRESHOLD = 7` is the current reference, not universal ontology.
+4. Search appears only for sufficient candidate space in ordinary relation pickers. `RELATION_EDITOR_SEARCH_THRESHOLD = 7` is their current reference, not universal ontology. In Client-intent edit discovery, **Search Client intent** is always present—even with zero or one eligible candidate—because it is the semantic discovery entry point; opening focuses it before candidate controls.
 5. Close preserves committed selections. Cancel/Escape may abandon only unfinished work.
 6. Reassignment/removal uses owner-aware impact planning and confirmation where destructive.
 7. A mandatory relation cannot pass through an empty committed state. When removing its sole current value requires another value, the outer editor opens a transient nested replacement step; choosing a candidate changes no document, and one explicit confirmation commits the complete replacement atomically. Back/Escape returns one level without mutation. The review is required even when downstream impact is empty and includes the owner's exact impact when it is not.
@@ -156,7 +156,7 @@ Parent is optional single-select; Children attach/detach/reassign/create use ded
 
 ## Client Scope and Resistance
 
-- Read disclosure is transient presentation; authoring changes intent. Global discovery (`globalIntentDiscovery`) differs from upstream sources (`touchpointUpstreamSources`). Selectable leaves and paths remain ontology-aware.
+- Read disclosure is transient presentation; authoring changes intent. Global discovery (`globalIntentDiscovery`) differs from upstream sources (`touchpointUpstreamSources`). Selectable leaves and paths remain ontology-aware. Offer adapts the same title/kind matching grammar to an Offer-owned eligible universe: one linked Product source and a separate direct Financial Desired Outcome space, without Touchpoint contributor, Parent, resolver, or bottom-up semantics.
 - DO-bearing Core Functional, Related and Consumption Chain Jobs require ordinary Desired Outcome paths; Emotional/Social Jobs may route directly; Financial Desired Outcome routes through Offer. Contributor ambiguity produces a resolver/incomplete path, never a guessed contributor.
 - Client authoring uses progressive Escape and immediate owner-aware commits only after a complete path. The Child must author its own contributing Offer path; Parent context is not contributor identity.
 - Resistance relevance is derived by `relevantRepulsorsForTouchpoint`; mitigation is an authored `touchpoint_mitigates_repulsor` relation committed by `commitTouchpointMitigation`/`setTouchpointMitigations`. Never convert derived relevance automatically into mitigation, or treat mitigation as proof that resistance was resolved.

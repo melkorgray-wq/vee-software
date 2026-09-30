@@ -1,4 +1,5 @@
 import { addEntity, addTouchpointContainer, applyTouchpointIntentDraft, commitTouchpointParent as commitDomainTouchpointParent, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getTouchpointLinkedOfferChangeImpact, relevantRepulsorsForTouchpoint, setTouchpointMitigations, updateEntity, type Entity, type MapDocument, type TouchpointIntentDraft as DomainTouchpointIntentDraft, type TouchpointIntentFinancialLeaf, type TouchpointIntentJobLeaf } from '@vee/domain';
+import { CLIENT_INTENT_DISCOVERY_KINDS, clientIntentKindShortcutMatches, normalizeClientIntentQuery, type ClientIntentDiscoveryKind } from '../client-intent-discovery';
 
 export type TouchpointJobLeaf = TouchpointIntentJobLeaf;
 export type TouchpointFinancialLeaf = TouchpointIntentFinancialLeaf;
@@ -104,17 +105,8 @@ export type GlobalIntentDiscovery = GlobalIntentMatches & {
   titleMatches: GlobalIntentMatches;
   kindShortcutMatches: { kind: ConnectionPickerKind; label: string }[];
 };
-const discoveryKindTerms: Record<ConnectionPickerKind, { label: string; aliases: string[] }> = {
-  core_functional_job: { label: 'Core Functional Job', aliases: ['core', 'functional', 'job'] },
-  related_job: { label: 'Related Job', aliases: ['related', 'job'] },
-  consumption_chain_job: { label: 'Consumption Chain Job', aliases: ['consumption', 'chain', 'job'] },
-  desired_outcome: { label: 'Desired Outcome', aliases: ['desired', 'outcome', 'do'] },
-  emotional_job: { label: 'Emotional Job', aliases: ['emotional', 'emotion', 'job'] },
-  social_job: { label: 'Social Job', aliases: ['social', 'job'] },
-  financial_desired_outcome: { label: 'Financial Desired Outcome', aliases: ['financial', 'desired', 'outcome', 'fdo'] },
-};
 export function globalIntentDiscovery(document: MapDocument, input: { query: string; kind?: ConnectionPickerKind | undefined; touchpointId?: string | undefined }): GlobalIntentDiscovery {
-  const query = input.query.trim().toLocaleLowerCase();
+  const query = normalizeClientIntentQuery(input.query);
   const scope = input.touchpointId ? touchpointClientScope(document, input.touchpointId) : undefined;
   const pathsFor = (semanticId: string, owningJobId?: string): IntentContributorPath[] => {
     if (!input.touchpointId) return [];
@@ -155,18 +147,15 @@ export function globalIntentDiscovery(document: MapDocument, input: { query: str
     return { jobGroups, directLeaves };
   };
   const titleMatches = query ? project(undefined, query) : { jobGroups: [], directLeaves: [] };
-  const kindShortcutMatches = query ? CONNECTION_PICKER_KINDS.flatMap(kind => {
-    const terms = discoveryKindTerms[kind];
-    return terms.label.toLocaleLowerCase().includes(query) || terms.aliases.some(alias => alias.includes(query) || query.includes(alias)) ? [{ kind, label: terms.label }] : [];
-  }) : [];
+  const kindShortcutMatches = clientIntentKindShortcutMatches(query);
   const visible = input.kind ? project(input.kind, '') : titleMatches;
   return { ...visible, titleMatches, kindShortcutMatches };
 }
 export const jobLeafKey = (leaf: Pick<TouchpointJobLeaf, 'semanticLeafId'>) => `job:${leaf.semanticLeafId}`;
 export const financialLeafKey = (leaf: Pick<TouchpointFinancialLeaf, 'financialDesiredOutcomeId'>) => `financial:${leaf.financialDesiredOutcomeId}`;
 
-export const CONNECTION_PICKER_KINDS = ['core_functional_job', 'related_job', 'consumption_chain_job', 'desired_outcome', 'emotional_job', 'social_job', 'financial_desired_outcome'] as const;
-export type ConnectionPickerKind = typeof CONNECTION_PICKER_KINDS[number];
+export const CONNECTION_PICKER_KINDS = CLIENT_INTENT_DISCOVERY_KINDS;
+export type ConnectionPickerKind = ClientIntentDiscoveryKind;
 export type ConnectionCandidate =
   | { kind: 'job'; entity: Entity; semanticLeafId: string; desiredOutcome?: Entity }
   | { kind: 'financial'; entity: Entity; semanticLeafId: string; desiredOutcome?: undefined };

@@ -299,8 +299,8 @@ describe('Offer Client intent presentation', () => {
     const section = inspector.getByRole('region', { name: 'Client intent' });
 
     await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
-    const firstJob = within(section).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ });
-    await waitFor(() => expect(firstJob).toHaveFocus());
+    const search = within(section).getByRole('searchbox', { name: 'Search Client intent' });
+    await waitFor(() => expect(search).toHaveFocus());
     const headingCluster = section.querySelector('.embedded-editor-heading-actions')!;
     const close = within(section).getByRole('button', { name: 'Close Client intent editor' });
     expect(headingCluster).toContainElement(close);
@@ -309,18 +309,18 @@ describe('Offer Client intent presentation', () => {
     await user.click(close);
     await waitFor(() => expect(within(section).getByRole('button', { name: 'Edit Client intent' })).toHaveFocus());
     await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
-    await waitFor(() => expect(within(section).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ })).toHaveFocus());
+    await waitFor(() => expect(within(section).getByRole('searchbox', { name: 'Search Client intent' })).toHaveFocus());
     await user.keyboard('{Escape}');
     await waitFor(() => expect(within(section).getByRole('button', { name: 'Edit Client intent' })).toHaveFocus());
   });
 
-  it('falls back from Job to Financial and then Close for deliberate opening focus', async () => {
+  it('keeps Search as the opening focus target with one or zero eligible candidates', async () => {
     const user = userEvent.setup();
     const financialOnly = touchpointInspectorDocument();
     let inspector = renderOfferInspector(financialOnly);
     let section = inspector.getByRole('region', { name: 'Client intent' });
     await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
-    await waitFor(() => expect(financialCheckbox(inspector)).toHaveFocus());
+    await waitFor(() => expect(within(section).getByRole('searchbox', { name: 'Search Client intent' })).toHaveFocus());
 
     cleanup();
     const empty = touchpointInspectorDocument();
@@ -328,7 +328,92 @@ describe('Offer Client intent presentation', () => {
     inspector = renderOfferInspector(empty);
     section = inspector.getByRole('region', { name: 'Client intent' });
     await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
-    await waitFor(() => expect(within(section).getByRole('button', { name: 'Close Client intent editor' })).toHaveFocus());
+    await waitFor(() => expect(within(section).getByRole('searchbox', { name: 'Search Client intent' })).toHaveFocus());
+  });
+
+  it('searches only eligible Job, owning DO, and direct FDO candidates without mutating the document', async () => {
+    const user = userEvent.setup();
+    const document = touchpointInspectorDocument();
+    document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
+    document.offerJobSelections.push({ id: 'offer-job', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] });
+    const inspector = renderOfferInspector(document);
+    const section = inspector.getByRole('region', { name: 'Client intent' });
+    await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
+    const search = within(section).getByRole('searchbox', { name: 'Search Client intent' });
+    const before = structuredClone(window.__VEE_DEV__!.dump());
+
+    expect(within(section).getByRole('button', { name: 'Product · Orbit' })).toBeInTheDocument();
+    expect(within(section).getByRole('group', { name: 'Financial intent' })).toBeInTheDocument();
+    await user.type(search, 'Finish faster');
+    expect(within(section).getByRole('checkbox', { name: 'Finish faster' })).toBeChecked();
+    expect(within(section).getByText('Make progress')).toBeInTheDocument();
+    expect(within(section).queryByRole('checkbox', { name: /^Stay affordable/ })).not.toBeInTheDocument();
+    await user.clear(search);
+    await user.type(search, 'Stay affordable');
+    expect(within(section).getByRole('checkbox', { name: /^Stay affordable\s*Financial Desired Outcome$/ })).not.toBeChecked();
+    expect(within(section).queryByText(/via /i)).not.toBeInTheDocument();
+    expect(within(section).queryByText(/Parent/)).not.toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+  });
+
+  it('temporarily reveals a collapsed Product source for Job and DO discovery, then restores browse disclosure', async () => {
+    const user = userEvent.setup();
+    const document = touchpointInspectorDocument();
+    document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
+    const inspector = renderOfferInspector(document);
+    const section = inspector.getByRole('region', { name: 'Client intent' });
+    await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
+    const source = within(section).getByRole('button', { name: 'Product · Orbit' });
+    const search = within(section).getByRole('searchbox', { name: 'Search Client intent' });
+    const before = structuredClone(window.__VEE_DEV__!.dump());
+
+    await user.click(source);
+    expect(source).toHaveAttribute('aria-expanded', 'false');
+    await user.type(search, 'Make progress');
+    expect(source).toHaveAttribute('aria-expanded', 'true');
+    expect(within(section).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ })).toBeVisible();
+    await user.clear(search);
+    expect(source).toHaveAttribute('aria-expanded', 'false');
+
+    await user.type(search, 'Finish faster');
+    expect(source).toHaveAttribute('aria-expanded', 'true');
+    expect(within(section).getByText('Make progress')).toBeVisible();
+    expect(within(section).getByRole('checkbox', { name: 'Finish faster' })).toBeVisible();
+    await user.clear(search);
+    expect(source).toHaveAttribute('aria-expanded', 'false');
+
+    await user.type(search, 'do');
+    await user.click(within(section).getByRole('button', { name: 'Browse Desired Outcome' }));
+    expect(source).toHaveAttribute('aria-expanded', 'true');
+    expect(within(section).getByRole('checkbox', { name: 'Finish faster' })).toBeVisible();
+    await user.clear(search);
+    expect(source).toHaveAttribute('aria-expanded', 'false');
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+  });
+
+  it('clears Offer discovery and source-disclosure state when a replacement document reuses the Offer ID', async () => {
+    const user = userEvent.setup();
+    const document = touchpointInspectorDocument();
+    document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
+    let inspector = renderOfferInspector(document);
+    let section = inspector.getByRole('region', { name: 'Client intent' });
+    await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
+    await user.click(within(section).getByRole('button', { name: 'Product · Orbit' }));
+    const search = within(section).getByRole('searchbox', { name: 'Search Client intent' });
+    await user.type(search, 'do');
+    await user.click(within(section).getByRole('button', { name: 'Browse Desired Outcome' }));
+    expect(within(section).getByText('Desired Outcome', { selector: '.kind-shortcut-heading strong' })).toBeInTheDocument();
+
+    act(() => window.__VEE_DEV__!.load(structuredClone(document)));
+    await openMap(user);
+    await user.click(screen.getByRole('button', { name: 'Subscription' }));
+    inspector = await openInspector(user);
+    section = inspector.getByRole('region', { name: 'Client intent' });
+    await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
+    expect(within(section).getByRole('searchbox', { name: 'Search Client intent' })).toHaveValue('');
+    expect(within(section).queryByText('Back to results for “do”')).not.toBeInTheDocument();
+    expect(within(section).getByRole('button', { name: 'Product · Orbit' })).toHaveAttribute('aria-expanded', 'true');
+    expect(window.__VEE_DEV__!.dump()).toEqual(document);
   });
 
   it('dismisses only on an outside pointer and preserves the outside focus owner and document', async () => {
