@@ -25,7 +25,7 @@ Separate the requested outcome, confirmed repository owners, proposed implementa
 
 ## Contract Transfer Gate
 
-After research-first discovery and definition of the authority surface, perform a pre-implementation applicability pass for every Standard or Strict task that touches an area with an accepted reusable contract, established owner, or reference implementation. This gate is repository-wide. It transfers relevant rules deliberately rather than turning `AGENTS.md` into a universal behavior catalog.
+After research-first discovery and definition of the authority surface, perform a pre-implementation applicability pass for every Standard or Strict task. This gate is repository-wide. It transfers relevant rules deliberately rather than turning `AGENTS.md` into a universal behavior catalog.
 
 Collect candidate transfer rules in this priority order, resolving conflicts through the source-of-truth hierarchy: (1) accepted ADRs and stable technical contracts; (2) framework-independent domain contracts and actual runtime behavior; (3) shared implementation owners and reference implementations; (4) applicable presentation, interaction, schema, migration, security, and operational contracts; and (5) regressions as evidence of a rule, never as independent permission to change it. Proposed documents and incidental implementation details do not automatically become transferable rules. Apply the specialized Domain-model, Data and schema, and Stateful UI and visualization sections when their subjects are in scope. The Architecture and dependency decision gate remains an additional gate for foundational decisions.
 
@@ -50,7 +50,7 @@ Every row requires actual evidence and remaining verification. **`not testable h
 
 For work already underway, run a retrospective mid-cycle pass without restarting completed discovery or planning: identify rules applicable to the current state, mark already evidenced conformance, expose gaps and missing evidence, continue implementation or verification only for those gaps, and finish with the normal conformance replay. Retrospective classification cannot turn an existing defect into an acceptable adaptation.
 
-Apply the gate proportionally. Light work uses it only when changing an accepted contract or reusable policy. Standard and Strict work uses it whenever applicable reusable contracts, owners, or references exist. Explicitly record when none exists, but do not create a Markdown contract for that fact alone; a new contract must satisfy the Documentation budget.
+Apply the gate proportionally. Light work uses it only when changing an accepted contract or reusable policy. Standard and Strict work always uses it. If no applicable reusable contracts, owners, or references exist, record that result explicitly and keep the pass minimal; do not create a Markdown contract for that fact alone. A new contract must satisfy the Documentation budget.
 
 ## Inspector contract gate (mandatory during Plan)
 
