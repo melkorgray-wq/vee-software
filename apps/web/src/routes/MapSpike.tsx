@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useReducer, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useReducer, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -39,6 +39,51 @@ type WorkspaceView = 'map' | 'inspector';
 type PostCreateContinuation = WorkspaceView;
 const CLIENT_SCOPE_KIND_ORDER = ['core_functional_job', 'related_job', 'consumption_chain_job', 'emotional_job', 'social_job', 'financial_desired_outcome'] as const;
 type ClientScopePanelKind = (typeof CLIENT_SCOPE_KIND_ORDER)[number];
+type ClientIntentCandidateRowModel = {
+  id: string;
+  title: string;
+  checked: boolean;
+  disabled?: boolean;
+  unavailableCopy?: string;
+  metadata?: ReactNode;
+  afterRow?: ReactNode;
+};
+type ClientIntentJobGroupModel = {
+  id: string;
+  kindLabel: string;
+  membership?: ClientIntentCandidateRowModel;
+  membershipContextTitle?: string;
+  outcomes: ClientIntentCandidateRowModel[];
+};
+
+function ClientIntentCandidateRow({ candidate, onCheckedChange }: {
+  candidate: ClientIntentCandidateRowModel;
+  onCheckedChange: (candidateId: string, checked: boolean, input: HTMLInputElement) => void;
+}) {
+  return <div className="intent-path-row">
+    <div className={`intent-checkbox${candidate.disabled ? ' unavailable' : ''}`}>
+      <label className="intent-selection-surface">
+        <input id={candidate.id} type="checkbox" disabled={candidate.disabled} checked={candidate.checked} onChange={event => onCheckedChange(candidate.id, event.target.checked, event.currentTarget)} />
+        <span className="intent-selection-title">{candidate.title}</span>
+      </label>
+      {candidate.metadata}
+      {candidate.disabled && candidate.unavailableCopy && <small>{candidate.unavailableCopy}</small>}
+    </div>
+    {candidate.afterRow}
+  </div>;
+}
+
+function ClientIntentJobGroup({ group, onCheckedChange }: {
+  group: ClientIntentJobGroupModel;
+  onCheckedChange: (candidateId: string, checked: boolean, input: HTMLInputElement) => void;
+}) {
+  return <div className={`touchpoint-client-job ${group.outcomes.length ? 'has-outcomes' : 'direct-job'}`}>
+    <small>{group.kindLabel}</small>
+    {group.membership && <div className="intent-semantic-leaf job-membership-row"><ClientIntentCandidateRow candidate={group.membership} onCheckedChange={onCheckedChange} /></div>}
+    {!group.membership && group.membershipContextTitle && <strong className="job-membership-context">{group.membershipContextTitle}</strong>}
+    {group.outcomes.length > 0 && <div className="intent-leaves desired-outcome-rows">{group.outcomes.map(candidate => <div className="intent-semantic-leaf" key={candidate.id}><ClientIntentCandidateRow candidate={candidate} onCheckedChange={onCheckedChange} /></div>)}</div>}
+  </div>;
+}
 type OperationFeedback = { text: string; kind: 'success' | 'error' };
 type OfferContentBlockDraft = { title: string; text: string; titleError?: string | undefined; textError?: string | undefined };
 type OfferContentBlockPlacement = { kind: 'end' } | { kind: 'after'; blockId: string };
@@ -648,7 +693,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const connectedTouchpointsEditorRef = useRef<HTMLDivElement>(null);
   const [businessInlineEdit, setBusinessInlineEdit] = useState<{ property: 'url'; value: string; error?: string } | { property: 'located-in'; query: string; error?: string } | null>(null);
   const [productExpanded, setProductExpanded] = useState<Record<string, boolean>>({});
-  const [offerExpanded, setOfferExpanded] = useState<Record<string, boolean>>({});
   const [neighborhoodExpanded, setNeighborhoodExpanded] = useState<Record<string, Record<string, boolean>>>({});
   const [offerNeighborhoodExpanded, setOfferNeighborhoodExpanded] = useState<Record<string, Record<string, boolean>>>({});
   const [connectionPicker, setConnectionPicker] = useState<ClientScopeEditor | null>(null);
@@ -790,7 +834,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setProductInline(null);
     setProductInlineTitle('');
     setProductExpanded({});
-    setOfferExpanded({});
     setNeighborhoodExpanded({});
     setOfferNeighborhoodExpanded({});
     setProductIntentSectionIds([]);
@@ -1627,7 +1670,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       const next = reconsiderPlacementAfterRelationCommit(before, committed, VIEW_ID, offerId);
       setDocument(next);
       setEditDraft(current => current ? { ...current, linkedProductId: productId } : current);
-      setOfferExpanded({});
       closeRelationEditor('commit');
       publishSuccess('Product updated.');
     } catch (error) {
@@ -1789,7 +1831,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setProductInline(null);
     setProductInlineTitle('');
     setProductIntentSectionIds(entity?.kind === 'product' ? source.productJobIntents.filter(intent => intent.productId === entity.id).map(intent => intent.jobId) : []);
-    setOfferExpanded({});
   }
   function guardsDirtySession(entity: Entity | undefined): boolean {
     return Boolean(entity?.kind === 'product' && inspectorDirty);
@@ -2714,35 +2755,29 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       if (connectionPicker.mode === 'invalid' && connectionPicker.unresolved?.status === 'invalid') return <fieldset className="contributor-chooser"><legend>Contributor unavailable</legend><p role="alert">No contributor path exists for {entityTitle(document, connectionPicker.unresolved.touchpointId)} ({connectionPicker.unresolved.touchpointId}).</p><button type="button" onClick={backFromResolver}>Back</button></fieldset>;
       return null;
     };
-    const renderSelectableRow = (leaf: UpstreamLeaf, options?: { provenance?: boolean; showContributorPaths?: boolean }) => {
+    const candidateRowModel = (leaf: UpstreamLeaf, options?: { provenance?: boolean; showContributorPaths?: boolean }): ClientIntentCandidateRowModel => {
       const contributorOfferIds = leaf.checkedContributorOfferIds ?? [];
       const contributorCount = contributorOfferIds.length;
-      return <div className="intent-path-row" key={leaf.checkboxId}>
-        <div className={`intent-checkbox${leaf.available ? '' : ' unavailable'}`}>
-          <label className="intent-selection-surface">
-            <input id={leaf.checkboxId} type="checkbox" disabled={!leaf.available} checked={leaf.checked} onChange={event => toggleLeaf(leaf, event.target.checked)} />
-            <span className="intent-selection-title">{leaf.entity.title}</span>
-          </label>
-          {options?.provenance && <small>Parent provenance{leaf.provenanceOfferIds?.length ? ` · ${leaf.provenanceOfferIds.map(id => entityTitle(document, id)).join(', ')}` : ''}</small>}
-          {!leaf.available && <small>No valid Child contributor path</small>}
-        </div>
-        {options?.showContributorPaths && contributorCount > 0 && <div className="contributor-attributions">{contributorOfferIds.map(offerId => {
+      return {
+        id: leaf.checkboxId,
+        title: leaf.entity.title,
+        checked: leaf.checked,
+        disabled: !leaf.available,
+        unavailableCopy: 'No valid Child contributor path',
+        metadata: options?.provenance ? <small>Parent provenance{leaf.provenanceOfferIds?.length ? ` · ${leaf.provenanceOfferIds.map(id => entityTitle(document, id)).join(', ')}` : ''}</small> : undefined,
+        afterRow: <>{options?.showContributorPaths && contributorCount > 0 && <div className="contributor-attributions">{contributorOfferIds.map(offerId => {
           const offerTitle = entityTitle(document, offerId);
           return <div className="contributor-attribution" key={offerId}><span>via {offerTitle}</span>{contributorCount > 1 && <button id={`${leaf.checkboxId}-contributor-${offerId}`} type="button" aria-label={`Remove ${offerTitle} contributor`} onClick={() => removeContributor(leaf, offerId)}><span aria-hidden="true">×</span></button>}</div>;
-        })}</div>}
-        {renderResolver(leaf)}
-      </div>;
+        })}</div>}{renderResolver(leaf)}</>,
+      };
     };
     const renderJobGroup = (group: (typeof discovery.titleMatches.jobGroups)[number], options?: { provenance?: boolean }) => {
       const jobLeaf = group.leaves.find(leaf => leaf.kind === 'job');
       const outcomes = group.leaves.filter(leaf => leaf.kind === 'desired-outcome');
-      return <div className={`touchpoint-client-job ${outcomes.length ? 'has-outcomes' : 'direct-job'}`} key={group.job.id}>
-        <small>{KIND_LABELS[group.job.kind]}</small>
-        {jobLeaf && <div className="intent-semantic-leaf job-membership-row">{renderSelectableRow(jobLeaf, { ...(options?.provenance ? { provenance: true } : {}), showContributorPaths: true })}</div>}
-        {outcomes.length > 0 && <div className="intent-leaves desired-outcome-rows">{outcomes.map(leaf => <div className="intent-semantic-leaf" key={leaf.checkboxId}>{renderSelectableRow(leaf, { ...(options?.provenance ? { provenance: true } : {}), showContributorPaths: true })}</div>)}</div>}
-      </div>;
+      const model: ClientIntentJobGroupModel = { id: group.job.id, kindLabel: KIND_LABELS[group.job.kind], ...(jobLeaf ? { membership: candidateRowModel(jobLeaf, { ...(options?.provenance ? { provenance: true } : {}), showContributorPaths: true }) } : {}), outcomes: outcomes.map(leaf => candidateRowModel(leaf, { ...(options?.provenance ? { provenance: true } : {}), showContributorPaths: true })) };
+      return <ClientIntentJobGroup key={model.id} group={model} onCheckedChange={(candidateId, checked) => toggleLeaf(group.leaves.find(leaf => leaf.checkboxId === candidateId)!, checked)} />;
     };
-    const renderDiscoveryMatches = (matches: typeof discovery.titleMatches) => <div className="global-intent-results">{matches.jobGroups.map(group => renderJobGroup(group))}{matches.directLeaves.map(leaf => <div className="intent-discovery-leaf" key={leaf.checkboxId}><small>{KIND_LABELS[leaf.entity.kind]}</small>{renderSelectableRow(leaf, { showContributorPaths: true })}</div>)}</div>;
+    const renderDiscoveryMatches = (matches: typeof discovery.titleMatches) => <div className="global-intent-results">{matches.jobGroups.map(group => renderJobGroup(group))}{matches.directLeaves.map(leaf => <div className="intent-discovery-leaf" key={leaf.checkboxId}><small>{KIND_LABELS[leaf.entity.kind]}</small><ClientIntentCandidateRow candidate={candidateRowModel(leaf, { showContributorPaths: true })} onCheckedChange={(_, checked) => toggleLeaf(leaf, checked)} /></div>)}</div>;
     return <section ref={clientScopeEditorRef} className={`touchpoint-client-scope${editing ? ' is-editing' : ''}`} aria-labelledby="touchpoint-client-scope-heading" onKeyDown={event => { if (event.key !== 'Escape' || !connectionPicker || localRemoval) return; event.preventDefault(); event.stopPropagation(); if (['current-contributor-choice', 'ancestor-contributor-choice', 'invalid'].includes(connectionPicker.mode)) backFromResolver(); else closeClientScopeEditor('explicit'); }}>
       <div className="touchpoint-client-scope-heading">{editing ? <><h4 id="touchpoint-client-scope-heading">Client scope</h4><button type="button" className="inspector-secondary-action" aria-label="Close Client scope authoring" onClick={() => closeClientScopeEditor('explicit')}>Close</button></> : <h4 id="touchpoint-client-scope-heading" aria-label="Client scope"><button ref={connectionPickerButtonRef} data-touchpoint-editor-affordance type="button" className="inspector-property-heading-action" aria-label="Edit Client scope" disabled={!offers.length} onClick={() => { if (!closeOfferContentEditor('switch-editor')) return; closeRelationEditor('switch-editor'); closeConnectedTouchpointsEditor('switch-editor'); closeChildrenEditor('switch-editor'); setBusinessInlineEdit(null); setConnectionPicker({ mode: 'upstream', query: '', kind: undefined, contributorOfferIds: [], ancestorContributingOfferIds: {} }); }}>Client scope<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h4>}</div>
       {!editing && clientScopePanels.length ? <ClientScopePackedGroups panelIds={clientScopePanels.map(panel => panel.id)}>
@@ -2772,7 +2807,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         <div className="intent-source-list">{sources.map(source => {
           const disclosureId = `client-source-${encodeURIComponent(selected.id)}-${encodeURIComponent(source.source.id)}`;
           const expanded = Boolean(expandedClientSources[disclosureId]);
-          return <section className="intent-source-disclosure" key={`${source.sourceKind}:${source.source.id}`}><button type="button" className="intent-source-toggle" aria-expanded={expanded} aria-controls={disclosureId} onClick={() => setExpandedClientSources(current => ({ ...current, [disclosureId]: !expanded }))}><span aria-hidden="true">{expanded ? '▾' : '▸'}</span>{source.sourceKind === 'parent' ? 'Parent' : 'Offer'} · {source.source.title}</button>{expanded && <div id={disclosureId} className="intent-source-dendrite">{source.jobGroups.map(group => renderJobGroup(group, { provenance: source.sourceKind === 'parent' }))}{source.financialLeaves.map(leaf => <div className="touchpoint-client-financial" key={leaf.checkboxId}><small>{KIND_LABELS[leaf.entity.kind]}</small>{renderSelectableRow(leaf, { provenance: source.sourceKind === 'parent', showContributorPaths: source.sourceKind === 'parent' })}</div>)}</div>}</section>;
+          return <section className="intent-source-disclosure" key={`${source.sourceKind}:${source.source.id}`}><button type="button" className="intent-source-toggle" aria-expanded={expanded} aria-controls={disclosureId} onClick={() => setExpandedClientSources(current => ({ ...current, [disclosureId]: !expanded }))}><span aria-hidden="true">{expanded ? '▾' : '▸'}</span>{source.sourceKind === 'parent' ? 'Parent' : 'Offer'} · {source.source.title}</button>{expanded && <div id={disclosureId} className="intent-source-dendrite">{source.jobGroups.map(group => renderJobGroup(group, { provenance: source.sourceKind === 'parent' }))}{source.financialLeaves.map(leaf => <div className="touchpoint-client-financial" key={leaf.checkboxId}><small>{KIND_LABELS[leaf.entity.kind]}</small><ClientIntentCandidateRow candidate={candidateRowModel(leaf, { provenance: source.sourceKind === 'parent', showContributorPaths: source.sourceKind === 'parent' })} onCheckedChange={(_, checked) => toggleLeaf(leaf, checked)} /></div>)}</div>}</section>;
         })}{!sources.length && <p className="touchpoint-client-scope-empty">No upstream Client intent available.</p>}</div>
       </div>}
       {localRemoval && <div role="dialog" aria-modal="true" aria-labelledby="local-removal-heading" className="confirmation-dialog" onKeyDown={event => { if (event.key !== 'Escape') return; event.preventDefault(); event.stopPropagation(); cancelLocalRemoval(); }}><h4 id="local-removal-heading">Remove this local Client path?</h4><p>This also removes {localRemoval.mitigationRelationshipIds.length} dependent mitigation record(s).</p>{localRemoval.mitigationRelationshipIds.map(id => <p key={id}><strong>{id}</strong></p>)}<div className="choice-row"><button type="button" className="danger" onClick={() => { const pending = localRemoval; setLocalRemoval(null); finishLocal(pending.plans.reduce((next, plan) => commitTouchpointIntentPathPlan(next, plan), documentRef.current), pending.commitFocusIds); }}>Remove</button><button type="button" onClick={cancelLocalRemoval}>Cancel</button></div></div>}
@@ -2894,15 +2929,18 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const discoveryActive = Boolean(state.query.trim() || state.kind);
     const sourceExpanded = discoveryActive || browseSourceExpanded;
     const setState = (next: { query: string; kind?: ClientIntentDiscoveryKind }) => setOfferIntentDiscoveryState(current => ({ ...current, [selected.id]: next }));
-    const row = (checked: boolean, checkboxId: string, title: string, subtitle: string, change: (checked: boolean, element: HTMLInputElement) => void, titleOnlyName = false) => <label key={checkboxId} className="intent-checkbox" htmlFor={checkboxId}><span className="intent-selection-surface"><input id={checkboxId} aria-label={titleOnlyName ? title : undefined} type="checkbox" checked={checked} onChange={event => change(event.target.checked, event.currentTarget)} /><span className="intent-selection-title"><strong>{title}</strong><small>{subtitle}</small></span></span></label>;
     const renderJob = (group: OfferIntentDiscoveryJob) => {
-      const expandable = group.desiredOutcomes.length > 0;
-      const expanded = Boolean(state.query || state.kind || offerExpanded[group.id]);
-      return <div className="intent-job-branch" key={group.id}><div className="intent-job-heading">
-        {expandable && !state.query && !state.kind ? <button type="button" className="disclosure" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${group.job.title}`} aria-expanded={expanded} onClick={() => setOfferExpanded(current => ({ ...current, [group.id]: !current[group.id] }))}>{expanded ? '▾' : '▸'}</button> : <span className="disclosure-placeholder" />}
-        {group.showJobCandidate ? row(group.checked, group.checkboxId, group.job.title, KIND_LABELS[group.job.kind], (checked, element) => requestOfferJobSelectionCommit(group.productJobIntentId, undefined, checked, element)) : <strong>{group.job.title}</strong>}
-      </div>{expandable && expanded && <div className="desired-outcome-rows">{group.desiredOutcomes.map(outcome => row(outcome.checked, outcome.checkboxId, outcome.entity.title, 'Desired Outcome', (checked, element) => requestOfferJobSelectionCommit(group.productJobIntentId, outcome.id, checked, element), true))}</div>}
-    </div>;
+      const model: ClientIntentJobGroupModel = {
+        id: group.id,
+        kindLabel: KIND_LABELS[group.job.kind],
+        ...(group.showJobCandidate ? { membership: { id: group.checkboxId, title: group.job.title, checked: group.checked } } : {}),
+        ...(!group.showJobCandidate ? { membershipContextTitle: group.job.title } : {}),
+        outcomes: group.desiredOutcomes.map(outcome => ({ id: outcome.checkboxId, title: outcome.entity.title, checked: outcome.checked })),
+      };
+      return <ClientIntentJobGroup key={model.id} group={model} onCheckedChange={(candidateId, checked, element) => {
+        const outcome = group.desiredOutcomes.find(candidate => candidate.checkboxId === candidateId);
+        requestOfferJobSelectionCommit(group.productJobIntentId, outcome?.id, checked, element);
+      }} />;
     };
     const hasResults = Boolean(discovery.source?.jobGroups.length || discovery.financialCandidates.length);
     return <div className="touchpoint-client-scope-content inline-intent-editor">
@@ -2912,7 +2950,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       </section>
       {discovery.status === 'unavailable' ? <p role="status" className="touchpoint-client-scope-empty">Client intent is unavailable until this Offer has a valid Product.</p> : <>
         {discovery.source && <fieldset className="client-intent"><legend>Client intent</legend><div className="intent-source-list"><section className="intent-source-disclosure"><button type="button" className="intent-source-toggle" aria-expanded={sourceExpanded} aria-controls={sourceId} onClick={() => { if (!discoveryActive) setExpandedOfferIntentSources(current => ({ ...current, [sourceId]: !browseSourceExpanded })); }}><span aria-hidden="true">{sourceExpanded ? '▾' : '▸'}</span>Product · {discovery.source.product.title}</button>{sourceExpanded && <div id={sourceId} className="intent-source-dendrite">{discovery.source.jobGroups.map(renderJob)}{!discovery.source.jobGroups.length && <p className="touchpoint-client-scope-empty">No matching Product Job intent.</p>}</div>}</section></div></fieldset>}
-        <fieldset className="intent-source-block"><legend>Financial intent</legend><div className="intent-source-heading"><strong>Financial Desired Outcomes</strong><small>Direct candidates</small></div>{discovery.financialCandidates.map(outcome => row(outcome.checked, outcome.checkboxId, outcome.entity.title, 'Financial Desired Outcome', (checked, element) => requestOfferFinancialIntentCommit(outcome.id, checked, element)))}{!discovery.financialCandidates.length && <p className="touchpoint-client-scope-empty">No matching Financial Desired Outcomes.</p>}</fieldset>
+        <fieldset className="intent-source-block"><legend>Financial intent</legend><div className="intent-source-heading"><strong>Financial Desired Outcomes</strong><small>Direct candidates</small></div>{discovery.financialCandidates.map(outcome => <ClientIntentCandidateRow key={outcome.checkboxId} candidate={{ id: outcome.checkboxId, title: outcome.entity.title, checked: outcome.checked, metadata: <small>Financial Desired Outcome</small> }} onCheckedChange={(_, checked, element) => requestOfferFinancialIntentCommit(outcome.id, checked, element)} />)}{!discovery.financialCandidates.length && <p className="touchpoint-client-scope-empty">No matching Financial Desired Outcomes.</p>}</fieldset>
         {!hasResults && (state.query || state.kind) && <p role="status" className="touchpoint-client-scope-empty">No eligible Client intent matches this discovery view.</p>}
       </>}
     </div>;
