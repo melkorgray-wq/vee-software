@@ -733,10 +733,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const offerBusinessStructure = selected?.kind === 'offer'
     ? deriveOfferBusinessStructure(document, selected.id)
     : undefined;
-  const inspectorDirty = Boolean(selected && editDraft && (() => {
+  const inspectorDirty = Boolean(selected && selected.kind !== 'offer' && editDraft && (() => {
     const baseline = draftFor(selected);
-    const comparableDraft = { ...editDraft, touchpointIntent: undefined, ...(selected.kind === 'offer' ? { financialOutcomeIds: undefined } : {}) };
-    const comparableBaseline = { ...baseline, touchpointIntent: undefined, ...(selected.kind === 'offer' ? { financialOutcomeIds: undefined } : {}) };
+    const comparableDraft = { ...editDraft, touchpointIntent: undefined };
+    const comparableBaseline = { ...baseline, touchpointIntent: undefined };
     return JSON.stringify(comparableDraft) !== JSON.stringify(comparableBaseline) || Boolean(editDraft.touchpointIntent && baseline.touchpointIntent && !equalTouchpointIntentDraft(editDraft.touchpointIntent, baseline.touchpointIntent));
   })());
 
@@ -4031,7 +4031,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             <form
               onSubmit={(e: FormEvent) => {
                 e.preventDefault();
-                if (selected.kind === 'touchpoint') {
+                if (selected.kind === 'touchpoint' || selected.kind === 'offer') {
                   return;
                 }
                 try {
@@ -4043,7 +4043,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                     }
                     productApplyBypassRef.current = false;
                   }
-                  const applySource = selected.kind === 'offer' ? documentRef.current : document;
+                  const applySource = document;
                   const old = applySource.relationships.filter((r) => r.kind === 'offer_presented_at_touchpoint' && r.touchpointId === selected.id);
                   const parent = applySource.relationships.find((r) => r.kind === 'touchpoint_contains_touchpoint' && r.childTouchpointId === selected.id);
                   let next = updateEntity(applySource, {

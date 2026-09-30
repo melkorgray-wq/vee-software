@@ -369,6 +369,20 @@ describe('Offer Client intent presentation', () => {
     expect(within(section).getByRole('button', { name: 'Core Functional Job, 1' })).toBeInTheDocument();
   });
 
+  it('ignores an Offer form submit that a nested Enter path could trigger', () => {
+    const document = touchpointInspectorDocument();
+    document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
+    const inspector = renderOfferInspector(document);
+    const before = structuredClone(window.__VEE_DEV__!.dump());
+    const form = inspector.getByRole('region', { name: 'Business structure' }).closest('form')!;
+
+    fireEvent.submit(form);
+
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    expect(inspector.queryByText('Changes applied.')).not.toBeInTheDocument();
+    expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
+  });
+
   it('commits Financial and Job membership independently and immediately without false dirty state', async () => {
     const user = userEvent.setup();
     const document = touchpointInspectorDocument();
