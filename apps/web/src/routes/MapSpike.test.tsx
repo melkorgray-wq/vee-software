@@ -432,7 +432,7 @@ describe('Offer Client intent presentation', () => {
     const checkbox = financialCheckbox(inspector);
 
     await user.click(checkbox);
-    let dialog = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
+    const dialog = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
     expect(within(dialog).getAllByText('Checkout')).toHaveLength(1);
     expect(within(dialog).getByText('loses Stay affordable')).toBeInTheDocument();
     expect(checkbox).toBeChecked();
@@ -443,7 +443,6 @@ describe('Offer Client intent presentation', () => {
     expect(within(jobs).getByRole('checkbox', { name: 'Reduce errors' })).toBeChecked();
 
     await user.click(checkbox);
-    dialog = screen.getByRole('dialog');
     await user.keyboard('{Escape}');
     await waitFor(() => expect(checkbox).toHaveFocus());
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
