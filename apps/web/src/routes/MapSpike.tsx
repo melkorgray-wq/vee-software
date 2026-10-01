@@ -2559,7 +2559,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               <div key={impact.repulsor.id}>
                 <strong>{impact.repulsor.title}</strong>
                 <ul>
-                  {impact.touchpointIds.map((id) => (
+                  {[...new Set(impact.grounds.map((ground) => ground.touchpointId))].map((id) => (
                     <li key={id}>via {document.entities.find((item) => item.id === id)?.title}</li>
                   ))}
                 </ul>
