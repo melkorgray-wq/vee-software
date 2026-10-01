@@ -2381,15 +2381,15 @@ describe('Offer Resistance section', () => {
     const before = JSON.stringify(mapDocument);
     const inspector = renderOfferInspector(mapDocument);
     const resistance = within(inspector.getByRole('region', { name: 'Resistance' }));
-    const shared = resistance.getByRole('button', { name: 'Long shared resistance title, 2' });
-    const job = resistance.getByRole('button', { name: 'Job resistance, 1' });
+    const shared = resistance.getByRole('button', { name: 'Collapse grounds for Long shared resistance title' });
+    const job = resistance.getByRole('button', { name: 'Collapse grounds for Job resistance' });
 
     expect(shared).toHaveAttribute('aria-expanded', 'true');
     expect(job).toHaveAttribute('aria-expanded', 'true');
     expect(shared).toHaveAttribute('aria-controls');
     expect(document.getElementById(shared.getAttribute('aria-controls')!)).toBeInTheDocument();
     expect(resistance.getAllByText((_text, element) => element?.classList.contains('offer-resistance-ground') ?? false).map(element => element.textContent)).toEqual([
-      'via Checkout → Make progress', 'via Checkout → Stay affordable', 'via Checkout → Make progress',
+      'viaCheckout→Make progressMitigation intent', 'viaCheckout→Stay affordableMitigation intent', 'viaCheckout→Make progress',
     ]);
     expect(resistance.getAllByText('Mitigation intent')).toHaveLength(2);
     expect(resistance.queryByRole('link')).not.toBeInTheDocument();
@@ -2406,12 +2406,65 @@ describe('Offer Resistance section', () => {
     expect(JSON.stringify(window.__VEE_DEV__!.dump())).toBe(before);
   });
 
+  it('keeps disclosure independent while navigating Repulsor and Touchpoint through shared Inspector history', async () => {
+    const user = userEvent.setup();
+    const mapDocument = offerResistanceDocument();
+    const durableBefore = JSON.stringify(mapDocument);
+    const inspector = renderOfferInspector(mapDocument);
+    let resistance = within(inspector.getByRole('region', { name: 'Resistance' }));
+    const disclosure = resistance.getByRole('button', { name: 'Collapse grounds for Long shared resistance title' });
+    const repulsorNavigation = resistance.getByRole('button', { name: 'Long shared resistance title' });
+    const header = disclosure.closest('.offer-resistance-card-header');
+
+    expect(header).not.toBeNull();
+    expect(repulsorNavigation.parentElement).toBe(header);
+    expect(disclosure.parentElement).toBe(header);
+    expect(disclosure.querySelector('button, a')).toBeNull();
+    expect(disclosure).not.toContainElement(repulsorNavigation);
+    expect(repulsorNavigation).toHaveClass('inspector-entity-navigation');
+
+    await user.click(disclosure);
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+    await user.click(repulsorNavigation);
+    expect(inspector.getByRole('heading', { name: 'Long shared resistance title' })).toBeInTheDocument();
+    expect(JSON.stringify(window.__VEE_DEV__!.dump())).toBe(durableBefore);
+
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+    resistance = within(inspector.getByRole('region', { name: 'Resistance' }));
+    const restoredDisclosure = resistance.getByRole('button', { name: 'Expand grounds for Long shared resistance title' });
+    expect(restoredDisclosure).toHaveAttribute('aria-expanded', 'false');
+    expect(document.getElementById(restoredDisclosure.getAttribute('aria-controls')!)).toHaveAttribute('hidden');
+
+    await user.click(restoredDisclosure);
+    const financialTarget = resistance.getByText('Stay affordable');
+    const financialGround = financialTarget.closest('.offer-resistance-ground')!;
+    const touchpointNavigation = within(financialGround as HTMLElement).getByRole('button', { name: 'Checkout' });
+    expect(touchpointNavigation).toHaveClass('inspector-entity-navigation');
+    expect(financialTarget.tagName).toBe('SPAN');
+    expect(financialTarget.closest('button, a')).toBeNull();
+    expect(financialTarget).not.toHaveClass('inspector-entity-navigation');
+    expect(within(financialGround as HTMLElement).getByText('Mitigation intent')).toBeInTheDocument();
+    expect(resistance.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(resistance.queryByRole('button', { name: /Edit|Apply|Save|Done|Mitigated here/i })).not.toBeInTheDocument();
+
+    await user.click(touchpointNavigation);
+    expect(inspector.getByRole('heading', { name: 'Checkout' })).toBeInTheDocument();
+    expect(JSON.stringify(window.__VEE_DEV__!.dump())).toBe(durableBefore);
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    resistance = within(inspector.getByRole('region', { name: 'Resistance' }));
+    expect(resistance.getByRole('button', { name: 'Collapse grounds for Long shared resistance title' })).toHaveAttribute('aria-expanded', 'true');
+    expect(resistance.getByText('Stay affordable')).toBeVisible();
+    expect(JSON.stringify(window.__VEE_DEV__!.dump())).toBe(durableBefore);
+  });
+
   it('isolates transient expansion by Offer and prunes rendering to the current canonical projection', async () => {
     const user = userEvent.setup();
     const mapDocument = offerResistanceDocument(true);
     let inspector = renderOfferInspector(mapDocument);
     const firstResistance = within(inspector.getByRole('region', { name: 'Resistance' }));
-    const firstShared = firstResistance.getByRole('button', { name: 'Long shared resistance title, 2' });
+    const firstShared = firstResistance.getByRole('button', { name: 'Collapse grounds for Long shared resistance title' });
     await user.click(firstShared);
     expect(firstShared).toHaveAttribute('aria-expanded', 'false');
 
@@ -2419,7 +2472,7 @@ describe('Offer Resistance section', () => {
     await user.click(screen.getByRole('button', { name: 'Consulting' }));
     await user.click(screen.getByRole('tab', { name: 'Entity Inspector' }));
     inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
-    expect(within(inspector.getByRole('region', { name: 'Resistance' })).getByRole('button', { name: 'Long shared resistance title, 2' })).toHaveAttribute('aria-expanded', 'true');
+    expect(within(inspector.getByRole('region', { name: 'Resistance' })).getByRole('button', { name: 'Collapse grounds for Long shared resistance title' })).toHaveAttribute('aria-expanded', 'true');
 
     mapDocument.touchpointJobSelections = mapDocument.touchpointJobSelections.filter(selection => selection.offerId !== 'offer-b');
     mapDocument.touchpointFinancialSelections = mapDocument.touchpointFinancialSelections.filter(selection => selection.offerId !== 'offer-b');

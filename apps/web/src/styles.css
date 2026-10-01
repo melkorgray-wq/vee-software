@@ -405,6 +405,10 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .offer-resistance-heading h4, .offer-resistance p { margin: 0; }
 .offer-resistance-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 20rem)); align-items: start; gap: .65rem; min-width: 0; }
 .offer-resistance-card { max-width: 20rem; }
+.offer-resistance-card-header { display: flex; align-items: center; gap: .25rem; min-width: 0; padding: .15rem .2rem; }
+.offer-resistance-card-header > .derived-neighborhood-disclosure { flex: 0 0 auto; grid-template-columns: auto auto; width: auto; min-width: 2.5rem; }
+.offer-resistance-card-header > .inspector-entity-navigation { flex: 1 1 auto; min-width: 0; padding: .3rem .35rem; border-radius: .25rem; }
+.offer-resistance-card-header > .inspector-entity-navigation:focus-visible { outline: 1px solid var(--color-primary); outline-offset: 2px; }
 .offer-resistance-grounds { display: grid; gap: .4rem; min-width: 0; margin: 0; padding: 0; list-style: none; }
 .offer-resistance-grounds li { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .45rem; min-width: 0; }
-.offer-resistance-ground, .offer-resistance-ground > span { min-width: 0; overflow-wrap: anywhere; }
+.offer-resistance-ground, .offer-resistance-ground > span, .offer-resistance-ground > .inspector-entity-navigation { min-width: 0; overflow-wrap: anywhere; }
