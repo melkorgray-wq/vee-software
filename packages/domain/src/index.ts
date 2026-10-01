@@ -865,30 +865,55 @@ export function relevantRepulsorsForTouchpoint(document: MapDocument, touchpoint
   return document.entities.filter(entity => entity.kind === 'repulsor' && repulsorIds.has(entity.id));
 }
 
-export interface OfferResistanceImpact { repulsor: Entity; touchpointIds: string[] }
+export interface OfferResistanceGround {
+  touchpointId: string;
+  resistedTarget: { entityId: string; kind: RepulsorTargetKind };
+  hasMitigationIntent: boolean;
+}
+export interface OfferResistanceImpact { repulsor: Entity; grounds: OfferResistanceGround[] }
 export interface ProductResistancePath { offerId: string; touchpointId: string }
 export interface ProductResistanceImpact { repulsor: Entity; paths: ProductResistancePath[] }
 
 /** Read-only aggregation; contributor paths remain runtime selections rather than authored relationships. */
 export function resistanceImpactForOffer(document: MapDocument, offerId: string): OfferResistanceImpact[] {
   entityOfKind(document, offerId, 'offer', 'Offer');
-  const touchpointIds = new Set(document.relationships.flatMap(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.offerId === offerId ? [relation.touchpointId] : []));
-  const byRepulsor = new Map<string, Set<string>>();
+  const touchpointIds = [...new Set(document.relationships.flatMap(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.offerId === offerId ? [relation.touchpointId] : []))];
+  const targetOrder = new Map(document.entities.map((entity, index) => [entity.id, index]));
+  const byRepulsor = new Map<string, Map<string, OfferResistanceGround>>();
   for (const touchpointId of touchpointIds) {
     const targets = new Set<string>();
-    for (const selection of document.touchpointJobSelections) if (selection.touchpointId === touchpointId && selection.offerId === offerId && effectiveTouchpointOutcomes(document, selection) !== undefined) { const intent = document.productJobIntents.find(candidate => candidate.id === selection.productJobIntentId); if (intent) targets.add(intent.jobId); }
-    for (const selection of document.touchpointFinancialSelections) if (selection.touchpointId === touchpointId && selection.offerId === offerId && document.offerFinancialIntents.some(intent => intent.id === selection.offerFinancialIntentId && intent.offerId === offerId && intent.financialDesiredOutcomeId === selection.financialDesiredOutcomeId)) targets.add(selection.financialDesiredOutcomeId);
-    const repulsorIds = new Set(document.relationships.flatMap(relation => relation.kind === 'repulsor_resists' && targets.has(relation.targetEntityId) ? [relation.repulsorId] : []));
-    for (const repulsorId of repulsorIds) { const affected = byRepulsor.get(repulsorId) ?? new Set<string>(); affected.add(touchpointId); byRepulsor.set(repulsorId, affected); }
+    for (const selection of document.touchpointJobSelections) {
+      if (selection.touchpointId !== touchpointId || selection.offerId !== offerId || effectiveTouchpointOutcomes(document, selection) === undefined) continue;
+      const intent = document.productJobIntents.find(candidate => candidate.id === selection.productJobIntentId);
+      if (intent) targets.add(intent.jobId);
+    }
+    for (const selection of document.touchpointFinancialSelections) {
+      if (selection.touchpointId === touchpointId && selection.offerId === offerId && effectiveFinancialSelection(document, selection)) targets.add(selection.financialDesiredOutcomeId);
+    }
+    for (const targetEntityId of [...targets].sort((left, right) => (targetOrder.get(left) ?? Number.MAX_SAFE_INTEGER) - (targetOrder.get(right) ?? Number.MAX_SAFE_INTEGER))) {
+      const target = document.entities.find(entity => entity.id === targetEntityId);
+      if (!target || !isRepulsorTargetKind(target.kind)) continue;
+      const repulsorIds = new Set(document.relationships.flatMap(relation => relation.kind === 'repulsor_resists' && relation.targetEntityId === targetEntityId ? [relation.repulsorId] : []));
+      for (const repulsorId of repulsorIds) {
+        const grounds = byRepulsor.get(repulsorId) ?? new Map<string, OfferResistanceGround>();
+        const key = `${touchpointId}\u0000${targetEntityId}`;
+        if (!grounds.has(key)) grounds.set(key, {
+          touchpointId,
+          resistedTarget: { entityId: targetEntityId, kind: target.kind },
+          hasMitigationIntent: document.relationships.some(relation => relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === touchpointId && relation.repulsorId === repulsorId),
+        });
+        byRepulsor.set(repulsorId, grounds);
+      }
+    }
   }
-  return document.entities.flatMap(repulsor => repulsor.kind === 'repulsor' && byRepulsor.has(repulsor.id) ? [{ repulsor, touchpointIds: [...byRepulsor.get(repulsor.id)!] }] : []);
+  return document.entities.flatMap(repulsor => repulsor.kind === 'repulsor' && byRepulsor.has(repulsor.id) ? [{ repulsor, grounds: [...byRepulsor.get(repulsor.id)!.values()] }] : []);
 }
 
 export function resistanceImpactForProduct(document: MapDocument, productId: string): ProductResistanceImpact[] {
   entityOfKind(document, productId, 'product', 'Product');
   const offerIds = document.relationships.flatMap(relation => relation.kind === 'product_packaged_as_offer' && relation.productId === productId ? [relation.offerId] : []);
   const byRepulsor = new Map<string, Map<string, ProductResistancePath>>();
-  for (const offerId of offerIds) for (const impact of resistanceImpactForOffer(document, offerId)) for (const touchpointId of impact.touchpointIds) {
+  for (const offerId of offerIds) for (const impact of resistanceImpactForOffer(document, offerId)) for (const { touchpointId } of impact.grounds) {
     const paths = byRepulsor.get(impact.repulsor.id) ?? new Map<string, ProductResistancePath>(); paths.set(`${offerId}:${touchpointId}`, { offerId, touchpointId }); byRepulsor.set(impact.repulsor.id, paths);
   }
   return document.entities.flatMap(repulsor => repulsor.kind === 'repulsor' && byRepulsor.has(repulsor.id) ? [{ repulsor, paths: [...byRepulsor.get(repulsor.id)!.values()] }] : []);
