@@ -1059,14 +1059,85 @@ describe('Touchpoint intent scope', () => {
     d = distributeOfferJobIntent(d, { offerId: 'offer', productJobIntentId: 'intent', touchpointIds: ['touch'], addressedDesiredOutcomeIds: ['outcome'], newTouchpointSelectionIds: ['local'] });
     expect(d.touchpointJobSelections.map(selection => selection.touchpointId)).toEqual(['touch']);
   });
-  it('aggregates resistance without authoring Product or Offer relationships', () => {
-    let d = scoped();
-    d = completed(authorTouchpointIntentBottomUp(d, { touchpointId: 'touch', contributingOfferIds: ['offer'], jobId: 'job', addressedDesiredOutcomeIds: ['outcome'], productJobIntentIds: ['intent'], offerJobSelectionIds: ['offer-selection'], touchpointSelectionIds: ['local'] }));
-    d = addEntity(d, { ...place, entityId: 'repulsor', title: 'Friction', kind: 'repulsor', resistedTargetIds: ['job'], relationshipIds: ['resists'] });
-    const relationshipCount = d.relationships.length;
-    expect(resistanceImpactForOffer(d, 'offer')).toEqual([{ repulsor: expect.objectContaining({ id: 'repulsor' }), touchpointIds: ['touch'] }]);
-    expect(resistanceImpactForProduct(d, 'product')).toEqual([{ repulsor: expect.objectContaining({ id: 'repulsor' }), paths: [{ offerId: 'offer', touchpointId: 'touch' }] }]);
-    expect(d.relationships).toHaveLength(relationshipCount);
+  describe('read-only resistance impact projections', () => {
+    function resistanceDocument() {
+      let d = scoped();
+      d = completed(authorTouchpointIntentBottomUp(d, { touchpointId: 'touch', contributingOfferIds: ['offer'], jobId: 'job', addressedDesiredOutcomeIds: ['outcome'], productJobIntentIds: ['intent'], offerJobSelectionIds: ['offer-selection'], touchpointSelectionIds: ['local'] }));
+      d = addEntity(d, { ...place, entityId: 'fdo', title: 'Affordable', kind: 'financial_desired_outcome' });
+      d = completed(authorTouchpointIntentBottomUp(d, { touchpointId: 'touch', contributingOfferIds: ['offer'], financialDesiredOutcomeId: 'fdo', offerFinancialIntentIds: ['financial-intent'], touchpointSelectionIds: ['financial-local'] }));
+      return addEntity(d, { ...place, entityId: 'repulsor', title: 'Friction', kind: 'repulsor', resistedTargetIds: ['job', 'fdo'], relationshipIds: ['resists-job', 'resists-fdo'] });
+    }
+    const summaries = (d: ReturnType<typeof resistanceDocument>) => resistanceImpactForOffer(d, 'offer')[0]?.grounds.map(ground => ({
+      touchpointId: ground.touchpointId,
+      target: ground.resistedTarget,
+      mitigated: ground.hasMitigationIntent,
+    }));
+
+    it('explains independent Job and FDO grounds in canonical Touchpoint and entity order', () => {
+      const d = resistanceDocument();
+      expect(summaries(d)).toEqual([
+        { touchpointId: 'touch', target: { entityId: 'job', kind: 'core_functional_job' }, mitigated: false },
+        { touchpointId: 'touch', target: { entityId: 'fdo', kind: 'financial_desired_outcome' }, mitigated: false },
+      ]);
+    });
+
+    it('keeps different targets and Touchpoints distinct while deduplicating repeated runtime paths', () => {
+      let d = resistanceDocument();
+      d = addEntity(d, { ...place, entityId: 'touch-2', title: 'Second', kind: 'touchpoint', locatedInId: 'site', linkedOfferIds: ['offer'], relationshipIds: ['presented-2'] });
+      d = setTouchpointIntentSelections(d, { touchpointId: 'touch-2', selections: [{ id: 'local-2', kind: 'job', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['outcome'] }] });
+      d = {
+        ...d,
+        touchpointJobSelections: [...d.touchpointJobSelections, { ...d.touchpointJobSelections[0]!, id: 'duplicate-runtime-path' }],
+        relationships: [...d.relationships, { id: 'duplicate-resists-job', kind: 'repulsor_resists', repulsorId: 'repulsor', targetEntityId: 'job' }],
+      };
+      expect(summaries(d)).toEqual([
+        { touchpointId: 'touch', target: { entityId: 'job', kind: 'core_functional_job' }, mitigated: false },
+        { touchpointId: 'touch', target: { entityId: 'fdo', kind: 'financial_desired_outcome' }, mitigated: false },
+        { touchpointId: 'touch-2', target: { entityId: 'job', kind: 'core_functional_job' }, mitigated: false },
+      ]);
+    });
+
+    it('reports authored mitigation intent only for its exact Touchpoint and Repulsor', () => {
+      let d = resistanceDocument();
+      d = addEntity(d, { ...place, entityId: 'touch-2', title: 'Second', kind: 'touchpoint', locatedInId: 'site', linkedOfferIds: ['offer'], relationshipIds: ['presented-2'] });
+      d = setTouchpointIntentSelections(d, { touchpointId: 'touch-2', selections: [{ id: 'local-2', kind: 'job', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['outcome'] }] });
+      d = setTouchpointMitigations(d, { touchpointId: 'touch', repulsorIds: ['repulsor'], newRelationshipIds: ['mitigates'] });
+      expect(summaries(d)?.filter(ground => ground.target.entityId === 'job').map(ground => ground.mitigated)).toEqual([true, false]);
+    });
+
+    it('excludes another Offer, unlinked, stale, and ineffective selections', () => {
+      let d = resistanceDocument();
+      d = addEntity(d, { ...place, entityId: 'other-offer', title: 'Other', kind: 'offer', linkedProductId: 'product', relationshipId: 'packaged-other' });
+      d = setOfferJobSelections(d, { offerId: 'other-offer', productJobIntentIds: ['intent'], newSelectionIds: ['other-offer-selection'] });
+      d = updateEntity(d, { entityId: 'touch', title: 'touch', locatedInId: 'site', linkedOfferIds: ['offer', 'other-offer'], relationshipIds: ['presented-touch', 'presented-other'] });
+      const invalidSelections = [
+        { ...d.touchpointJobSelections[0]!, id: 'wrong-offer', offerId: 'other-offer' },
+        { ...d.touchpointJobSelections[0]!, id: 'stale-job', productJobIntentId: 'missing' },
+        { ...d.touchpointJobSelections[0]!, id: 'unlinked-job', touchpointId: 'unlinked' },
+      ];
+      const invalidFinancial = [
+        { ...d.touchpointFinancialSelections[0]!, id: 'wrong-financial-offer', offerId: 'other-offer' },
+        { ...d.touchpointFinancialSelections[0]!, id: 'stale-financial', offerFinancialIntentId: 'missing' },
+      ];
+      d = { ...d, touchpointJobSelections: invalidSelections, touchpointFinancialSelections: invalidFinancial };
+      expect(resistanceImpactForOffer(d, 'offer')).toEqual([]);
+    });
+
+    it('never treats an ordinary Desired Outcome as a resisted target', () => {
+      const d = resistanceDocument();
+      const malformed = { ...d, relationships: [...d.relationships, { id: 'invalid-resists-outcome', kind: 'repulsor_resists' as const, repulsorId: 'repulsor', targetEntityId: 'outcome' }] };
+      expect(summaries(malformed)).toEqual(summaries(d));
+    });
+
+    it('preserves the Product contract, deduplicates its paths, and does not mutate the document', () => {
+      const d = resistanceDocument();
+      const before = structuredClone(d);
+      const arrays = Object.fromEntries(Object.entries(d).filter(([, value]) => Array.isArray(value)));
+      expect(resistanceImpactForOffer(d, 'offer')[0]?.grounds).toHaveLength(2);
+      expect(resistanceImpactForProduct(d, 'product')).toEqual([{ repulsor: expect.objectContaining({ id: 'repulsor' }), paths: [{ offerId: 'offer', touchpointId: 'touch' }] }]);
+      expect(d).toEqual(before);
+      for (const [key, value] of Object.entries(arrays)) expect(d[key as keyof typeof d]).toBe(value);
+    });
   });
 });
 
