@@ -2338,6 +2338,110 @@ function resistanceDocument(): MapDocument {
   return document;
 }
 
+function offerResistanceDocument(twoOffers = false): MapDocument {
+  const document = touchpointInspectorDocument(twoOffers);
+  document.entities.push(
+    { id: 'repulsor-shared', kind: 'repulsor', title: 'Long shared resistance title' },
+    { id: 'repulsor-job', kind: 'repulsor', title: 'Job resistance' },
+  );
+  document.relationships.push(
+    { id: 'resists-shared-job', kind: 'repulsor_resists', repulsorId: 'repulsor-shared', targetEntityId: 'job' },
+    { id: 'resists-shared-financial', kind: 'repulsor_resists', repulsorId: 'repulsor-shared', targetEntityId: 'fdo' },
+    { id: 'resists-job', kind: 'repulsor_resists', repulsorId: 'repulsor-job', targetEntityId: 'job' },
+    { id: 'mitigates-shared', kind: 'touchpoint_mitigates_repulsor', touchpointId: 'touch', repulsorId: 'repulsor-shared' },
+  );
+  document.productJobIntents = [{ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] }];
+  const offerIds = twoOffers ? ['offer-a', 'offer-b'] : ['offer-a'];
+  document.offerJobSelections = offerIds.map((offerId, index) => ({ id: `offer-job-${index}`, offerId, productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] }));
+  document.offerFinancialIntents = offerIds.map((offerId, index) => ({ id: `offer-financial-${index}`, offerId, financialDesiredOutcomeId: 'fdo' }));
+  document.touchpointJobSelections = offerIds.map((offerId, index) => ({ id: `touch-job-${index}`, touchpointId: 'touch', offerId, productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] }));
+  document.touchpointFinancialSelections = offerIds.map((offerId, index) => ({ id: `touch-financial-${index}`, touchpointId: 'touch', offerId, offerFinancialIntentId: `offer-financial-${index}`, financialDesiredOutcomeId: 'fdo' }));
+  document.placements.push(
+    { viewId: 'spike-view', entityId: 'repulsor-shared', x: 1000, y: 0 },
+    { viewId: 'spike-view', entityId: 'repulsor-job', x: 1140, y: 0 },
+  );
+  return document;
+}
+
+describe('Offer Resistance section', () => {
+  afterEach(cleanup);
+
+  it('always presents the standalone read-only derived region and exact empty state', () => {
+    const inspector = renderOfferInspector();
+    const resistance = within(inspector.getByRole('region', { name: 'Resistance' }));
+    expect(resistance.getByText('Derived')).toHaveClass('inspector-derived-status');
+    expect(resistance.getByText('No relevant Repulsors.')).toBeInTheDocument();
+    expect(resistance.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(resistance.queryByRole('button', { name: /Edit|Apply|Save|Done|Mitigated here/i })).not.toBeInTheDocument();
+  });
+
+  it('renders canonical Job and Financial grounds in independent accessible disclosures without authoring or mutation', async () => {
+    const user = userEvent.setup();
+    const mapDocument = offerResistanceDocument();
+    const before = JSON.stringify(mapDocument);
+    const inspector = renderOfferInspector(mapDocument);
+    const resistance = within(inspector.getByRole('region', { name: 'Resistance' }));
+    const shared = resistance.getByRole('button', { name: 'Long shared resistance title, 2' });
+    const job = resistance.getByRole('button', { name: 'Job resistance, 1' });
+
+    expect(shared).toHaveAttribute('aria-expanded', 'true');
+    expect(job).toHaveAttribute('aria-expanded', 'true');
+    expect(shared).toHaveAttribute('aria-controls');
+    expect(document.getElementById(shared.getAttribute('aria-controls')!)).toBeInTheDocument();
+    expect(resistance.getAllByText((_text, element) => element?.classList.contains('offer-resistance-ground') ?? false).map(element => element.textContent)).toEqual([
+      'via Checkout → Make progress', 'via Checkout → Stay affordable', 'via Checkout → Make progress',
+    ]);
+    expect(resistance.getAllByText('Mitigation intent')).toHaveLength(2);
+    expect(resistance.queryByRole('link')).not.toBeInTheDocument();
+    expect(resistance.queryByRole('checkbox')).not.toBeInTheDocument();
+
+    await user.click(shared);
+    expect(shared).toHaveAttribute('aria-expanded', 'false');
+    expect(job).toHaveAttribute('aria-expanded', 'true');
+    expect(document.getElementById(shared.getAttribute('aria-controls')!)).not.toBeInTheDocument();
+    await user.click(job);
+    expect(job).toHaveAttribute('aria-expanded', 'false');
+    expect(JSON.stringify(mapDocument)).toBe(before);
+    expect(JSON.stringify(window.__VEE_DEV__!.dump())).toBe(before);
+  });
+
+  it('isolates transient expansion by Offer and prunes rendering to the current canonical projection', async () => {
+    const user = userEvent.setup();
+    const mapDocument = offerResistanceDocument(true);
+    let inspector = renderOfferInspector(mapDocument);
+    const firstResistance = within(inspector.getByRole('region', { name: 'Resistance' }));
+    const firstShared = firstResistance.getByRole('button', { name: 'Long shared resistance title, 2' });
+    await user.click(firstShared);
+    expect(firstShared).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(screen.getByRole('tab', { name: 'Map' }));
+    await user.click(screen.getByRole('button', { name: 'Consulting' }));
+    await user.click(screen.getByRole('tab', { name: 'Entity Inspector' }));
+    inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
+    expect(within(inspector.getByRole('region', { name: 'Resistance' })).getByRole('button', { name: 'Long shared resistance title, 2' })).toHaveAttribute('aria-expanded', 'true');
+
+    mapDocument.touchpointJobSelections = mapDocument.touchpointJobSelections.filter(selection => selection.offerId !== 'offer-b');
+    mapDocument.touchpointFinancialSelections = mapDocument.touchpointFinancialSelections.filter(selection => selection.offerId !== 'offer-b');
+    act(() => window.__VEE_DEV__!.load(mapDocument));
+    await user.click(screen.getByRole('tab', { name: 'Map' }));
+    await user.click(screen.getByRole('button', { name: 'Consulting' }));
+    await user.click(screen.getByRole('tab', { name: 'Entity Inspector' }));
+    expect(within(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).getByRole('region', { name: 'Resistance' })).toHaveTextContent('No relevant Repulsors.');
+  });
+
+  it('leaves the Product Resistance presentation unchanged', () => {
+    const mapDocument = offerResistanceDocument();
+    render(<MapSpike initialDocument={mapDocument} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Orbit' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Entity Inspector' }));
+    const productResistance = screen.getByRole('region', { name: 'Resistance affecting this Product' });
+    expect(within(productResistance).getByRole('heading', { name: 'Resistance affecting this Product' })).toBeInTheDocument();
+    expect(productResistance).toHaveTextContent('Long shared resistance title');
+    expect(productResistance).toHaveTextContent('Subscription → Checkout');
+    expect(productResistance.querySelector('.offer-resistance-card')).not.toBeInTheDocument();
+  });
+});
+
 describe('Touchpoint Resistance section', () => {
   afterEach(cleanup);
 

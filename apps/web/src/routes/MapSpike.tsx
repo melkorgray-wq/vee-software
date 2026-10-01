@@ -695,6 +695,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [productExpanded, setProductExpanded] = useState<Record<string, boolean>>({});
   const [neighborhoodExpanded, setNeighborhoodExpanded] = useState<Record<string, Record<string, boolean>>>({});
   const [offerNeighborhoodExpanded, setOfferNeighborhoodExpanded] = useState<Record<string, Record<string, boolean>>>({});
+  const [offerResistanceExpanded, setOfferResistanceExpanded] = useState<Record<string, Record<string, boolean>>>({});
   const [connectionPicker, setConnectionPicker] = useState<ClientScopeEditor | null>(null);
   const [expandedClientSources, setExpandedClientSources] = useState<Record<string, boolean>>({});
   const [expandedClientScopePanels, setExpandedClientScopePanels] = useState<Record<string, Partial<Record<ClientScopePanelKind, boolean>>>>({});
@@ -836,6 +837,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setProductExpanded({});
     setNeighborhoodExpanded({});
     setOfferNeighborhoodExpanded({});
+    setOfferResistanceExpanded({});
     setProductIntentSectionIds([]);
     setRememberedProductOutcomes({});
     rememberedProductOutcomesRef.current = {};
@@ -2548,29 +2550,43 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       </>
     );
   }
+  function offerResistanceSection() {
+    if (selected?.kind !== 'offer') return null;
+    const impacts = resistanceImpactForOffer(document, selected.id);
+    const initialExpansion = initialCompactOverviewExpandedGroupIds(impacts.map(impact => ({ id: impact.repulsor.id, count: impact.grounds.length })));
+    const expansionSnapshot = offerResistanceExpanded[selected.id];
+    const isExpanded = (repulsorId: string) => expansionSnapshot?.[repulsorId] ?? (expansionSnapshot ? false : initialExpansion.has(repulsorId));
+    const toggleRepulsor = (repulsorId: string) => setOfferResistanceExpanded(current => {
+      const existing = current[selected.id];
+      const snapshot = existing ?? Object.fromEntries(impacts.map(impact => [impact.repulsor.id, initialExpansion.has(impact.repulsor.id)]));
+      return { ...current, [selected.id]: { ...snapshot, [repulsorId]: !(snapshot[repulsorId] ?? false) } };
+    });
+    return <section className="offer-resistance" aria-labelledby="offer-resistance-heading">
+      <div className="offer-resistance-heading"><h4 id="offer-resistance-heading">Resistance</h4><small className="inspector-derived-status">Derived</small></div>
+      {impacts.length ? <div className="offer-resistance-cards">{impacts.map(impact => {
+        const expanded = isExpanded(impact.repulsor.id);
+        const contentId = `offer-resistance-${encodeURIComponent(selected.id)}-${encodeURIComponent(impact.repulsor.id)}`;
+        return <div className="derived-neighborhood-slice offer-resistance-card" key={impact.repulsor.id}>
+          <button type="button" className="derived-neighborhood-disclosure" aria-label={`${impact.repulsor.title}, ${impact.grounds.length}`} aria-expanded={expanded} aria-controls={contentId} onClick={() => toggleRepulsor(impact.repulsor.id)}>
+            <span className="derived-neighborhood-chevron" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+            <span className="derived-neighborhood-label">{impact.repulsor.title}</span>
+            <span className="derived-neighborhood-count">{impact.grounds.length}</span>
+          </button>
+          {expanded && <div className="derived-neighborhood-content" id={contentId}>
+            <ul className="offer-resistance-grounds">{impact.grounds.map(ground => {
+              const touchpointTitle = document.entities.find(entity => entity.id === ground.touchpointId)?.title;
+              const targetTitle = document.entities.find(entity => entity.id === ground.resistedTarget.entityId)?.title;
+              return <li key={`${ground.touchpointId}:${ground.resistedTarget.entityId}`}>
+                <span className="offer-resistance-ground">via <span>{touchpointTitle}</span> → <span>{targetTitle}</span></span>
+                {ground.hasMitigationIntent && <small className="inspector-derived-status">Mitigation intent</small>}
+              </li>;
+            })}</ul>
+          </div>}
+        </div>;
+      })}</div> : <p className="touchpoint-resistance-empty">No relevant Repulsors.</p>}
+    </section>;
+  }
   function resistanceImpactFields(entity: Entity) {
-    if (entity.kind === 'offer') {
-      const impacts = resistanceImpactForOffer(document, entity.id);
-      return (
-        <section aria-label="Resistance affecting this Offer">
-          <h4>Resistance affecting this Offer</h4>
-          {impacts.length ? (
-            impacts.map((impact) => (
-              <div key={impact.repulsor.id}>
-                <strong>{impact.repulsor.title}</strong>
-                <ul>
-                  {[...new Set(impact.grounds.map((ground) => ground.touchpointId))].map((id) => (
-                    <li key={id}>via {document.entities.find((item) => item.id === id)?.title}</li>
-                  ))}
-                </ul>
-              </div>
-            ))
-          ) : (
-            <p>No derived resistance affects this Offer.</p>
-          )}
-        </section>
-      );
-    }
     if (entity.kind === 'product') {
       const impacts = resistanceImpactForProduct(document, entity.id);
       return (
@@ -4193,6 +4209,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               {offerNeighborhoodSection()}
               {productIntentFields(editDraft, setEditDraft)}
               {offerClientIntentSection()}
+              {offerResistanceSection()}
               {resistanceImpactFields(selected)}
               {semanticParentField(editDraft, setEditDraft)}
               {contextualJobFields(editDraft, setEditDraft)}
