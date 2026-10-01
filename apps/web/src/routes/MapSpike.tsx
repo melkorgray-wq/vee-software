@@ -2572,16 +2572,16 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             <span className="derived-neighborhood-label">{impact.repulsor.title}</span>
             <span className="derived-neighborhood-count">{impact.grounds.length}</span>
           </button>
-          {expanded && <div className="derived-neighborhood-content" id={contentId}>
-            <ul className="offer-resistance-grounds">{impact.grounds.map(ground => {
+          <div className="derived-neighborhood-content" id={contentId} hidden={!expanded}>
+            {expanded && <ul className="offer-resistance-grounds">{impact.grounds.map(ground => {
               const touchpointTitle = document.entities.find(entity => entity.id === ground.touchpointId)?.title;
               const targetTitle = document.entities.find(entity => entity.id === ground.resistedTarget.entityId)?.title;
               return <li key={`${ground.touchpointId}:${ground.resistedTarget.entityId}`}>
                 <span className="offer-resistance-ground">via <span>{touchpointTitle}</span> → <span>{targetTitle}</span></span>
                 {ground.hasMitigationIntent && <small className="inspector-derived-status">Mitigation intent</small>}
               </li>;
-            })}</ul>
-          </div>}
+            })}</ul>}
+          </div>
         </div>;
       })}</div> : <p className="touchpoint-resistance-empty">No relevant Repulsors.</p>}
     </section>;

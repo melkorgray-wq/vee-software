@@ -2398,7 +2398,8 @@ describe('Offer Resistance section', () => {
     await user.click(shared);
     expect(shared).toHaveAttribute('aria-expanded', 'false');
     expect(job).toHaveAttribute('aria-expanded', 'true');
-    expect(document.getElementById(shared.getAttribute('aria-controls')!)).not.toBeInTheDocument();
+    expect(document.getElementById(shared.getAttribute('aria-controls')!)).toBeInTheDocument();
+    expect(document.getElementById(shared.getAttribute('aria-controls')!)).toHaveAttribute('hidden');
     await user.click(job);
     expect(job).toHaveAttribute('aria-expanded', 'false');
     expect(JSON.stringify(mapDocument)).toBe(before);
