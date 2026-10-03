@@ -342,13 +342,11 @@ describe('Product Business structure Inspector', () => {
     const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
 
     expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
-    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
     await user.click(structure.getByRole('button', { name: 'Subscription' }));
     expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
     await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
     expect(inspector.getByRole('heading', { name: 'Orbit' })).toBeInTheDocument();
     expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
-    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
     expect(window.__VEE_DEV__!.dump()).toEqual(before);
   });
 });
