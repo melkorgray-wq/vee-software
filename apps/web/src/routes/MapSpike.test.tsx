@@ -275,6 +275,84 @@ function renderOfferInspector(document = offerNeighborhoodDocument(), offerName 
   return within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
 }
 
+function productBusinessStructureDocument(withOffers = true): MapDocument {
+  const document = touchpointInspectorDocument();
+  document.entities.push(
+    { id: 'offer-same-b', kind: 'offer', title: 'Same title', currentContentSource: null },
+    { id: 'offer-same-a', kind: 'offer', title: 'Same title', currentContentSource: null },
+    { id: 'other-product', kind: 'product', title: 'Other Product' },
+    { id: 'other-offer', kind: 'offer', title: 'Other Offer', currentContentSource: null },
+  );
+  document.placements.push(
+    ...document.entities.slice(-4).map((entity, index) => ({ viewId: 'spike-view', entityId: entity.id, x: 1200 + index * 140, y: 0 })),
+  );
+  document.relationships.push(
+    { id: 'other-package', kind: 'product_packaged_as_offer', productId: 'other-product', offerId: 'other-offer' },
+    { id: 'indirect-touchpoint', kind: 'offer_presented_at_touchpoint', offerId: 'offer-same-a', touchpointId: 'touch' },
+    ...(withOffers ? [
+      { id: 'package-b', kind: 'product_packaged_as_offer' as const, productId: 'product', offerId: 'offer-same-b' },
+      { id: 'package-a', kind: 'product_packaged_as_offer' as const, productId: 'product', offerId: 'offer-same-a' },
+    ] : []),
+  );
+  return document;
+}
+
+function renderProductInspector(document = productBusinessStructureDocument()) {
+  render(<MapSpike initialDocument={document} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Orbit' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'Entity Inspector' }));
+  return within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
+}
+
+describe('Product Business structure Inspector', () => {
+  it('renders only direct committed Offers in canonical title and ID order', () => {
+    const inspector = renderProductInspector();
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+    const links = structure.getAllByRole('button');
+
+    expect(structure.getAllByRole('heading', { name: 'Offers' })).toHaveLength(1);
+    expect(links.map(link => [link.textContent, link.getAttribute('data-entity-id')])).toEqual([
+      ['Same title', 'offer-same-a'],
+      ['Same title', 'offer-same-b'],
+      ['Subscription', 'offer-a'],
+    ]);
+    expect(structure.queryByText('Other Offer')).not.toBeInTheDocument();
+    expect(structure.queryByText('Checkout')).not.toBeInTheDocument();
+    expect(structure.getAllByRole('region')).toHaveLength(1);
+    expect(structure.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(structure.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(structure.queryByText('Click to edit')).not.toBeInTheDocument();
+  });
+
+  it('shows the exact valid empty state without a two-column regions wrapper', () => {
+    const document = productBusinessStructureDocument(false);
+    document.relationships = document.relationships.filter(relation => relation.kind !== 'product_packaged_as_offer' || relation.productId !== 'product');
+    const inspector = renderProductInspector(document);
+    const structure = inspector.getByRole('region', { name: 'Business structure' });
+
+    expect(within(structure).getByText('No Offers.')).toBeInTheDocument();
+    expect(structure.querySelector('.business-structure-regions')).toBeNull();
+    expect(within(structure).getAllByRole('region')).toHaveLength(1);
+  });
+
+  it('uses Inspector navigation and Back without mutating or dirtying Product state', async () => {
+    const user = userEvent.setup();
+    const inspector = renderProductInspector();
+    const before = structuredClone(window.__VEE_DEV__!.dump());
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+    await user.click(structure.getByRole('button', { name: 'Subscription' }));
+    expect(inspector.getByRole('heading', { name: 'Subscription' })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    expect(inspector.getByRole('heading', { name: 'Orbit' })).toBeInTheDocument();
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+  });
+});
+
 describe('Offer Client intent presentation', () => {
   afterEach(cleanup);
 

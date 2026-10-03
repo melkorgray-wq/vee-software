@@ -19,6 +19,7 @@ import { collisionSafeOfferTitle, collisionSafeTouchpointTitle, commitOfferConne
 import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
 import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets } from '../touchpoint-business-structure';
 import { deriveOfferBusinessStructure, projectConnectedTouchpointCandidates } from '../offer-business-structure';
+import { deriveProductBusinessStructure } from '../product-business-structure';
 import { offerClientIntent, offerClientIntentDiscovery, type OfferClientIntentGroup, type OfferClientIntentJobGroup, type OfferIntentDiscoveryJob } from '../offer-client-intent';
 import type { ClientIntentDiscoveryKind } from '../client-intent-discovery';
 import { initialCompactOverviewExpandedGroupIds } from '../compact-overview-presentation';
@@ -785,6 +786,9 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     : undefined;
   const offerBusinessStructure = selected?.kind === 'offer'
     ? deriveOfferBusinessStructure(document, selected.id)
+    : undefined;
+  const productBusinessStructure = selected?.kind === 'product'
+    ? deriveProductBusinessStructure(document, selected.id)
     : undefined;
   const inspectorDirty = Boolean(selected && selected.kind !== 'offer' && editDraft && (() => {
     const baseline = draftFor(selected);
@@ -3375,6 +3379,20 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       </div>
     </section>;
   }
+  function productBusinessStructureSection() {
+    const structure = productBusinessStructure;
+    if (!structure) return null;
+    return <section className="touchpoint-business-structure" aria-label="Business structure">
+      <div className="business-structure-primary">
+        <section className="business-structure-region" aria-labelledby="product-offers-heading">
+          <h5 id="product-offers-heading">Offers</h5>
+          {structure.offers.length
+            ? <ul className="business-structure-links">{structure.offers.map(offer => <li key={offer.id}><button type="button" className="inspector-entity-navigation" data-entity-id={offer.id} onClick={() => navigateInspector(offer.id)}>{offer.title}</button></li>)}</ul>
+            : <p className="business-structure-empty">No Offers.</p>}
+        </section>
+      </div>
+    </section>;
+  }
   function offerContentSection() {
     if (selected?.kind !== 'offer') return null;
     const editing = offerContentDraft?.offerId === selected.id;
@@ -4206,6 +4224,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 }
               }}
             >
+              {productBusinessStructureSection()}
               {touchpointBusinessStructureSection()}
               {touchpointClientScopeSection()}
               {touchpointResistanceSection()}
