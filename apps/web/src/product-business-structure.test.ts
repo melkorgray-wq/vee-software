@@ -1,6 +1,6 @@
 import { createEmptyMapDocument, type MapDocument } from '@vee/domain';
 import { describe, expect, it } from 'vitest';
-import { deriveProductBusinessStructure } from './product-business-structure';
+import { deriveProductBusinessStructure, projectProductOfferMoveCandidates } from './product-business-structure';
 
 function fixture(): MapDocument {
   const base = createEmptyMapDocument({ mapId: 'map', title: 'Map', viewId: 'view', viewTitle: 'View' });
@@ -103,5 +103,66 @@ describe('deriveProductBusinessStructure', () => {
       product: { id: 'product', kind: 'product', title: 'Product' },
       offers: [{ id: 'offer-a', kind: 'offer', title: 'Alpha', currentContentSource: null }],
     });
+  });
+});
+
+describe('projectProductOfferMoveCandidates', () => {
+  it('includes only Offers with exactly one valid owner other than the inspected Product', () => {
+    const document = fixture();
+    document.relationships.push(
+      { id: 'eligible', kind: 'product_packaged_as_offer', productId: 'other-product', offerId: 'other-offer' },
+      { id: 'current', kind: 'product_packaged_as_offer', productId: 'product', offerId: 'offer-a' },
+      { id: 'stale', kind: 'product_packaged_as_offer', productId: 'missing', offerId: 'offer-b' },
+      { id: 'wrong-kind', kind: 'product_packaged_as_offer', productId: 'touchpoint', offerId: 'offer-z' },
+    );
+
+    expect(projectProductOfferMoveCandidates(document, 'product')).toEqual([{
+      offer: expect.objectContaining({ id: 'other-offer' }),
+      currentProduct: expect.objectContaining({ id: 'other-product' }),
+    }]);
+  });
+
+  it('excludes orphaned, multiply owned, and duplicate-record ownership', () => {
+    const document = fixture();
+    document.relationships.push(
+      { id: 'one', kind: 'product_packaged_as_offer', productId: 'other-product', offerId: 'offer-a' },
+      { id: 'two', kind: 'product_packaged_as_offer', productId: 'product', offerId: 'offer-a' },
+      { id: 'duplicate-a', kind: 'product_packaged_as_offer', productId: 'other-product', offerId: 'offer-b' },
+      { id: 'duplicate-b', kind: 'product_packaged_as_offer', productId: 'other-product', offerId: 'offer-b' },
+    );
+
+    expect(projectProductOfferMoveCandidates(document, 'product')).toEqual([]);
+  });
+
+  it('excludes an Offer with one valid owner and an additional stale ownership record', () => {
+    const document = fixture();
+    document.relationships.push(
+      { id: 'valid', kind: 'product_packaged_as_offer', productId: 'other-product', offerId: 'other-offer' },
+      { id: 'stale-extra', kind: 'product_packaged_as_offer', productId: 'missing', offerId: 'other-offer' },
+    );
+
+    expect(projectProductOfferMoveCandidates(document, 'product')).toEqual([]);
+  });
+
+  it('returns each Offer once in title then ID order', () => {
+    const document = fixture();
+    document.relationships.push(
+      { id: 'z', kind: 'product_packaged_as_offer', productId: 'other-product', offerId: 'offer-z' },
+      { id: 'b', kind: 'product_packaged_as_offer', productId: 'other-product', offerId: 'offer-b' },
+      { id: 'a', kind: 'product_packaged_as_offer', productId: 'other-product', offerId: 'offer-a' },
+    );
+
+    expect(projectProductOfferMoveCandidates(document, 'product').map(candidate => candidate.offer.id)).toEqual([
+      'offer-a', 'offer-b', 'offer-z',
+    ]);
+  });
+
+  it('returns empty for an invalid inspected Product and does not mutate the document', () => {
+    const document = fixture();
+    const before = structuredClone(document);
+
+    expect(projectProductOfferMoveCandidates(document, 'missing')).toEqual([]);
+    expect(projectProductOfferMoveCandidates(document, 'offer-a')).toEqual([]);
+    expect(document).toEqual(before);
   });
 });

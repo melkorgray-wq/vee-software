@@ -19,7 +19,7 @@ import { collisionSafeOfferTitle, collisionSafeTouchpointTitle, commitOfferConne
 import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
 import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets } from '../touchpoint-business-structure';
 import { deriveOfferBusinessStructure, projectConnectedTouchpointCandidates } from '../offer-business-structure';
-import { deriveProductBusinessStructure } from '../product-business-structure';
+import { deriveProductBusinessStructure, projectProductOfferMoveCandidates } from '../product-business-structure';
 import { offerClientIntent, offerClientIntentDiscovery, type OfferClientIntentGroup, type OfferClientIntentJobGroup, type OfferIntentDiscoveryJob } from '../offer-client-intent';
 import type { ClientIntentDiscoveryKind } from '../client-intent-discovery';
 import { initialCompactOverviewExpandedGroupIds } from '../compact-overview-presentation';
@@ -116,6 +116,10 @@ type OfferContentDisclosureSnapshot = {
 };
 type ExternalCopyEditor = { offerId: string; source: OfferCurrentContentSource; draftUrl: string; error?: string };
 type ExternalCopyError = { offerId: string; source: OfferCurrentContentSource; message: string };
+type ProductOffersEditorState =
+  | { productId: string; mode: 'root' }
+  | { productId: string; mode: 'create'; title: string }
+  | { productId: string; mode: 'move' };
 type LocationDraft = { kind: 'none' } | { kind: 'existing'; containerId: string } | { kind: 'new'; title: string };
 type EditDraft = {
   title: string;
@@ -680,6 +684,9 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [parentPicker, setParentPicker] = useState<{ query: string } | null>(null);
   const [productPicker, setProductPicker] = useState<{ query: string } | null>(null);
   const [connectedTouchpointsEditor, setConnectedTouchpointsEditor] = useState<ConnectedTouchpointsEditor | null>(null);
+  const [productOffersEditor, setProductOffersEditor] = useState<ProductOffersEditorState | null>(null);
+  const productOffersEditorRef = useRef<HTMLDivElement>(null);
+  const productOffersButtonRef = useRef<HTMLButtonElement>(null);
   const [childrenEditor, setChildrenEditor] = useState<ChildrenEditor | null>(null);
   const relationEditorRef = useRef<HTMLDivElement>(null);
   const childrenEditorRef = useRef<HTMLDivElement>(null);
@@ -1171,6 +1178,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     });
   }
   function openOfferIntentEditor(offerId: string) {
+    closeProductOffersEditor('switch-editor');
     if (!closeOfferContentEditor('switch-editor')) return;
     closeOfferIntentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
@@ -1239,6 +1247,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setLocalRemoval(null);
   }
   function openOffersEditor() {
+    closeProductOffersEditor('switch-editor');
     if (!closeOfferContentEditor('switch-editor')) return;
     closeOfferIntentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
@@ -1249,6 +1258,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setOffersPicker({ query: '' });
   }
   function openProductEditor() {
+    closeProductOffersEditor('switch-editor');
     if (!closeOfferContentEditor('switch-editor')) return;
     closeOfferIntentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
@@ -1259,6 +1269,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setProductPicker({ query: '' });
   }
   function openParentEditor() {
+    closeProductOffersEditor('switch-editor');
     if (!closeOfferContentEditor('switch-editor')) return;
     closeOfferIntentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
@@ -1269,6 +1280,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setParentPicker({ query: '' });
   }
   function openLocatedInEditor(containerTitle: string) {
+    closeProductOffersEditor('switch-editor');
     if (!closeOfferContentEditor('switch-editor')) return;
     closeOfferIntentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
@@ -1278,6 +1290,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setBusinessInlineEdit({ property: 'located-in', query: containerTitle });
   }
   function openUrlEditor(storedUrl: string) {
+    closeProductOffersEditor('switch-editor');
     if (!closeOfferContentEditor('switch-editor')) return;
     closeOfferIntentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
@@ -1291,6 +1304,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     if (reason === 'explicit') requestAnimationFrame(() => childrenEditorButtonRef.current?.focus());
   }
   function openChildrenEditor() {
+    closeProductOffersEditor('switch-editor');
     if (!closeOfferContentEditor('switch-editor')) return;
     closeOfferIntentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
@@ -1299,6 +1313,55 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setBusinessInlineEdit(null);
     setChildrenEditor({ mode: 'list', query: '' });
   }
+  type ProductOffersEditorCloseReason = 'explicit' | 'escape' | 'pointer' | 'switch-editor';
+  function closeProductOffersEditor(reason: ProductOffersEditorCloseReason) {
+    setProductOffersEditor(null);
+    if (reason === 'explicit' || reason === 'escape') requestAnimationFrame(() => productOffersButtonRef.current?.focus());
+  }
+  function openProductOffersEditor(productId: string) {
+    if (!closeOfferContentEditor('switch-editor')) return;
+    closeOfferIntentEditor('switch-editor');
+    closeConnectedTouchpointsEditor('switch-editor');
+    closeRelationEditor('switch-editor');
+    closeChildrenEditor('switch-editor');
+    if (!closeClientScopeEditor('switch-editor')) return;
+    setBusinessInlineEdit(null);
+    setProductOffersEditor({ productId, mode: 'root' });
+  }
+  useLayoutEffect(() => {
+    if (!productOffersEditor) return;
+    const selector = productOffersEditor.mode === 'root'
+      ? '[data-product-offers-create]'
+      : productOffersEditor.mode === 'create'
+        ? 'input'
+        : '[data-product-offers-back]';
+    productOffersEditorRef.current?.querySelector<HTMLElement>(selector)?.focus();
+  }, [productOffersEditor?.mode, productOffersEditor?.productId]);
+  useEffect(() => {
+    if (!productOffersEditor) return;
+    if (selected?.kind !== 'product' || selected.id !== productOffersEditor.productId) {
+      setProductOffersEditor(null);
+      return;
+    }
+    const pointer = (event: PointerEvent) => {
+      if (event.target instanceof globalThis.Node
+        && !productOffersEditorRef.current?.contains(event.target)
+        && !(event.target instanceof Element && event.target.closest('[data-product-offers-editor-surface]'))) closeProductOffersEditor('pointer');
+    };
+    const keyboard = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (productOffersEditor.mode === 'root') closeProductOffersEditor('escape');
+      else setProductOffersEditor({ productId: productOffersEditor.productId, mode: 'root' });
+    };
+    globalThis.document.addEventListener('pointerdown', pointer);
+    globalThis.document.addEventListener('keydown', keyboard);
+    return () => {
+      globalThis.document.removeEventListener('pointerdown', pointer);
+      globalThis.document.removeEventListener('keydown', keyboard);
+    };
+  }, [productOffersEditor, selected]);
   useEffect(() => {
     if (!childrenEditor) return;
     const pointer = (event: PointerEvent) => { if (event.target instanceof globalThis.Node && !childrenEditorRef.current?.contains(event.target)) { if (childrenEditor.mode === 'create-child') discardChildCreationRef.current = true; closeChildrenEditor('pointer'); } };
@@ -1949,6 +2012,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   }
   function startInspectorTitleEdit() {
     if (!selectedRef.current) return;
+    closeProductOffersEditor('switch-editor');
     const entity = documentRef.current.entities.find(candidate => candidate.id === selectedRef.current);
     if (entity) setInspectorTitleEdit({ entityId: entity.id, title: entity.title });
   }
@@ -3382,13 +3446,33 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   function productBusinessStructureSection() {
     const structure = productBusinessStructure;
     if (!structure) return null;
+    const editor = productOffersEditor?.productId === structure.product.id ? productOffersEditor : null;
+    const candidates = editor?.mode === 'move'
+      ? projectProductOfferMoveCandidates(document, structure.product.id)
+      : [];
+    const backToRoot = () => setProductOffersEditor({ productId: structure.product.id, mode: 'root' });
     return <section className="touchpoint-business-structure" aria-label="Business structure">
       <div className="business-structure-primary">
         <section className="business-structure-region" aria-labelledby="product-offers-heading">
-          <h5 id="product-offers-heading">Offers</h5>
-          {structure.offers.length
-            ? <ul className="business-structure-links">{structure.offers.map(offer => <li key={offer.id}><button type="button" className="inspector-entity-navigation" data-entity-id={offer.id} onClick={() => navigateInspector(offer.id)}>{offer.title}</button></li>)}</ul>
-            : <p className="business-structure-empty">No Offers.</p>}
+          <div data-product-offers-editor-surface={editor ? true : undefined} className={editor ? 'embedded-editor-heading-actions' : undefined}><h5 id="product-offers-heading" aria-label="Offers"><button ref={productOffersButtonRef} type="button" className="inspector-property-heading-action" aria-label="Edit Offers" aria-expanded={Boolean(editor)} onClick={() => openProductOffersEditor(structure.product.id)}>Offers<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h5>{editor && <button type="button" className="inspector-secondary-action" onClick={() => closeProductOffersEditor('explicit')}>Close</button>}</div>
+          {editor ? <div ref={productOffersEditorRef} className="inspector-relation-editor" aria-label="Offers editor">
+            {editor.mode === 'root' && <div className="inspector-relation-editor-actions">
+              <button data-product-offers-create type="button" onClick={() => setProductOffersEditor({ productId: structure.product.id, mode: 'create', title: '' })}>Create Offer</button>
+              <button type="button" onClick={() => setProductOffersEditor({ productId: structure.product.id, mode: 'move' })}>Move existing Offer here</button>
+            </div>}
+            {editor.mode === 'create' && <>
+              <div className="inspector-relation-editor-header"><strong>Create Offer</strong><button data-product-offers-back type="button" className="inspector-secondary-action" onClick={backToRoot}>Back</button></div>
+              <label>Offer title<input value={editor.title} onChange={event => setProductOffersEditor({ ...editor, title: event.target.value })} /></label>
+              <p className="business-structure-empty">Creation is not available in this planning step.</p>
+            </>}
+            {editor.mode === 'move' && <>
+              <div className="inspector-relation-editor-header"><strong>Move existing Offer here</strong><button data-product-offers-back type="button" className="inspector-secondary-action" onClick={backToRoot}>Back</button></div>
+              {candidates.length ? <ul className="business-structure-links">{candidates.map(candidate => <li key={candidate.offer.id}><button type="button" aria-label={`Plan move ${candidate.offer.title}`} onClick={() => undefined}>{candidate.offer.title}</button><small>Current Product: {candidate.currentProduct.title}</small></li>)}</ul> : <p className="business-structure-empty">No Offers available to move.</p>}
+              <p className="business-structure-empty">Moving is not available in this planning step.</p>
+            </>}
+          </div> : structure.offers.length
+              ? <ul className="business-structure-links">{structure.offers.map(offer => <li key={offer.id}><button type="button" className="inspector-entity-navigation" data-entity-id={offer.id} onClick={() => navigateInspector(offer.id)}>{offer.title}</button></li>)}</ul>
+              : <p className="business-structure-empty">No Offers.</p>}
         </section>
       </div>
     </section>;
