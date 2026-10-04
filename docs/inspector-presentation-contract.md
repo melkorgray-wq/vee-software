@@ -73,9 +73,11 @@ Offer Presentation is not containment, and Offer acquires no Parent/Children sem
 
 ### Product-specific adaptation
 
-Product Business structure is a read-only, single-region adaptation of the shared presentation grammar. It consumes only `deriveProductBusinessStructure()` and presents **Offers** as direct committed `product_packaged_as_offer` entity-navigation links in projection order. A Product with no direct Offers remains valid and displays the exact empty state **No Offers.**
+Product Business structure is a single-region adaptation of the shared presentation grammar. Its closed read state consumes only `deriveProductBusinessStructure()` and presents the **Offers** heading as a separate **Edit Offers** affordance while direct committed `product_packaged_as_offer` Offer titles remain independent entity-navigation links in projection order. A Product with no direct Offers remains valid and displays the exact empty state **No Offers.**
 
-The single Offers region uses the existing Business-structure classes without the two-column `.business-structure-regions` wrapper, so it does not manufacture an empty second region or a separate Product layout system. This slice provides no edit affordance and establishes no Offer-authoring contract; Product's transitional section-wide Apply mechanics remain separate legacy debt.
+The embedded Product Offers editor is transient planning UI with mutually exclusive **Create Offer** and **Move existing Offer here** paths. Create owns only a local title draft. Move consumes `projectProductOfferMoveCandidates()` and shows only Offers with exactly one valid current Product-owner other than the inspected Product, ordered by Offer title then stable ID and accompanied by read-only current-owner context. Neither path commits: there is no Save/Apply/Confirm, checkbox attach/detach, Remove, or Duplicate control, and Product's legacy section-wide Apply does not own this editor. The editor reuses `.inspector-relation-editor`, shared heading/action clustering, navigation styling, and the existing one-column Product region; it does not create a parallel layout or navigation system.
+
+The single Offers region uses the existing Business-structure classes without the two-column `.business-structure-regions` wrapper, so it does not manufacture an empty second region or a separate Product layout system. Its planning affordance establishes no completed Offer-authoring operation; Product's transitional section-wide Apply mechanics remain separate legacy debt.
 
 ### Offer Content
 
