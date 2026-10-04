@@ -308,7 +308,7 @@ describe('Product Business structure Inspector', () => {
   it('renders only direct committed Offers in canonical title and ID order', () => {
     const inspector = renderProductInspector();
     const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
-    const links = structure.getAllByRole('button');
+    const links = structure.getAllByRole('button').filter(link => link.classList.contains('inspector-entity-navigation'));
 
     expect(structure.getAllByRole('heading', { name: 'Offers' })).toHaveLength(1);
     expect(links.map(link => [link.textContent, link.getAttribute('data-entity-id')])).toEqual([
@@ -321,7 +321,8 @@ describe('Product Business structure Inspector', () => {
     expect(structure.getAllByRole('region')).toHaveLength(1);
     expect(structure.queryByRole('checkbox')).not.toBeInTheDocument();
     expect(structure.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(structure.queryByText('Click to edit')).not.toBeInTheDocument();
+    expect(structure.getByRole('button', { name: 'Edit Offers' })).toHaveClass('inspector-property-heading-action');
+    expect(structure.getByText('Click to edit')).toBeInTheDocument();
   });
 
   it('shows the exact valid empty state without a two-column regions wrapper', () => {
@@ -348,6 +349,63 @@ describe('Product Business structure Inspector', () => {
     expect(inspector.getByRole('heading', { name: 'Orbit' })).toBeInTheDocument();
     expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
     expect(window.__VEE_DEV__!.dump()).toEqual(before);
+  });
+
+  it('opens separate transient Create and Move planning modes without mutation or dirty state', async () => {
+    const user = userEvent.setup();
+    const inspector = renderProductInspector();
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+    const before = structuredClone(window.__VEE_DEV__!.dump());
+
+    await user.click(structure.getByRole('button', { name: 'Edit Offers' }));
+    const editor = within(structure.getByRole('generic', { name: 'Offers editor' }));
+    await waitFor(() => expect(editor.getByRole('button', { name: 'Create Offer' })).toHaveFocus());
+    expect(editor.getByRole('button', { name: 'Move existing Offer here' })).toBeInTheDocument();
+    expect(editor.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(editor.queryByRole('radio')).not.toBeInTheDocument();
+    expect(editor.queryByText(/Remove|Duplicate/)).not.toBeInTheDocument();
+
+    await user.click(editor.getByRole('button', { name: 'Create Offer' }));
+    const title = editor.getByRole('textbox', { name: 'Offer title' });
+    await user.type(title, 'Local draft');
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(editor.getByRole('button', { name: 'Create Offer' })).toHaveFocus());
+    expect(editor.queryByDisplayValue('Local draft')).not.toBeInTheDocument();
+
+    await user.click(editor.getByRole('button', { name: 'Move existing Offer here' }));
+    expect(editor.getByRole('button', { name: 'Plan move Other Offer' })).toBeInTheDocument();
+    expect(editor.getByText('Current Product: Other Product')).toBeInTheDocument();
+    expect(editor.queryByText('Subscription')).not.toBeInTheDocument();
+    await user.click(editor.getByRole('button', { name: 'Plan move Other Offer' }));
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+  });
+
+  it('uses progressive Escape and owner-aware explicit/outside focus dismissal', async () => {
+    const user = userEvent.setup();
+    const inspector = renderProductInspector();
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+    const edit = structure.getByRole('button', { name: 'Edit Offers' });
+
+    await user.click(edit);
+    let editor = structure.getByRole('generic', { name: 'Offers editor' });
+    await user.click(within(editor).getByRole('button', { name: 'Create Offer' }));
+    await user.keyboard('{Escape}');
+    expect(structure.getByRole('generic', { name: 'Offers editor' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(edit).toHaveFocus());
+
+    await user.click(edit);
+    editor = structure.getByRole('generic', { name: 'Offers editor' });
+    await user.click(structure.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(edit).toHaveFocus());
+
+    await user.click(edit);
+    const inspectorBack = inspector.getByRole('button', { name: 'Inspector Back' });
+    fireEvent.pointerDown(inspectorBack);
+    expect(structure.queryByRole('generic', { name: 'Offers editor' })).not.toBeInTheDocument();
+    expect(edit).not.toHaveFocus();
   });
 });
 

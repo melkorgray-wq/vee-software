@@ -8,6 +8,11 @@ export interface ProductBusinessStructure {
   offers: Offer[];
 }
 
+export interface ProductOfferMoveCandidate {
+  offer: Offer;
+  currentProduct: Product;
+}
+
 const byTitleThenId = <T extends { title: string; id: string }>(left: T, right: T) =>
   left.title.localeCompare(right.title) || left.id.localeCompare(right.id);
 
@@ -35,4 +40,27 @@ export function deriveProductBusinessStructure(
     .sort(byTitleThenId);
 
   return { product, offers };
+}
+
+/** Projects Offers that could enter a future, separately owned Product-move operation. */
+export function projectProductOfferMoveCandidates(
+  document: MapDocument,
+  productId: string,
+): ProductOfferMoveCandidate[] {
+  const entities = new Map(document.entities.map((entity) => [entity.id, entity]));
+  if (entities.get(productId)?.kind !== 'product') return [];
+
+  return document.entities
+    .flatMap((entity): ProductOfferMoveCandidate[] => {
+      if (entity.kind !== 'offer') return [];
+      const validOwners = document.relationships.flatMap((relationship) => {
+        if (relationship.kind !== 'product_packaged_as_offer' || relationship.offerId !== entity.id) return [];
+        const owner = entities.get(relationship.productId);
+        return owner?.kind === 'product' ? [owner] : [];
+      });
+      const currentProduct = validOwners[0];
+      if (validOwners.length !== 1 || !currentProduct || currentProduct.id === productId) return [];
+      return [{ offer: entity, currentProduct }];
+    })
+    .sort((left, right) => byTitleThenId(left.offer, right.offer));
 }
