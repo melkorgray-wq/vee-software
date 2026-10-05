@@ -3456,7 +3456,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         <section className="business-structure-region" aria-labelledby="product-offers-heading">
           <div data-product-offers-editor-surface={editor ? true : undefined} className={editor ? 'embedded-editor-heading-actions' : undefined}><h5 id="product-offers-heading" aria-label="Offers"><button ref={productOffersButtonRef} type="button" className="inspector-property-heading-action" aria-label="Edit Offers" aria-expanded={Boolean(editor)} onClick={() => openProductOffersEditor(structure.product.id)}>Offers<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h5>{editor && <button type="button" className="inspector-secondary-action" onClick={() => closeProductOffersEditor('explicit')}>Close</button>}</div>
           {editor ? <div ref={productOffersEditorRef} className="inspector-relation-editor" aria-label="Offers editor">
-            {editor.mode === 'root' && <div className="inspector-relation-editor-actions">
+            {editor.mode === 'root' && <div className="inspector-relation-editor-actions inspector-relation-editor-actions-start">
               <button data-product-offers-create type="button" onClick={() => setProductOffersEditor({ productId: structure.product.id, mode: 'create', title: '' })}>Create Offer</button>
               <button type="button" onClick={() => setProductOffersEditor({ productId: structure.product.id, mode: 'move' })}>Move existing Offer here</button>
             </div>}

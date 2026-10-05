@@ -354,11 +354,19 @@ describe('Product Business structure Inspector', () => {
   it('opens separate transient Create and Move planning modes without mutation or dirty state', async () => {
     const user = userEvent.setup();
     const inspector = renderProductInspector();
-    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+    const structureRegion = inspector.getByRole('region', { name: 'Business structure' });
+    const structure = within(structureRegion);
     const before = structuredClone(window.__VEE_DEV__!.dump());
 
     await user.click(structure.getByRole('button', { name: 'Edit Offers' }));
     const editor = within(structure.getByRole('generic', { name: 'Offers editor' }));
+    const headingCluster = structureRegion.querySelector('.embedded-editor-heading-actions')!;
+    const offersHeading = structure.getByRole('heading', { name: 'Offers' });
+    const close = structure.getByRole('button', { name: 'Close' });
+    expect(headingCluster).toContainElement(offersHeading);
+    expect(headingCluster).toContainElement(close);
+    expect(offersHeading.nextElementSibling).toBe(close);
+    expect(editor.getByRole('button', { name: 'Create Offer' }).parentElement).toHaveClass('inspector-relation-editor-actions-start');
     await waitFor(() => expect(editor.getByRole('button', { name: 'Create Offer' })).toHaveFocus());
     expect(editor.getByRole('button', { name: 'Move existing Offer here' })).toBeInTheDocument();
     expect(editor.queryByRole('checkbox')).not.toBeInTheDocument();
