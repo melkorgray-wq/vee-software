@@ -202,7 +202,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .touchpoint-client-scope { display: grid; gap: .65rem; min-width: 0; margin: .25rem 0 0; padding: 1rem 0 0; border: 0; border-top: 1px solid var(--border-subtle); background: transparent; }
 .touchpoint-client-scope-heading { display: flex; align-items: center; justify-content: flex-start; gap: .3rem; padding-bottom: .35rem; border-bottom: 1px solid var(--border-subtle); }
 .touchpoint-client-scope.is-editing .touchpoint-client-scope-heading { justify-content: space-between; }
-.touchpoint-client-scope.is-editing .embedded-editor-heading-actions { justify-content: flex-start; flex-wrap: wrap; width: fit-content; max-width: 100%; min-width: 0; }
+.embedded-editor-heading-actions { display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; width: fit-content; max-width: 100%; min-width: 0; gap: .3rem; }
 .touchpoint-client-scope-heading > h4 { margin: 0; color: rgba(255,255,255,.72); font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; }
 .touchpoint-client-scope-heading > .inspector-secondary-action { flex: 0 0 auto; padding: .1rem .25rem; }
 .inspector-property-heading-action { position: relative; display: inline-flex; width: fit-content; max-width: 100%; min-width: 0; margin: 0; padding: .08rem .12rem; border: 0; border-radius: .15rem; background: transparent; color: var(--color-foreground); font: inherit; font-weight: 600; line-height: inherit; letter-spacing: .04em; text-align: left; text-transform: inherit; overflow-wrap: anywhere; }
@@ -367,6 +367,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .inspector-relation-editor-header { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
 .inspector-relation-editor-header strong { font-size: .78rem; }
 .inspector-relation-editor-actions { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .35rem; }
+.inspector-relation-editor-actions-start { justify-content: flex-start; }
 .inspector-relation-editor-search { display: grid; gap: .25rem; font-size: .74rem; font-weight: 650; }
 .inspector-relation-editor-search input { width: 100%; min-width: 0; padding: .4rem; }
 .inspector-relation-candidates { display: grid; gap: .2rem; max-height: 12rem; min-width: 0; overflow-x: hidden; overflow-y: auto; }
