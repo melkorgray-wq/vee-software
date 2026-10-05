@@ -354,11 +354,19 @@ describe('Product Business structure Inspector', () => {
   it('opens separate transient Create and Move planning modes without mutation or dirty state', async () => {
     const user = userEvent.setup();
     const inspector = renderProductInspector();
-    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+    const structureRegion = inspector.getByRole('region', { name: 'Business structure' });
+    const structure = within(structureRegion);
     const before = structuredClone(window.__VEE_DEV__!.dump());
 
     await user.click(structure.getByRole('button', { name: 'Edit Offers' }));
     const editor = within(structure.getByRole('generic', { name: 'Offers editor' }));
+    const headingCluster = structureRegion.querySelector('.embedded-editor-heading-actions')!;
+    const offersHeading = structure.getByRole('heading', { name: 'Offers' });
+    const close = structure.getByRole('button', { name: 'Close' });
+    expect(headingCluster).toContainElement(offersHeading);
+    expect(headingCluster).toContainElement(close);
+    expect(offersHeading.nextElementSibling).toBe(close);
+    expect(editor.getByRole('button', { name: 'Create Offer' }).parentElement).toHaveClass('inspector-relation-editor-actions-start');
     await waitFor(() => expect(editor.getByRole('button', { name: 'Create Offer' })).toHaveFocus());
     expect(editor.getByRole('button', { name: 'Move existing Offer here' })).toBeInTheDocument();
     expect(editor.queryByRole('checkbox')).not.toBeInTheDocument();
@@ -430,6 +438,9 @@ describe('Offer Client intent presentation', () => {
     document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
     const inspector = renderOfferInspector(document);
     const section = inspector.getByRole('region', { name: 'Client intent' });
+    const readHeading = within(section).getByRole('heading', { name: 'Client intent' });
+    expect(readHeading.parentElement).toHaveClass('touchpoint-client-scope-heading');
+    expect(readHeading.parentElement).not.toHaveClass('embedded-editor-heading-actions');
 
     await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
     const search = within(section).getByRole('searchbox', { name: 'Search Client intent' });
@@ -441,6 +452,7 @@ describe('Offer Client intent presentation', () => {
 
     await user.click(close);
     await waitFor(() => expect(within(section).getByRole('button', { name: 'Edit Client intent' })).toHaveFocus());
+    expect(within(section).getByRole('heading', { name: 'Client intent' }).parentElement).not.toHaveClass('embedded-editor-heading-actions');
     await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
     await waitFor(() => expect(within(section).getByRole('searchbox', { name: 'Search Client intent' })).toHaveFocus());
     await user.keyboard('{Escape}');
