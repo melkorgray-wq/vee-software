@@ -369,6 +369,8 @@ describe('Product Business structure Inspector', () => {
     fireEvent.blur(title);
 
     await waitFor(() => expect(editor.getByRole('button', { name: 'Create Offer' })).toHaveFocus());
+    const currentOffers = within(editor.getByRole('generic', { name: 'Current Offers' }));
+    expect(currentOffers.getByText('Fresh Offer')).toBeInTheDocument();
     expect(editor.getByRole('button', { name: 'Move existing Offer here' })).toBeInTheDocument();
     expect(editor.queryByRole('textbox', { name: 'Offer title' })).not.toBeInTheDocument();
     expect(inspector.getByRole('heading', { name: 'Orbit' })).toBeInTheDocument();
@@ -466,11 +468,16 @@ describe('Product Business structure Inspector', () => {
     expect(editor.getByRole('button', { name: 'Create Offer' }).parentElement).toHaveClass('inspector-relation-editor-actions-start');
     await waitFor(() => expect(editor.getByRole('button', { name: 'Create Offer' })).toHaveFocus());
     expect(editor.getByRole('button', { name: 'Move existing Offer here' })).toBeInTheDocument();
+    const currentOffers = within(editor.getByRole('generic', { name: 'Current Offers' }));
+    expect(currentOffers.getAllByRole('listitem').map(item => item.textContent)).toEqual(['Same title', 'Same title', 'Subscription']);
+    expect(currentOffers.queryByRole('button')).not.toBeInTheDocument();
+    expect(currentOffers.queryByRole('link')).not.toBeInTheDocument();
     expect(editor.queryByRole('checkbox')).not.toBeInTheDocument();
     expect(editor.queryByRole('radio')).not.toBeInTheDocument();
     expect(editor.queryByText(/Remove|Duplicate/)).not.toBeInTheDocument();
 
     await user.click(editor.getByRole('button', { name: 'Create Offer' }));
+    expect(currentOffers.getByText('Subscription')).toBeInTheDocument();
     const title = editor.getByRole('textbox', { name: 'Offer title' });
     await user.type(title, 'Local draft');
     expect(window.__VEE_DEV__!.dump()).toEqual(before);
@@ -480,11 +487,33 @@ describe('Product Business structure Inspector', () => {
     expect(editor.queryByDisplayValue('Local draft')).not.toBeInTheDocument();
 
     await user.click(editor.getByRole('button', { name: 'Move existing Offer here' }));
+    expect(currentOffers.getByText('Subscription')).toBeInTheDocument();
     expect(editor.getByRole('button', { name: 'Plan move Other Offer' })).toBeInTheDocument();
     expect(editor.getByText('Current Product: Other Product')).toBeInTheDocument();
-    expect(editor.queryByText('Subscription')).not.toBeInTheDocument();
     await user.click(editor.getByRole('button', { name: 'Plan move Other Offer' }));
     expect(window.__VEE_DEV__!.dump()).toEqual(before);
+  });
+
+  it('keeps the valid empty Current Offers state visible in every editor mode', async () => {
+    const user = userEvent.setup();
+    const document = productBusinessStructureDocument(false);
+    document.relationships = document.relationships.filter(relation => relation.kind !== 'product_packaged_as_offer' || relation.productId !== 'product');
+    const inspector = renderProductInspector(document);
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+
+    await user.click(structure.getByRole('button', { name: 'Edit Offers' }));
+    const editor = within(structure.getByRole('generic', { name: 'Offers editor' }));
+    const currentOffers = within(editor.getByRole('generic', { name: 'Current Offers' }));
+    expect(currentOffers.getByText('No Offers.')).toBeInTheDocument();
+
+    await user.click(editor.getByRole('button', { name: 'Create Offer' }));
+    expect(currentOffers.getByText('No Offers.')).toBeInTheDocument();
+    await user.click(editor.getByRole('button', { name: 'Back' }));
+    await user.click(editor.getByRole('button', { name: 'Move existing Offer here' }));
+    expect(currentOffers.getByText('No Offers.')).toBeInTheDocument();
+    expect(currentOffers.queryByRole('button')).not.toBeInTheDocument();
+    expect(currentOffers.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(currentOffers.queryByRole('radio')).not.toBeInTheDocument();
   });
 
   it('uses progressive Escape and owner-aware explicit/outside focus dismissal', async () => {
