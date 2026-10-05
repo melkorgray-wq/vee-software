@@ -118,7 +118,7 @@ type ExternalCopyEditor = { offerId: string; source: OfferCurrentContentSource; 
 type ExternalCopyError = { offerId: string; source: OfferCurrentContentSource; message: string };
 type ProductOffersEditorState =
   | { productId: string; mode: 'root' }
-  | { productId: string; mode: 'create'; title: string }
+  | { productId: string; mode: 'create'; title: string; error?: string }
   | { productId: string; mode: 'move' };
 type LocationDraft = { kind: 'none' } | { kind: 'existing'; containerId: string } | { kind: 'new'; title: string };
 type EditDraft = {
@@ -685,8 +685,12 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [productPicker, setProductPicker] = useState<{ query: string } | null>(null);
   const [connectedTouchpointsEditor, setConnectedTouchpointsEditor] = useState<ConnectedTouchpointsEditor | null>(null);
   const [productOffersEditor, setProductOffersEditor] = useState<ProductOffersEditorState | null>(null);
+  const productOffersEditorStateRef = useRef<ProductOffersEditorState | null>(null);
   const productOffersEditorRef = useRef<HTMLDivElement>(null);
   const productOffersButtonRef = useRef<HTMLButtonElement>(null);
+  const discardProductOfferCreationRef = useRef(false);
+  const completedProductOfferCreationRef = useRef(false);
+  const suppressProductOffersDismissalRef = useRef(false);
   const [childrenEditor, setChildrenEditor] = useState<ChildrenEditor | null>(null);
   const relationEditorRef = useRef<HTMLDivElement>(null);
   const childrenEditorRef = useRef<HTMLDivElement>(null);
@@ -797,6 +801,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const productBusinessStructure = selected?.kind === 'product'
     ? deriveProductBusinessStructure(document, selected.id)
     : undefined;
+  productOffersEditorStateRef.current = productOffersEditor;
   const inspectorDirty = Boolean(selected && selected.kind !== 'offer' && editDraft && (() => {
     const baseline = draftFor(selected);
     const comparableDraft = { ...editDraft, touchpointIntent: undefined };
@@ -1178,7 +1183,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     });
   }
   function openOfferIntentEditor(offerId: string) {
-    closeProductOffersEditor('switch-editor');
+    if (!closeProductOffersEditor('switch-editor')) return;
     if (!closeOfferContentEditor('switch-editor')) return;
     closeOfferIntentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
@@ -1247,7 +1252,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setLocalRemoval(null);
   }
   function openOffersEditor() {
-    closeProductOffersEditor('switch-editor');
+    if (!closeProductOffersEditor('switch-editor')) return;
     if (!closeOfferContentEditor('switch-editor')) return;
     closeOfferIntentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
@@ -1258,7 +1263,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setOffersPicker({ query: '' });
   }
   function openProductEditor() {
-    closeProductOffersEditor('switch-editor');
+    if (!closeProductOffersEditor('switch-editor')) return;
     if (!closeOfferContentEditor('switch-editor')) return;
     closeOfferIntentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
@@ -1269,7 +1274,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setProductPicker({ query: '' });
   }
   function openParentEditor() {
-    closeProductOffersEditor('switch-editor');
+    if (!closeProductOffersEditor('switch-editor')) return;
     if (!closeOfferContentEditor('switch-editor')) return;
     closeOfferIntentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
@@ -1280,7 +1285,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setParentPicker({ query: '' });
   }
   function openLocatedInEditor(containerTitle: string) {
-    closeProductOffersEditor('switch-editor');
+    if (!closeProductOffersEditor('switch-editor')) return;
     if (!closeOfferContentEditor('switch-editor')) return;
     closeOfferIntentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
@@ -1290,7 +1295,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setBusinessInlineEdit({ property: 'located-in', query: containerTitle });
   }
   function openUrlEditor(storedUrl: string) {
-    closeProductOffersEditor('switch-editor');
+    if (!closeProductOffersEditor('switch-editor')) return;
     if (!closeOfferContentEditor('switch-editor')) return;
     closeOfferIntentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
@@ -1304,7 +1309,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     if (reason === 'explicit') requestAnimationFrame(() => childrenEditorButtonRef.current?.focus());
   }
   function openChildrenEditor() {
-    closeProductOffersEditor('switch-editor');
+    if (!closeProductOffersEditor('switch-editor')) return;
     if (!closeOfferContentEditor('switch-editor')) return;
     closeOfferIntentEditor('switch-editor');
     closeConnectedTouchpointsEditor('switch-editor');
@@ -1314,9 +1319,41 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setChildrenEditor({ mode: 'list', query: '' });
   }
   type ProductOffersEditorCloseReason = 'explicit' | 'escape' | 'pointer' | 'switch-editor';
-  function closeProductOffersEditor(reason: ProductOffersEditorCloseReason) {
+  function completeProductOfferCreation(editor = productOffersEditorStateRef.current): 'complete' | 'incomplete' | 'failed' {
+    if (!editor || editor.mode !== 'create' || completedProductOfferCreationRef.current) return 'incomplete';
+    const title = editor.title.trim();
+    if (!title) return 'incomplete';
+    try {
+      const source = documentRef.current;
+      const product = source.entities.find(entity => entity.id === editor.productId && entity.kind === 'product');
+      if (!product) throw new DomainError('invalid_relationship_reference', 'The inspected Product no longer exists.');
+      const entityId = crypto.randomUUID();
+      const placement = findRelatedPlacement(source, VIEW_ID, layoutForEntity({ kind: 'offer', title }), [product.id], [{ sourceId: product.id, targetId: entityId }]);
+      const next = addEntity(source, { entityId, kind: 'offer', title, viewId: VIEW_ID, ...placement, linkedProductId: product.id, relationshipId: crypto.randomUUID() });
+      completedProductOfferCreationRef.current = true;
+      suppressProductOffersDismissalRef.current = true;
+      documentRef.current = next;
+      setDocument(next);
+      setProductOffersEditor({ productId: product.id, mode: 'root' });
+      requestAnimationFrame(() => { suppressProductOffersDismissalRef.current = false; });
+      return 'complete';
+    } catch (error) {
+      setProductOffersEditor(current => current?.mode === 'create'
+        ? { ...current, error: error instanceof Error ? error.message : 'Offer could not be created.' }
+        : current);
+      return 'failed';
+    }
+  }
+  function closeProductOffersEditor(reason: ProductOffersEditorCloseReason): boolean {
+    const editor = productOffersEditorStateRef.current;
+    if (suppressProductOffersDismissalRef.current) return false;
+    if (editor?.mode === 'create' && reason !== 'escape' && !discardProductOfferCreationRef.current) {
+      const completion = completeProductOfferCreation(editor);
+      if (completion !== 'incomplete') return false;
+    }
     setProductOffersEditor(null);
     if (reason === 'explicit' || reason === 'escape') requestAnimationFrame(() => productOffersButtonRef.current?.focus());
+    return true;
   }
   function openProductOffersEditor(productId: string) {
     if (!closeOfferContentEditor('switch-editor')) return;
@@ -1353,7 +1390,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       event.preventDefault();
       event.stopPropagation();
       if (productOffersEditor.mode === 'root') closeProductOffersEditor('escape');
-      else setProductOffersEditor({ productId: productOffersEditor.productId, mode: 'root' });
+      else {
+        discardProductOfferCreationRef.current = true;
+        setProductOffersEditor({ productId: productOffersEditor.productId, mode: 'root' });
+      }
     };
     globalThis.document.addEventListener('pointerdown', pointer);
     globalThis.document.addEventListener('keydown', keyboard);
@@ -2012,7 +2052,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   }
   function startInspectorTitleEdit() {
     if (!selectedRef.current) return;
-    closeProductOffersEditor('switch-editor');
+    if (!closeProductOffersEditor('switch-editor')) return;
     const entity = documentRef.current.entities.find(candidate => candidate.id === selectedRef.current);
     if (entity) setInspectorTitleEdit({ entityId: entity.id, title: entity.title });
   }
@@ -3457,13 +3497,13 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
           <div data-product-offers-editor-surface={editor ? true : undefined} className={editor ? 'embedded-editor-heading-actions' : undefined}><h5 id="product-offers-heading" aria-label="Offers"><button ref={productOffersButtonRef} type="button" className="inspector-property-heading-action" aria-label="Edit Offers" aria-expanded={Boolean(editor)} onClick={() => openProductOffersEditor(structure.product.id)}>Offers<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h5>{editor && <button type="button" className="inspector-secondary-action" onClick={() => closeProductOffersEditor('explicit')}>Close</button>}</div>
           {editor ? <div ref={productOffersEditorRef} className="inspector-relation-editor" aria-label="Offers editor">
             {editor.mode === 'root' && <div className="inspector-relation-editor-actions inspector-relation-editor-actions-start">
-              <button data-product-offers-create type="button" onClick={() => setProductOffersEditor({ productId: structure.product.id, mode: 'create', title: '' })}>Create Offer</button>
+              <button data-product-offers-create type="button" onClick={() => { discardProductOfferCreationRef.current = false; completedProductOfferCreationRef.current = false; setProductOffersEditor({ productId: structure.product.id, mode: 'create', title: '' }); }}>Create Offer</button>
               <button type="button" onClick={() => setProductOffersEditor({ productId: structure.product.id, mode: 'move' })}>Move existing Offer here</button>
             </div>}
             {editor.mode === 'create' && <>
-              <div className="inspector-relation-editor-header"><strong>Create Offer</strong><button data-product-offers-back type="button" className="inspector-secondary-action" onClick={backToRoot}>Back</button></div>
-              <label>Offer title<input value={editor.title} onChange={event => setProductOffersEditor({ ...editor, title: event.target.value })} /></label>
-              <p className="business-structure-empty">Creation is not available in this planning step.</p>
+              <div className="inspector-relation-editor-header"><strong>Create Offer</strong><button data-product-offers-back type="button" className="inspector-secondary-action" onPointerDown={() => { discardProductOfferCreationRef.current = true; }} onClick={backToRoot}>Back</button></div>
+              <label>Offer title<input value={editor.title} onChange={event => setProductOffersEditor({ productId: editor.productId, mode: 'create', title: event.target.value })} onBlur={event => { const movingToDiscard = event.relatedTarget instanceof HTMLElement && Boolean(event.relatedTarget.closest('[data-product-offers-back]')); if (!discardProductOfferCreationRef.current && !movingToDiscard) completeProductOfferCreation(); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); completeProductOfferCreation(); } }} /></label>
+              {editor.error && <p role="alert">{editor.error}</p>}
             </>}
             {editor.mode === 'move' && <>
               <div className="inspector-relation-editor-header"><strong>Move existing Offer here</strong><button data-product-offers-back type="button" className="inspector-secondary-action" onClick={backToRoot}>Back</button></div>

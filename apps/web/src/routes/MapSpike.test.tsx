@@ -351,7 +351,104 @@ describe('Product Business structure Inspector', () => {
     expect(window.__VEE_DEV__!.dump()).toEqual(before);
   });
 
-  it('opens separate transient Create and Move planning modes without mutation or dirty state', async () => {
+  it('creates one structurally blank owned Offer on Enter, updates the projection, and stays in the Product authoring context', async () => {
+    const uuid = vi.spyOn(crypto, 'randomUUID')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000001')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000002');
+    const user = userEvent.setup();
+    const inspector = renderProductInspector();
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+    const before = structuredClone(window.__VEE_DEV__!.dump());
+
+    await user.click(structure.getByRole('button', { name: 'Edit Offers' }));
+    const editor = within(structure.getByRole('generic', { name: 'Offers editor' }));
+    await user.click(editor.getByRole('button', { name: 'Create Offer' }));
+    const title = editor.getByRole('textbox', { name: 'Offer title' });
+    await user.type(title, 'Fresh Offer');
+    await user.keyboard('{Enter}');
+    fireEvent.blur(title);
+
+    await waitFor(() => expect(editor.getByRole('button', { name: 'Create Offer' })).toHaveFocus());
+    expect(editor.getByRole('button', { name: 'Move existing Offer here' })).toBeInTheDocument();
+    expect(editor.queryByRole('textbox', { name: 'Offer title' })).not.toBeInTheDocument();
+    expect(inspector.getByRole('heading', { name: 'Orbit' })).toBeInTheDocument();
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
+
+    const committed = window.__VEE_DEV__!.dump();
+    expect(committed.entities.filter(entity => entity.id === '00000000-0000-4000-8000-000000000001')).toEqual([
+      { id: '00000000-0000-4000-8000-000000000001', kind: 'offer', title: 'Fresh Offer', currentContentSource: null },
+    ]);
+    expect(committed.relationships.filter(relationship => relationship.id === '00000000-0000-4000-8000-000000000002')).toEqual([
+      { id: '00000000-0000-4000-8000-000000000002', kind: 'product_packaged_as_offer', productId: 'product', offerId: '00000000-0000-4000-8000-000000000001' },
+    ]);
+    expect(committed.placements.filter(placement => placement.entityId === '00000000-0000-4000-8000-000000000001')).toHaveLength(1);
+    expect(committed.placements.find(placement => placement.entityId === '00000000-0000-4000-8000-000000000001')).toMatchObject({ viewId: 'spike-view' });
+    expect(committed.relationships.filter(relationship => 'offerId' in relationship && relationship.offerId === '00000000-0000-4000-8000-000000000001')).toHaveLength(1);
+    expect(committed.offerJobSelections.filter(selection => selection.offerId === '00000000-0000-4000-8000-000000000001')).toEqual([]);
+    expect(committed.offerFinancialIntents.filter(intent => intent.offerId === '00000000-0000-4000-8000-000000000001')).toEqual([]);
+    expect(committed.touchpointJobSelections.filter(selection => selection.offerId === '00000000-0000-4000-8000-000000000001')).toEqual([]);
+    expect(committed.touchpointFinancialSelections.filter(selection => selection.offerId === '00000000-0000-4000-8000-000000000001')).toEqual([]);
+    expect(committed.entities).toHaveLength(before.entities.length + 1);
+    expect(committed.relationships).toHaveLength(before.relationships.length + 1);
+    expect(committed.placements).toHaveLength(before.placements.length + 1);
+    expect(uuid).toHaveBeenCalledTimes(2);
+
+    await user.click(structure.getByRole('button', { name: 'Close' }));
+    expect(structure.getByRole('button', { name: 'Fresh Offer' })).toBeInTheDocument();
+    uuid.mockRestore();
+  });
+
+  it('creates once on a valid title blur', async () => {
+    const uuid = vi.spyOn(crypto, 'randomUUID')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000003')
+      .mockReturnValueOnce('00000000-0000-4000-8000-000000000004');
+    const user = userEvent.setup();
+    const inspector = renderProductInspector();
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+
+    await user.click(structure.getByRole('button', { name: 'Edit Offers' }));
+    const editor = within(structure.getByRole('generic', { name: 'Offers editor' }));
+    await user.click(editor.getByRole('button', { name: 'Create Offer' }));
+    await user.type(editor.getByRole('textbox', { name: 'Offer title' }), 'Blurred Offer');
+    await user.click(structure.getByRole('button', { name: 'Close' }));
+
+    await waitFor(() => expect(editor.getByRole('button', { name: 'Create Offer' })).toHaveFocus());
+    expect(structure.getByRole('generic', { name: 'Offers editor' })).toBeInTheDocument();
+    const committed = window.__VEE_DEV__!.dump();
+    expect(committed.entities.filter(entity => entity.id === '00000000-0000-4000-8000-000000000003')).toHaveLength(1);
+    expect(committed.relationships.filter(relationship => relationship.id === '00000000-0000-4000-8000-000000000004')).toHaveLength(1);
+    expect(uuid).toHaveBeenCalledTimes(2);
+    uuid.mockRestore();
+  });
+
+  it('does not mutate for blank completion, Back, or nested Escape', async () => {
+    const user = userEvent.setup();
+    const inspector = renderProductInspector();
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+    const before = structuredClone(window.__VEE_DEV__!.dump());
+
+    await user.click(structure.getByRole('button', { name: 'Edit Offers' }));
+    const editor = within(structure.getByRole('generic', { name: 'Offers editor' }));
+    await user.click(editor.getByRole('button', { name: 'Create Offer' }));
+    const blank = editor.getByRole('textbox', { name: 'Offer title' });
+    await user.type(blank, '   ');
+    await user.keyboard('{Enter}');
+    fireEvent.blur(blank);
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+
+    await user.clear(blank);
+    await user.type(blank, 'Discard by Back');
+    await user.click(editor.getByRole('button', { name: 'Back' }));
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+
+    await user.click(editor.getByRole('button', { name: 'Create Offer' }));
+    await user.type(editor.getByRole('textbox', { name: 'Offer title' }), 'Discard by Escape');
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(editor.getByRole('button', { name: 'Create Offer' })).toHaveFocus());
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+  });
+
+  it('opens separate transient Create and Move modes without mutating unfinished work or dirty state', async () => {
     const user = userEvent.setup();
     const inspector = renderProductInspector();
     const structureRegion = inspector.getByRole('region', { name: 'Business structure' });
