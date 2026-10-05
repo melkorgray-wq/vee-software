@@ -118,7 +118,7 @@ type ExternalCopyEditor = { offerId: string; source: OfferCurrentContentSource; 
 type ExternalCopyError = { offerId: string; source: OfferCurrentContentSource; message: string };
 type ProductOffersEditorState =
   | { productId: string; mode: 'root' }
-  | { productId: string; mode: 'create'; title: string }
+  | { productId: string; mode: 'create'; title: string; error?: string }
   | { productId: string; mode: 'move' };
 type LocationDraft = { kind: 'none' } | { kind: 'existing'; containerId: string } | { kind: 'new'; title: string };
 type EditDraft = {
@@ -687,6 +687,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [productOffersEditor, setProductOffersEditor] = useState<ProductOffersEditorState | null>(null);
   const productOffersEditorRef = useRef<HTMLDivElement>(null);
   const productOffersButtonRef = useRef<HTMLButtonElement>(null);
+  const productOfferCreationRef = useRef({ discard: false, completed: false });
   const [childrenEditor, setChildrenEditor] = useState<ChildrenEditor | null>(null);
   const relationEditorRef = useRef<HTMLDivElement>(null);
   const childrenEditorRef = useRef<HTMLDivElement>(null);
@@ -1328,6 +1329,31 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setBusinessInlineEdit(null);
     setProductOffersEditor({ productId, mode: 'root' });
   }
+  function openProductOfferCreation(productId: string) {
+    productOfferCreationRef.current = { discard: false, completed: false };
+    setProductOffersEditor({ productId, mode: 'create', title: '' });
+  }
+  function discardProductOfferCreation(productId: string) {
+    productOfferCreationRef.current.discard = true;
+    setProductOffersEditor({ productId, mode: 'root' });
+  }
+  function createProductOffer(productId: string, draftTitle: string) {
+    const title = draftTitle.trim();
+    if (!title || productOfferCreationRef.current.discard || productOfferCreationRef.current.completed) return;
+    productOfferCreationRef.current.completed = true;
+    try {
+      const before = documentRef.current;
+      const entityId = crypto.randomUUID();
+      const placement = findRelatedPlacement(before, VIEW_ID, layoutForEntity({ kind: 'offer', title }), [productId], [{ sourceId: productId, targetId: entityId }]);
+      const next = addEntity(before, { entityId, title, kind: 'offer', viewId: VIEW_ID, ...placement, linkedProductId: productId, relationshipId: crypto.randomUUID() });
+      documentRef.current = next;
+      setDocument(next);
+      setProductOffersEditor({ productId, mode: 'root' });
+    } catch (error) {
+      productOfferCreationRef.current.completed = false;
+      setProductOffersEditor({ productId, mode: 'create', title: draftTitle, error: error instanceof Error ? error.message : 'Offer could not be created.' });
+    }
+  }
   useLayoutEffect(() => {
     if (!productOffersEditor) return;
     const selector = productOffersEditor.mode === 'root'
@@ -1353,6 +1379,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       event.preventDefault();
       event.stopPropagation();
       if (productOffersEditor.mode === 'root') closeProductOffersEditor('escape');
+      else if (productOffersEditor.mode === 'create') discardProductOfferCreation(productOffersEditor.productId);
       else setProductOffersEditor({ productId: productOffersEditor.productId, mode: 'root' });
     };
     globalThis.document.addEventListener('pointerdown', pointer);
@@ -3077,7 +3104,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       event.stopPropagation();
       closeOfferIntentEditor('escape', selected.id);
     } : undefined}>
-      <div className="touchpoint-client-scope-heading embedded-editor-heading-actions">{editing
+      <div className={`touchpoint-client-scope-heading${editing ? ' embedded-editor-heading-actions' : ''}`}>{editing
         ? <><h4 id="offer-client-intent-heading">Client intent</h4><button ref={offerIntentCloseButtonRef} type="button" className="inspector-secondary-action" aria-label="Close Client intent editor" onClick={() => closeOfferIntentEditor('explicit', selected.id)}>Close</button></>
         : <h4 id="offer-client-intent-heading" aria-label="Client intent"><button ref={offerIntentEditButtonRef} type="button" className="inspector-property-heading-action" aria-label="Edit Client intent" onClick={() => openOfferIntentEditor(selected.id)}>Client intent<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h4>}
       </div>
@@ -3456,14 +3483,14 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         <section className="business-structure-region" aria-labelledby="product-offers-heading">
           <div data-product-offers-editor-surface={editor ? true : undefined} className={editor ? 'embedded-editor-heading-actions' : undefined}><h5 id="product-offers-heading" aria-label="Offers"><button ref={productOffersButtonRef} type="button" className="inspector-property-heading-action" aria-label="Edit Offers" aria-expanded={Boolean(editor)} onClick={() => openProductOffersEditor(structure.product.id)}>Offers<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h5>{editor && <button type="button" className="inspector-secondary-action" onClick={() => closeProductOffersEditor('explicit')}>Close</button>}</div>
           {editor ? <div ref={productOffersEditorRef} className="inspector-relation-editor" aria-label="Offers editor">
-            {editor.mode === 'root' && <div className="inspector-relation-editor-actions">
-              <button data-product-offers-create type="button" onClick={() => setProductOffersEditor({ productId: structure.product.id, mode: 'create', title: '' })}>Create Offer</button>
+            {editor.mode === 'root' && <div className="inspector-relation-editor-actions inspector-relation-editor-actions-start">
+              <button data-product-offers-create type="button" onClick={() => openProductOfferCreation(structure.product.id)}>Create Offer</button>
               <button type="button" onClick={() => setProductOffersEditor({ productId: structure.product.id, mode: 'move' })}>Move existing Offer here</button>
             </div>}
             {editor.mode === 'create' && <>
-              <div className="inspector-relation-editor-header"><strong>Create Offer</strong><button data-product-offers-back type="button" className="inspector-secondary-action" onClick={backToRoot}>Back</button></div>
-              <label>Offer title<input value={editor.title} onChange={event => setProductOffersEditor({ ...editor, title: event.target.value })} /></label>
-              <p className="business-structure-empty">Creation is not available in this planning step.</p>
+              <div className="inspector-relation-editor-header"><strong>Create Offer</strong><button data-product-offers-back data-discard-product-offer-creation type="button" className="inspector-secondary-action" onPointerDown={() => { productOfferCreationRef.current.discard = true; }} onClick={() => discardProductOfferCreation(structure.product.id)}>Back</button></div>
+              <label>Offer title<input value={editor.title} onChange={event => setProductOffersEditor({ productId: editor.productId, mode: 'create', title: event.target.value })} onBlur={event => { const movingToDiscard = event.relatedTarget instanceof HTMLElement && Boolean(event.relatedTarget.closest('[data-discard-product-offer-creation]')); if (!movingToDiscard) createProductOffer(structure.product.id, event.currentTarget.value); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); createProductOffer(structure.product.id, event.currentTarget.value); } }} /></label>
+              {editor.error && <p role="alert">{editor.error}</p>}
             </>}
             {editor.mode === 'move' && <>
               <div className="inspector-relation-editor-header"><strong>Move existing Offer here</strong><button data-product-offers-back type="button" className="inspector-secondary-action" onClick={backToRoot}>Back</button></div>
