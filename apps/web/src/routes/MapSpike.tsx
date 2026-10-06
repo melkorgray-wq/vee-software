@@ -3509,7 +3509,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const outboundSearchable = allOutboundProducts.length >= RELATION_EDITOR_SEARCH_THRESHOLD;
     const backToRoot = () => setProductOffersEditor({ productId: structure.product.id, mode: 'root', query: '' });
     const rootFocusId = `product-offers-create-${encodeURIComponent(structure.product.id)}`;
-    const currentRows = <div aria-label="Current Offers">
+    const currentRows = <div className="structural-relation-list" aria-label="Current Offers">
       <h6>Current Offers</h6>
       {structure.offers.length
         ? structure.offers.map(offer => <div className="structural-relation-row" key={offer.id}><div className="inspector-relation-row structural-relation-state"><span>{offer.title}</span></div><button type="button" className="inspector-secondary-action" aria-label={`Move ${offer.title}`} onClick={() => setProductOffersEditor({ productId: structure.product.id, mode: 'move-current', offerId: offer.id, query: '' })}>Move…</button></div>)
