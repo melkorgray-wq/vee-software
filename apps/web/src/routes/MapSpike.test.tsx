@@ -473,6 +473,16 @@ describe('Product Business structure Inspector', () => {
     expect(currentOffers.queryByRole('radio')).not.toBeInTheDocument();
     expect(currentOffers.queryByRole('link')).not.toBeInTheDocument();
     expect(editor.getByText('Current Product: Other Product')).toBeInTheDocument();
+    for (const move of currentOffers.getAllByRole('button', { name: /^Move / })) {
+      expect(move.parentElement).toHaveClass('structural-relation-row');
+      expect(move.previousElementSibling).toHaveClass('structural-relation-state');
+      expect(move.previousElementSibling).toHaveTextContent(move.getAttribute('aria-label')!.slice('Move '.length));
+    }
+    const inboundMove = editor.getByRole('button', { name: 'Move Other Offer here' });
+    expect(inboundMove.parentElement).toHaveClass('structural-relation-row');
+    expect(inboundMove.previousElementSibling).toHaveClass('structural-relation-state');
+    expect(inboundMove.previousElementSibling).toHaveTextContent('Other Offer');
+    expect(inboundMove.previousElementSibling).toHaveTextContent('Current Product: Other Product');
 
     await user.click(editor.getByRole('button', { name: 'Move Other Offer here' }));
     await waitFor(() => expect(within(editor.getByRole('generic', { name: 'Current Offers' })).getByText('Other Offer')).toBeInTheDocument());
@@ -1092,13 +1102,21 @@ describe('Offer Client intent presentation', () => {
     expect(within(review).getByText('Checkout')).toBeInTheDocument();
     expect(within(review).getByText('loses Make progress')).toBeInTheDocument();
     await user.click(within(review).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(checkbox).toBeChecked();
     expect(window.__VEE_DEV__!.dump().offerJobSelections).toHaveLength(1);
+    expect(window.__VEE_DEV__!.dump().touchpointJobSelections).toHaveLength(1);
+    await waitFor(() => expect(checkbox).toHaveFocus());
 
     await user.click(checkbox);
+    review = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
+    expect(within(review).getByRole('button', { name: 'Cancel' })).toHaveFocus();
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(checkbox).toBeChecked();
+    expect(window.__VEE_DEV__!.dump().offerJobSelections).toHaveLength(1);
+    expect(window.__VEE_DEV__!.dump().touchpointJobSelections).toHaveLength(1);
+    await waitFor(() => expect(checkbox).toHaveFocus());
 
     await user.click(checkbox);
     review = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
@@ -3529,6 +3547,8 @@ describe('Touchpoint Business structure Inspector', () => {
     const currentRow = within(editor).getByRole('checkbox', { name: 'FAQ' }).closest<HTMLElement>('.structural-relation-row')!;
     expect(within(currentRow).getByRole('checkbox', { name: 'FAQ' })).toBeChecked();
     expect(within(currentRow).getByRole('button', { name: 'Reassign…' })).toBeInTheDocument();
+    expect(within(currentRow).getByRole('button', { name: 'Reassign…' }).previousElementSibling)
+      .toBe(within(currentRow).getByRole('checkbox', { name: 'FAQ' }).closest('label'));
     const search = within(editor).getByRole('searchbox', { name: 'Search Touchpoints' });
     const branches = within(editor).getByRole('heading', { name: 'Available standalone branches' });
     const leaves = within(editor).getByRole('heading', { name: 'Available standalone leaves' });
