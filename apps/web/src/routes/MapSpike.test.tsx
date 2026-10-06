@@ -1102,13 +1102,21 @@ describe('Offer Client intent presentation', () => {
     expect(within(review).getByText('Checkout')).toBeInTheDocument();
     expect(within(review).getByText('loses Make progress')).toBeInTheDocument();
     await user.click(within(review).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(checkbox).toBeChecked();
     expect(window.__VEE_DEV__!.dump().offerJobSelections).toHaveLength(1);
+    expect(window.__VEE_DEV__!.dump().touchpointJobSelections).toHaveLength(1);
+    await waitFor(() => expect(checkbox).toHaveFocus());
 
     await user.click(checkbox);
+    review = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
+    expect(within(review).getByRole('button', { name: 'Cancel' })).toHaveFocus();
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(checkbox).toBeChecked();
+    expect(window.__VEE_DEV__!.dump().offerJobSelections).toHaveLength(1);
+    expect(window.__VEE_DEV__!.dump().touchpointJobSelections).toHaveLength(1);
+    await waitFor(() => expect(checkbox).toHaveFocus());
 
     await user.click(checkbox);
     review = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
