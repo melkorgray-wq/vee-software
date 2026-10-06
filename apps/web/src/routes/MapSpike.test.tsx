@@ -363,6 +363,7 @@ describe('Product Business structure Inspector', () => {
     await user.click(structure.getByRole('button', { name: 'Edit Offers' }));
     const editor = within(structure.getByRole('generic', { name: 'Offers editor' }));
     await user.click(editor.getByRole('button', { name: 'Create Offer' }));
+    expect(editor.getByRole('generic', { name: 'Current Offers' })).toHaveClass('structural-relation-list');
     const title = editor.getByRole('textbox', { name: 'Offer title' });
     await user.type(title, 'Fresh Offer');
     await user.keyboard('{Enter}');
@@ -468,6 +469,7 @@ describe('Product Business structure Inspector', () => {
     expect(editor.getByRole('button', { name: 'Create Offer' })).toHaveClass('inspector-secondary-action');
     await waitFor(() => expect(editor.getByRole('button', { name: 'Create Offer' })).toHaveFocus());
 
+    expect(editor.getByRole('generic', { name: 'Current Offers' })).toHaveClass('structural-relation-list');
     const currentOffers = within(editor.getByRole('generic', { name: 'Current Offers' }));
     expect(currentOffers.getAllByRole('button', { name: /^Move / })).toHaveLength(3);
     expect(currentOffers.queryByRole('checkbox')).not.toBeInTheDocument();
@@ -494,6 +496,7 @@ describe('Product Business structure Inspector', () => {
     expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
 
     await user.click(editor.getByRole('button', { name: 'Move Other Offer' }));
+    expect(editor.getByRole('generic', { name: 'Current Offers' })).toHaveClass('structural-relation-list');
     const nestedHeading = editor.getByText('Move Other Offer').closest('.structural-editor-heading')!;
     expect(within(nestedHeading as HTMLElement).getByRole('button', { name: 'Back' })).toBeInTheDocument();
     expect(editor.getByText('Other Product')).toBeInTheDocument();

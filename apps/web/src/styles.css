@@ -384,6 +384,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .inspector-relation-row > input:checked + .inspector-relation-indicator { border-color: var(--color-primary); background: var(--color-primary); box-shadow: inset 0 0 0 .18rem var(--surface-solid-1); }
 .structural-relation-row { display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: center; gap: .35rem; min-width: 0; }
 .inspector .structural-relation-row > .inspector-relation-row { flex: 0 1 auto; width: auto; max-width: 100%; min-width: 0; }
+.structural-relation-list > .structural-relation-row + .structural-relation-row { margin-block-start: .25rem; }
 .structural-relation-row small { display: block; color: rgba(255,255,255,.58); font-size: .7rem; }
 .children-editor-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
 .structural-editor-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: .35rem; min-width: 0; }
