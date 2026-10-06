@@ -371,7 +371,7 @@ describe('Product Business structure Inspector', () => {
     await waitFor(() => expect(editor.getByRole('button', { name: 'Create Offer' })).toHaveFocus());
     const currentOffers = within(editor.getByRole('generic', { name: 'Current Offers' }));
     expect(currentOffers.getByText('Fresh Offer')).toBeInTheDocument();
-    expect(editor.getByRole('button', { name: 'Move existing Offer here' })).toBeInTheDocument();
+    expect(editor.getByRole('button', { name: 'Move Other Offer here' })).toBeInTheDocument();
     expect(editor.queryByRole('textbox', { name: 'Offer title' })).not.toBeInTheDocument();
     expect(inspector.getByRole('heading', { name: 'Orbit' })).toBeInTheDocument();
     expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
@@ -450,51 +450,151 @@ describe('Product Business structure Inspector', () => {
     expect(window.__VEE_DEV__!.dump()).toEqual(before);
   });
 
-  it('opens separate transient Create and Move modes without mutating unfinished work or dirty state', async () => {
+  it('uses one structural surface for current and inbound Offers and commits both reassignment directions', async () => {
     const user = userEvent.setup();
     const inspector = renderProductInspector();
     const structureRegion = inspector.getByRole('region', { name: 'Business structure' });
     const structure = within(structureRegion);
-    const before = structuredClone(window.__VEE_DEV__!.dump());
 
     await user.click(structure.getByRole('button', { name: 'Edit Offers' }));
-    const editor = within(structure.getByRole('generic', { name: 'Offers editor' }));
+    const editorElement = structure.getByRole('generic', { name: 'Offers editor' });
+    const editor = within(editorElement);
     const headingCluster = structureRegion.querySelector('.embedded-editor-heading-actions')!;
     const offersHeading = structure.getByRole('heading', { name: 'Offers' });
     const close = structure.getByRole('button', { name: 'Close' });
     expect(headingCluster).toContainElement(offersHeading);
-    expect(headingCluster).toContainElement(close);
     expect(offersHeading.nextElementSibling).toBe(close);
-    expect(editor.getByRole('button', { name: 'Create Offer' }).parentElement).toHaveClass('inspector-relation-editor-actions-start');
+    expect(editor.getByRole('button', { name: 'Create Offer' }).parentElement).toHaveClass('structural-editor-heading');
     await waitFor(() => expect(editor.getByRole('button', { name: 'Create Offer' })).toHaveFocus());
-    expect(editor.getByRole('button', { name: 'Move existing Offer here' })).toBeInTheDocument();
+
     const currentOffers = within(editor.getByRole('generic', { name: 'Current Offers' }));
-    expect(currentOffers.getAllByRole('listitem').map(item => item.textContent)).toEqual(['Same title', 'Same title', 'Subscription']);
-    expect(currentOffers.queryByRole('button')).not.toBeInTheDocument();
+    expect(currentOffers.getAllByRole('button', { name: /^Move / })).toHaveLength(3);
+    expect(currentOffers.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(currentOffers.queryByRole('radio')).not.toBeInTheDocument();
     expect(currentOffers.queryByRole('link')).not.toBeInTheDocument();
-    expect(editor.queryByRole('checkbox')).not.toBeInTheDocument();
-    expect(editor.queryByRole('radio')).not.toBeInTheDocument();
-    expect(editor.queryByText(/Remove|Duplicate/)).not.toBeInTheDocument();
-
-    await user.click(editor.getByRole('button', { name: 'Create Offer' }));
-    expect(currentOffers.getByText('Subscription')).toBeInTheDocument();
-    const title = editor.getByRole('textbox', { name: 'Offer title' });
-    await user.type(title, 'Local draft');
-    expect(window.__VEE_DEV__!.dump()).toEqual(before);
-    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
-    await user.keyboard('{Escape}');
-    await waitFor(() => expect(editor.getByRole('button', { name: 'Create Offer' })).toHaveFocus());
-    expect(editor.queryByDisplayValue('Local draft')).not.toBeInTheDocument();
-
-    await user.click(editor.getByRole('button', { name: 'Move existing Offer here' }));
-    expect(currentOffers.getByText('Subscription')).toBeInTheDocument();
-    expect(editor.getByRole('button', { name: 'Plan move Other Offer' })).toBeInTheDocument();
     expect(editor.getByText('Current Product: Other Product')).toBeInTheDocument();
-    await user.click(editor.getByRole('button', { name: 'Plan move Other Offer' }));
-    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+
+    await user.click(editor.getByRole('button', { name: 'Move Other Offer here' }));
+    await waitFor(() => expect(within(editor.getByRole('generic', { name: 'Current Offers' })).getByText('Other Offer')).toBeInTheDocument());
+    expect(editor.queryByText('Current Product: Other Product')).not.toBeInTheDocument();
+    expect(inspector.getByRole('heading', { name: 'Orbit' })).toBeInTheDocument();
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
+
+    await user.click(editor.getByRole('button', { name: 'Move Other Offer' }));
+    const nestedHeading = editor.getByText('Move Other Offer').closest('.structural-editor-heading')!;
+    expect(within(nestedHeading as HTMLElement).getByRole('button', { name: 'Back' })).toBeInTheDocument();
+    expect(editor.getByText('Other Product')).toBeInTheDocument();
+    await user.click(editor.getByRole('button', { name: 'Other Product' }));
+    await waitFor(() => expect(editor.getByRole('button', { name: 'Move Other Offer here' })).toBeInTheDocument());
+    expect(window.__VEE_DEV__!.dump().relationships.find(relation => relation.id === 'other-package')).toMatchObject({ productId: 'other-product', offerId: 'other-offer' });
   });
 
-  it('keeps the valid empty Current Offers state visible in every editor mode', async () => {
+  it('uses canonical impact confirmation for Product-side reassignment and keeps the editor recoverable', async () => {
+    const user = userEvent.setup();
+    const source = semanticTouchpointNeighborhoodDocument();
+    source.entities.push({ id: 'replacement-product', kind: 'product', title: 'Replacement Product' });
+    source.placements.push({ viewId: 'spike-view', entityId: 'replacement-product', x: 3000, y: 0 });
+    const inspector = renderProductInspector(source);
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+    const before = structuredClone(window.__VEE_DEV__!.dump());
+
+    await user.click(structure.getByRole('button', { name: 'Edit Offers' }));
+    const editor = within(structure.getByRole('generic', { name: 'Offers editor' }));
+    await user.click(editor.getByRole('button', { name: 'Move Subscription' }));
+    let replacement = editor.getByRole('button', { name: 'Replacement Product' });
+    await user.click(replacement);
+    expect(screen.getByRole('dialog', { name: 'This change affects downstream intent' })).toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(replacement).toHaveFocus());
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+
+    replacement = editor.getByRole('button', { name: 'Replacement Product' });
+    await user.click(replacement);
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(replacement).toHaveFocus());
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    expect(editor.getByText('Move Subscription')).toBeInTheDocument();
+
+    await user.click(replacement);
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Confirm removal' }));
+    const committedEditor = within(structure.getByRole('generic', { name: 'Offers editor' }));
+    await waitFor(() => expect(committedEditor.getByRole('button', { name: 'Create Offer' })).toHaveFocus());
+    expect(committedEditor.getByRole('button', { name: 'Move Subscription here' })).toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump().relationships.find(relation => relation.kind === 'product_packaged_as_offer' && relation.offerId === 'offer-a')).toMatchObject({ productId: 'replacement-product' });
+    expect(inspector.getByRole('heading', { name: 'Orbit' })).toBeInTheDocument();
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
+  });
+
+  it('restores inbound impact focus and hands confirmed focus to the refreshed root editor', async () => {
+    const user = userEvent.setup();
+    const source = productBusinessStructureDocument();
+    source.relationships.push({ id: 'other-presented', kind: 'offer_presented_at_touchpoint', offerId: 'other-offer', touchpointId: 'touch' });
+    source.productJobIntents.push({ id: 'other-intent', productId: 'other-product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
+    source.offerJobSelections.push({ id: 'other-selection', offerId: 'other-offer', productJobIntentId: 'other-intent', addressedDesiredOutcomeIds: ['do-a'] });
+    source.touchpointJobSelections.push({ id: 'other-path', touchpointId: 'touch', offerId: 'other-offer', productJobIntentId: 'other-intent', addressedDesiredOutcomeIds: ['do-a'] });
+    const inspector = renderProductInspector(source);
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+    const before = structuredClone(window.__VEE_DEV__!.dump());
+
+    await user.click(structure.getByRole('button', { name: 'Edit Offers' }));
+    let editor = within(structure.getByRole('generic', { name: 'Offers editor' }));
+    let moveHere = editor.getByRole('button', { name: 'Move Other Offer here' });
+    await user.click(moveHere);
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(moveHere).toHaveFocus());
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+
+    moveHere = editor.getByRole('button', { name: 'Move Other Offer here' });
+    await user.click(moveHere);
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(moveHere).toHaveFocus());
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+
+    await user.click(moveHere);
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Confirm removal' }));
+    editor = within(structure.getByRole('generic', { name: 'Offers editor' }));
+    await waitFor(() => expect(editor.getByRole('button', { name: 'Create Offer' })).toHaveFocus());
+    expect(within(editor.getByRole('generic', { name: 'Current Offers' })).getByText('Other Offer')).toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump().relationships.find(relation => relation.id === 'other-package')).toMatchObject({ productId: 'product' });
+  });
+
+  it('focuses nested Back below the outbound search threshold and again when switching Offers', async () => {
+    const user = userEvent.setup();
+    const source = productBusinessStructureDocument();
+    for (let index = 0; index < RELATION_EDITOR_SEARCH_THRESHOLD - 2; index += 1) {
+      source.entities.push({ id: `candidate-product-${index}`, kind: 'product', title: `Candidate Product ${index}` });
+    }
+    const inspector = renderProductInspector(source);
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+    await user.click(structure.getByRole('button', { name: 'Edit Offers' }));
+    const editor = within(structure.getByRole('generic', { name: 'Offers editor' }));
+
+    await user.click(editor.getByRole('button', { name: 'Move Subscription' }));
+    expect(editor.queryByRole('searchbox', { name: 'Search Products' })).not.toBeInTheDocument();
+    await waitFor(() => expect(editor.getByRole('button', { name: 'Back' })).toHaveFocus());
+
+    await user.click(editor.getAllByRole('button', { name: 'Move Same title' })[0]!);
+    expect(editor.getByText('Move Same title')).toBeInTheDocument();
+    await waitFor(() => expect(editor.getByRole('button', { name: 'Back' })).toHaveFocus());
+  });
+
+  it('focuses Search Products at the exact outbound candidate threshold', async () => {
+    const user = userEvent.setup();
+    const source = productBusinessStructureDocument();
+    for (let index = 0; index < RELATION_EDITOR_SEARCH_THRESHOLD - 1; index += 1) {
+      source.entities.push({ id: `threshold-product-${index}`, kind: 'product', title: `Threshold Product ${index}` });
+    }
+    const inspector = renderProductInspector(source);
+    const structure = within(inspector.getByRole('region', { name: 'Business structure' }));
+    await user.click(structure.getByRole('button', { name: 'Edit Offers' }));
+    const thresholdEditor = within(structure.getByRole('generic', { name: 'Offers editor' }));
+    await user.click(thresholdEditor.getByRole('button', { name: 'Move Subscription' }));
+    await waitFor(() => expect(thresholdEditor.getByRole('searchbox', { name: 'Search Products' })).toHaveFocus());
+  });
+
+  it('keeps the valid empty Current Offers state visible in Create mode', async () => {
     const user = userEvent.setup();
     const document = productBusinessStructureDocument(false);
     document.relationships = document.relationships.filter(relation => relation.kind !== 'product_packaged_as_offer' || relation.productId !== 'product');
@@ -503,13 +603,9 @@ describe('Product Business structure Inspector', () => {
 
     await user.click(structure.getByRole('button', { name: 'Edit Offers' }));
     const editor = within(structure.getByRole('generic', { name: 'Offers editor' }));
-    const currentOffers = within(editor.getByRole('generic', { name: 'Current Offers' }));
-    expect(currentOffers.getByText('No Offers.')).toBeInTheDocument();
-
+    expect(within(editor.getByRole('generic', { name: 'Current Offers' })).getByText('No Offers.')).toBeInTheDocument();
     await user.click(editor.getByRole('button', { name: 'Create Offer' }));
-    expect(currentOffers.getByText('No Offers.')).toBeInTheDocument();
-    await user.click(editor.getByRole('button', { name: 'Back' }));
-    await user.click(editor.getByRole('button', { name: 'Move existing Offer here' }));
+    const currentOffers = within(editor.getByRole('generic', { name: 'Current Offers' }));
     expect(currentOffers.getByText('No Offers.')).toBeInTheDocument();
     expect(currentOffers.queryByRole('button')).not.toBeInTheDocument();
     expect(currentOffers.queryByRole('checkbox')).not.toBeInTheDocument();
@@ -3419,7 +3515,7 @@ describe('Touchpoint Business structure Inspector', () => {
     await user.click(children.getByRole('button', { name: 'Edit Children' }));
     const editor = children.getByLabelText('Children editor');
     const header = editor.querySelector<HTMLElement>('.children-editor-header')!;
-    const currentHeading = editor.querySelector<HTMLElement>('.children-current-heading')!;
+    const currentHeading = editor.querySelector<HTMLElement>('.structural-current-heading')!;
     expect(within(header).getByText('Children')).toBeInTheDocument();
     expect(within(header).getByRole('button', { name: 'Create child' })).toBeInTheDocument();
     expect(within(header).getByRole('button', { name: 'Close' })).toHaveClass('inspector-secondary-action');
@@ -3428,7 +3524,7 @@ describe('Touchpoint Business structure Inspector', () => {
     expect(within(currentHeading).getByRole('heading', { name: 'Current children' })).toBeInTheDocument();
     expect(within(currentHeading).getByRole('button', { name: 'Reassign all…' })).toHaveClass('inspector-secondary-action');
     expect(within(currentHeading).getByRole('button', { name: 'Detach all' })).toHaveClass('inspector-secondary-action');
-    const currentRow = within(editor).getByRole('checkbox', { name: 'FAQ' }).closest<HTMLElement>('.children-relation-row')!;
+    const currentRow = within(editor).getByRole('checkbox', { name: 'FAQ' }).closest<HTMLElement>('.structural-relation-row')!;
     expect(within(currentRow).getByRole('checkbox', { name: 'FAQ' })).toBeChecked();
     expect(within(currentRow).getByRole('button', { name: 'Reassign…' })).toBeInTheDocument();
     const search = within(editor).getByRole('searchbox', { name: 'Search Touchpoints' });

@@ -117,9 +117,9 @@ type OfferContentDisclosureSnapshot = {
 type ExternalCopyEditor = { offerId: string; source: OfferCurrentContentSource; draftUrl: string; error?: string };
 type ExternalCopyError = { offerId: string; source: OfferCurrentContentSource; message: string };
 type ProductOffersEditorState =
-  | { productId: string; mode: 'root' }
+  | { productId: string; mode: 'root'; query: string; error?: string }
   | { productId: string; mode: 'create'; title: string; error?: string }
-  | { productId: string; mode: 'move' };
+  | { productId: string; mode: 'move-current'; offerId: string; query: string; error?: string };
 type LocationDraft = { kind: 'none' } | { kind: 'existing'; containerId: string } | { kind: 'new'; title: string };
 type EditDraft = {
   title: string;
@@ -174,7 +174,7 @@ type EntityContextCommandGroup = { id: string; heading: string; commands: Entity
 type ProductConfirmation =
   | { mode: 'dirty'; pending: () => void; returnFocus: HTMLElement | null }
   | { mode: 'impact'; owner: 'product'; pending?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getProductIntentChangeImpact> }
-  | { mode: 'impact'; owner: 'offer-product'; immediateCommit: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getOfferIntentChangeImpact> }
+  | { mode: 'impact'; owner: 'offer-product'; immediateCommit: () => void; returnFocus: HTMLElement | null; returnFocusId?: string; focusAfterCommitId?: string; impact: ReturnType<typeof getOfferIntentChangeImpact> }
   | { mode: 'impact'; owner: 'offer-financial'; immediateCommit: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getOfferIntentChangeImpact> }
   | { mode: 'impact'; owner: 'offer-job'; immediateCommit: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getOfferIntentChangeImpact> }
   | { mode: 'impact'; owner: 'touchpoint'; immediateCommit: () => void; returnFocus: HTMLElement | null; returnFocusId?: string; impact: ReturnType<typeof getTouchpointLinkedOfferChangeImpact> }
@@ -1028,7 +1028,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   });
   function closeProductConfirmation() {
     const target = productConfirmation?.returnFocus;
-    const targetId = productConfirmation?.mode === 'impact' && (productConfirmation.owner === 'touchpoint' || productConfirmation.owner === 'touchpoint-replacement' || productConfirmation.owner === 'touchpoint-created-replacement') ? productConfirmation.returnFocusId : undefined;
+    const targetId = productConfirmation?.mode === 'impact' && (productConfirmation.owner === 'touchpoint' || productConfirmation.owner === 'touchpoint-replacement' || productConfirmation.owner === 'touchpoint-created-replacement' || productConfirmation.owner === 'offer-product') ? productConfirmation.returnFocusId : undefined;
     setProductConfirmation(null);
     requestAnimationFrame(() => (targetId ? globalThis.document.getElementById(targetId) : target)?.focus());
   }
@@ -1334,7 +1334,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       suppressProductOffersDismissalRef.current = true;
       documentRef.current = next;
       setDocument(next);
-      setProductOffersEditor({ productId: product.id, mode: 'root' });
+      setProductOffersEditor({ productId: product.id, mode: 'root', query: '' });
       requestAnimationFrame(() => { suppressProductOffersDismissalRef.current = false; });
       return 'complete';
     } catch (error) {
@@ -1363,17 +1363,18 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     closeChildrenEditor('switch-editor');
     if (!closeClientScopeEditor('switch-editor')) return;
     setBusinessInlineEdit(null);
-    setProductOffersEditor({ productId, mode: 'root' });
+    setProductOffersEditor({ productId, mode: 'root', query: '' });
   }
   useLayoutEffect(() => {
     if (!productOffersEditor) return;
-    const selector = productOffersEditor.mode === 'root'
-      ? '[data-product-offers-create]'
+    const target = productOffersEditor.mode === 'root'
+      ? productOffersEditorRef.current?.querySelector<HTMLElement>('[data-product-offers-create]')
       : productOffersEditor.mode === 'create'
-        ? 'input'
-        : '[data-product-offers-back]';
-    productOffersEditorRef.current?.querySelector<HTMLElement>(selector)?.focus();
-  }, [productOffersEditor?.mode, productOffersEditor?.productId]);
+        ? productOffersEditorRef.current?.querySelector<HTMLElement>('input')
+        : productOffersEditorRef.current?.querySelector<HTMLElement>('input[type="search"]')
+          ?? productOffersEditorRef.current?.querySelector<HTMLElement>('[data-product-offers-back]');
+    target?.focus();
+  }, [productOffersEditor?.mode, productOffersEditor?.productId, productOffersEditor?.mode === 'move-current' ? productOffersEditor.offerId : undefined]);
   useEffect(() => {
     if (!productOffersEditor) return;
     if (selected?.kind !== 'product' || selected.id !== productOffersEditor.productId) {
@@ -1381,18 +1382,18 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       return;
     }
     const pointer = (event: PointerEvent) => {
-      if (event.target instanceof globalThis.Node
+      if (!productConfirmation && event.target instanceof globalThis.Node
         && !productOffersEditorRef.current?.contains(event.target)
         && !(event.target instanceof Element && event.target.closest('[data-product-offers-editor-surface]'))) closeProductOffersEditor('pointer');
     };
     const keyboard = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      if (event.key !== 'Escape' || productConfirmation) return;
       event.preventDefault();
       event.stopPropagation();
       if (productOffersEditor.mode === 'root') closeProductOffersEditor('escape');
       else {
         discardProductOfferCreationRef.current = true;
-        setProductOffersEditor({ productId: productOffersEditor.productId, mode: 'root' });
+        setProductOffersEditor({ productId: productOffersEditor.productId, mode: 'root', query: '' });
       }
     };
     globalThis.document.addEventListener('pointerdown', pointer);
@@ -1401,7 +1402,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       globalThis.document.removeEventListener('pointerdown', pointer);
       globalThis.document.removeEventListener('keydown', keyboard);
     };
-  }, [productOffersEditor, selected]);
+  }, [productOffersEditor, productConfirmation, selected]);
   useEffect(() => {
     if (!childrenEditor) return;
     const pointer = (event: PointerEvent) => { if (event.target instanceof globalThis.Node && !childrenEditorRef.current?.contains(event.target)) { if (childrenEditor.mode === 'create-child') discardChildCreationRef.current = true; closeChildrenEditor('pointer'); } };
@@ -1772,33 +1773,41 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       },
     });
   }
-  function commitOfferProductImmediately(offerId: string, productId: string, confirmedImpact = false) {
+  function commitOfferProductImmediately(offerId: string, productId: string, context: 'offer-editor' | 'product-editor', confirmedImpact = false, inspectedProductId?: string) {
     try {
       const before = documentRef.current;
       const committed = changeOfferProduct(before, { offerId, productId, confirmedImpact });
       const next = reconsiderPlacementAfterRelationCommit(before, committed, VIEW_ID, offerId);
       setDocument(next);
-      setEditDraft(current => current ? { ...current, linkedProductId: productId } : current);
-      closeRelationEditor('commit');
+      if (context === 'offer-editor') {
+        setEditDraft(current => current ? { ...current, linkedProductId: productId } : current);
+        closeRelationEditor('commit');
+      } else {
+        setProductOffersEditor({ productId: inspectedProductId ?? productId, mode: 'root', query: '' });
+      }
       publishSuccess('Product updated.');
     } catch (error) {
-      publishError(error instanceof Error ? error.message : 'Product could not be updated.');
+      const message = error instanceof Error ? error.message : 'Product could not be updated.';
+      if (context === 'product-editor') setProductOffersEditor(current => current ? { ...current, error: message } : current);
+      else publishError(message);
     }
   }
-  function requestOfferProductCommit(productId: string, returnFocus: HTMLElement | null) {
-    if (selected?.kind !== 'offer' || !offerBusinessStructure || offerBusinessStructure.product.id === productId) {
-      closeRelationEditor('commit');
+  function requestOfferProductCommit(offerId: string, productId: string, returnFocus: HTMLElement | null, context: 'offer-editor' | 'product-editor', inspectedProductId?: string, returnFocusId?: string, focusAfterCommitId?: string) {
+    const durable = documentRef.current;
+    const currentProductId = durable.relationships.find(
+      (relation): relation is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => relation.kind === 'product_packaged_as_offer' && relation.offerId === offerId,
+    )?.productId;
+    if (currentProductId === productId) {
+      if (context === 'offer-editor') closeRelationEditor('commit');
       return;
     }
-    const offerId = selected.id;
-    const durable = documentRef.current;
     const financialDesiredOutcomeIds = durable.offerFinancialIntents.filter(intent => intent.offerId === offerId).map(intent => intent.financialDesiredOutcomeId);
     const impact = getOfferIntentChangeImpact(durable, { offerId, productId, selections: [], financialDesiredOutcomeIds });
     if (impact.touchpointJobSelectionIds.length || impact.narrowedTouchpointSelections.length || impact.touchpointFinancialSelectionIds.length) {
-      setProductConfirmation({ mode: 'impact', owner: 'offer-product', impact, returnFocus, immediateCommit: () => commitOfferProductImmediately(offerId, productId, true) });
+      setProductConfirmation({ mode: 'impact', owner: 'offer-product', impact, returnFocus, ...(returnFocusId ? { returnFocusId } : {}), ...(focusAfterCommitId ? { focusAfterCommitId } : {}), immediateCommit: () => commitOfferProductImmediately(offerId, productId, context, true, inspectedProductId) });
       return;
     }
-    commitOfferProductImmediately(offerId, productId);
+    commitOfferProductImmediately(offerId, productId, context, false, inspectedProductId);
   }
   function commitOfferFinancialIntentImmediately(offerId: string, outcomeId: string, checked: boolean) {
     try {
@@ -3312,17 +3321,17 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       }
       const all = [...candidateModel.currentChildren, ...candidateModel.standaloneBranches.map(item => item.touchpoint), ...candidateModel.standaloneLeaves.map(item => item.touchpoint)];
       const searchable = all.length >= RELATION_EDITOR_SEARCH_THRESHOLD; const query = childrenEditor.query.toLocaleLowerCase();
-      const row = (touchpoint: Extract<Entity, { kind: 'touchpoint' }>, checked: boolean, childCount = 0) => <div className="children-relation-row" key={touchpoint.id}><label className="inspector-relation-row inspector-relation-row-checkbox"><input type="checkbox" checked={checked} onChange={event => runChildrenCommand(event.target.checked ? { kind: 'attach', childTouchpointIds: [touchpoint.id], targetParentTouchpointId: structure.touchpoint.id } : { kind: 'detach', childTouchpointIds: [touchpoint.id] })}/><span className="inspector-relation-indicator" aria-hidden="true"/><span>{touchpoint.title}{childCount > 0 && <small>{childCount} {childCount === 1 ? 'child' : 'children'}</small>}</span></label>{checked && <button type="button" className="inspector-secondary-action" onClick={() => setChildrenEditor({ mode: 'reassign-one', query: '', childTouchpointIds: [touchpoint.id] })}>Reassign…</button>}</div>;
+      const row = (touchpoint: Extract<Entity, { kind: 'touchpoint' }>, checked: boolean, childCount = 0) => <div className="structural-relation-row" key={touchpoint.id}><label className="inspector-relation-row inspector-relation-row-checkbox"><input type="checkbox" checked={checked} onChange={event => runChildrenCommand(event.target.checked ? { kind: 'attach', childTouchpointIds: [touchpoint.id], targetParentTouchpointId: structure.touchpoint.id } : { kind: 'detach', childTouchpointIds: [touchpoint.id] })}/><span className="inspector-relation-indicator" aria-hidden="true"/><span>{touchpoint.title}{childCount > 0 && <small>{childCount} {childCount === 1 ? 'child' : 'children'}</small>}</span></label>{checked && <button type="button" className="inspector-secondary-action" onClick={() => setChildrenEditor({ mode: 'reassign-one', query: '', childTouchpointIds: [touchpoint.id] })}>Reassign…</button>}</div>;
       const filter = <T extends { touchpoint: { title: string } }>(items: T[]) => items.filter(item => !query || item.touchpoint.title.toLocaleLowerCase().includes(query));
       return <div ref={childrenEditorRef} className="inspector-relation-editor" aria-label="Children editor">
         <div className="inspector-relation-editor-header children-editor-header">
-          <div className="children-editor-heading"><strong>Children</strong><button type="button" onClick={() => { discardChildCreationRef.current = false; setChildrenEditor({ mode: 'create-child', query: '', title: '', offerId: '' }); }}>Create child</button></div>
+          <div className="structural-editor-heading"><strong>Children</strong><button type="button" onClick={() => { discardChildCreationRef.current = false; setChildrenEditor({ mode: 'create-child', query: '', title: '', offerId: '' }); }}>Create child</button></div>
           <button type="button" className="inspector-secondary-action" onClick={() => closeChildrenEditor('explicit')}>Close</button>
         </div>
         {searchable && <label className="inspector-relation-editor-search">Search Touchpoints<input type="search" value={childrenEditor.query} onChange={event => setChildrenEditor({ ...childrenEditor, query: event.target.value })}/></label>}
-        <div className="children-current-heading">
+        <div className="structural-current-heading">
           <h6>Current children</h6>
-          {candidateModel.currentChildren.length > 0 && <div className="children-current-actions"><button type="button" className="inspector-secondary-action" onClick={() => setChildrenEditor({ mode: 'reassign-all', query: '', childTouchpointIds: candidateModel.currentChildren.map(item => item.id) })}>Reassign all…</button><button type="button" className="inspector-secondary-action" onClick={() => runChildrenCommand({ kind: 'detach', childTouchpointIds: candidateModel.currentChildren.map(item => item.id) })}>Detach all</button></div>}
+          {candidateModel.currentChildren.length > 0 && <div className="structural-current-actions"><button type="button" className="inspector-secondary-action" onClick={() => setChildrenEditor({ mode: 'reassign-all', query: '', childTouchpointIds: candidateModel.currentChildren.map(item => item.id) })}>Reassign all…</button><button type="button" className="inspector-secondary-action" onClick={() => runChildrenCommand({ kind: 'detach', childTouchpointIds: candidateModel.currentChildren.map(item => item.id) })}>Detach all</button></div>}
         </div>
         {candidateModel.currentChildren.filter(item => !query || item.title.toLocaleLowerCase().includes(query)).map(item => row(item, true))}
         <h6>Available standalone branches</h6>{filter(candidateModel.standaloneBranches).map(item => row(item.touchpoint, false, item.childCount))}
@@ -3430,7 +3439,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 <div className="inspector-relation-editor-header"><strong>Product</strong><button type="button" className="inspector-secondary-action" onClick={() => closeRelationEditor('explicit')}>Close</button></div>
                 {searchable && <label className="inspector-relation-editor-search" htmlFor="offer-product-search">Search Products<input autoFocus id="offer-product-search" type="search" value={productPicker.query} onChange={event => setProductPicker({ query: event.target.value })} /></label>}
                 <div className="inspector-relation-candidates" role="radiogroup" aria-label="Product options" aria-live="polite">
-                  {candidates.length ? candidates.map((product, index) => <label className="inspector-relation-row inspector-relation-row-radio" key={product.id}><input autoFocus={!searchable && index === 0} type="radio" name="offer-product" checked={structure.product.id === product.id} onChange={() => undefined} onClick={event => requestOfferProductCommit(product.id, event.currentTarget)} /><span className="inspector-relation-indicator" aria-hidden="true" /><span>{product.title}</span></label>) : <p role="status">No matching Products.</p>}
+                  {candidates.length ? candidates.map((product, index) => <label className="inspector-relation-row inspector-relation-row-radio" key={product.id}><input autoFocus={!searchable && index === 0} type="radio" name="offer-product" checked={structure.product.id === product.id} onChange={() => undefined} onClick={event => requestOfferProductCommit(inspectedOfferId, product.id, event.currentTarget, 'offer-editor')} /><span className="inspector-relation-indicator" aria-hidden="true" /><span>{product.title}</span></label>) : <p role="status">No matching Products.</p>}
                 </div>
               </div> : navigationList([structure.product])}
             </div>
@@ -3487,34 +3496,44 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const structure = productBusinessStructure;
     if (!structure) return null;
     const editor = productOffersEditor?.productId === structure.product.id ? productOffersEditor : null;
-    const candidates = editor?.mode === 'move'
-      ? projectProductOfferMoveCandidates(document, structure.product.id)
+    const inboundCandidates = projectProductOfferMoveCandidates(document, structure.product.id);
+    const rootQuery = editor?.mode === 'root' ? editor.query.trim().toLocaleLowerCase() : '';
+    const visibleInboundCandidates = inboundCandidates.filter(candidate => !rootQuery || candidate.offer.title.toLocaleLowerCase().includes(rootQuery) || candidate.currentProduct.title.toLocaleLowerCase().includes(rootQuery));
+    const movingOffer = editor?.mode === 'move-current' ? structure.offers.find(offer => offer.id === editor.offerId) : undefined;
+    const allOutboundProducts = document.entities.filter((entity): entity is Extract<Entity, { kind: 'product' }> => entity.kind === 'product' && entity.id !== structure.product.id);
+    const outboundProducts = editor?.mode === 'move-current'
+      ? allOutboundProducts.filter(product => !editor.query || product.title.toLocaleLowerCase().includes(editor.query.trim().toLocaleLowerCase()))
       : [];
-    const backToRoot = () => setProductOffersEditor({ productId: structure.product.id, mode: 'root' });
+    const inboundSearchable = inboundCandidates.length >= RELATION_EDITOR_SEARCH_THRESHOLD;
+    const outboundSearchable = allOutboundProducts.length >= RELATION_EDITOR_SEARCH_THRESHOLD;
+    const backToRoot = () => setProductOffersEditor({ productId: structure.product.id, mode: 'root', query: '' });
+    const rootFocusId = `product-offers-create-${encodeURIComponent(structure.product.id)}`;
+    const currentRows = <div aria-label="Current Offers">
+      <h6>Current Offers</h6>
+      {structure.offers.length
+        ? structure.offers.map(offer => <div className="structural-relation-row" key={offer.id}><div className="inspector-relation-row structural-relation-state"><span>{offer.title}</span></div><button type="button" className="inspector-secondary-action" aria-label={`Move ${offer.title}`} onClick={() => setProductOffersEditor({ productId: structure.product.id, mode: 'move-current', offerId: offer.id, query: '' })}>Move…</button></div>)
+        : <p className="business-structure-empty">No Offers.</p>}
+    </div>;
     return <section className="touchpoint-business-structure" aria-label="Business structure">
       <div className="business-structure-primary">
         <section className="business-structure-region" aria-labelledby="product-offers-heading">
           <div data-product-offers-editor-surface={editor ? true : undefined} className={editor ? 'embedded-editor-heading-actions' : undefined}><h5 id="product-offers-heading" aria-label="Offers"><button ref={productOffersButtonRef} type="button" className="inspector-property-heading-action" aria-label="Edit Offers" aria-expanded={Boolean(editor)} onClick={() => openProductOffersEditor(structure.product.id)}>Offers<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h5>{editor && <button type="button" className="inspector-secondary-action" onClick={() => closeProductOffersEditor('explicit')}>Close</button>}</div>
           {editor ? <div ref={productOffersEditorRef} className="inspector-relation-editor" aria-label="Offers editor">
-            <div aria-label="Current Offers">
-              <h6>Current Offers</h6>
-              {structure.offers.length
-                ? <ul className="business-structure-links">{structure.offers.map(offer => <li key={offer.id}><span>{offer.title}</span></li>)}</ul>
-                : <p className="business-structure-empty">No Offers.</p>}
-            </div>
-            {editor.mode === 'root' && <div className="inspector-relation-editor-actions inspector-relation-editor-actions-start">
-              <button data-product-offers-create type="button" onClick={() => { discardProductOfferCreationRef.current = false; completedProductOfferCreationRef.current = false; setProductOffersEditor({ productId: structure.product.id, mode: 'create', title: '' }); }}>Create Offer</button>
-              <button type="button" onClick={() => setProductOffersEditor({ productId: structure.product.id, mode: 'move' })}>Move existing Offer here</button>
-            </div>}
+            {editor.mode === 'root' && <><div className="structural-editor-heading"><strong>Offers</strong><button id={rootFocusId} data-product-offers-create type="button" onClick={() => { discardProductOfferCreationRef.current = false; completedProductOfferCreationRef.current = false; setProductOffersEditor({ productId: structure.product.id, mode: 'create', title: '' }); }}>Create Offer</button></div>{currentRows}
+              {inboundSearchable && <label className="inspector-relation-editor-search">Search available Offers<input type="search" value={editor.query} onChange={event => setProductOffersEditor({ ...editor, query: event.target.value })} /></label>}
+              <h6>Available Offers</h6>
+              <div className="inspector-relation-candidates" aria-live="polite">{visibleInboundCandidates.length ? visibleInboundCandidates.map(candidate => { const focusId = `product-offers-move-here-${encodeURIComponent(candidate.offer.id)}`; return <div className="structural-relation-row" key={candidate.offer.id}><div className="inspector-relation-row structural-relation-state"><span className="inspector-relation-row-content"><span>{candidate.offer.title}</span><small>Current Product: {candidate.currentProduct.title}</small></span></div><button id={focusId} type="button" className="inspector-secondary-action" aria-label={`Move ${candidate.offer.title} here`} onClick={event => requestOfferProductCommit(candidate.offer.id, structure.product.id, event.currentTarget, 'product-editor', structure.product.id, focusId, rootFocusId)}>Move here</button></div>; }) : <p role="status">No Offers available to move.</p>}</div>
+            </>}
             {editor.mode === 'create' && <>
-              <div className="inspector-relation-editor-header"><strong>Create Offer</strong><button data-product-offers-back type="button" className="inspector-secondary-action" onPointerDown={() => { discardProductOfferCreationRef.current = true; }} onClick={backToRoot}>Back</button></div>
+              {currentRows}<div className="structural-editor-heading"><strong>Create Offer</strong><button data-product-offers-back type="button" className="inspector-secondary-action" onPointerDown={() => { discardProductOfferCreationRef.current = true; }} onClick={backToRoot}>Back</button></div>
               <label>Offer title<input value={editor.title} onChange={event => setProductOffersEditor({ productId: editor.productId, mode: 'create', title: event.target.value })} onBlur={event => { const movingToDiscard = event.relatedTarget instanceof HTMLElement && Boolean(event.relatedTarget.closest('[data-product-offers-back]')); if (!discardProductOfferCreationRef.current && !movingToDiscard) completeProductOfferCreation(); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); completeProductOfferCreation(); } }} /></label>
               {editor.error && <p role="alert">{editor.error}</p>}
             </>}
-            {editor.mode === 'move' && <>
-              <div className="inspector-relation-editor-header"><strong>Move existing Offer here</strong><button data-product-offers-back type="button" className="inspector-secondary-action" onClick={backToRoot}>Back</button></div>
-              {candidates.length ? <ul className="business-structure-links">{candidates.map(candidate => <li key={candidate.offer.id}><button type="button" aria-label={`Plan move ${candidate.offer.title}`} onClick={() => undefined}>{candidate.offer.title}</button><small>Current Product: {candidate.currentProduct.title}</small></li>)}</ul> : <p className="business-structure-empty">No Offers available to move.</p>}
-              <p className="business-structure-empty">Moving is not available in this planning step.</p>
+            {editor.mode === 'move-current' && <>
+              {currentRows}<div className="structural-editor-heading"><strong>Move {movingOffer?.title ?? 'Offer'}</strong><button data-product-offers-back type="button" className="inspector-secondary-action" onClick={backToRoot}>Back</button></div>
+              {outboundSearchable && <label className="inspector-relation-editor-search">Search Products<input type="search" value={editor.query} onChange={event => setProductOffersEditor({ ...editor, query: event.target.value })} /></label>}
+              <div className="inspector-relation-candidates">{outboundProducts.length ? outboundProducts.map(product => { const focusId = `product-offers-target-${encodeURIComponent(movingOffer?.id ?? '')}-${encodeURIComponent(product.id)}`; return <button id={focusId} type="button" className="inspector-relation-row structural-relation-candidate" key={product.id} onClick={event => movingOffer && requestOfferProductCommit(movingOffer.id, product.id, event.currentTarget, 'product-editor', structure.product.id, focusId, rootFocusId)}>{product.title}</button>; }) : <p role="status">No matching Products.</p>}</div>
+              {editor.error && <p role="alert">{editor.error}</p>}
             </>}
           </div> : structure.offers.length
               ? <ul className="business-structure-links">{structure.offers.map(offer => <li key={offer.id}><button type="button" className="inspector-entity-navigation" data-entity-id={offer.id} onClick={() => navigateInspector(offer.id)}>{offer.title}</button></li>)}</ul>
@@ -4425,7 +4444,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 <button type="button" onClick={closeProductConfirmation}>Keep editing</button>
               </> : <>
                 <button type="button" onClick={closeProductConfirmation}>Cancel</button>
-                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; setProductConfirmation(null); if (confirmation.owner === 'touchpoint' || confirmation.owner === 'touchpoint-replacement' || confirmation.owner === 'touchpoint-created-replacement' || confirmation.owner === 'offer-product' || confirmation.owner === 'offer-financial' || confirmation.owner === 'offer-job') { confirmation.immediateCommit(); if (confirmation.owner !== 'touchpoint-created-replacement') requestAnimationFrame(() => ((confirmation.owner === 'touchpoint' || confirmation.owner === 'touchpoint-replacement') && confirmation.returnFocusId ? globalThis.document.getElementById(confirmation.returnFocusId) : confirmation.returnFocus)?.focus()); } else { productApplyBypassRef.current = true; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>{productConfirmation.owner === 'touchpoint-created-replacement' ? 'Confirm' : productConfirmation.owner === 'touchpoint-replacement' ? 'Replace Offer' : productConfirmation.owner === 'touchpoint' || productConfirmation.owner === 'offer-product' || productConfirmation.owner === 'offer-financial' || productConfirmation.owner === 'offer-job' ? 'Confirm removal' : 'Apply changes'}</button>
+                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; setProductConfirmation(null); if (confirmation.owner === 'touchpoint' || confirmation.owner === 'touchpoint-replacement' || confirmation.owner === 'touchpoint-created-replacement' || confirmation.owner === 'offer-product' || confirmation.owner === 'offer-financial' || confirmation.owner === 'offer-job') { confirmation.immediateCommit(); if (confirmation.owner !== 'touchpoint-created-replacement') requestAnimationFrame(() => (confirmation.owner === 'offer-product' && confirmation.focusAfterCommitId ? globalThis.document.getElementById(confirmation.focusAfterCommitId) : (confirmation.owner === 'touchpoint' || confirmation.owner === 'touchpoint-replacement') && confirmation.returnFocusId ? globalThis.document.getElementById(confirmation.returnFocusId) : confirmation.returnFocus)?.focus()); } else { productApplyBypassRef.current = true; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>{productConfirmation.owner === 'touchpoint-created-replacement' ? 'Confirm' : productConfirmation.owner === 'touchpoint-replacement' ? 'Replace Offer' : productConfirmation.owner === 'touchpoint' || productConfirmation.owner === 'offer-product' || productConfirmation.owner === 'offer-financial' || productConfirmation.owner === 'offer-job' ? 'Confirm removal' : 'Apply changes'}</button>
               </>}
             </div>
           </div>
