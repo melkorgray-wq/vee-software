@@ -465,6 +465,7 @@ describe('Product Business structure Inspector', () => {
     expect(headingCluster).toContainElement(offersHeading);
     expect(offersHeading.nextElementSibling).toBe(close);
     expect(editor.getByRole('button', { name: 'Create Offer' }).parentElement).toHaveClass('structural-editor-heading');
+    expect(editor.getByRole('button', { name: 'Create Offer' })).toHaveClass('inspector-secondary-action');
     await waitFor(() => expect(editor.getByRole('button', { name: 'Create Offer' })).toHaveFocus());
 
     const currentOffers = within(editor.getByRole('generic', { name: 'Current Offers' }));
