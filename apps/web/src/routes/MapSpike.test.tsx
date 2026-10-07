@@ -3394,7 +3394,7 @@ describe('Offer Content Inspector', () => {
   it('Product parity switches Current independently, preserves copies and focuses the committed marker', async () => {
     const user = userEvent.setup(); const inspector = renderProductInspector(productParityDocument(coexist)); const section = paritySection(inspector);
     await user.click(section.getByRole('button', { name: 'Edit Product Definition' }));
-    expect(section.getByText('Structure the Product as named blocks:', { exact: false })).toBeInTheDocument();
+    expect(section.getByText('Structure the Product as named blocks. Use Actual / Augmented Product as a lens, or organize it around components, capabilities, delivery, inclusions, boundaries and dependencies — or make your own structure.', { exact: true })).toBeInTheDocument();
     await user.click(section.getByRole('button', { name: 'Make Structured Definition current' }));
     expect(parityProduct()).toMatchObject({ ...coexist, currentDefinitionSource: 'structured' });
     expect(globalThis.document.getElementById('product-definition-current-structured-product')).toHaveFocus();
