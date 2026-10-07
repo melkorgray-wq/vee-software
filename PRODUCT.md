@@ -52,6 +52,12 @@ Product, Offer, and Touchpoint form the Business-side architecture through which
 
 These types are attraction-oriented by what they already mean; there is no generic Attraction Point entity above them. A weak or ineffective Touchpoint remains a weak attraction point, not a repulsion point. Business-side repulsion points are not part of the product direction.
 
+### Product Definition
+
+Product may independently own optional authored Definition describing the good, service, or experience itself: an external absolute HTTP(S) document URL, free-form text, and ordered custom titled blocks with stable IDs and optional body text. No fixed Product taxonomy is imposed. Free-form and structured representations may coexist; Current selects one eligible representation without deleting or synchronizing the other. Eligibility requires non-whitespace free-form text or body text in at least one structured block; block titles alone do not qualify. A valid Current choice is retained, otherwise the available representation is selected, preferring free-form when both qualify; no eligible body means no Current representation. Canonical whole text is the Product title followed by the Current body, with structured body texts in authored order and without block titles. Each representation owns an independent optional absolute HTTP(S) external-copy URL, which may exist before eligibility and is not moved or synchronized by Current changes.
+
+Definition is authored Product description, not Product Job Intent, Offer wording, Touchpoint data, Evidence, Factual Support, or proof of an addressed Job/Desired Outcome. Definition operations change only the owning Product and do not initialize or propagate into existing or newly created Offers, alter intent/selections, or create relationships or epistemic records. The current checkpoint supplies framework-independent domain operations only; it adds no Product Inspector UI, legacy section-wide Apply ownership, persistence guarantee, or Product Definition duplication semantics. All Definition fields remain optional for existing in-memory Product documents.
+
 ### Client-side attraction and repulsion
 
 Client-side demand is represented through concrete client phenomena, not a separate Demand node. The accepted conceptual Client-side ontology for the next Alpha slice has these root-createable attraction entities:
