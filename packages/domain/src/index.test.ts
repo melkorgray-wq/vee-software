@@ -10,6 +10,19 @@ function offerDocument() { let d = addEntity(empty(), { ...place, entityId: 'pro
 function touchpoint(d = offerDocument(), id = 'touch', parent?: string) { return addEntity(d, { ...place, entityId: id, title: id, kind: 'touchpoint', locatedInId: 'site', url: '  /checkout#pay  ', linkedOfferIds: ['offer'], relationshipIds: [`presented-${id}`], ...(parent ? { parentTouchpointId: parent, parentRelationshipId: `contains-${id}` } : {}) }); }
 
 describe('map authoring domain', () => {
+  it.each(['/relative', 'javascript:alert(1)'])('reports owner-specific DomainError codes for invalid document and external-copy URLs: %s', value => {
+    const document = offerDocument(); const snapshot = structuredClone(document);
+    const productError = expect.objectContaining({ name: 'DomainError', code: 'invalid_product_definition_url' });
+    const offerError = expect.objectContaining({ name: 'DomainError', code: 'invalid_offer_content_url' });
+    expect(() => updateProductDefinition(document, { productId: 'product', field: 'definitionUrl', value })).toThrowError(productError);
+    expect(() => updateOfferContent(document, { offerId: 'offer', field: 'contentUrl', value })).toThrowError(offerError);
+    for (const source of ['free_form', 'structured'] as const) {
+      expect(() => setProductDefinitionExternalCopyUrl(document, { productId: 'product', source, value })).toThrowError(productError);
+      expect(() => setOfferContentExternalCopyUrl(document, { offerId: 'offer', source, value })).toThrowError(offerError);
+    }
+    expect(document).toEqual(snapshot);
+  });
+
   describe('Product Definition domain foundation', () => {
     const product = (document: ReturnType<typeof offerDocument>, id = 'product') => document.entities.find((entity): entity is Extract<(typeof document.entities)[number], { kind: 'product' }> => entity.id === id && entity.kind === 'product')!;
     const state = (document: ReturnType<typeof offerDocument>) => productDefinitionSourceState(document, 'product');

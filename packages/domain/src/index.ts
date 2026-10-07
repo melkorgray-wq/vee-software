@@ -62,12 +62,12 @@ export class DomainError extends Error {
 }
 function required(value: string, field: string): string { const trimmed = value.trim(); if (!trimmed) throw new DomainError(`invalid_${field.toLowerCase().replaceAll(' ', '_')}`, `${field} must not be blank.`); return trimmed; }
 function optional(value?: string): string | undefined { const trimmed = value?.trim(); return trimmed || undefined; }
-function safeAbsoluteHttpUrl(value?: string): string | undefined {
+function safeAbsoluteHttpUrl(value?: string, errorCode = 'invalid_offer_content_url'): string | undefined {
   const normalized = optional(value);
   if (!normalized) return undefined;
   let parsed: URL;
-  try { parsed = new URL(normalized); } catch { throw new DomainError('invalid_offer_content_url', 'External document URL must be an absolute http: or https: URL.'); }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new DomainError('invalid_offer_content_url', 'External document URL must be an absolute http: or https: URL.');
+  try { parsed = new URL(normalized); } catch { throw new DomainError(errorCode, 'External document URL must be an absolute http: or https: URL.'); }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new DomainError(errorCode, 'External document URL must be an absolute http: or https: URL.');
   return normalized;
 }
 function finite(x: number, y: number) { if (!Number.isFinite(x) || !Number.isFinite(y)) throw new DomainError('invalid_coordinates', 'Placement coordinates must be finite.'); }
@@ -179,10 +179,10 @@ export function setOfferFinancialIntents(document: MapDocument, input: { offerId
   return pruneIrrelevantTouchpointMitigations({ ...document, offerFinancialIntents: [...document.offerFinancialIntents.filter(intent => intent.offerId !== input.offerId), ...replacement], touchpointFinancialSelections: document.touchpointFinancialSelections.filter(selection => selection.offerId !== input.offerId || retainedIds.has(selection.offerFinancialIntentId)) });
 }
 
-/** Atomically replaces one independently authored Definition property owned by an Product. */
+/** Atomically replaces one independently authored Definition property owned by a Product. */
 export function updateProductDefinition(document: MapDocument, input: { productId: string; field: 'definitionUrl' | 'definitionText'; value?: string }): MapDocument {
   const product = entityOfKind(document, input.productId, 'product', 'Product') as Extract<Entity, { kind: 'product' }>;
-  const normalized = input.field === 'definitionUrl' ? safeAbsoluteHttpUrl(input.value) : optional(input.value);
+  const normalized = input.field === 'definitionUrl' ? safeAbsoluteHttpUrl(input.value, 'invalid_product_definition_url') : optional(input.value);
   if (product[input.field] === normalized) return document;
   const replacement: Extract<Entity, { kind: 'product' }> = { ...product };
   if (normalized) replacement[input.field] = normalized;
@@ -194,7 +194,7 @@ export function updateProductDefinition(document: MapDocument, input: { productI
 export function setProductDefinitionExternalCopyUrl(document: MapDocument, input: { productId: string; source: ProductCurrentDefinitionSource; value?: string }): MapDocument {
   const product = entityOfKind(document, input.productId, 'product', 'Product') as Extract<Entity, { kind: 'product' }>;
   if (input.source !== 'free_form' && input.source !== 'structured') throw new DomainError('invalid_product_definition_source', 'Product Definition source must be free_form or structured.');
-  const normalized = safeAbsoluteHttpUrl(input.value);
+  const normalized = safeAbsoluteHttpUrl(input.value, 'invalid_product_definition_url');
   const field = input.source === 'free_form' ? 'freeFormExternalCopyUrl' : 'structuredExternalCopyUrl';
   if (product[field] === normalized) return document;
   const replacement: Extract<Entity, { kind: 'product' }> = { ...product };
