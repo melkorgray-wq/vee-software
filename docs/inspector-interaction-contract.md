@@ -109,6 +109,14 @@ The Product Definition editor owns transient URL/text drafts, block drafts/error
 
 These rules transfer portable authored-field/block grammar while retaining Product ownership. They do not generalize completion-before-dismissal to every Inspector editor, introduce persistence guarantees, or redesign legacy Product Apply.
 
+### Product Current, canonical read and External copy
+
+- Product source eligibility and fallback remain domain-owned by `productDefinitionSourceState()`. **Make current** completes the active field first, respects unresolved Product document URL validation and local delete confirmation, then invokes `setProductCurrentDefinitionSource()` against the fresh document. Recomputed eligibility may reject the target; that error is recoverable and previously completed fields remain committed. Current switches never copy/delete representations or synchronize external-copy URLs.
+- Canonical read/Copy use only `productDefinitionWholeText()`, including Title-only state. Copy and measured disclosure are transient presentation operations without document mutation. Shared measurement remains mounted through broad-editor opening; source identity and exact text invalidate stale snapshots. Collapse restoration checks the original connected scroll context and consumes its snapshot once.
+- **Add link** / **Edit link** open a draft owned by `{kind, entityId, source}` for Current. Enter/blur commit through `setProductDefinitionExternalCopyUrl()`; blank input and **Clear link** clear only that source. Failed validation preserves the document and blocks editor/navigation transfer. Before writing, check fresh entity/source identity. Escape abandons only the unfinished External copy draft and returns focus to the still-mounted Add/Edit action.
+- **Use this document** stores the exact committed Product document URL only for Current when its copy URL is absent. It performs no Copy, external navigation, publishing or synchronization. Exact URL equality changes link presentation only; changing Product document never changes either stored copy URL.
+- Shared presentation owners retain Offer API/error semantics through Offer adapters; Product errors and property/block completion remain Product-owned. Neither representation actions nor External copy bypass a Product document validation failure or reset pending legacy intent drafts. Legacy Apply/Discard preserves committed Definition.
+
 ## Offer Content property editing
 
 `contentUrl` and `contentText` are two independent Offer-authored property operations. Their shared embedded surface does not combine them into one transaction. Natural completion of the active valid field performs exactly one `updateOfferContent()` commit; moving between fields may therefore commit one sibling before the other.

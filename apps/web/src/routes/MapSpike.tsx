@@ -2,7 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useReducer, useRef, useState, typ
 import { createPortal } from 'react-dom';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { CLIENT_ROOT_ENTITY_KINDS, DomainError, addEntity, addOfferContentBlock, addProductDefinitionBlock, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, offerContentSourceState, offerContentWholeText, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, removeOfferContentBlock, removeProductDefinitionBlock, reorderOfferContentBlocks, reorderProductDefinitionBlocks, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferContentExternalCopyUrl, setOfferCurrentContentSource, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateOfferContent, updateOfferContentBlock, updateProductDefinitionBlock, updateProductDefinition, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type OfferCurrentContentSource, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
+import { CLIENT_ROOT_ENTITY_KINDS, DomainError, addEntity, addOfferContentBlock, addProductDefinitionBlock, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, offerContentSourceState, offerContentWholeText, productDefinitionSourceState, productDefinitionWholeText, setProductCurrentDefinitionSource, setProductDefinitionExternalCopyUrl, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, removeOfferContentBlock, removeProductDefinitionBlock, reorderOfferContentBlocks, reorderProductDefinitionBlocks, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferContentExternalCopyUrl, setOfferCurrentContentSource, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateOfferContent, updateOfferContentBlock, updateProductDefinitionBlock, updateProductDefinition, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type OfferCurrentContentSource, type ProductCurrentDefinitionSource, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, disclosureOverlayPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction, type Point, type WorkspaceShortcutState } from '../map-interaction';
@@ -92,7 +92,7 @@ type AuthoredBlockPlacement = { kind: 'end' } | { kind: 'after'; blockId: string
 type AuthoredNewBlockDraft = { title: string; placement: AuthoredBlockPlacement; error?: string | undefined };
 type ProductDefinitionField = 'definitionUrl' | 'definitionText';
 type ProductDefinitionDraft = {
-  productId: string; definitionUrl: string; definitionText: string; error?: string | undefined;
+  productId: string; definitionUrl: string; definitionText: string; error?: string | undefined; currentSourceError?: string | undefined;
   blocks: Record<string, AuthoredBlockDraft>;
   newBlock?: AuthoredNewBlockDraft | undefined;
   deleteConfirmationBlockId?: string | undefined;
@@ -156,18 +156,155 @@ type ActiveOfferContentField =
   | { kind: 'newBlockTitle' }
   | { kind: 'blockTitle'; blockId: string }
   | { kind: 'blockText'; blockId: string };
-type OfferContentScrollOwner = Window | HTMLElement;
-type OfferContentOverflowMeasurement = { offerId: string; renderedText: string; width: number; overflow: boolean };
-type OfferContentDisclosureSnapshot = {
-  offerId: string;
+type AuthoredScrollOwner = Window | HTMLElement;
+type AuthoredOverflowMeasurement = { ownerKey: string; renderedText: string; width: number; overflow: boolean };
+type AuthoredDisclosureSnapshot = {
+  ownerKey: string;
   anchorTop: number;
   scrollOwnerId: string;
-  scrollOwner: OfferContentScrollOwner;
+  scrollOwner: AuthoredScrollOwner;
   renderedText: string;
   pendingRestore: boolean;
 };
-type ExternalCopyEditor = { offerId: string; source: OfferCurrentContentSource; draftUrl: string; error?: string };
-type ExternalCopyError = { offerId: string; source: OfferCurrentContentSource; message: string };
+type AuthoredSource = 'free_form' | 'structured';
+type AuthoredIdentity = { kind: 'offer' | 'product'; entityId: string; source: AuthoredSource };
+type ExternalCopyEditor = AuthoredIdentity & { draftUrl: string; error?: string };
+type ExternalCopyError = AuthoredIdentity & { message: string };
+function useAuthoredDocumentRead(identity: string | null, wholeText: string | null, editing: boolean) {
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [measurement, setMeasurement] = useState<AuthoredOverflowMeasurement | null>(null);
+  const [feedback, setFeedback] = useState<{ identity: string | null; text: string | null } | null>(null);
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
+  const textIdentityRef = useRef(wholeText);
+  textIdentityRef.current = wholeText;
+  useEffect(() => {
+    setExpandedKey(key => key === identity ? key : null);
+    setFeedback(null);
+  }, [identity]);
+  const textRef = useRef<HTMLParagraphElement>(null);
+  const disclosureRef = useRef<HTMLButtonElement>(null);
+  const snapshotRef = useRef<AuthoredDisclosureSnapshot | null>(null);
+  useEffect(() => () => { snapshotRef.current = null; }, []);
+  useLayoutEffect(() => {
+    const ownerKey = identity;
+    const renderedText = wholeText;
+    const viewport = textRef.current;
+    if (!ownerKey || renderedText === null || editing || !viewport) {
+      setMeasurement(current => current === null ? current : null);
+      snapshotRef.current = null;
+      return;
+    }
+
+    let active = true;
+    const measure = () => {
+      if (!active || !viewport.isConnected) return;
+      const measuringExpanded = expandedKey === ownerKey;
+      if (measuringExpanded) viewport.classList.add('is-measuring-compact');
+      const width = viewport.getBoundingClientRect().width;
+      const overflow = viewport.scrollHeight > viewport.clientHeight + 0.5;
+      if (measuringExpanded) viewport.classList.remove('is-measuring-compact');
+      setMeasurement(current => (
+        current?.ownerKey === ownerKey
+        && current.renderedText === renderedText
+        && current.width === width
+        && current.overflow === overflow
+      ) ? current : { ownerKey, renderedText, width, overflow });
+      if (!overflow) {
+        snapshotRef.current = null;
+        setExpandedKey(current => current === ownerKey ? null : current);
+      }
+    };
+
+    measure();
+    const fonts = globalThis.document.fonts;
+    fonts?.addEventListener('loadingdone', measure);
+    void fonts?.ready.then(measure);
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(viewport);
+    return () => {
+      active = false;
+      fonts?.removeEventListener('loadingdone', measure);
+      observer?.disconnect();
+    };
+  }, [identity, wholeText, editing, expandedKey]);
+
+  const hasOverflow = Boolean(identity
+    && measurement?.ownerKey === identity
+    && measurement.renderedText === wholeText
+    && measurement.overflow);
+
+  useEffect(() => {
+    const snapshot = snapshotRef.current;
+    if (snapshot && (identity !== snapshot.ownerKey || wholeText !== snapshot.renderedText || !hasOverflow)) {
+      snapshotRef.current = null;
+    }
+  }, [hasOverflow, identity, wholeText]);
+
+  useLayoutEffect(() => {
+    const snapshot = snapshotRef.current;
+    if (!snapshot?.pendingRestore) return;
+    // Restoration is one-shot even when an eligibility check fails.
+    snapshotRef.current = null;
+    const anchor = disclosureRef.current;
+    if (!anchor?.isConnected || expandedKey !== null || identity !== snapshot.ownerKey || wholeText !== snapshot.renderedText || !hasOverflow) return;
+    const currentOwner = authoredScrollOwner(anchor);
+    if (currentOwner.id !== snapshot.scrollOwnerId || currentOwner.owner !== snapshot.scrollOwner) return;
+    if (snapshot.scrollOwner instanceof HTMLElement && !snapshot.scrollOwner.isConnected) return;
+    const delta = anchor.getBoundingClientRect().top - snapshot.anchorTop;
+    if (delta === 0) return;
+    if (snapshot.scrollOwner instanceof HTMLElement) snapshot.scrollOwner.scrollTop += delta;
+    else snapshot.scrollOwner.scrollBy({ top: delta, behavior: 'auto' });
+  }, [expandedKey, hasOverflow, identity, wholeText]);
+
+  const expanded = identity !== null && expandedKey === identity;
+  const setCopyStatus = (text: string | null) => setFeedback({ identity, text });
+  const toggle = () => {
+    const anchor = disclosureRef.current;
+    if (expanded) {
+      if (snapshotRef.current?.ownerKey === identity) snapshotRef.current.pendingRestore = true;
+      setExpandedKey(null);
+    } else if (identity && anchor && hasOverflow && wholeText !== null) {
+      const owner = authoredScrollOwner(anchor);
+      snapshotRef.current = { ownerKey: identity, anchorTop: anchor.getBoundingClientRect().top, scrollOwnerId: owner.id, scrollOwner: owner.owner, renderedText: wholeText, pendingRestore: false };
+      setExpandedKey(identity);
+    }
+  };
+  const copy = async (label: string) => {
+    const capturedIdentity = identity;
+    const capturedText = wholeText;
+    try {
+      await navigator.clipboard.writeText(wholeText ?? '');
+      if (identityRef.current === capturedIdentity && textIdentityRef.current === capturedText) setCopyStatus(`${label} copied.`);
+    } catch {
+      if (identityRef.current === capturedIdentity && textIdentityRef.current === capturedText) setCopyStatus(`${label} could not be copied.`);
+    }
+  };
+  return { textRef, disclosureRef, snapshotRef, expanded, hasOverflow, toggle, copy, setExpandedKey, setCopyStatus, copyStatus: feedback?.identity === identity ? feedback.text : null };
+}
+function AuthoredCurrentControl({ eligible, peerEligible, current, source, markerId, label, onMakeCurrent, css = 'authored-content' }: {
+  eligible: boolean; peerEligible: boolean; current: AuthoredSource | null; source: AuthoredSource; markerId: string; label: string; onMakeCurrent: () => void; css?: string;
+}) {
+  return eligible && current === source ? <span id={markerId} className={`${css}-current-marker`} tabIndex={-1}>Current</span>
+    : eligible && peerEligible ? <button type="button" className="inspector-secondary-action" aria-label={`Make ${label} current`} onClick={onMakeCurrent}>Make current</button> : null;
+}
+function AuthoredReadDocument({ css, viewportId, text, source, read, copyLabel, context }: {
+  css: string; viewportId: string; text: string; source: AuthoredSource | null; read: ReturnType<typeof useAuthoredDocumentRead>; copyLabel: string; context?: ReactNode;
+}) {
+  return <>
+    {source && <span className={`${css}-source-marker`}>Current · {source === 'free_form' ? 'Free-form' : 'Structured'}</span>}
+    <div className={`${css}-text-row`}>
+      <p ref={read.textRef} id={viewportId} className={`${css}-text${read.expanded && read.hasOverflow ? ' is-expanded' : ''}`}>{text}</p>
+      <div className={`${css}-actions`}>
+        {read.hasOverflow && <button ref={read.disclosureRef} type="button" className="inspector-secondary-action" aria-expanded={read.expanded} aria-controls={viewportId} onClick={read.toggle}>{read.expanded ? 'Show less' : 'Show more'}</button>}
+        <button type="button" className="inspector-secondary-action" onClick={() => read.copy(copyLabel)}>Copy</button>
+      </div>
+    </div>
+    {context}
+    {read.copyStatus && <p className={`${css}-copy-status`} role="status" aria-live="polite">{read.copyStatus}</p>}
+  </>;
+}
+
 type ProductOffersEditorState =
   | { productId: string; mode: 'root'; query: string; error?: string }
   | { productId: string; mode: 'create'; title: string; error?: string }
@@ -243,17 +380,17 @@ type ChildrenEditor =
   | { mode: 'resolve-contributor'; query: string; command: TouchpointStructuralCommand; choices: Record<string, string>; obligationKey: string; touchpointId: string; candidateOfferIds: string[]; returnMode: 'list' | 'reassign-one' | 'reassign-all'; error?: string }
   | { mode: 'create-child'; query: string; title: string; offerId: string; error?: string };
 
-const offerContentScrollOwnerIds = new WeakMap<HTMLElement, string>();
-let nextOfferContentScrollOwnerId = 0;
+const authoredScrollOwnerIds = new WeakMap<HTMLElement, string>();
+let nextAuthoredScrollOwnerId = 0;
 
-function offerContentScrollOwner(anchor: HTMLElement): { id: string; owner: OfferContentScrollOwner } {
+function authoredScrollOwner(anchor: HTMLElement): { id: string; owner: AuthoredScrollOwner } {
   for (let candidate = anchor.parentElement; candidate; candidate = candidate.parentElement) {
     const overflowY = getComputedStyle(candidate).overflowY;
     if (/(auto|scroll|overlay)/.test(overflowY) && candidate.scrollHeight > candidate.clientHeight) {
-      let id = offerContentScrollOwnerIds.get(candidate);
+      let id = authoredScrollOwnerIds.get(candidate);
       if (!id) {
-        id = `offer-content-scroll-owner-${++nextOfferContentScrollOwnerId}`;
-        offerContentScrollOwnerIds.set(candidate, id);
+        id = `authored-scroll-owner-${++nextAuthoredScrollOwnerId}`;
+        authoredScrollOwnerIds.set(candidate, id);
       }
       return { id, owner: candidate };
     }
@@ -800,7 +937,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const productEnterCompletedTitleRef = useRef<{ kind: 'newBlock' } | { kind: 'committedBlock'; blockId: string } | null>(null);
   const productShortcutCompletedTextRef = useRef<string | null>(null);
   const [offerContentDraft, setOfferContentDraft] = useState<OfferContentDraft | null>(null);
-  const [offerContentCopyStatus, setOfferContentCopyStatus] = useState<string | null>(null);
   const [externalCopyEditor, setExternalCopyEditor] = useState<ExternalCopyEditor | null>(null);
   const [externalCopyError, setExternalCopyError] = useState<ExternalCopyError | null>(null);
   const externalCopyEditorRef = useRef(externalCopyEditor);
@@ -810,11 +946,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const suppressExternalCopyBlurRef = useRef(false);
   const restoreExternalCopyFocusRef = useRef(false);
   externalCopyEditorRef.current = externalCopyEditor;
-  const [expandedOfferContentId, setExpandedOfferContentId] = useState<string | null>(null);
-  const [offerContentOverflowMeasurement, setOfferContentOverflowMeasurement] = useState<OfferContentOverflowMeasurement | null>(null);
-  const offerContentTextRef = useRef<HTMLParagraphElement>(null);
-  const offerContentDisclosureRef = useRef<HTMLButtonElement>(null);
-  const offerContentDisclosureSnapshotRef = useRef<OfferContentDisclosureSnapshot | null>(null);
   const offerContentButtonRef = useRef<HTMLButtonElement>(null);
   const offerContentEditorRef = useRef<HTMLElement>(null);
   const dismissingOfferContentRef = useRef(false);
@@ -852,7 +983,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const relevantEdgeIds = relationLens ? new Set(relationLens.edgeIds) : null;
   const edges = deriveMapEdges(document).map(edge => ({ ...edge, className: relationEdgeClassName(edge.className, edge.id, relevantEdgeIds) }));
   const selected = document.entities.find((e) => e.id === selectedId);
-  const selectedOfferWholeText = selected?.kind === 'offer' ? offerContentWholeText(document, selected.id) : null;
+  const selectedAuthoredSource = selected?.kind === 'offer' ? offerContentSourceState(document, selected.id).currentContentSource : selected?.kind === 'product' ? productDefinitionSourceState(document, selected.id).currentDefinitionSource : null;
+  const authoredKey = selected?.kind === 'offer' || selected?.kind === 'product' ? JSON.stringify([selected.kind, selected.id, selectedAuthoredSource]) : null;
+  const selectedAuthoredWholeText = selected?.kind === 'offer' ? offerContentWholeText(document, selected.id) : selected?.kind === 'product' ? productDefinitionWholeText(document, selected.id) : null;
+  const authoredRead = useAuthoredDocumentRead(authoredKey, selectedAuthoredWholeText, selected?.kind === 'offer' ? offerContentDraft?.offerId === selected.id : selected?.kind === 'product' && productDefinitionDraft?.productId === selected.id);
   const touchpointBusinessStructure = selected?.kind === 'touchpoint'
     ? deriveTouchpointBusinessStructure(document, selected.id)
     : undefined;
@@ -878,11 +1012,11 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setCurrentProductDefinitionDraft(null);
     activeProductDefinitionFieldRef.current = null;
     setOfferContentDraft(null);
-    setOfferContentCopyStatus(null);
+    authoredRead.setCopyStatus(null);
     setExternalCopyEditor(null);
     setExternalCopyError(null);
-    offerContentDisclosureSnapshotRef.current = null;
-    setExpandedOfferContentId(null);
+    authoredRead.snapshotRef.current = null;
+    authoredRead.setExpandedKey(null);
     setInlineEdit(null);
     dispatchInspectorHistory({ type: 'replace', history: emptyInspectorHistory() });
     setMenu(null);
@@ -934,10 +1068,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setDocument(nextDocument);
   }), []);
 
-  useEffect(() => () => {
-    offerContentDisclosureSnapshotRef.current = null;
-  }, []);
-
   useLayoutEffect(() => {
     if (!pendingProductNewBlockFocusRef.current || !productDefinitionDraft?.newBlock) return;
     pendingProductNewBlockFocusRef.current = false;
@@ -956,77 +1086,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     externalCopyActionRef.current?.focus();
   }, [externalCopyEditor]);
 
-  useLayoutEffect(() => {
-    const offerId = selected?.kind === 'offer' ? selected.id : null;
-    const renderedText = selectedOfferWholeText;
-    const editing = offerContentDraft?.offerId === offerId;
-    const viewport = offerContentTextRef.current;
-    if (!offerId || renderedText === null || editing || !viewport) {
-      setOfferContentOverflowMeasurement(current => current === null ? current : null);
-      offerContentDisclosureSnapshotRef.current = null;
-      return;
-    }
-
-    let active = true;
-    const measure = () => {
-      if (!active || !viewport.isConnected) return;
-      const measuringExpanded = expandedOfferContentId === offerId;
-      if (measuringExpanded) viewport.classList.add('is-measuring-compact');
-      const width = viewport.getBoundingClientRect().width;
-      const overflow = viewport.scrollHeight > viewport.clientHeight + 0.5;
-      if (measuringExpanded) viewport.classList.remove('is-measuring-compact');
-      setOfferContentOverflowMeasurement(current => (
-        current?.offerId === offerId
-        && current.renderedText === renderedText
-        && current.width === width
-        && current.overflow === overflow
-      ) ? current : { offerId, renderedText, width, overflow });
-      if (!overflow) {
-        offerContentDisclosureSnapshotRef.current = null;
-        setExpandedOfferContentId(current => current === offerId ? null : current);
-      }
-    };
-
-    measure();
-    const fonts = globalThis.document.fonts;
-    fonts?.addEventListener('loadingdone', measure);
-    void fonts?.ready.then(measure);
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
-    observer?.observe(viewport);
-    return () => {
-      active = false;
-      fonts?.removeEventListener('loadingdone', measure);
-      observer?.disconnect();
-    };
-  }, [selected?.id, selected?.kind, selectedOfferWholeText, offerContentDraft?.offerId, expandedOfferContentId]);
-
-  const offerContentHasCompactOverflow = selected?.kind === 'offer'
-    && offerContentOverflowMeasurement?.offerId === selected.id
-    && offerContentOverflowMeasurement.renderedText === selectedOfferWholeText
-    && offerContentOverflowMeasurement.overflow;
-
-  useEffect(() => {
-    const snapshot = offerContentDisclosureSnapshotRef.current;
-    if (snapshot && (selected?.kind !== 'offer' || selected.id !== snapshot.offerId || selectedOfferWholeText !== snapshot.renderedText || !offerContentHasCompactOverflow)) {
-      offerContentDisclosureSnapshotRef.current = null;
-    }
-  }, [offerContentHasCompactOverflow, selected, selectedOfferWholeText]);
-
-  useLayoutEffect(() => {
-    const snapshot = offerContentDisclosureSnapshotRef.current;
-    if (!snapshot?.pendingRestore) return;
-    // Restoration is one-shot even when an eligibility check fails.
-    offerContentDisclosureSnapshotRef.current = null;
-    const anchor = offerContentDisclosureRef.current;
-    if (!anchor?.isConnected || expandedOfferContentId !== null || selected?.kind !== 'offer' || selected.id !== snapshot.offerId || selectedOfferWholeText !== snapshot.renderedText || !offerContentHasCompactOverflow) return;
-    const currentOwner = offerContentScrollOwner(anchor);
-    if (currentOwner.id !== snapshot.scrollOwnerId || currentOwner.owner !== snapshot.scrollOwner) return;
-    if (snapshot.scrollOwner instanceof HTMLElement && !snapshot.scrollOwner.isConnected) return;
-    const delta = anchor.getBoundingClientRect().top - snapshot.anchorTop;
-    if (delta === 0) return;
-    if (snapshot.scrollOwner instanceof HTMLElement) snapshot.scrollOwner.scrollTop += delta;
-    else snapshot.scrollOwner.scrollBy({ top: delta, behavior: 'auto' });
-  }, [expandedOfferContentId, offerContentHasCompactOverflow, selected, selectedOfferWholeText]);
 
   useEffect(() => {
     if (message?.kind !== 'success') return;
@@ -1370,7 +1429,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     });
   }
   function closeAuthoredPropertyEditors(reason: OfferContentEditorCloseReason) {
-    return closeProductDefinitionEditor(reason) && closeOfferContentEditor(reason);
+    return commitExternalCopyUrl() && closeProductDefinitionEditor(reason) && closeOfferContentEditor(reason);
   }
   type OfferIntentEditorCloseReason = 'explicit' | 'escape' | 'pointer' | 'switch-editor';
   function closeOfferIntentEditor(reason: OfferIntentEditorCloseReason, offerId = selectedRef.current ?? undefined) {
@@ -1425,15 +1484,20 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       suppressExternalCopyBlurRef.current = false;
     });
   }
+  function currentAuthoredSource(doc: MapDocument, kind: AuthoredIdentity['kind'], entityId: string) {
+    return kind === 'offer' ? offerContentSourceState(doc, entityId).currentContentSource : productDefinitionSourceState(doc, entityId).currentDefinitionSource;
+  }
+  function writeExternalCopy(identity: AuthoredIdentity, value: string) {
+    if (selectedRef.current !== identity.entityId || currentAuthoredSource(documentRef.current, identity.kind, identity.entityId) !== identity.source) throw new Error('The Current representation changed. Reopen its External copy editor.');
+    return identity.kind === 'offer'
+      ? setOfferContentExternalCopyUrl(documentRef.current, { offerId: identity.entityId, source: identity.source, value })
+      : setProductDefinitionExternalCopyUrl(documentRef.current, { productId: identity.entityId, source: identity.source, value });
+  }
   function commitExternalCopyUrl() {
     const editor = externalCopyEditorRef.current;
     if (!editor) return true;
     try {
-      const next = setOfferContentExternalCopyUrl(documentRef.current, {
-        offerId: editor.offerId,
-        source: editor.source,
-        value: editor.draftUrl,
-      });
+      const next = writeExternalCopy(editor, editor.draftUrl);
       documentRef.current = next;
       setDocument(next);
       closeExternalCopyEditor();
@@ -1680,7 +1744,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   }, [offerIntentEditors, productConfirmation, selected]);
   useEffect(() => {
     if (!externalCopyEditor) return;
-    if (selected?.kind !== 'offer' || selected.id !== externalCopyEditor.offerId || offerContentSourceState(document, selected.id).currentContentSource !== externalCopyEditor.source) {
+    if (selected?.kind !== externalCopyEditor.kind || selected.id !== externalCopyEditor.entityId || currentAuthoredSource(document, externalCopyEditor.kind, externalCopyEditor.entityId) !== externalCopyEditor.source) {
       closeExternalCopyEditor();
     }
   }, [document, externalCopyEditor, selected]);
@@ -2206,8 +2270,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setConnectionPicker(null);
     setInspectorTitleEdit(null);
     const entity = documentRef.current.entities.find((e) => e.id === id);
-    offerContentDisclosureSnapshotRef.current = null;
-    setExpandedOfferContentId(null);
+    authoredRead.snapshotRef.current = null;
+    authoredRead.setExpandedKey(null);
     setEditDraft(entity ? draftFor(entity, documentRef.current) : null);
     resetProductSession(entity, documentRef.current);
     return true;
@@ -3772,10 +3836,95 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       </div>
     </section>;
   }
+  function authoredExternalCopy(identity: AuthoredIdentity, externalCopyUrl: string | undefined, documentUrl: string | undefined) {
+    const externalCopySource = identity.source;
+    const css = identity.kind === 'offer' ? 'offer-content' : 'authored-content';
+    const prefix = identity.kind === 'offer' ? 'offer-content' : 'product-definition';
+    const noun = identity.kind === 'offer' ? 'Content' : 'Definition';
+    const documentLabel = identity.kind === 'offer' ? 'Offer document' : 'Product document';
+    const matchesDocument = Boolean(externalCopyUrl && documentUrl && externalCopyUrl === documentUrl);
+    const openExternalCopyEditor = () => {
+      if (!closeProductOffersEditor('switch-editor') || !closeAuthoredPropertyEditors('switch-editor')) return;
+      closeConnectedTouchpointsEditor('switch-editor');
+      closeRelationEditor('switch-editor');
+      closeChildrenEditor('switch-editor');
+      if (!closeClientScopeEditor('switch-editor')) return;
+      setBusinessInlineEdit(null);
+      setExternalCopyError(null);
+      setExternalCopyEditor({ ...identity, draftUrl: externalCopyUrl ?? '' });
+    };
+    const updateUrl = (value: string, errorContext: 'editor' | 'inline' = 'editor') => {
+      try {
+        const next = writeExternalCopy(identity, value);
+        documentRef.current = next;
+        setDocument(next);
+        setExternalCopyError(null);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'External copy URL could not be updated. Try again.';
+        if (errorContext === 'inline') setExternalCopyError({ ...identity, message });
+        else setExternalCopyEditor({ ...identity, draftUrl: externalCopyUrl ?? '', error: message });
+      }
+    };
+    const clearExternalCopyUrl = () => updateUrl('');
+    const useExternalDocument = () => {
+      const owner = documentRef.current.entities.find(entity => entity.kind === identity.kind && entity.id === identity.entityId);
+      const committedUrl = owner?.kind === 'offer' ? owner.contentUrl : owner?.kind === 'product' ? owner.definitionUrl : undefined;
+      if (committedUrl && !externalCopyUrl) updateUrl(committedUrl, 'inline');
+    };
+    return <div ref={externalCopyEditorRegionRef} className={`${css}-external-copy`} role="group" aria-labelledby={`${prefix}-external-copy-heading`}>
+          <h5 id={`${prefix}-external-copy-heading`}>External copy</h5>
+          {externalCopyEditor?.kind === identity.kind && externalCopyEditor.entityId === identity.entityId && externalCopyEditor.source === externalCopySource ? <div className={`${css}-external-copy-editor`}>
+            <label>{`External copy URL for ${externalCopySource === 'free_form' ? 'Free-form' : 'Structured'} ${noun}`}<input ref={externalCopyInputRef} autoFocus type="url" value={externalCopyEditor.draftUrl} aria-invalid={Boolean(externalCopyEditor.error)} onChange={event => setExternalCopyEditor({ ...identity, draftUrl: event.target.value })} onBlur={() => { if (!suppressExternalCopyBlurRef.current) commitExternalCopyUrl(); }} onKeyDown={event => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                commitExternalCopyUrl();
+              } else if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                closeExternalCopyEditor(true);
+              }
+            }} /></label>
+            {externalCopyEditor.error && <p className="error-message" role="alert">{externalCopyEditor.error}</p>}
+          </div> : externalCopyUrl ? <>
+            {matchesDocument
+              ? <p>Same as {documentLabel}</p>
+              : safeUrl(externalCopyUrl) ? <a className={`business-structure-external-link ${css}-external-copy-link`} href={safeUrl(externalCopyUrl)} target="_blank" rel="noopener noreferrer">{externalCopyUrl}</a> : <span className={`${css}-external-copy-link`}>{externalCopyUrl}</span>}
+            <div className={`${css}-external-copy-actions`}><button ref={externalCopyActionRef} type="button" className="inspector-secondary-action" onClick={openExternalCopyEditor}>Edit link</button><button type="button" className="inspector-secondary-action" onPointerDown={() => { suppressExternalCopyBlurRef.current = true; }} onClick={() => { suppressExternalCopyBlurRef.current = false; clearExternalCopyUrl(); }}>Clear link</button></div>
+          </> : <>
+            <p>Save where an external copy of this text lives.</p>
+            <div className={`${css}-external-copy-actions`}>
+              <button ref={externalCopyActionRef} type="button" className="inspector-secondary-action" onClick={openExternalCopyEditor}>Add link</button>
+              {documentUrl && <button type="button" className="inspector-secondary-action" onClick={useExternalDocument}>Use this document</button>}
+            </div>
+            {externalCopyError?.kind === identity.kind && externalCopyError.entityId === identity.entityId && externalCopyError.source === externalCopySource && <p className="error-message" role="alert">{externalCopyError.message}</p>}
+          </>}
+        </div>;
+  }
   function productDefinitionSection() {
     if (selected?.kind !== 'product') return null;
     const editing = productDefinitionDraft?.productId === selected.id;
     const hasDefinition = Boolean(selected.definitionUrl || selected.definitionText || selected.definitionBlocks?.length);
+    const sourceState = productDefinitionSourceState(document, selected.id);
+    const current = sourceState.currentDefinitionSource;
+    const wholeText = productDefinitionWholeText(document, selected.id);
+    const externalCopyUrl = current === 'free_form' ? selected.freeFormExternalCopyUrl : current === 'structured' ? selected.structuredExternalCopyUrl : undefined;
+    const currentId = (source: ProductCurrentDefinitionSource) => `product-definition-current-${source === 'free_form' ? 'free-form' : 'structured'}-${encodeURIComponent(selected.id)}`;
+    const requestCurrent = (source: ProductCurrentDefinitionSource) => {
+      if (productDefinitionDraftRef.current?.deleteConfirmationBlockId || !completeActiveProductDefinitionField()) return;
+      if (productDefinitionDraftRef.current?.error && !commitProductDefinitionField('definitionUrl')) return;
+      const draft = productDefinitionDraftRef.current;
+      if (!draft) return;
+      try {
+        const next = setProductCurrentDefinitionSource(documentRef.current, { productId: draft.productId, source });
+        documentRef.current = next;
+        pendingLocalFocusIdsRef.current = [currentId(source)];
+        setCurrentProductDefinitionDraft({ ...draft, currentSourceError: undefined });
+        setDocument(next);
+      } catch (error) {
+        setCurrentProductDefinitionDraft({ ...draft, currentSourceError: error instanceof Error ? error.message : 'Current Definition source could not be updated. Try again.' });
+      }
+    };
+    const currentControl = (source: ProductCurrentDefinitionSource, label: string) => <AuthoredCurrentControl eligible={source === 'free_form' ? sourceState.freeFormEligible : sourceState.structuredEligible} peerEligible={source === 'free_form' ? sourceState.structuredEligible : sourceState.freeFormEligible} current={current} source={source} markerId={currentId(source)} label={label} onMakeCurrent={() => requestCurrent(source)} />;
     const openEditor = () => {
       if (!closeProductOffersEditor('switch-editor') || !closeAuthoredPropertyEditors('switch-editor')) return;
       closeConnectedTouchpointsEditor('switch-editor');
@@ -3783,6 +3932,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       closeChildrenEditor('switch-editor');
       if (!closeClientScopeEditor('switch-editor')) return;
       setBusinessInlineEdit(null);
+      authoredRead.setCopyStatus(null);
+      authoredRead.snapshotRef.current = null;
       activeProductDefinitionFieldRef.current = null;
       const product = documentRef.current.entities.find((entity): entity is Extract<Entity, { kind: 'product' }> => entity.kind === 'product' && entity.id === selected.id)!;
       productEnterCompletedTitleRef.current = null;
@@ -3871,11 +4022,13 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       {editing ? <div className="inspector-relation-editor authored-property-editor" aria-label="Product Definition editor">
         <label>Product document URL<input autoFocus type="url" value={productDefinitionDraft.definitionUrl} aria-invalid={Boolean(productDefinitionDraft.error)} aria-describedby={productDefinitionDraft.error ? 'product-definition-url-error' : 'product-definition-document-description'} onFocus={() => { activeProductDefinitionFieldRef.current = 'definitionUrl'; }} onChange={event => { activeProductDefinitionFieldRef.current = 'definitionUrl'; setCurrentProductDefinitionDraft({ ...productDefinitionDraft, definitionUrl: event.target.value, error: undefined }); }} onBlur={event => blurField('definitionUrl', event.relatedTarget)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commitProductDefinitionField('definitionUrl'); } }} /></label>
         <p id="product-definition-document-description">An external document describing the Product itself.</p>
-        <label>Definition text<textarea rows={6} aria-describedby="product-definition-text-description" value={productDefinitionDraft.definitionText} onFocus={() => { activeProductDefinitionFieldRef.current = 'definitionText'; }} onChange={event => { activeProductDefinitionFieldRef.current = 'definitionText'; setCurrentProductDefinitionDraft({ ...productDefinitionDraft, definitionText: event.target.value }); }} onBlur={event => blurField('definitionText', event.relatedTarget)} /></label>
+        <div className="authored-content-representation"><div className="authored-content-representation-heading"><label htmlFor="product-definition-free-form">Free-form Definition</label>{currentControl('free_form', 'Free-form Definition')}</div><textarea id="product-definition-free-form" aria-label="Definition text" rows={6} aria-describedby="product-definition-text-description" value={productDefinitionDraft.definitionText} onFocus={() => { activeProductDefinitionFieldRef.current = 'definitionText'; }} onChange={event => { activeProductDefinitionFieldRef.current = 'definitionText'; setCurrentProductDefinitionDraft({ ...productDefinitionDraft, definitionText: event.target.value }); }} onBlur={event => blurField('definitionText', event.relatedTarget)} /></div>
         <p id="product-definition-text-description">Describe what the Product itself is: a good, service, or experience.</p>
         {productDefinitionDraft.error && <p id="product-definition-url-error" className="error-message" role="alert">{productDefinitionDraft.error}</p>}
+        {productDefinitionDraft.currentSourceError && <p className="error-message" role="alert">{productDefinitionDraft.currentSourceError}</p>}
         <section className="authored-structured-content" aria-labelledby="product-structured-definition-heading">
-          <div className="authored-structured-content-heading"><h5 id="product-structured-definition-heading">Structured Definition</h5><button id="product-definition-add-block" type="button" className="inspector-secondary-action" onClick={() => startNewBlockDraft({ kind: 'end' })}>Add block</button></div>
+          <div className="authored-structured-content-heading"><h5 id="product-structured-definition-heading">Structured Definition</h5>{currentControl('structured', 'Structured Definition')}<button id="product-definition-add-block" type="button" className="inspector-secondary-action" onClick={() => startNewBlockDraft({ kind: 'end' })}>Add block</button></div>
+          <p className="authored-structured-content-help">Structure the Product as named blocks: what it is, components or capabilities, delivery, inclusions, boundaries or dependencies — or build your own.</p>
           <AuthoredBlockList prefix="product-definition" classPrefix="authored-content" blocks={selected.definitionBlocks ?? []} drafts={productDefinitionDraft.blocks} newBlock={productDefinitionDraft.newBlock} confirmationId={productDefinitionDraft.deleteConfirmationBlockId}
       onNewFocus={() => { activeProductDefinitionFieldRef.current = { kind: 'newBlockTitle' }; }}
       onNewChange={value => { const draft = productDefinitionDraftRef.current; if (draft?.newBlock) setCurrentProductDefinitionDraft({ ...draft, newBlock: { ...draft.newBlock, title: value, error: undefined } }); }}
@@ -3894,17 +4047,15 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       onCancelDelete={cancelDelete} onConfirmDelete={removeBlock} />
         </section>
       </div> : <div className="authored-property-read">
-        {!!selected.definitionBlocks?.length && <p className="authored-content-structured-indicator">Structured Definition · {selected.definitionBlocks.length} {selected.definitionBlocks.length === 1 ? 'block' : 'blocks'}</p>}
-        {selected.definitionText && <p className="authored-property-text">{selected.definitionText}</p>}
+        <AuthoredReadDocument css="authored-content" viewportId={`product-definition-text-${encodeURIComponent(selected.id)}`} text={wholeText} source={current} read={authoredRead} copyLabel="Product definition" context={!!selected.definitionBlocks?.length && <p className="authored-content-structured-indicator">Structured Definition · {selected.definitionBlocks.length} {selected.definitionBlocks.length === 1 ? 'block' : 'blocks'}</p>} />
         {selected.definitionUrl && <div className="authored-property-document" role="group" aria-labelledby="product-definition-document-heading"><h5 id="product-definition-document-heading">Product document</h5><p>An external document describing the Product itself.</p>{url ? <a className="business-structure-external-link authored-property-document-link" href={url} target="_blank" rel="noopener noreferrer">{selected.definitionUrl}</a> : <span>{selected.definitionUrl}</span>}</div>}
+        {current && authoredExternalCopy({ kind: 'product', entityId: selected.id, source: current }, externalCopyUrl, selected.definitionUrl)}
       </div>}
     </section>;
   }
   function offerContentSection() {
     if (selected?.kind !== 'offer') return null;
     const editing = offerContentDraft?.offerId === selected.id;
-    const contentExpanded = expandedOfferContentId === selected.id;
-    const contentHasCompactOverflow = offerContentHasCompactOverflow;
     const textViewportId = `offer-content-text-${encodeURIComponent(selected.id)}`;
     const sourceState = offerContentSourceState(document, selected.id);
     const externalCopySource = sourceState.currentContentSource;
@@ -3913,7 +4064,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       : externalCopySource === 'structured'
         ? selected.structuredExternalCopyUrl
         : undefined;
-    const externalCopyMatchesOfferDocument = Boolean(externalCopyUrl && selected.contentUrl && externalCopyUrl === selected.contentUrl);
     const wholeText = offerContentWholeText(document, selected.id);
     const offerDocumentUrl = selected.contentUrl ? safeUrl(selected.contentUrl) : undefined;
     const freeFormCurrentId = `offer-content-current-free-form-${encodeURIComponent(selected.id)}`;
@@ -3933,13 +4083,14 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       }
     };
     const openEditor = () => {
+      if (!commitExternalCopyUrl()) return;
       closeConnectedTouchpointsEditor('switch-editor');
       closeRelationEditor('switch-editor');
       closeChildrenEditor('switch-editor');
       if (!closeClientScopeEditor('switch-editor')) return;
       setBusinessInlineEdit(null);
-      setOfferContentCopyStatus(null);
-      offerContentDisclosureSnapshotRef.current = null;
+      authoredRead.setCopyStatus(null);
+      authoredRead.snapshotRef.current = null;
       activeOfferContentFieldRef.current = null;
       shortcutCompletedBlockTextRef.current = null;
       enterCompletedBlockTitleRef.current = null;
@@ -3950,74 +4101,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         blocks: Object.fromEntries((selected.contentBlocks ?? []).map(block => [block.id, authoredBlockDraft(block)])),
       };
       setCurrentOfferContentDraft(draft);
-    };
-    const toggleContentDisclosure = () => {
-      const anchor = offerContentDisclosureRef.current;
-      if (contentExpanded) {
-        const snapshot = offerContentDisclosureSnapshotRef.current;
-        if (snapshot?.offerId === selected.id) snapshot.pendingRestore = true;
-        setExpandedOfferContentId(null);
-        return;
-      }
-      if (!anchor || !contentHasCompactOverflow) return;
-      const scrollOwner = offerContentScrollOwner(anchor);
-      offerContentDisclosureSnapshotRef.current = {
-        offerId: selected.id,
-        anchorTop: anchor.getBoundingClientRect().top,
-        scrollOwnerId: scrollOwner.id,
-        scrollOwner: scrollOwner.owner,
-        renderedText: wholeText,
-        pendingRestore: false,
-      };
-      setExpandedOfferContentId(selected.id);
-    };
-    const copyText = async () => {
-      try {
-        await navigator.clipboard.writeText(wholeText);
-        setOfferContentCopyStatus('Offer content copied.');
-      } catch {
-        setOfferContentCopyStatus('Offer content could not be copied.');
-      }
-    };
-    const openExternalCopyEditor = () => {
-      if (!externalCopySource) return;
-      closeConnectedTouchpointsEditor('switch-editor');
-      closeRelationEditor('switch-editor');
-      closeChildrenEditor('switch-editor');
-      if (!closeClientScopeEditor('switch-editor')) return;
-      setBusinessInlineEdit(null);
-      setExternalCopyError(null);
-      setExternalCopyEditor({ offerId: selected.id, source: externalCopySource, draftUrl: externalCopyUrl ?? '' });
-    };
-    const useExternalDocument = () => {
-      if (!externalCopySource || !selected.contentUrl || externalCopyUrl) return;
-      try {
-        const next = setOfferContentExternalCopyUrl(documentRef.current, { offerId: selected.id, source: externalCopySource, value: selected.contentUrl });
-        documentRef.current = next;
-        setExternalCopyError(null);
-        setDocument(next);
-      } catch (error) {
-        setExternalCopyError({
-          offerId: selected.id,
-          source: externalCopySource,
-          message: error instanceof DomainError ? error.message : 'External copy URL could not be updated. Try again.',
-        });
-      }
-    };
-    const clearExternalCopyUrl = () => {
-      if (!externalCopySource) return;
-      try {
-        const next = setOfferContentExternalCopyUrl(documentRef.current, { offerId: selected.id, source: externalCopySource, value: '' });
-        documentRef.current = next;
-        setDocument(next);
-      } catch (error) {
-        setExternalCopyEditor({
-          offerId: selected.id,
-          source: externalCopySource,
-          draftUrl: externalCopyUrl ?? '',
-          error: error instanceof DomainError ? error.message : 'External copy URL could not be cleared. Try again.',
-        });
-      }
     };
     const cancelNewBlock = () => {
       const draft = offerContentDraftRef.current;
@@ -4096,13 +4179,13 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       {editing ? <div className="inspector-relation-editor offer-content-editor" aria-label="Offer Content editor">
         <label>External document URL<input autoFocus type="url" value={offerContentDraft.contentUrl} aria-invalid={Boolean(offerContentDraft.error)} aria-describedby={offerContentDraft.error ? 'offer-content-url-error' : undefined} onFocus={() => { activeOfferContentFieldRef.current = { kind: 'contentUrl' }; }} onChange={event => setCurrentOfferContentDraft({ ...offerContentDraft, contentUrl: event.target.value, error: undefined })} onBlur={event => { if (!dismissingOfferContentRef.current && !(event.relatedTarget instanceof HTMLElement && event.relatedTarget.matches('[data-offer-content-close]')) && commitContentField('contentUrl')) activeOfferContentFieldRef.current = null; }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); if (commitContentField('contentUrl')) activeOfferContentFieldRef.current = null; } }} /></label>
         <div className="offer-content-representation">
-          <div className="offer-content-representation-heading"><label htmlFor="offer-content-free-form">Free-form Content</label>{sourceState.freeFormEligible && sourceState.currentContentSource === 'free_form' ? <span id={freeFormCurrentId} className="offer-content-current-marker" tabIndex={-1}>Current</span> : sourceState.freeFormEligible && sourceState.structuredEligible ? <button type="button" className="inspector-secondary-action" aria-label="Make Free-form Content current" onClick={() => requestOfferCurrentContentSource('free_form')}>Make current</button> : null}</div>
+          <div className="offer-content-representation-heading"><label htmlFor="offer-content-free-form">Free-form Content</label><AuthoredCurrentControl css="offer-content" eligible={sourceState.freeFormEligible} peerEligible={sourceState.structuredEligible} current={sourceState.currentContentSource} source="free_form" markerId={freeFormCurrentId} label="Free-form Content" onMakeCurrent={() => requestOfferCurrentContentSource('free_form')} /></div>
           <textarea id="offer-content-free-form" aria-label="Content text" rows={6} value={offerContentDraft.contentText} onFocus={() => { activeOfferContentFieldRef.current = { kind: 'contentText' }; }} onChange={event => setCurrentOfferContentDraft({ ...offerContentDraft, contentText: event.target.value })} onBlur={event => { if (!dismissingOfferContentRef.current && !(event.relatedTarget instanceof HTMLElement && event.relatedTarget.matches('[data-offer-content-close]')) && commitContentField('contentText')) activeOfferContentFieldRef.current = null; }} />
         </div>
         {offerContentDraft.error && <p id="offer-content-url-error" className="error-message" role="alert">{offerContentDraft.error}</p>}
         {offerContentDraft.currentSourceError && <p className="error-message" role="alert">{offerContentDraft.currentSourceError}</p>}
         <section className="offer-structured-content" aria-labelledby="offer-structured-content-heading">
-          <div className="offer-structured-content-heading"><h5 id="offer-structured-content-heading">Structured Content</h5>{sourceState.structuredEligible && sourceState.currentContentSource === 'structured' ? <span id={structuredCurrentId} className="offer-content-current-marker" tabIndex={-1}>Current</span> : sourceState.structuredEligible && sourceState.freeFormEligible ? <button type="button" className="inspector-secondary-action" aria-label="Make Structured Content current" onClick={() => requestOfferCurrentContentSource('structured')}>Make current</button> : null}<button id="offer-content-add-block" type="button" className="inspector-secondary-action" onClick={() => startNewBlockDraft({ kind: 'end' })}>Add block</button></div>
+          <div className="offer-structured-content-heading"><h5 id="offer-structured-content-heading">Structured Content</h5><AuthoredCurrentControl css="offer-content" eligible={sourceState.structuredEligible} peerEligible={sourceState.freeFormEligible} current={sourceState.currentContentSource} source="structured" markerId={structuredCurrentId} label="Structured Content" onMakeCurrent={() => requestOfferCurrentContentSource('structured')} /><button id="offer-content-add-block" type="button" className="inspector-secondary-action" onClick={() => startNewBlockDraft({ kind: 'end' })}>Add block</button></div>
           <p className="offer-structured-content-help">Structure the Offer as named blocks. Think PAS, AIDA, BAB or 4Ps — or mix the logic and build your own.</p>
           <AuthoredBlockList prefix="offer-content" classPrefix="offer-content" blocks={selected.contentBlocks ?? []} drafts={offerContentDraft.blocks} newBlock={offerContentDraft.newBlock} confirmationId={offerContentDraft.deleteConfirmationBlockId}
       onNewFocus={() => { activeOfferContentFieldRef.current = { kind: 'newBlockTitle' }; }}
@@ -4122,49 +4205,13 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       onCancelDelete={cancelDelete} onConfirmDelete={removeBlock} />
         </section>
       </div> : <div className="offer-content-read">
-        {sourceState.currentContentSource && <span className="offer-content-source-marker">Current · {sourceState.currentContentSource === 'free_form' ? 'Free-form' : 'Structured'}</span>}
-        <div className="offer-content-text-row">
-          <p ref={offerContentTextRef} id={textViewportId} className={`offer-content-text${contentExpanded && contentHasCompactOverflow ? ' is-expanded' : ''}`}>{wholeText}</p>
-          <div className="offer-content-actions">
-            {contentHasCompactOverflow && <button ref={offerContentDisclosureRef} type="button" className="inspector-secondary-action" aria-expanded={contentExpanded} aria-controls={textViewportId} onClick={toggleContentDisclosure}>{contentExpanded ? 'Show less' : 'Show more'}</button>}
-            <button type="button" className="inspector-secondary-action" onClick={copyText}>Copy</button>
-          </div>
-        </div>
-        {!!selected.contentBlocks?.length && <p className="offer-content-structured-indicator">Structured content · {selected.contentBlocks.length} {selected.contentBlocks.length === 1 ? 'block' : 'blocks'}</p>}
-        {offerContentCopyStatus && <p className="offer-content-copy-status" role="status" aria-live="polite">{offerContentCopyStatus}</p>}
+        <AuthoredReadDocument css="offer-content" viewportId={textViewportId} text={wholeText} source={sourceState.currentContentSource} read={authoredRead} copyLabel="Offer content" context={!!selected.contentBlocks?.length && <p className="offer-content-structured-indicator">Structured content · {selected.contentBlocks.length} {selected.contentBlocks.length === 1 ? 'block' : 'blocks'}</p>} />
         {selected.contentUrl && <div className="offer-content-document" role="group" aria-labelledby="offer-content-document-heading">
           <h5 id="offer-content-document-heading">Offer document</h5>
           <p>An external document describing this Offer, not a Connected Touchpoint where customers encounter it.</p>
           {offerDocumentUrl && <a className="business-structure-external-link offer-content-document-link" href={offerDocumentUrl} target="_blank" rel="noopener noreferrer">{selected.contentUrl}</a>}
         </div>}
-        {externalCopySource && <div ref={externalCopyEditorRegionRef} className="offer-content-external-copy" role="group" aria-labelledby="offer-content-external-copy-heading">
-          <h5 id="offer-content-external-copy-heading">External copy</h5>
-          {externalCopyEditor?.offerId === selected.id && externalCopyEditor.source === externalCopySource ? <div className="offer-content-external-copy-editor">
-            <label>{`External copy URL for ${externalCopySource === 'free_form' ? 'Free-form Content' : 'Structured Content'}`}<input ref={externalCopyInputRef} autoFocus type="url" value={externalCopyEditor.draftUrl} aria-invalid={Boolean(externalCopyEditor.error)} onChange={event => setExternalCopyEditor({ offerId: externalCopyEditor.offerId, source: externalCopyEditor.source, draftUrl: event.target.value })} onBlur={() => { if (!suppressExternalCopyBlurRef.current) commitExternalCopyUrl(); }} onKeyDown={event => {
-              if (event.key === 'Enter') {
-                event.preventDefault();
-                commitExternalCopyUrl();
-              } else if (event.key === 'Escape') {
-                event.preventDefault();
-                event.stopPropagation();
-                closeExternalCopyEditor(true);
-              }
-            }} /></label>
-            {externalCopyEditor.error && <p className="error-message" role="alert">{externalCopyEditor.error}</p>}
-          </div> : externalCopyUrl ? <>
-            {externalCopyMatchesOfferDocument
-              ? <p>Same as Offer document</p>
-              : safeUrl(externalCopyUrl) ? <a className="business-structure-external-link offer-content-external-copy-link" href={safeUrl(externalCopyUrl)} target="_blank" rel="noopener noreferrer">{externalCopyUrl}</a> : <span className="offer-content-external-copy-link">{externalCopyUrl}</span>}
-            <div className="offer-content-external-copy-actions"><button ref={externalCopyActionRef} type="button" className="inspector-secondary-action" onClick={openExternalCopyEditor}>Edit link</button><button type="button" className="inspector-secondary-action" onPointerDown={() => { suppressExternalCopyBlurRef.current = true; }} onClick={() => { suppressExternalCopyBlurRef.current = false; clearExternalCopyUrl(); }}>Clear link</button></div>
-          </> : <>
-            <p>Save where an external copy of this text lives.</p>
-            <div className="offer-content-external-copy-actions">
-              <button ref={externalCopyActionRef} type="button" className="inspector-secondary-action" onClick={openExternalCopyEditor}>Add link</button>
-              {selected.contentUrl && <button type="button" className="inspector-secondary-action" onClick={useExternalDocument}>Use this document</button>}
-            </div>
-            {externalCopyError?.offerId === selected.id && externalCopyError.source === externalCopySource && <p className="error-message" role="alert">{externalCopyError.message}</p>}
-          </>}
-        </div>}
+        {externalCopySource && authoredExternalCopy({ kind: 'offer', entityId: selected.id, source: externalCopySource }, externalCopyUrl, selected.contentUrl)}
       </div>}
     </section>;
   }
