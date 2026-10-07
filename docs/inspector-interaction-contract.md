@@ -88,6 +88,17 @@ Optional rich Neighborhood content is read-only and remains subordinate to the s
 
 Current tests cover many focus transitions but do not prove every tab sequence, focus trap, screen reader announcement, external navigation, or browser geometry. Those remain manual browser/accessibility checks.
 
+## Product Definition property editing
+
+The minimal Product Definition editor owns transient URL/text drafts, an active field, and a recoverable local URL error. Committed `definitionUrl` and `definitionText` belong to the Product in `MapDocument`. Each property completes independently through `updateProductDefinition()` from the fresh document; normalized values refresh only the completed draft field. Definition neither sets nor depends on legacy Product dirty/Apply state and must not reset a pending Product intent draft. Later Apply or Discard of that draft preserves committed Definition.
+
+- Opening **Add Definition** / **Edit Product Definition** focuses Product document URL. Blur naturally completes a field; URL Enter completes the URL and prevents form submission. Plain Enter in Definition text remains multiline authoring.
+- Close, outside and editor/navigation switches complete the valid active field before dismissal. `invalid_product_definition_url` performs no mutation and retains the local editor/error, blocking dismissal/switch until correction or Escape. An unresolved URL error still blocks dismissal if focus subsequently moves to the text field.
+- Escape abandons the unfinished local input and closes this unnested editor, preserving previously committed sibling properties. Removal blur must not commit an abandoned draft. Structured-block confirmations and continuation shortcuts are not part of this surface.
+- The shared `dismissAuthoredPropertyEditor()` suppresses technical removal blur and returns focus to the appropriate heading affordance only for explicit Close/Escape. Outside/switch retain the new focus owner. Switching via another editor affordance resolves on click rather than removing the active editor at pointerdown, which could move the intended target before pointerup in a scrolled Inspector. The completion boundary is included in the existing authored-editor guards; Offer-specific nested lifecycle remains unchanged.
+
+These rules transfer the portable URL/text portion of Offer Content only. They do not generalize completion-before-dismissal to every Inspector editor, introduce persistence guarantees, or redesign legacy Product Apply.
+
 ## Offer Content property editing
 
 `contentUrl` and `contentText` are two independent Offer-authored property operations. Their shared embedded surface does not combine them into one transaction. Natural completion of the active valid field performs exactly one `updateOfferContent()` commit; moving between fields may therefore commit one sibling before the other.
