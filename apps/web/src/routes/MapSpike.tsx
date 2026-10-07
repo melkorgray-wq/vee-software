@@ -2,7 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useReducer, useRef, useState, typ
 import { createPortal } from 'react-dom';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { CLIENT_ROOT_ENTITY_KINDS, DomainError, addEntity, addOfferContentBlock, addProductDefinitionBlock, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, offerContentSourceState, offerContentWholeText, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, removeOfferContentBlock, removeProductDefinitionBlock, reorderOfferContentBlocks, reorderProductDefinitionBlocks, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferContentExternalCopyUrl, setOfferCurrentContentSource, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateOfferContent, updateOfferContentBlock, updateProductDefinitionBlock, updateProductDefinition, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type OfferContentBlock, type OfferCurrentContentSource, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
+import { CLIENT_ROOT_ENTITY_KINDS, DomainError, addEntity, addOfferContentBlock, addProductDefinitionBlock, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, offerContentSourceState, offerContentWholeText, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, removeOfferContentBlock, removeProductDefinitionBlock, reorderOfferContentBlocks, reorderProductDefinitionBlocks, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferContentExternalCopyUrl, setOfferCurrentContentSource, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateOfferContent, updateOfferContentBlock, updateProductDefinitionBlock, updateProductDefinition, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type OfferCurrentContentSource, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, disclosureOverlayPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction, type Point, type WorkspaceShortcutState } from '../map-interaction';
@@ -86,13 +86,15 @@ function ClientIntentJobGroup({ group, onCheckedChange }: {
   </div>;
 }
 type OperationFeedback = { text: string; kind: 'success' | 'error' };
+type AuthoredBlock = { id: string; title: string; text?: string };
 type AuthoredBlockDraft = { title: string; text: string; titleError?: string | undefined; textError?: string | undefined };
 type AuthoredBlockPlacement = { kind: 'end' } | { kind: 'after'; blockId: string };
+type AuthoredNewBlockDraft = { title: string; placement: AuthoredBlockPlacement; error?: string | undefined };
 type ProductDefinitionField = 'definitionUrl' | 'definitionText';
 type ProductDefinitionDraft = {
   productId: string; definitionUrl: string; definitionText: string; error?: string | undefined;
   blocks: Record<string, AuthoredBlockDraft>;
-  newBlock?: { title: string; placement: AuthoredBlockPlacement; error?: string | undefined } | undefined;
+  newBlock?: AuthoredNewBlockDraft | undefined;
   deleteConfirmationBlockId?: string | undefined;
 };
 type ActiveProductDefinitionField = ProductDefinitionField | { kind: 'newBlockTitle' } | { kind: 'blockTitle' | 'blockText'; blockId: string };
@@ -102,15 +104,15 @@ type OfferContentDraft = {
   contentText: string;
   error?: string | undefined;
   currentSourceError?: string | undefined;
-  newBlock?: { title: string; placement: AuthoredBlockPlacement; error?: string | undefined } | undefined;
+  newBlock?: AuthoredNewBlockDraft | undefined;
   blocks: Record<string, AuthoredBlockDraft>;
   deleteConfirmationBlockId?: string | undefined;
 };
 type AuthoredBlockListProps = {
   prefix: string; classPrefix: string;
-  blocks: readonly OfferContentBlock[];
+  blocks: readonly AuthoredBlock[];
   drafts: Record<string, AuthoredBlockDraft>;
-  newBlock: OfferContentDraft['newBlock']; confirmationId: string | undefined;
+  newBlock: AuthoredNewBlockDraft | undefined; confirmationId: string | undefined;
   onNewFocus: () => void; onNewChange: (value: string) => void; onNewBlur: () => void; onNewEnter: () => void; onCancelNew: () => void;
   onFieldFocus: (id: string, field: 'title' | 'text') => void;
   onFieldChange: (id: string, field: 'title' | 'text', value: string) => void;
@@ -1101,7 +1103,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     requestAnimationFrame(() => (targetId ? globalThis.document.getElementById(targetId) : target)?.focus());
   }
   type OfferContentEditorCloseReason = 'explicit' | 'escape' | 'pointer' | 'switch-editor';
-  const contentBlockDraft = (block: OfferContentBlock): AuthoredBlockDraft => ({ title: block.title, text: block.text ?? '' });
+  const authoredBlockDraft = (block: AuthoredBlock): AuthoredBlockDraft => ({ title: block.title, text: block.text ?? '' });
   function setCurrentOfferContentDraft(next: OfferContentDraft | null) {
     offerContentDraftRef.current = next;
     setOfferContentDraft(next);
@@ -1157,7 +1159,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       }
       documentRef.current = next;
       setDocument(next);
-      setCurrentOfferContentDraft({ ...draft, newBlock: undefined, currentSourceError: undefined, blocks: { ...draft.blocks, [added.id]: contentBlockDraft(added) } });
+      setCurrentOfferContentDraft({ ...draft, newBlock: undefined, currentSourceError: undefined, blocks: { ...draft.blocks, [added.id]: authoredBlockDraft(added) } });
       activeOfferContentFieldRef.current = null;
       return added.id;
     } catch (error) {
@@ -1179,7 +1181,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       if (!block) throw new Error('The updated block could not be read from the Offer.');
       documentRef.current = next;
       setDocument(next);
-      setCurrentOfferContentDraft({ ...draft, currentSourceError: undefined, blocks: { ...draft.blocks, [blockId]: { ...contentBlockDraft(block) } } });
+      setCurrentOfferContentDraft({ ...draft, currentSourceError: undefined, blocks: { ...draft.blocks, [blockId]: { ...authoredBlockDraft(block) } } });
       return true;
     } catch (error) {
       const errorKey = field === 'title' ? 'titleError' : 'textError';
@@ -1210,7 +1212,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     }
     else if (active.kind === 'blockTitle' || active.kind === 'blockText') {
       const block = committedOffer(documentRef.current, draft.offerId)?.contentBlocks?.find(item => item.id === active.blockId);
-      if (block) setCurrentOfferContentDraft({ ...draft, blocks: { ...draft.blocks, [block.id]: contentBlockDraft(block) } });
+      if (block) setCurrentOfferContentDraft({ ...draft, blocks: { ...draft.blocks, [block.id]: authoredBlockDraft(block) } });
     } else {
       const offer = committedOffer(documentRef.current, draft.offerId);
       if (offer) setCurrentOfferContentDraft({ ...draft, [active.kind]: offer[active.kind] ?? '', ...(active.kind === 'contentUrl' ? { error: undefined } : {}) });
@@ -1292,7 +1294,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       }
       documentRef.current = next;
       setDocument(next);
-      setCurrentProductDefinitionDraft({ ...draft, newBlock: undefined, blocks: { ...draft.blocks, [added.id]: contentBlockDraft(added) } });
+      setCurrentProductDefinitionDraft({ ...draft, newBlock: undefined, blocks: { ...draft.blocks, [added.id]: authoredBlockDraft(added) } });
       activeProductDefinitionFieldRef.current = null;
       return added.id;
     } catch (error) {
@@ -1314,7 +1316,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       if (!block) throw new Error('The updated block could not be read from the Product.');
       documentRef.current = next;
       setDocument(next);
-      setCurrentProductDefinitionDraft({ ...draft, blocks: { ...draft.blocks, [blockId]: { ...contentBlockDraft(block) } } });
+      setCurrentProductDefinitionDraft({ ...draft, blocks: { ...draft.blocks, [blockId]: { ...authoredBlockDraft(block) } } });
       return true;
     } catch (error) {
       const errorKey = field === 'title' ? 'titleError' : 'textError';
@@ -1341,7 +1343,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       setCurrentProductDefinitionDraft({ ...draft, newBlock: undefined });
     } else {
       const block = committedProduct(documentRef.current, draft.productId)?.definitionBlocks?.find(item => item.id === field.blockId);
-      if (block) setCurrentProductDefinitionDraft({ ...draft, blocks: { ...draft.blocks, [block.id]: contentBlockDraft(block) } });
+      if (block) setCurrentProductDefinitionDraft({ ...draft, blocks: { ...draft.blocks, [block.id]: authoredBlockDraft(block) } });
     }
     activeProductDefinitionFieldRef.current = null;
     return true;
@@ -3785,7 +3787,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       const product = documentRef.current.entities.find((entity): entity is Extract<Entity, { kind: 'product' }> => entity.kind === 'product' && entity.id === selected.id)!;
       productEnterCompletedTitleRef.current = null;
       productShortcutCompletedTextRef.current = null;
-      setCurrentProductDefinitionDraft({ productId: product.id, definitionUrl: product.definitionUrl ?? '', definitionText: product.definitionText ?? '', blocks: Object.fromEntries((product.definitionBlocks ?? []).map(block => [block.id, contentBlockDraft(block)])) });
+      setCurrentProductDefinitionDraft({ productId: product.id, definitionUrl: product.definitionUrl ?? '', definitionText: product.definitionText ?? '', blocks: Object.fromEntries((product.definitionBlocks ?? []).map(block => [block.id, authoredBlockDraft(block)])) });
     };
     const blurField = (field: ProductDefinitionField, target: EventTarget | null) => {
       if (!dismissingProductDefinitionRef.current && !(target instanceof HTMLElement && target.matches('[data-product-definition-close]'))) commitProductDefinitionField(field);
@@ -3945,7 +3947,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         offerId: selected.id,
         contentUrl: selected.contentUrl ?? '',
         contentText: selected.contentText ?? '',
-        blocks: Object.fromEntries((selected.contentBlocks ?? []).map(block => [block.id, contentBlockDraft(block)])),
+        blocks: Object.fromEntries((selected.contentBlocks ?? []).map(block => [block.id, authoredBlockDraft(block)])),
       };
       setCurrentOfferContentDraft(draft);
     };
