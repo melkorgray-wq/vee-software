@@ -3470,6 +3470,29 @@ describe('Offer Content Inspector', () => {
     expect(parityProduct()[own]).toBeUndefined();
   });
 
+  it.each(['Product', 'Offer'] as const)('completes %s External copy exactly once during editor and navigation transfer', async kind => {
+    const user = userEvent.setup();
+    const doc = kind === 'Product' ? productBusinessStructureDocument() : offerNeighborhoodDocument();
+    const id = kind === 'Product' ? 'product' : 'offer-a';
+    Object.assign(doc.entities.find(entity => entity.id === id)!, kind === 'Product' ? { definitionText: 'Product body' } : { contentText: 'Offer body' });
+    const inspector = kind === 'Product' ? renderProductInspector(doc) : renderOfferInspector(doc);
+    const setter = vi.spyOn(domain, kind === 'Product' ? 'setProductDefinitionExternalCopyUrl' : 'setOfferContentExternalCopyUrl');
+    await user.click(inspector.getByRole('button', { name: 'Add link' }));
+    fireEvent.change(inspector.getByLabelText(`External copy URL for Free-form ${kind === 'Product' ? 'Definition' : 'Content'}`), { target: { value: 'https://example.test/copy' } });
+    // Exercise the completion boundary without pointer-outside or blur completing first.
+    fireEvent.click(inspector.getByRole('button', { name: kind === 'Product' ? 'Edit Offers' : 'Edit Product' }));
+    expect(setter).toHaveBeenCalledOnce();
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === id)).toMatchObject({ freeFormExternalCopyUrl: 'https://example.test/copy' });
+    fireEvent.click(inspector.getByRole('button', { name: kind === 'Product' ? 'Edit Product Definition' : 'Edit Offer Content' }));
+    fireEvent.click(within(inspector.getByRole('region', { name: kind === 'Product' ? 'Product Definition' : 'Offer Content' })).getByRole('button', { name: 'Close' }));
+    await user.click(inspector.getByRole('button', { name: 'Edit link' }));
+    fireEvent.change(inspector.getByLabelText(`External copy URL for Free-form ${kind === 'Product' ? 'Definition' : 'Content'}`), { target: { value: 'https://example.test/navigation' } });
+    setter.mockClear();
+    fireEvent.click(globalThis.document.querySelector<HTMLElement>(`[data-node-id="${kind === 'Product' ? 'offer-a' : 'product'}"]`)!);
+    expect(setter).toHaveBeenCalledOnce();
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === id)).toMatchObject({ freeFormExternalCopyUrl: 'https://example.test/navigation' });
+  });
+
   it('Product parity validates External copy, blocks editor/navigation transfer, and Escape restores only its action focus', async () => {
     const user = userEvent.setup(); const inspector = renderProductInspector(productParityDocument(coexist)); const section = paritySection(inspector);
     await user.click(section.getByRole('button', { name: 'Edit link' }));

@@ -1409,7 +1409,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   }
   function closeProductDefinitionEditor(reason: OfferContentEditorCloseReason) {
     const draft = productDefinitionDraftRef.current;
-    if (reason !== 'escape' && !commitExternalCopyUrl()) return false;
     if (!draft) return true;
     if (reason === 'escape') {
       if (draft.deleteConfirmationBlockId) {
