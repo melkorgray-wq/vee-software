@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { addProductDefinitionBlock, productDefinitionSourceState, productDefinitionWholeText, removeProductDefinitionBlock, reorderProductDefinitionBlocks, setProductCurrentDefinitionSource, setProductDefinitionExternalCopyUrl, updateProductDefinition, updateProductDefinitionBlock } from './index';
 import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addOfferContentBlock, addProductJobIntent, removeOfferContentBlock, removeProductJobIntent, reorderOfferContentBlocks, setOfferContentExternalCopyUrl, setOfferCurrentContentSource, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateOfferContentBlock, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, changeOfferProduct, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, movePlacement, offerContentSourceState, offerContentWholeText, updateEntity, updateOfferContent, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct, planTouchpointIntentPathChange, commitTouchpointIntentPathPlan, commitTouchpointParent, planTouchpointStructuralChange } from './index';
 
 function completed(result: ReturnType<typeof authorTouchpointIntentBottomUp>) { if (result.status !== 'complete') throw new Error(`Expected complete, got ${result.status}`); return result.document; }
@@ -9,6 +10,246 @@ function offerDocument() { let d = addEntity(empty(), { ...place, entityId: 'pro
 function touchpoint(d = offerDocument(), id = 'touch', parent?: string) { return addEntity(d, { ...place, entityId: id, title: id, kind: 'touchpoint', locatedInId: 'site', url: '  /checkout#pay  ', linkedOfferIds: ['offer'], relationshipIds: [`presented-${id}`], ...(parent ? { parentTouchpointId: parent, parentRelationshipId: `contains-${id}` } : {}) }); }
 
 describe('map authoring domain', () => {
+  it.each(['/relative', 'javascript:alert(1)'])('reports owner-specific DomainError codes for invalid document and external-copy URLs: %s', value => {
+    const document = offerDocument(); const snapshot = structuredClone(document);
+    const productError = expect.objectContaining({ name: 'DomainError', code: 'invalid_product_definition_url' });
+    const offerError = expect.objectContaining({ name: 'DomainError', code: 'invalid_offer_content_url' });
+    expect(() => updateProductDefinition(document, { productId: 'product', field: 'definitionUrl', value })).toThrowError(productError);
+    expect(() => updateOfferContent(document, { offerId: 'offer', field: 'contentUrl', value })).toThrowError(offerError);
+    for (const source of ['free_form', 'structured'] as const) {
+      expect(() => setProductDefinitionExternalCopyUrl(document, { productId: 'product', source, value })).toThrowError(productError);
+      expect(() => setOfferContentExternalCopyUrl(document, { offerId: 'offer', source, value })).toThrowError(offerError);
+    }
+    expect(document).toEqual(snapshot);
+  });
+
+  describe('Product Definition domain foundation', () => {
+    const product = (document: ReturnType<typeof offerDocument>, id = 'product') => document.entities.find((entity): entity is Extract<(typeof document.entities)[number], { kind: 'product' }> => entity.id === id && entity.kind === 'product')!;
+    const state = (document: ReturnType<typeof offerDocument>) => productDefinitionSourceState(document, 'product');
+    function both() {
+      const free = updateProductDefinition(offerDocument(), { productId: 'product', field: 'definitionText', value: 'Free\nbody' });
+      return addProductDefinitionBlock(free, { productId: 'product', blockId: 'first', title: 'Heading', text: '  Structured\nbody  ' });
+    }
+
+    it('keeps existing Products valid and projects absence without changing the document', () => {
+      const document = offerDocument(); const snapshot = structuredClone(document);
+      expect(product(document)).toEqual({ id: 'product', kind: 'product', title: 'Orbit' });
+      expect(state(document)).toEqual({ currentDefinitionSource: null, freeFormEligible: false, structuredEligible: false });
+      expect(productDefinitionWholeText(document, 'product')).toBe('Orbit');
+      expect(document).toEqual(snapshot);
+      expect(updateProductDefinition(document, { productId: 'product', field: 'definitionText' })).toBe(document);
+      expect(reorderProductDefinitionBlocks(document, { productId: 'product', blockIds: [] })).toBe(document);
+    });
+
+    it('mutates and clears document URL and free-form text independently with normalized no-ops', () => {
+      const before = offerDocument();
+      const url = updateProductDefinition(before, { productId: 'product', field: 'definitionUrl', value: '  https://example.test/product  ' });
+      expect(product(url)).toEqual({ id: 'product', kind: 'product', title: 'Orbit', definitionUrl: 'https://example.test/product' });
+      expect(state(url).currentDefinitionSource).toBeNull();
+      expect(updateProductDefinition(url, { productId: 'product', field: 'definitionUrl', value: 'https://example.test/product' })).toBe(url);
+      const text = updateProductDefinition(url, { productId: 'product', field: 'definitionText', value: '  Line one\nLine two  ' });
+      expect(product(text)).toMatchObject({ definitionUrl: 'https://example.test/product', definitionText: 'Line one\nLine two', currentDefinitionSource: 'free_form' });
+      expect(updateProductDefinition(text, { productId: 'product', field: 'definitionText', value: 'Line one\nLine two' })).toBe(text);
+      const clearedUrl = updateProductDefinition(text, { productId: 'product', field: 'definitionUrl', value: ' ' });
+      expect(product(clearedUrl)).not.toHaveProperty('definitionUrl');
+      expect(product(clearedUrl).definitionText).toBe('Line one\nLine two');
+      const clearedText = updateProductDefinition(clearedUrl, { productId: 'product', field: 'definitionText', value: '\n ' });
+      expect(product(clearedText)).toEqual({ id: 'product', kind: 'product', title: 'Orbit', currentDefinitionSource: null });
+      expect(product(before)).not.toHaveProperty('definitionText');
+    });
+
+    it('validates all external URLs and owners atomically', () => {
+      const before = offerDocument(); const snapshot = structuredClone(before);
+      for (const value of ['http://example.test/document', 'https://example.test/document']) {
+        expect(product(updateProductDefinition(before, { productId: 'product', field: 'definitionUrl', value })).definitionUrl).toBe(value);
+      }
+      for (const value of ['/relative', 'not a url', 'javascript:alert(1)', 'ftp://example.test/file', 'mailto:author@example.test']) {
+        expect(() => updateProductDefinition(before, { productId: 'product', field: 'definitionUrl', value })).toThrow('absolute http: or https:');
+        for (const source of ['free_form', 'structured'] as const) {
+          expect(() => setProductDefinitionExternalCopyUrl(before, { productId: 'product', source, value })).toThrow('absolute http: or https:');
+        }
+      }
+      for (const productId of ['offer', 'missing']) {
+        expect(() => updateProductDefinition(before, { productId, field: 'definitionText', value: 'Wrong owner' })).toThrow();
+        expect(() => productDefinitionSourceState(before, productId)).toThrow();
+        expect(() => productDefinitionWholeText(before, productId)).toThrow();
+        expect(() => addProductDefinitionBlock(before, { productId, blockId: 'new', title: 'Title' })).toThrow();
+        expect(() => setProductDefinitionExternalCopyUrl(before, { productId, source: 'free_form', value: 'https://example.test' })).toThrow();
+        expect(() => setProductCurrentDefinitionSource(before, { productId, source: 'free_form' })).toThrow();
+      }
+      expect(before).toEqual(snapshot);
+    });
+
+    it('requires body text for eligibility and follows the Offer source-state rules', () => {
+      const emptyProduct = offerDocument();
+      for (const text of [undefined, '', ' \n ']) {
+        const titleOnly = addProductDefinitionBlock(emptyProduct, { productId: 'product', blockId: 'title', title: 'Title', ...(text !== undefined ? { text } : {}) });
+        expect(state(titleOnly)).toEqual({ currentDefinitionSource: null, freeFormEligible: false, structuredEligible: false });
+        expect(productDefinitionWholeText(titleOnly, 'product')).toBe('Orbit');
+        expect(() => setProductCurrentDefinitionSource(titleOnly, { productId: 'product', source: 'structured' })).toThrow('eligible');
+      }
+      const structured = addProductDefinitionBlock(emptyProduct, { productId: 'product', blockId: 'body', title: 'Title', text: ' Body ' });
+      expect(state(structured)).toEqual({ currentDefinitionSource: 'structured', freeFormEligible: false, structuredEligible: true });
+      const withFree = updateProductDefinition(structured, { productId: 'product', field: 'definitionText', value: 'Free' });
+      expect(state(withFree)).toEqual({ currentDefinitionSource: 'structured', freeFormEligible: true, structuredEligible: true });
+      const freeFirst = both();
+      expect(state(freeFirst).currentDefinitionSource).toBe('free_form');
+      const switched = setProductCurrentDefinitionSource(freeFirst, { productId: 'product', source: 'structured' });
+      expect(setProductCurrentDefinitionSource(switched, { productId: 'product', source: 'structured' })).toBe(switched);
+      expect(product(switched).definitionText).toBe('Free\nbody');
+      expect(product(switched).definitionBlocks).toBe(product(freeFirst).definitionBlocks);
+      const fallback = updateProductDefinitionBlock(switched, { productId: 'product', blockId: 'first', field: 'text', value: ' \n ' });
+      expect(state(fallback).currentDefinitionSource).toBe('free_form');
+      const neither = updateProductDefinition(fallback, { productId: 'product', field: 'definitionText' });
+      expect(state(neither).currentDefinitionSource).toBeNull();
+      const structuredFallback = updateProductDefinition(freeFirst, { productId: 'product', field: 'definitionText' });
+      expect(state(structuredFallback).currentDefinitionSource).toBe('structured');
+      expect(() => setProductCurrentDefinitionSource(neither, { productId: 'product', source: 'free_form' })).toThrow('eligible');
+      expect(() => setProductCurrentDefinitionSource(freeFirst, { productId: 'product', source: 'other' as never })).toThrow('free_form or structured');
+      for (const currentDefinitionSource of [undefined, null, 'stale' as never]) {
+        const legacy = { ...freeFirst, entities: freeFirst.entities.map(entity => entity.id === 'product' ? { ...entity, ...(currentDefinitionSource === undefined ? {} : { currentDefinitionSource }) } : entity) };
+        if (currentDefinitionSource === undefined) delete product(legacy).currentDefinitionSource;
+        const snapshot = structuredClone(legacy);
+        expect(state(legacy).currentDefinitionSource).toBe('free_form');
+        expect(legacy).toEqual(snapshot);
+      }
+    });
+
+    it('projects canonical whole text in authored order without block titles or external URLs', () => {
+      let document = both();
+      document = updateProductDefinition(document, { productId: 'product', field: 'definitionUrl', value: 'https://example.test/doc' });
+      document = addProductDefinitionBlock(document, { productId: 'product', blockId: 'empty', title: 'Empty', text: '\n ' });
+      document = addProductDefinitionBlock(document, { productId: 'product', blockId: 'last', title: 'Last title', text: ' Last\nbody ' });
+      expect(productDefinitionWholeText(document, 'product')).toBe('Orbit\n\nFree\nbody');
+      document = setProductCurrentDefinitionSource(document, { productId: 'product', source: 'structured' });
+      const snapshot = structuredClone(document);
+      expect(productDefinitionWholeText(document, 'product')).toBe('Orbit\n\nStructured\nbody\n\nLast\nbody');
+      expect(document).toEqual(snapshot);
+      const reordered = reorderProductDefinitionBlocks(document, { productId: 'product', blockIds: ['last', 'empty', 'first'] });
+      expect(productDefinitionWholeText(reordered, 'product')).toBe('Orbit\n\nLast\nbody\n\nStructured\nbody');
+      const renamed = updateEntity(reordered, { entityId: 'product', title: 'Renamed' });
+      expect(product(renamed)).toEqual({ ...product(reordered), title: 'Renamed' });
+      expect(productDefinitionWholeText(renamed, 'product')).toBe('Renamed\n\nLast\nbody\n\nStructured\nbody');
+    });
+
+    it('inserts stable blocks at the end or after an owned anchor and rejects invalid IDs/titles', () => {
+      let document = addProductDefinitionBlock(offerDocument(), { productId: 'product', blockId: ' first ', title: ' First ' });
+      document = addProductDefinitionBlock(document, { productId: 'product', blockId: 'last', title: 'Last', text: '' });
+      document = addProductDefinitionBlock(document, { productId: 'product', blockId: 'middle', title: 'Middle', text: ' Exact ', afterBlockId: 'first' });
+      expect(product(document).definitionBlocks).toEqual([{ id: 'first', title: 'First' }, { id: 'middle', title: 'Middle', text: ' Exact ' }, { id: 'last', title: 'Last', text: '' }]);
+      const withOther = addEntity(document, { ...place, kind: 'product', entityId: 'other', title: 'Other' });
+      const foreign = addProductDefinitionBlock(withOther, { productId: 'other', blockId: 'foreign', title: 'Foreign' });
+      const snapshot = structuredClone(foreign);
+      for (const input of [
+        { blockId: 'first', title: 'Duplicate' }, { blockId: 'foreign', title: 'Foreign duplicate' },
+        { blockId: ' ', title: 'Blank ID' }, { blockId: 'new', title: ' ' },
+        { blockId: 'new', title: 'New', afterBlockId: 'missing' }, { blockId: 'new', title: 'New', afterBlockId: 'foreign' },
+      ]) expect(() => addProductDefinitionBlock(foreign, { productId: 'product', ...input })).toThrow();
+      expect(foreign).toEqual(snapshot);
+    });
+
+    it('updates block title and exact optional text independently with identity-preserving no-ops', () => {
+      const before = both();
+      const title = updateProductDefinitionBlock(before, { productId: 'product', blockId: 'first', field: 'title', value: ' Renamed ' });
+      expect(product(title).definitionBlocks![0]).toEqual({ id: 'first', title: 'Renamed', text: '  Structured\nbody  ' });
+      expect(updateProductDefinitionBlock(title, { productId: 'product', blockId: 'first', field: 'title', value: 'Renamed' })).toBe(title);
+      const text = updateProductDefinitionBlock(title, { productId: 'product', blockId: 'first', field: 'text', value: '' });
+      expect(product(text).definitionBlocks![0]).toEqual({ id: 'first', title: 'Renamed', text: '' });
+      expect(updateProductDefinitionBlock(text, { productId: 'product', blockId: 'first', field: 'text', value: '' })).toBe(text);
+      const absent = updateProductDefinitionBlock(text, { productId: 'product', blockId: 'first', field: 'text' });
+      expect(product(absent).definitionBlocks![0]).not.toHaveProperty('text');
+      expect(updateProductDefinitionBlock(absent, { productId: 'product', blockId: 'first', field: 'text' })).toBe(absent);
+      expect(() => updateProductDefinitionBlock(before, { productId: 'product', blockId: 'first', field: 'title', value: ' ' })).toThrow();
+      expect(product(before).definitionBlocks![0]!.title).toBe('Heading');
+    });
+
+    it('removes owned blocks, canonicalizes the final collection and normalizes Current', () => {
+      let document = setProductCurrentDefinitionSource(both(), { productId: 'product', source: 'structured' });
+      document = addProductDefinitionBlock(document, { productId: 'product', blockId: 'title-only', title: 'Title only' });
+      const removedBody = removeProductDefinitionBlock(document, { productId: 'product', blockId: 'first' });
+      expect(product(removedBody).definitionBlocks).toEqual([{ id: 'title-only', title: 'Title only' }]);
+      expect(state(removedBody).currentDefinitionSource).toBe('free_form');
+      const removedLast = removeProductDefinitionBlock(removedBody, { productId: 'product', blockId: 'title-only' });
+      expect(product(removedLast)).not.toHaveProperty('definitionBlocks');
+      expect(product(removedLast).definitionText).toBe('Free\nbody');
+      const structuredOnly = addProductDefinitionBlock(offerDocument(), { productId: 'product', blockId: 'body', title: 'Body', text: 'Text' });
+      expect(state(removeProductDefinitionBlock(structuredOnly, { productId: 'product', blockId: 'body' })).currentDefinitionSource).toBeNull();
+      expect(() => removeProductDefinitionBlock(document, { productId: 'other', blockId: 'first' })).toThrow();
+    });
+
+    it('reorders only the exact owned set, retaining block objects and rejecting foreign operations atomically', () => {
+      let document = both();
+      document = addProductDefinitionBlock(document, { productId: 'product', blockId: 'last', title: 'Last' });
+      document = addEntity(document, { ...place, kind: 'product', entityId: 'other', title: 'Other' });
+      document = addProductDefinitionBlock(document, { productId: 'other', blockId: 'foreign', title: 'Foreign' });
+      const snapshot = structuredClone(document); const blocks = product(document).definitionBlocks!;
+      const next = reorderProductDefinitionBlocks(document, { productId: 'product', blockIds: ['last', 'first'] });
+      expect(product(next).definitionBlocks).toEqual([blocks[1], blocks[0]]);
+      expect(product(next).definitionBlocks![0]).toBe(blocks[1]);
+      expect(reorderProductDefinitionBlocks(document, { productId: 'product', blockIds: ['first', 'last'] })).toBe(document);
+      for (const blockIds of [[], ['first'], ['first', 'first'], ['first', 'last', 'extra'], ['first', 'foreign']]) {
+        expect(() => reorderProductDefinitionBlocks(document, { productId: 'product', blockIds })).toThrow();
+      }
+      for (const blockId of ['foreign', 'missing']) {
+        expect(() => updateProductDefinitionBlock(document, { productId: 'product', blockId, field: 'text', value: 'Bad' })).toThrow();
+        expect(() => removeProductDefinitionBlock(document, { productId: 'product', blockId })).toThrow();
+      }
+      expect(document).toEqual(snapshot);
+    });
+
+    it('owns independent external-copy URLs before eligibility and across Current changes', () => {
+      const before = offerDocument();
+      let document = setProductDefinitionExternalCopyUrl(before, { productId: 'product', source: 'free_form', value: ' https://example.test/copy ' });
+      document = setProductDefinitionExternalCopyUrl(document, { productId: 'product', source: 'structured', value: 'https://example.test/copy' });
+      expect(state(document).currentDefinitionSource).toBeNull();
+      expect(product(document)).toMatchObject({ freeFormExternalCopyUrl: 'https://example.test/copy', structuredExternalCopyUrl: 'https://example.test/copy' });
+      expect(setProductDefinitionExternalCopyUrl(document, { productId: 'product', source: 'free_form', value: ' https://example.test/copy ' })).toBe(document);
+      document = updateProductDefinition(document, { productId: 'product', field: 'definitionText', value: 'Free' });
+      document = addProductDefinitionBlock(document, { productId: 'product', blockId: 'body', title: 'Body', text: 'Structured' });
+      const switched = setProductCurrentDefinitionSource(document, { productId: 'product', source: 'structured' });
+      expect(product(switched)).toEqual({ ...product(document), currentDefinitionSource: 'structured' });
+      const cleared = setProductDefinitionExternalCopyUrl(switched, { productId: 'product', source: 'free_form', value: '\n ' });
+      expect(product(cleared)).not.toHaveProperty('freeFormExternalCopyUrl');
+      expect(product(cleared).structuredExternalCopyUrl).toBe('https://example.test/copy');
+      expect(setProductDefinitionExternalCopyUrl(cleared, { productId: 'product', source: 'free_form' })).toBe(cleared);
+      expect(() => setProductDefinitionExternalCopyUrl(before, { productId: 'product', source: 'other' as never, value: 'https://example.test' })).toThrow('free_form or structured');
+    });
+
+    it('isolates Definition operations from Offer Content, intent, selections and every unrelated record', () => {
+      let document = touchpoint();
+      document = addEntity(document, { ...place, entityId: 'job', kind: 'emotional_job', title: 'Feel confident' });
+      document = addProductJobIntent(document, { id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: [] });
+      document = setOfferJobSelections(document, { offerId: 'offer', selections: [{ productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] }], newSelectionIds: ['selection'] });
+      document.touchpointJobSelections.push({ id: 'touch-selection', touchpointId: 'touch', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] });
+      document = addEntity(document, { ...place, entityId: 'fdo', kind: 'financial_desired_outcome', title: 'Financial goal' });
+      document = setOfferFinancialIntents(document, { offerId: 'offer', financialDesiredOutcomeIds: ['fdo'], newIntentIds: ['financial'] });
+      document.touchpointFinancialSelections.push({ id: 'touch-financial', touchpointId: 'touch', offerId: 'offer', offerFinancialIntentId: 'financial', financialDesiredOutcomeId: 'fdo' });
+      document.epistemicAnnotations.push({ id: 'annotation', subjectEntityId: 'product', status: 'hypothesis', sourceNote: 'Existing annotation' });
+      document = updateOfferContent(document, { offerId: 'offer', field: 'contentText', value: 'Offer wording' });
+      document = addOfferContentBlock(document, { offerId: 'offer', blockId: 'offer-block', title: 'Offer heading', text: 'Offer body' });
+      document = setOfferContentExternalCopyUrl(document, { offerId: 'offer', source: 'free_form', value: 'https://example.test/offer-copy' });
+      const before = structuredClone(document);
+      const assertIsolated = (next: typeof document) => {
+        expect({ ...next, entities: next.entities.filter(entity => entity.id !== 'product') }).toEqual({ ...before, entities: before.entities.filter(entity => entity.id !== 'product') });
+        for (const [field, value] of Object.entries(document)) if (field !== 'entities') expect(next[field as keyof typeof next]).toBe(value);
+        expect(document).toEqual(before);
+      };
+      let next = updateProductDefinition(document, { productId: 'product', field: 'definitionUrl', value: 'https://example.test/product' }); assertIsolated(next);
+      next = updateProductDefinition(next, { productId: 'product', field: 'definitionText', value: 'Product description' }); assertIsolated(next);
+      next = addProductDefinitionBlock(next, { productId: 'product', blockId: 'product-block', title: 'Product heading', text: 'Product body' }); assertIsolated(next);
+      next = addProductDefinitionBlock(next, { productId: 'product', blockId: 'second', title: 'Second' }); assertIsolated(next);
+      next = updateProductDefinitionBlock(next, { productId: 'product', blockId: 'second', field: 'text', value: 'Second body' }); assertIsolated(next);
+      next = reorderProductDefinitionBlocks(next, { productId: 'product', blockIds: ['second', 'product-block'] }); assertIsolated(next);
+      next = setProductDefinitionExternalCopyUrl(next, { productId: 'product', source: 'structured', value: 'https://example.test/product-copy' }); assertIsolated(next);
+      next = setProductCurrentDefinitionSource(next, { productId: 'product', source: 'structured' }); assertIsolated(next);
+      next = removeProductDefinitionBlock(next, { productId: 'product', blockId: 'second' }); assertIsolated(next);
+      const withNewOffer = addEntity(next, { ...place, kind: 'offer', entityId: 'new-offer', title: 'New Offer', linkedProductId: 'product', relationshipId: 'new-package' });
+      expect(withNewOffer.entities.find(entity => entity.id === 'new-offer')).toEqual({ id: 'new-offer', kind: 'offer', title: 'New Offer', currentContentSource: null });
+      expect(product(withNewOffer)).toEqual(product(next));
+    });
+  });
+
+
   describe('Offer Content whole text', () => {
     function bothRepresentations() {
       let document = updateOfferContent(offerDocument(), { offerId: 'offer', field: 'contentText', value: 'Free\nbody' });

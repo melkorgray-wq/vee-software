@@ -15,6 +15,14 @@ export function isRepulsorTargetKind(kind: ProvisionalEntityKind): kind is Repul
 export const EPISTEMIC_STATUSES = ['observed', 'participant_reported', 'business_intent', 'hypothesis', 'interpretation', 'confirmed_outcome'] as const;
 export type EpistemicStatus = typeof EPISTEMIC_STATUSES[number];
 
+export interface ProductDefinitionBlock { id: string; title: string; text?: string }
+export type ProductCurrentDefinitionSource = 'free_form' | 'structured';
+export interface ProductDefinitionSourceState {
+  currentDefinitionSource: ProductCurrentDefinitionSource | null;
+  freeFormEligible: boolean;
+  structuredEligible: boolean;
+}
+
 export interface OfferContentBlock { id: string; title: string; text?: string }
 export type OfferCurrentContentSource = 'free_form' | 'structured';
 export interface OfferContentSourceState {
@@ -25,7 +33,7 @@ export interface OfferContentSourceState {
 
 export type Entity =
   | { id: string; kind: 'touchpoint'; title: string; locatedInId?: string; url?: string }
-  | { id: string; kind: 'product'; title: string }
+  | { id: string; kind: 'product'; title: string; definitionUrl?: string; definitionText?: string; definitionBlocks?: ProductDefinitionBlock[]; currentDefinitionSource?: ProductCurrentDefinitionSource | null; freeFormExternalCopyUrl?: string; structuredExternalCopyUrl?: string }
   | { id: string; kind: 'offer'; title: string; currentContentSource: OfferCurrentContentSource | null; contentUrl?: string; contentText?: string; contentBlocks?: OfferContentBlock[]; freeFormExternalCopyUrl?: string; structuredExternalCopyUrl?: string }
   | { id: string; kind: ClientRootEntityKind | ContextualClientEntityKind | RepulsorEntityKind; title: string };
 export type Relationship =
@@ -54,12 +62,12 @@ export class DomainError extends Error {
 }
 function required(value: string, field: string): string { const trimmed = value.trim(); if (!trimmed) throw new DomainError(`invalid_${field.toLowerCase().replaceAll(' ', '_')}`, `${field} must not be blank.`); return trimmed; }
 function optional(value?: string): string | undefined { const trimmed = value?.trim(); return trimmed || undefined; }
-function safeAbsoluteHttpUrl(value?: string): string | undefined {
+function safeAbsoluteHttpUrl(value?: string, errorCode = 'invalid_offer_content_url'): string | undefined {
   const normalized = optional(value);
   if (!normalized) return undefined;
   let parsed: URL;
-  try { parsed = new URL(normalized); } catch { throw new DomainError('invalid_offer_content_url', 'External document URL must be an absolute http: or https: URL.'); }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new DomainError('invalid_offer_content_url', 'External document URL must be an absolute http: or https: URL.');
+  try { parsed = new URL(normalized); } catch { throw new DomainError(errorCode, 'External document URL must be an absolute http: or https: URL.'); }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new DomainError(errorCode, 'External document URL must be an absolute http: or https: URL.');
   return normalized;
 }
 function finite(x: number, y: number) { if (!Number.isFinite(x) || !Number.isFinite(y)) throw new DomainError('invalid_coordinates', 'Placement coordinates must be finite.'); }
@@ -169,6 +177,150 @@ export function setOfferFinancialIntents(document: MapDocument, input: { offerId
   const replacement = input.financialDesiredOutcomeIds.map(id => retained.get(id) ?? { id: input.newIntentIds[additions.indexOf(id)]!, offerId: input.offerId, financialDesiredOutcomeId: id });
   const retainedIds = new Set(replacement.map(intent => intent.id));
   return pruneIrrelevantTouchpointMitigations({ ...document, offerFinancialIntents: [...document.offerFinancialIntents.filter(intent => intent.offerId !== input.offerId), ...replacement], touchpointFinancialSelections: document.touchpointFinancialSelections.filter(selection => selection.offerId !== input.offerId || retainedIds.has(selection.offerFinancialIntentId)) });
+}
+
+/** Atomically replaces one independently authored Definition property owned by a Product. */
+export function updateProductDefinition(document: MapDocument, input: { productId: string; field: 'definitionUrl' | 'definitionText'; value?: string }): MapDocument {
+  const product = entityOfKind(document, input.productId, 'product', 'Product') as Extract<Entity, { kind: 'product' }>;
+  const normalized = input.field === 'definitionUrl' ? safeAbsoluteHttpUrl(input.value, 'invalid_product_definition_url') : optional(input.value);
+  if (product[input.field] === normalized) return document;
+  const replacement: Extract<Entity, { kind: 'product' }> = { ...product };
+  if (normalized) replacement[input.field] = normalized;
+  else delete replacement[input.field];
+  return replaceProduct(document, input.field === 'definitionText' ? normalizeProductCurrentDefinitionSource(replacement) : replacement);
+}
+
+/** Updates the external-copy URL owned by exactly one Product Definition source. */
+export function setProductDefinitionExternalCopyUrl(document: MapDocument, input: { productId: string; source: ProductCurrentDefinitionSource; value?: string }): MapDocument {
+  const product = entityOfKind(document, input.productId, 'product', 'Product') as Extract<Entity, { kind: 'product' }>;
+  if (input.source !== 'free_form' && input.source !== 'structured') throw new DomainError('invalid_product_definition_source', 'Product Definition source must be free_form or structured.');
+  const normalized = safeAbsoluteHttpUrl(input.value, 'invalid_product_definition_url');
+  const field = input.source === 'free_form' ? 'freeFormExternalCopyUrl' : 'structuredExternalCopyUrl';
+  if (product[field] === normalized) return document;
+  const replacement: Extract<Entity, { kind: 'product' }> = { ...product };
+  if (normalized) replacement[field] = normalized;
+  else delete replacement[field];
+  return replaceProduct(document, replacement);
+}
+
+function productDefinitionBlockOwner(document: MapDocument, productId: string, blockId: string) {
+  const product = entityOfKind(document, productId, 'product', 'Product') as Extract<Entity, { kind: 'product' }>;
+  const index = product.definitionBlocks?.findIndex(block => block.id === blockId) ?? -1;
+  if (index < 0) throw new DomainError('unknown_product_definition_block', 'Definition block does not belong to the specified Product.');
+  return { product, index };
+}
+
+function replaceProduct(document: MapDocument, product: Extract<Entity, { kind: 'product' }>): MapDocument {
+  return { ...document, entities: document.entities.map(entity => entity.id === product.id ? product : entity) };
+}
+
+const isProductFreeFormDefinitionEligible = (product: Extract<Entity, { kind: 'product' }>) => Boolean(product.definitionText?.trim());
+const isProductStructuredDefinitionEligible = (product: Extract<Entity, { kind: 'product' }>) => Boolean(product.definitionBlocks?.some(block => block.text?.trim()));
+
+function normalizeProductCurrentDefinitionSource(product: Extract<Entity, { kind: 'product' }>): Extract<Entity, { kind: 'product' }> {
+  const freeFormEligible = isProductFreeFormDefinitionEligible(product);
+  const structuredEligible = isProductStructuredDefinitionEligible(product);
+  const current = product.currentDefinitionSource;
+  const normalized: ProductCurrentDefinitionSource | null = freeFormEligible && structuredEligible
+    ? (current === 'structured' || current === 'free_form' ? current : 'free_form')
+    : freeFormEligible ? 'free_form' : structuredEligible ? 'structured' : null;
+  return current === normalized ? product : { ...product, currentDefinitionSource: normalized };
+}
+
+/** Projects canonical Definition-source presentation state without changing the document. */
+export function productDefinitionSourceState(document: MapDocument, productId: string): ProductDefinitionSourceState {
+  const product = entityOfKind(document, productId, 'product', 'Product') as Extract<Entity, { kind: 'product' }>;
+  return {
+    currentDefinitionSource: normalizeProductCurrentDefinitionSource(product).currentDefinitionSource ?? null,
+    freeFormEligible: isProductFreeFormDefinitionEligible(product),
+    structuredEligible: isProductStructuredDefinitionEligible(product),
+  };
+}
+
+/** Assembles the canonical current Product Definition as framework-independent plain text. */
+export function productDefinitionWholeText(document: MapDocument, productId: string): string {
+  const product = entityOfKind(document, productId, 'product', 'Product') as Extract<Entity, { kind: 'product' }>;
+  const sourceState = productDefinitionSourceState(document, productId);
+  if (sourceState.currentDefinitionSource === 'free_form' && sourceState.freeFormEligible) {
+    return `${product.title}\n\n${product.definitionText!}`;
+  }
+  if (sourceState.currentDefinitionSource === 'structured' && sourceState.structuredEligible) {
+    const body = (product.definitionBlocks ?? []).flatMap(block => block.text?.trim() ? [block.text.trim()] : []).join('\n\n');
+    return body ? `${product.title}\n\n${body}` : product.title;
+  }
+  return product.title;
+}
+
+/** Selects an eligible canonical Definition representation without changing authored Definition. */
+export function setProductCurrentDefinitionSource(document: MapDocument, input: { productId: string; source: ProductCurrentDefinitionSource }): MapDocument {
+  const product = entityOfKind(document, input.productId, 'product', 'Product') as Extract<Entity, { kind: 'product' }>;
+  if (input.source !== 'free_form' && input.source !== 'structured') throw new DomainError('invalid_product_current_definition_source', 'Current Definition source must be free_form or structured.');
+  const eligible = input.source === 'free_form' ? isProductFreeFormDefinitionEligible(product) : isProductStructuredDefinitionEligible(product);
+  if (!eligible) throw new DomainError('ineligible_product_definition_source', 'Current Definition source must reference an eligible representation.');
+  if (product.currentDefinitionSource === input.source) return document;
+  return replaceProduct(document, { ...product, currentDefinitionSource: input.source });
+}
+
+/** Inserts one validated structured Definition block into its Product-authored order. */
+export function addProductDefinitionBlock(document: MapDocument, input: { productId: string; blockId: string; title: string; text?: string; afterBlockId?: string }): MapDocument {
+  const product = entityOfKind(document, input.productId, 'product', 'Product') as Extract<Entity, { kind: 'product' }>;
+  const blockId = required(input.blockId, 'Definition block ID');
+  const title = required(input.title, 'Definition block title');
+  if (document.entities.some(entity => entity.kind === 'product' && entity.definitionBlocks?.some(block => block.id === blockId))) {
+    throw new DomainError('duplicate_product_definition_block_id', 'Definition block ID already exists.');
+  }
+  const block: ProductDefinitionBlock = { id: blockId, title, ...(input.text !== undefined ? { text: input.text } : {}) };
+  const definitionBlocks = product.definitionBlocks ?? [];
+  if (input.afterBlockId === undefined) return replaceProduct(document, normalizeProductCurrentDefinitionSource({ ...product, definitionBlocks: [...definitionBlocks, block] }));
+  const anchorIndex = definitionBlocks.findIndex(candidate => candidate.id === input.afterBlockId);
+  if (anchorIndex < 0) throw new DomainError('unknown_product_definition_block', 'Definition block anchor does not belong to the specified Product.');
+  return replaceProduct(document, normalizeProductCurrentDefinitionSource({ ...product, definitionBlocks: [...definitionBlocks.slice(0, anchorIndex + 1), block, ...definitionBlocks.slice(anchorIndex + 1)] }));
+}
+
+export type UpdateProductDefinitionBlockInput =
+  | { productId: string; blockId: string; field: 'title'; value: string }
+  | { productId: string; blockId: string; field: 'text'; value?: string | undefined };
+
+/** Updates exactly one property of one Product-owned structured Definition block. */
+export function updateProductDefinitionBlock(document: MapDocument, input: UpdateProductDefinitionBlockInput): MapDocument {
+  const { product, index } = productDefinitionBlockOwner(document, input.productId, input.blockId);
+  const block = product.definitionBlocks![index]!;
+  if (input.field === 'title') {
+    const title = required(input.value, 'Definition block title');
+    if (block.title === title) return document;
+    const definitionBlocks = product.definitionBlocks!.map((candidate, candidateIndex) => candidateIndex === index ? { ...candidate, title } : candidate);
+    return replaceProduct(document, { ...product, definitionBlocks });
+  }
+  if (block.text === input.value && ('text' in block) === (input.value !== undefined)) return document;
+  const replacement: ProductDefinitionBlock = { ...block };
+  if (input.value === undefined) delete replacement.text;
+  else replacement.text = input.value;
+  const definitionBlocks = product.definitionBlocks!.map((candidate, candidateIndex) => candidateIndex === index ? replacement : candidate);
+  return replaceProduct(document, normalizeProductCurrentDefinitionSource({ ...product, definitionBlocks }));
+}
+
+/** Removes exactly one Product-owned block and canonicalizes an empty collection to absence. */
+export function removeProductDefinitionBlock(document: MapDocument, input: { productId: string; blockId: string }): MapDocument {
+  const { product, index } = productDefinitionBlockOwner(document, input.productId, input.blockId);
+  const definitionBlocks = product.definitionBlocks!.filter((_, candidateIndex) => candidateIndex !== index);
+  const replacement: Extract<Entity, { kind: 'product' }> = { ...product };
+  if (definitionBlocks.length) replacement.definitionBlocks = definitionBlocks;
+  else delete replacement.definitionBlocks;
+  return replaceProduct(document, normalizeProductCurrentDefinitionSource(replacement));
+}
+
+/** Replaces authored order only when the supplied IDs are the exact current block set. */
+export function reorderProductDefinitionBlocks(document: MapDocument, input: { productId: string; blockIds: string[] }): MapDocument {
+  const product = entityOfKind(document, input.productId, 'product', 'Product') as Extract<Entity, { kind: 'product' }>;
+  const current = product.definitionBlocks ?? [];
+  if (new Set(input.blockIds).size !== input.blockIds.length) throw new DomainError('duplicate_product_definition_block_id', 'Definition block IDs must be unique.');
+  const currentIds = new Set(current.map(block => block.id));
+  if (input.blockIds.length !== current.length || input.blockIds.some(id => !currentIds.has(id))) {
+    throw new DomainError('invalid_product_definition_block_order', 'Definition block order must contain exactly the Product’s current blocks.');
+  }
+  if (input.blockIds.every((id, index) => current[index]!.id === id)) return document;
+  const byId = new Map(current.map(block => [block.id, block]));
+  return replaceProduct(document, { ...product, definitionBlocks: input.blockIds.map(id => byId.get(id)!) });
 }
 
 /** Atomically replaces one independently authored Content property owned by an Offer. */
