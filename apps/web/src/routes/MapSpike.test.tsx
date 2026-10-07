@@ -1190,6 +1190,155 @@ describe('Offer Client intent presentation', () => {
   });
 });
 
+describe('Product Definition Inspector', () => {
+  const storedProduct = () => window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>;
+  const definition = (inspector: ReturnType<typeof within>) => within(inspector.getByRole('region', { name: 'Product Definition' }));
+  const editor = (inspector: ReturnType<typeof within>) => within(definition(inspector).getByRole('generic', { name: 'Product Definition editor' }));
+
+  it('treats absence as valid and places the section after Business structure without later-checkpoint controls', () => {
+    const inspector = renderProductInspector();
+    const section = definition(inspector);
+    expect(section.getByRole('button', { name: 'Add Definition' })).toHaveClass('inspector-property-heading-action');
+    expect(section.queryByRole('link')).not.toBeInTheDocument();
+    expect(section.queryByRole('alert')).not.toBeInTheDocument();
+    expect(inspector.getByRole('region', { name: 'Business structure' }).compareDocumentPosition(inspector.getByRole('region', { name: 'Product Definition' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(section.queryByText(/Current|Copy|Show more|External copy/)).not.toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+  });
+
+  it('reads the authored minimal fields directly, preserves line breaks and renders safe Product document links', () => {
+    const document = productBusinessStructureDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionUrl: 'https://example.com/product', definitionText: 'A service\nWith authored lines', definitionBlocks: [{ id: 'definition-block', title: 'Hidden', text: 'Other body' }], currentDefinitionSource: 'structured', freeFormExternalCopyUrl: 'https://example.com/copy' });
+    const section = definition(renderProductInspector(document));
+    expect(section.getByRole('button', { name: 'Edit Product Definition' })).toBeInTheDocument();
+    const link = section.getByRole('link', { name: 'https://example.com/product' });
+    expect(link).toHaveAttribute('target', '_blank'); expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(section.getByText('A service With authored lines').textContent).toBe('A service\nWith authored lines');
+    expect(section.queryByText('Other body')).not.toBeInTheDocument();
+  });
+
+  it('does not make unsafe legacy document URLs clickable', () => {
+    const document = productBusinessStructureDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionUrl: 'javascript:alert(1)' });
+    const section = definition(renderProductInspector(document));
+    expect(section.queryByRole('link')).not.toBeInTheDocument();
+    expect(section.getByText('javascript:alert(1)')).toBeInTheDocument();
+  });
+
+  it('commits fields independently, keeps multiline Enter local, and preserves hidden domain state', async () => {
+    const user = userEvent.setup(); const document = productBusinessStructureDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionBlocks: [{ id: 'definition-block', title: 'Hidden', text: 'Other body' }], currentDefinitionSource: 'structured', freeFormExternalCopyUrl: 'https://example.com/free', structuredExternalCopyUrl: 'https://example.com/structured' });
+    const inspector = renderProductInspector(document); const before = window.__VEE_DEV__!.dump();
+    await user.click(definition(inspector).getByRole('button', { name: 'Add Definition' }));
+    const url = editor(inspector).getByLabelText('Product document URL'); expect(url).toHaveFocus();
+    await user.type(url, 'https://example.com/product{Enter}');
+    expect(storedProduct().definitionUrl).toBe('https://example.com/product');
+    const text = editor(inspector).getByLabelText('Definition text');
+    await user.type(text, 'First line{Enter}Second line');
+    expect(storedProduct().definitionText).toBeUndefined();
+    expect(text).toHaveValue('First line\nSecond line');
+    await user.click(definition(inspector).getByRole('button', { name: 'Close' }));
+    expect(storedProduct()).toMatchObject({ definitionText: 'First line\nSecond line', definitionBlocks: [{ id: 'definition-block', title: 'Hidden', text: 'Other body' }], currentDefinitionSource: 'structured', freeFormExternalCopyUrl: 'https://example.com/free', structuredExternalCopyUrl: 'https://example.com/structured' });
+    expect(window.__VEE_DEV__!.dump()).toEqual({ ...before, entities: before.entities.map(entity => entity.id === 'product' ? storedProduct() : entity) });
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+    await waitFor(() => expect(definition(inspector).getByRole('button', { name: 'Edit Product Definition' })).toHaveFocus());
+    await user.click(definition(inspector).getByRole('button', { name: 'Edit Product Definition' }));
+    await user.clear(editor(inspector).getByLabelText('Product document URL')); await user.keyboard('{Enter}');
+    await user.clear(editor(inspector).getByLabelText('Definition text'));
+    await user.click(definition(inspector).getByRole('button', { name: 'Close' }));
+    expect(storedProduct().definitionUrl).toBeUndefined(); expect(storedProduct().definitionText).toBeUndefined();
+    expect(definition(inspector).getByRole('button', { name: 'Add Definition' })).toBeInTheDocument();
+  });
+
+  it('retains invalid URL errors across Close, outside and switch attempts, then recovers', async () => {
+    const user = userEvent.setup(); const inspector = renderProductInspector(); const before = window.__VEE_DEV__!.dump();
+    await user.click(definition(inspector).getByRole('button', { name: 'Add Definition' }));
+    await user.type(editor(inspector).getByLabelText('Product document URL'), 'ftp://example.com{Enter}');
+    expect(editor(inspector).getByRole('alert')).toHaveTextContent('absolute http: or https: URL');
+    await user.click(definition(inspector).getByRole('button', { name: 'Close' }));
+    fireEvent.pointerDown(inspector.getByRole('heading', { name: 'Orbit' }));
+    fireEvent.click(inspector.getByRole('button', { name: 'Edit Offers' }));
+    expect(editor(inspector).getByRole('alert')).toBeInTheDocument();
+    expect(inspector.queryByRole('generic', { name: 'Offers editor' })).not.toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    const url = editor(inspector).getByLabelText('Product document URL');
+    await user.clear(url); await user.type(url, 'https://example.com/fixed');
+    await user.click(definition(inspector).getByRole('button', { name: 'Close' }));
+    expect(storedProduct().definitionUrl).toBe('https://example.com/fixed');
+  });
+
+  it('Escape abandons only unfinished input and returns focus without reverting committed siblings', async () => {
+    const user = userEvent.setup(); const inspector = renderProductInspector();
+    await user.click(definition(inspector).getByRole('button', { name: 'Add Definition' }));
+    await user.type(editor(inspector).getByLabelText('Product document URL'), 'https://example.com/product{Enter}');
+    await user.type(editor(inspector).getByLabelText('Definition text'), 'Abandon this');
+    await user.keyboard('{Escape}');
+    expect(storedProduct().definitionUrl).toBe('https://example.com/product'); expect(storedProduct().definitionText).toBeUndefined();
+    expect(definition(inspector).queryByRole('generic', { name: 'Product Definition editor' })).not.toBeInTheDocument();
+    await waitFor(() => expect(definition(inspector).getByRole('button', { name: 'Edit Product Definition' })).toHaveFocus());
+  });
+
+  it('completes on pointer-outside and editor switching without stealing the new focus', async () => {
+    const user = userEvent.setup(); const inspector = renderProductInspector();
+    await user.click(definition(inspector).getByRole('button', { name: 'Add Definition' }));
+    await user.type(editor(inspector).getByLabelText('Definition text'), 'A service');
+    fireEvent.pointerDown(inspector.getByRole('button', { name: 'Edit Offers' }));
+    expect(editor(inspector).getByLabelText('Definition text')).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Edit Offers' }));
+    expect(storedProduct().definitionText).toBe('A service');
+    await waitFor(() => expect(inspector.getByRole('button', { name: 'Create Offer' })).toHaveFocus());
+    await user.click(definition(inspector).getByRole('button', { name: 'Edit Product Definition' }));
+    await user.type(editor(inspector).getByLabelText('Product document URL'), 'https://example.com/product');
+    await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
+    expect(storedProduct().definitionUrl).toBe('https://example.com/product');
+    expect(definition(inspector).queryByRole('generic', { name: 'Product Definition editor' })).not.toBeInTheDocument();
+  });
+
+  it('tracks edits after URL Enter completion and blocks invalid navigation by keyboard/click', async () => {
+    const user = userEvent.setup(); const inspector = renderProductInspector();
+    await user.click(definition(inspector).getByRole('button', { name: 'Add Definition' }));
+    const url = editor(inspector).getByLabelText('Product document URL');
+    await user.type(url, 'https://example.com{Enter}/changed');
+    await user.click(definition(inspector).getByRole('button', { name: 'Close' }));
+    expect(storedProduct().definitionUrl).toBe('https://example.com/changed');
+    await user.click(definition(inspector).getByRole('button', { name: 'Edit Product Definition' }));
+    await user.clear(editor(inspector).getByLabelText('Product document URL'));
+    await user.type(editor(inspector).getByLabelText('Product document URL'), 'invalid{Enter}');
+    await user.click(editor(inspector).getByLabelText('Definition text'));
+    await user.type(editor(inspector).getByLabelText('Definition text'), 'Keep this sibling');
+    fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
+    expect(screen.getByRole('tab', { name: 'Entity Inspector' })).toHaveAttribute('aria-selected', 'true');
+    expect(editor(inspector).getByRole('alert')).toBeInTheDocument();
+    expect(storedProduct().definitionText).toBe('Keep this sibling');
+    fireEvent.click(inspector.getByRole('button', { name: 'Subscription' }));
+    expect(inspector.getByRole('heading', { name: 'Orbit' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(storedProduct().definitionUrl).toBe('https://example.com/changed');
+    expect(storedProduct().definitionText).toBe('Keep this sibling');
+  });
+
+  it.each(['Apply', 'Discard'])('preserves Definition and an existing legacy intent draft through %s', async action => {
+    const user = userEvent.setup(); const document = productBusinessStructureDocument();
+    document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
+    const inspector = renderProductInspector(document); const intent = within(inspector.getByRole('group', { name: 'Client intent' }));
+    await user.click(intent.getByRole('button', { name: 'Expand Make progress' }));
+    await user.click(intent.getByLabelText('Finish faster'));
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
+    await user.click(definition(inspector).getByRole('button', { name: 'Add Definition' }));
+    await user.type(editor(inspector).getByLabelText('Definition text'), 'Durable description');
+    await user.click(definition(inspector).getByRole('button', { name: 'Close' }));
+    expect(intent.getByLabelText('Finish faster')).not.toBeChecked();
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
+    if (action === 'Apply') await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
+    else {
+      fireEvent.click(globalThis.document.querySelector<HTMLElement>('[data-node-id="offer-a"]')!);
+      await user.click(within(screen.getByRole('dialog', { name: 'Unsaved Product changes' })).getByRole('button', { name: 'Discard' }));
+    }
+    expect(storedProduct().definitionText).toBe('Durable description');
+    expect(window.__VEE_DEV__!.dump().productJobIntents[0]!.addressedDesiredOutcomeIds).toEqual(action === 'Apply' ? [] : ['do-a']);
+  });
+});
+
 describe('Offer Content Inspector', () => {
   let contentResizeObservers: { callback: ResizeObserverCallback; observed: Set<Element>; disconnected: boolean }[];
   let fontLoadingDoneListeners: Set<EventListenerOrEventListenerObject>;
