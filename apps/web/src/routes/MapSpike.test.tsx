@@ -1195,26 +1195,28 @@ describe('Product Definition Inspector', () => {
   const definition = (inspector: ReturnType<typeof within>) => within(inspector.getByRole('region', { name: 'Product Definition' }));
   const editor = (inspector: ReturnType<typeof within>) => within(definition(inspector).getByRole('generic', { name: 'Product Definition editor' }));
 
-  it('treats absence as valid and places the section after Business structure without later-checkpoint controls', () => {
+  it('treats absence as valid and places the canonical title-only document after Business structure', () => {
     const inspector = renderProductInspector();
     const section = definition(inspector);
     expect(section.getByRole('button', { name: 'Add Definition' })).toHaveClass('inspector-property-heading-action');
     expect(section.queryByRole('link')).not.toBeInTheDocument();
     expect(section.queryByRole('alert')).not.toBeInTheDocument();
     expect(inspector.getByRole('region', { name: 'Business structure' }).compareDocumentPosition(inspector.getByRole('region', { name: 'Product Definition' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(section.queryByText(/Current|Copy|Show more|External copy/)).not.toBeInTheDocument();
+    expect(section.queryByText(/Current|Show more|External copy/)).not.toBeInTheDocument();
+    expect(section.getByRole('button', { name: 'Copy' })).toBeInTheDocument();
+    expect(section.getByText('Orbit')).toHaveClass('authored-content-text');
     expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
   });
 
-  it('reads the authored minimal fields directly, preserves line breaks and renders safe Product document links', () => {
+  it('reads the canonical Current body and renders safe separate Product document links', () => {
     const document = productBusinessStructureDocument();
     Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionUrl: 'https://example.com/product', definitionText: 'A service\nWith authored lines', definitionBlocks: [{ id: 'definition-block', title: 'Hidden', text: 'Other body' }], currentDefinitionSource: 'structured', freeFormExternalCopyUrl: 'https://example.com/copy' });
     const section = definition(renderProductInspector(document));
     expect(section.getByRole('button', { name: 'Edit Product Definition' })).toBeInTheDocument();
     const link = section.getByRole('link', { name: 'https://example.com/product' });
     expect(link).toHaveAttribute('target', '_blank'); expect(link).toHaveAttribute('rel', 'noopener noreferrer');
-    expect(section.getByText('A service With authored lines').textContent).toBe('A service\nWith authored lines');
-    expect(section.queryByText('Other body')).not.toBeInTheDocument();
+    expect(section.getByText('Orbit Other body').textContent).toBe('Orbit\n\nOther body');
+    expect(section.queryByText('A service With authored lines')).not.toBeInTheDocument();
   });
 
   it('does not make unsafe legacy document URLs clickable', () => {
@@ -1852,13 +1854,14 @@ describe('Offer Content Inspector', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     if (originalDocumentFonts) Object.defineProperty(document, 'fonts', originalDocumentFonts);
     else Reflect.deleteProperty(document, 'fonts');
   });
 
-  function measureOfferContent(inspector: ReturnType<typeof within>, { scrollHeight, clientHeight, width = 320, notifyResize = true }: { scrollHeight: number; clientHeight: number; width?: number; notifyResize?: boolean }) {
-    const viewport = inspector.getByText((_: string, element: Element | null) => element?.classList.contains('offer-content-text') ?? false);
+  function measureAuthoredContent(inspector: ReturnType<typeof within>, { scrollHeight, clientHeight, width = 320, notifyResize = true }: { scrollHeight: number; clientHeight: number; width?: number; notifyResize?: boolean }) {
+    const viewport = inspector.getByText((_: string, element: Element | null) => Boolean(element?.classList.contains('offer-content-text') || element?.classList.contains('authored-content-text')));
     Object.defineProperties(viewport, {
       scrollHeight: { configurable: true, value: scrollHeight },
       clientHeight: { configurable: true, value: clientHeight },
@@ -2273,7 +2276,7 @@ describe('Offer Content Inspector', () => {
     const marker = inspector.getByText('Current · Free-form');
     expect(marker.tagName).toBe('SPAN');
     expect(marker).not.toHaveAttribute('tabindex');
-    expect(inspector.getByText((_, element) => element?.classList.contains('offer-content-text') ?? false).textContent).toBe('Subscription\n\nFirst line\nSecond line');
+    expect(inspector.getByText((_, element) => Boolean(element?.classList.contains('offer-content-text') || element?.classList.contains('authored-content-text'))).textContent).toBe('Subscription\n\nFirst line\nSecond line');
     expect(inspector.queryByRole('button', { name: /Make .* current/ })).not.toBeInTheDocument();
   });
 
@@ -2292,7 +2295,7 @@ describe('Offer Content Inspector', () => {
     const user = userEvent.setup();
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
     const inspector = renderOfferInspector(document);
-    const text = inspector.getByText((_, element) => element?.classList.contains('offer-content-text') ?? false);
+    const text = inspector.getByText((_, element) => Boolean(element?.classList.contains('offer-content-text') || element?.classList.contains('authored-content-text')));
 
     expect(inspector.getByText('Current · Structured')).toBeInTheDocument();
     expect(text.textContent).toBe('Subscription\n\nFirst structured body\n\nLast structured\nbody');
@@ -2308,7 +2311,7 @@ describe('Offer Content Inspector', () => {
 
   it('presents a title-only Offer as canonical document text without a Current marker or source-switch action', () => {
     const inspector = renderOfferInspector();
-    const text = inspector.getByText((_, element) => element?.classList.contains('offer-content-text') ?? false);
+    const text = inspector.getByText((_, element) => Boolean(element?.classList.contains('offer-content-text') || element?.classList.contains('authored-content-text')));
 
     expect(text.textContent).toBe('Subscription');
     expect(inspector.queryByText(/Current ·/)).not.toBeInTheDocument();
@@ -2322,7 +2325,7 @@ describe('Offer Content Inspector', () => {
     const user = userEvent.setup();
     const inspector = renderOfferInspector(document);
     const before = window.__VEE_DEV__!.dump();
-    const text = measureOfferContent(inspector, { scrollHeight: 180, clientHeight: 72 });
+    const text = measureAuthoredContent(inspector, { scrollHeight: 180, clientHeight: 72 });
 
     expect(text.textContent).toBe(subscriptionWholeText(contentText));
     expect(inspector.queryByRole('button', { name: 'Show less' })).not.toBeInTheDocument();
@@ -2340,7 +2343,7 @@ describe('Offer Content Inspector', () => {
     const multiParagraph = offerNeighborhoodDocument();
     Object.assign(multiParagraph.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'One\n\nTwo' });
     let inspector = renderOfferInspector(multiParagraph);
-    let text = measureOfferContent(inspector, { scrollHeight: 60, clientHeight: 72 });
+    let text = measureAuthoredContent(inspector, { scrollHeight: 60, clientHeight: 72 });
     expect(text.textContent).toBe(subscriptionWholeText('One\n\nTwo'));
     expect(inspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
 
@@ -2348,7 +2351,7 @@ describe('Offer Content Inspector', () => {
     const singleParagraph = offerNeighborhoodDocument();
     Object.assign(singleParagraph.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Short text' });
     inspector = renderOfferInspector(singleParagraph);
-    text = measureOfferContent(inspector, { scrollHeight: 24, clientHeight: 72 });
+    text = measureAuthoredContent(inspector, { scrollHeight: 24, clientHeight: 72 });
     expect(text.textContent).toBe(subscriptionWholeText('Short text'));
     expect(inspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
   });
@@ -2358,7 +2361,7 @@ describe('Offer Content Inspector', () => {
     const contentText = 'Line one\nLine two\nLine three\nLine four\nLine five';
     Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText });
     const inspector = renderOfferInspector(document);
-    const text = measureOfferContent(inspector, { scrollHeight: 120, clientHeight: 72 });
+    const text = measureAuthoredContent(inspector, { scrollHeight: 120, clientHeight: 72 });
     const disclosure = inspector.getByRole('button', { name: 'Show more' });
     expect(text.textContent).toBe(subscriptionWholeText(contentText));
     expect(disclosure).toHaveAttribute('aria-expanded', 'false');
@@ -2373,15 +2376,15 @@ describe('Offer Content Inspector', () => {
     Object.defineProperty(window, 'scrollBy', { configurable: true, value: scrollBy });
     const inspector = renderOfferInspector(document);
 
-    measureOfferContent(inspector, { scrollHeight: 60, clientHeight: 72, width: 480 });
+    measureAuthoredContent(inspector, { scrollHeight: 60, clientHeight: 72, width: 480 });
     expect(inspector.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
-    measureOfferContent(inspector, { scrollHeight: 120, clientHeight: 72, width: 220 });
+    measureAuthoredContent(inspector, { scrollHeight: 120, clientHeight: 72, width: 220 });
     const showMore = inspector.getByRole('button', { name: 'Show more' });
     vi.spyOn(showMore, 'getBoundingClientRect').mockReturnValue({ top: 100 } as DOMRect);
     await user.click(showMore);
     expect(inspector.getByRole('button', { name: 'Show less' })).toHaveAttribute('aria-expanded', 'true');
 
-    const text = measureOfferContent(inspector, { scrollHeight: 60, clientHeight: 72, width: 520 });
+    const text = measureAuthoredContent(inspector, { scrollHeight: 60, clientHeight: 72, width: 520 });
     expect(inspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
     expect(text).not.toHaveClass('is-expanded');
     expect(scrollBy).not.toHaveBeenCalled();
@@ -2392,14 +2395,14 @@ describe('Offer Content Inspector', () => {
     Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Font-sensitive authored content' });
     const inspector = renderOfferInspector(document);
 
-    measureOfferContent(inspector, { scrollHeight: 60, clientHeight: 72, width: 320 });
+    measureAuthoredContent(inspector, { scrollHeight: 60, clientHeight: 72, width: 320 });
     expect(inspector.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
 
-    measureOfferContent(inspector, { scrollHeight: 120, clientHeight: 72, width: 320, notifyResize: false });
+    measureAuthoredContent(inspector, { scrollHeight: 120, clientHeight: 72, width: 320, notifyResize: false });
     finishFontLoading();
     expect(inspector.getByRole('button', { name: 'Show more' })).toBeInTheDocument();
 
-    measureOfferContent(inspector, { scrollHeight: 60, clientHeight: 72, width: 320, notifyResize: false });
+    measureAuthoredContent(inspector, { scrollHeight: 60, clientHeight: 72, width: 320, notifyResize: false });
     finishFontLoading();
     expect(inspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
   });
@@ -2409,7 +2412,7 @@ describe('Offer Content Inspector', () => {
     Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Pending font content' });
     const user = userEvent.setup();
     const inspector = renderOfferInspector(document);
-    measureOfferContent(inspector, { scrollHeight: 120, clientHeight: 72, notifyResize: false });
+    measureAuthoredContent(inspector, { scrollHeight: 120, clientHeight: 72, notifyResize: false });
 
     await act(async () => {
       resolveFontsReady(globalThis.document.fonts);
@@ -2427,7 +2430,7 @@ describe('Offer Content Inspector', () => {
     const document = offerNeighborhoodDocument();
     Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Unmounted font content' });
     const inspector = renderOfferInspector(document);
-    measureOfferContent(inspector, { scrollHeight: 120, clientHeight: 72, notifyResize: false });
+    measureAuthoredContent(inspector, { scrollHeight: 120, clientHeight: 72, notifyResize: false });
     cleanup();
 
     await expect(act(async () => {
@@ -2442,7 +2445,7 @@ describe('Offer Content Inspector', () => {
     Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Measured text' });
     const user = userEvent.setup();
     const inspector = renderOfferInspector(document);
-    measureOfferContent(inspector, { scrollHeight: 120, clientHeight: 72 });
+    measureAuthoredContent(inspector, { scrollHeight: 120, clientHeight: 72 });
     const observer = contentResizeObservers.find(candidate => [...candidate.observed].some(target => target.classList.contains('offer-content-text')))!;
 
     await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
@@ -2459,7 +2462,7 @@ describe('Offer Content Inspector', () => {
     Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Previously overflowing authored text' });
     const user = userEvent.setup();
     const inspector = renderOfferInspector(document);
-    measureOfferContent(inspector, { scrollHeight: 120, clientHeight: 72 });
+    measureAuthoredContent(inspector, { scrollHeight: 120, clientHeight: 72 });
     expect(inspector.getByRole('button', { name: 'Show more' })).toBeInTheDocument();
 
     await user.click(inspector.getByRole('button', { name: 'Edit Offer Content' }));
@@ -2468,7 +2471,7 @@ describe('Offer Content Inspector', () => {
     await user.type(textarea, 'Short replacement');
     await user.click(inspector.getByRole('button', { name: 'Close' }));
 
-    expect(measureOfferContent(inspector, { scrollHeight: 24, clientHeight: 72, width: 320 }).textContent).toBe(subscriptionWholeText('Short replacement'));
+    expect(measureAuthoredContent(inspector, { scrollHeight: 24, clientHeight: 72, width: 320 }).textContent).toBe(subscriptionWholeText('Short replacement'));
     expect(inspector.queryByRole('button', { name: /Show (more|less)/ })).not.toBeInTheDocument();
     expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a')).toMatchObject({ contentText: 'Short replacement' });
   });
@@ -2477,10 +2480,10 @@ describe('Offer Content Inspector', () => {
     const document = offerNeighborhoodDocument();
     Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Stable overflowing text' });
     const inspector = renderOfferInspector(document);
-    measureOfferContent(inspector, { scrollHeight: 120, clientHeight: 72, width: 240 });
+    measureAuthoredContent(inspector, { scrollHeight: 120, clientHeight: 72, width: 240 });
     const disclosure = inspector.getByRole('button', { name: 'Show more' });
     const observerCount = contentResizeObservers.length;
-    measureOfferContent(inspector, { scrollHeight: 120, clientHeight: 72, width: 240 });
+    measureAuthoredContent(inspector, { scrollHeight: 120, clientHeight: 72, width: 240 });
     expect(inspector.getByRole('button', { name: 'Show more' })).toBe(disclosure);
     expect(contentResizeObservers).toHaveLength(observerCount);
   });
@@ -2498,7 +2501,7 @@ describe('Offer Content Inspector', () => {
       const document = offerNeighborhoodDocument();
       Object.assign(document.entities.find(entity => entity.id === 'offer-a')!, { contentText: 'Fallback overflow text' });
       const inspector = renderOfferInspector(document);
-      expect(inspector.getByText((_, element) => element?.classList.contains('offer-content-text') ?? false)).toHaveTextContent('Fallback overflow text');
+      expect(inspector.getByText((_, element) => Boolean(element?.classList.contains('offer-content-text') || element?.classList.contains('authored-content-text')))).toHaveTextContent('Fallback overflow text');
       expect(inspector.getByRole('button', { name: 'Show more' })).toBeInTheDocument();
     } finally {
       if (scrollHeight) Object.defineProperty(HTMLElement.prototype, 'scrollHeight', scrollHeight);
@@ -2516,7 +2519,7 @@ describe('Offer Content Inspector', () => {
     const scrollBy = vi.fn();
     Object.defineProperty(window, 'scrollBy', { configurable: true, value: scrollBy });
     const inspector = renderOfferInspector(document);
-    measureOfferContent(inspector, { scrollHeight: 160, clientHeight: 72 });
+    measureAuthoredContent(inspector, { scrollHeight: 160, clientHeight: 72 });
     const before = window.__VEE_DEV__!.dump();
     const showMore = inspector.getByRole('button', { name: 'Show more' });
     const geometry = vi.spyOn(showMore, 'getBoundingClientRect').mockReturnValue({ top: 180 } as DOMRect);
@@ -2547,7 +2550,7 @@ describe('Offer Content Inspector', () => {
     const scrollBy = vi.fn();
     Object.defineProperty(window, 'scrollBy', { configurable: true, value: scrollBy });
     const inspector = renderOfferInspector(document);
-    measureOfferContent(inspector, { scrollHeight: 160, clientHeight: 72 });
+    measureAuthoredContent(inspector, { scrollHeight: 160, clientHeight: 72 });
     const showMore = inspector.getByRole('button', { name: 'Show more' });
     const scrollOwner = showMore.closest('section')!.parentElement!;
     scrollOwner.style.overflowY = 'auto';
@@ -2575,7 +2578,7 @@ describe('Offer Content Inspector', () => {
     const scrollBy = vi.fn();
     Object.defineProperty(window, 'scrollBy', { configurable: true, value: scrollBy });
     const inspector = renderOfferInspector(document);
-    measureOfferContent(inspector, { scrollHeight: 160, clientHeight: 72 });
+    measureAuthoredContent(inspector, { scrollHeight: 160, clientHeight: 72 });
     vi.spyOn(inspector.getByRole('button', { name: 'Show more' }), 'getBoundingClientRect').mockReturnValue({ top: 140 } as DOMRect);
 
     await user.click(inspector.getByRole('button', { name: 'Show more' }));
@@ -2592,7 +2595,7 @@ describe('Offer Content Inspector', () => {
     const scrollBy = vi.fn();
     Object.defineProperty(window, 'scrollBy', { configurable: true, value: scrollBy });
     const inspector = renderOfferInspector(document);
-    measureOfferContent(inspector, { scrollHeight: 160, clientHeight: 72 });
+    measureAuthoredContent(inspector, { scrollHeight: 160, clientHeight: 72 });
     const showMore = inspector.getByRole('button', { name: 'Show more' });
     const scrollOwner = showMore.closest('section')!.parentElement!;
     scrollOwner.style.overflowY = 'auto';
@@ -2615,12 +2618,12 @@ describe('Offer Content Inspector', () => {
     Object.assign(document.entities.find(entity => entity.id === 'offer-b')!, { contentText: 'Consulting preview\n\nConsulting detail' });
     const user = userEvent.setup();
     const inspector = renderOfferInspector(document);
-    measureOfferContent(inspector, { scrollHeight: 160, clientHeight: 72 });
+    measureAuthoredContent(inspector, { scrollHeight: 160, clientHeight: 72 });
 
     await user.click(inspector.getByRole('button', { name: 'Show more' }));
     expect(inspector.getByText(/Subscription preview/)).toHaveTextContent('Subscription detail');
     await user.click(inspector.getAllByRole('button', { name: 'Consulting' })[0]!);
-    measureOfferContent(inspector, { scrollHeight: 160, clientHeight: 72 });
+    measureAuthoredContent(inspector, { scrollHeight: 160, clientHeight: 72 });
     expect(inspector.getByText(/Consulting preview/).textContent).toBe('Consulting\n\nConsulting preview\n\nConsulting detail');
     expect(inspector.getByRole('button', { name: 'Show more' })).toBeInTheDocument();
   });
@@ -2633,7 +2636,7 @@ describe('Offer Content Inspector', () => {
     const user = userEvent.setup();
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
     const inspector = renderOfferInspector(document);
-    const text = measureOfferContent(inspector, { scrollHeight: 160, clientHeight: 72 });
+    const text = measureAuthoredContent(inspector, { scrollHeight: 160, clientHeight: 72 });
     const actions = inspector.getByRole('button', { name: 'Copy' }).closest<HTMLElement>('.offer-content-actions')!;
     const showMore = within(actions).getByRole('button', { name: 'Show more' });
     const copy = within(actions).getByRole('button', { name: 'Copy' });
@@ -3313,6 +3316,231 @@ describe('Offer Content Inspector', () => {
     const createdId = (window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'offer-a') as Extract<Entity, { kind: 'offer' }>).contentBlocks?.find(block => block.title === 'Created')!.id;
     await user.click(within(editor.querySelector<HTMLElement>(`[data-block-id="${createdId}"]`)!).getByRole('button', { name: 'Delete' }));
     assertLocalShortcutStructure();
+  });
+
+  it.each(['valid', 'changed scroll context'] as const)('Product parity consumes contextual collapse restoration once (%s)', async state => {
+    const user = userEvent.setup(); const inspector = renderProductInspector(productParityDocument({ definitionText: 'Measured document' }));
+    measureAuthoredContent(inspector, { scrollHeight: 200, clientHeight: 72 });
+    const section = paritySection(inspector); const anchor = section.getByRole('button', { name: 'Show more' });
+    const scroll = anchor.parentElement!.parentElement!.parentElement!;
+    scroll.style.overflowY = 'auto';
+    Object.defineProperties(scroll, { scrollHeight: { configurable: true, value: 800 }, clientHeight: { configurable: true, value: 300 } });
+    scroll.scrollTop = 40;
+    let top = 100; vi.spyOn(anchor, 'getBoundingClientRect').mockImplementation(() => ({ top } as DOMRect));
+    const before = window.__VEE_DEV__!.dump(); await user.click(anchor); top = 160;
+    if (state === 'changed scroll context') scroll.style.overflowY = 'hidden';
+    await user.click(section.getByRole('button', { name: 'Show less' }));
+    expect(scroll.scrollTop).toBe(state === 'valid' ? 100 : 40);
+    top = 220; finishFontLoading();
+    expect(scroll.scrollTop).toBe(state === 'valid' ? 100 : 40);
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+  });
+
+  it('Product parity keeps failed Use this document local without changing either copy', async () => {
+    const user = userEvent.setup(); const section = paritySection(renderProductInspector(productParityDocument({ ...coexist, definitionUrl: 'https://example.test/document', freeFormExternalCopyUrl: undefined })));
+    const before = window.__VEE_DEV__!.dump();
+    vi.spyOn(domain, 'setProductDefinitionExternalCopyUrl').mockImplementationOnce(() => { throw new Error('Copy URL commit failed.'); });
+    await user.click(section.getByRole('button', { name: 'Use this document' }));
+    expect(section.getByRole('alert')).toHaveTextContent('Copy URL commit failed.');
+    expect(section.queryByRole('textbox')).not.toBeInTheDocument(); expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    await user.click(section.getByRole('button', { name: 'Use this document' }));
+    expect(parityProduct().freeFormExternalCopyUrl).toBe('https://example.test/document'); expect(section.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('Product parity ignores late clipboard feedback after the owning source changes', async () => {
+    const user = userEvent.setup(); let finishCopy!: () => void;
+    vi.spyOn(navigator.clipboard, 'writeText').mockImplementationOnce(() => new Promise<void>(resolve => { finishCopy = resolve; }));
+    const section = paritySection(renderProductInspector(productParityDocument(coexist)));
+    await user.click(section.getByRole('button', { name: 'Copy' }));
+    await user.click(section.getByRole('button', { name: 'Edit Product Definition' })); await user.click(section.getByRole('button', { name: 'Make Structured Definition current' })); await user.click(section.getByRole('button', { name: 'Close' }));
+    await act(async () => finishCopy());
+    expect(section.queryByRole('status')).not.toBeInTheDocument(); expect(parityProduct().currentDefinitionSource).toBe('structured');
+  });
+
+  const productParityDocument = (fields: { [Key in keyof Extract<Entity, { kind: 'product' }>]?: Extract<Entity, { kind: 'product' }>[Key] | undefined } = {}) => {
+    const value = productBusinessStructureDocument();
+    Object.assign(value.entities.find(entity => entity.id === 'product')!, fields);
+    return value;
+  };
+  const parityProduct = () => window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>;
+  const paritySection = (inspector: ReturnType<typeof within>) => within(inspector.getByRole('region', { name: 'Product Definition' }));
+  const coexist = { definitionText: 'Free\nform', definitionBlocks: [{ id: 'body', title: 'Not part of whole text', text: 'Structured\nbody' }], freeFormExternalCopyUrl: 'https://example.test/free', structuredExternalCopyUrl: 'https://example.test/structured' };
+
+  it.each([
+    [{}, null, 'Orbit'],
+    [{ definitionUrl: 'https://example.test/document' }, null, 'Orbit'],
+    [{ definitionBlocks: [{ id: 'title', title: 'Title only' }] }, null, 'Orbit'],
+    [{ definitionText: 'Free\nform' }, 'free_form', 'Orbit\n\nFree\nform'],
+    [{ definitionBlocks: [{ id: 'first', title: 'Excluded', text: 'First\nbody' }, { id: 'empty', title: 'Also excluded' }, { id: 'last', title: 'Last', text: 'Second body' }] }, 'structured', 'Orbit\n\nFirst\nbody\n\nSecond body'],
+    [coexist, 'free_form', 'Orbit\n\nFree\nform'],
+    [{ ...coexist, currentDefinitionSource: 'structured' }, 'structured', 'Orbit\n\nStructured\nbody'],
+    [{ ...coexist, currentDefinitionSource: 'invalid' }, 'free_form', 'Orbit\n\nFree\nform'],
+  ])('Product parity canonical read and Copy match the domain projection (%j)', async (fields, source, payload) => {
+    const user = userEvent.setup();
+    const clipboard = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
+    const doc = productParityDocument(fields as Partial<Extract<Entity, { kind: 'product' }>>);
+    const section = paritySection(renderProductInspector(doc));
+    const before = window.__VEE_DEV__!.dump();
+    expect(section.getByText((_, element) => element?.classList.contains('authored-content-text') ?? false).textContent).toBe(payload);
+    expect(domain.productDefinitionWholeText(before, 'product')).toBe(payload);
+    expect(Boolean(section.queryByText(/^Current ·/))).toBe(Boolean(source));
+    expect(Boolean(section.queryByRole('group', { name: 'External copy' }))).toBe(Boolean(source));
+    await user.click(section.getByRole('button', { name: 'Copy' }));
+    expect(clipboard).toHaveBeenCalledWith(payload);
+    expect(section.getByRole('status')).toHaveTextContent('Product definition copied.');
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+  });
+
+  it('Product parity switches Current independently, preserves copies and focuses the committed marker', async () => {
+    const user = userEvent.setup(); const inspector = renderProductInspector(productParityDocument(coexist)); const section = paritySection(inspector);
+    await user.click(section.getByRole('button', { name: 'Edit Product Definition' }));
+    expect(section.getByText('Structure the Product as named blocks:', { exact: false })).toBeInTheDocument();
+    await user.click(section.getByRole('button', { name: 'Make Structured Definition current' }));
+    expect(parityProduct()).toMatchObject({ ...coexist, currentDefinitionSource: 'structured' });
+    expect(globalThis.document.getElementById('product-definition-current-structured-product')).toHaveFocus();
+    await user.click(section.getByRole('button', { name: 'Make Free-form Definition current' }));
+    expect(parityProduct()).toMatchObject({ ...coexist, currentDefinitionSource: 'free_form' });
+    await user.click(section.getByRole('button', { name: 'Close' }));
+    expect(section.getByText('Orbit Free form').textContent).toBe('Orbit\n\nFree\nform');
+  });
+
+  it.each(['definitionText', 'blockTitle', 'blockText', 'newTitle'] as const)('Product parity completes %s before Current using the fresh document', async field => {
+    const user = userEvent.setup(); const inspector = renderProductInspector(productParityDocument(coexist)); const section = paritySection(inspector);
+    await user.click(section.getByRole('button', { name: 'Edit Product Definition' }));
+    if (field === 'newTitle') await user.click(section.getByRole('button', { name: 'Add block' }));
+    const input = field === 'definitionText' ? section.getByLabelText('Definition text') : field === 'blockText' ? section.getByLabelText('Block text') : section.getAllByLabelText('Block title').at(-1)!;
+    fireEvent.focus(input); fireEvent.change(input, { target: { value: 'Completed value' } });
+    const setter = vi.spyOn(domain, 'setProductCurrentDefinitionSource');
+    fireEvent.click(section.getByRole('button', { name: 'Make Structured Definition current' }));
+    expect(setter).toHaveBeenCalledOnce();
+    const submitted = setter.mock.calls[0]![0].entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>;
+    if (field === 'definitionText') expect(submitted.definitionText).toBe('Completed value');
+    else if (field === 'blockText') expect(submitted.definitionBlocks![0]!.text).toBe('Completed value');
+    else expect(submitted.definitionBlocks!.at(-1)!.title).toBe('Completed value');
+    expect(parityProduct().currentDefinitionSource).toBe('structured');
+  });
+
+  it('Product parity completes document URL before Current and retains its validation boundary across block focus', async () => {
+    const user = userEvent.setup(); const section = paritySection(renderProductInspector(productParityDocument(coexist)));
+    await user.click(section.getByRole('button', { name: 'Edit Product Definition' }));
+    const url = section.getByLabelText('Product document URL');
+    await user.type(url, 'javascript:invalid{Enter}');
+    await user.click(section.getByLabelText('Block text'));
+    await user.click(section.getByRole('button', { name: 'Make Structured Definition current' }));
+    expect(parityProduct().currentDefinitionSource).not.toBe('structured');
+    expect(section.getByRole('alert')).toBeInTheDocument();
+    await user.clear(url); await user.type(url, 'https://example.test/product');
+    fireEvent.click(section.getByRole('button', { name: 'Make Structured Definition current' }));
+    expect(parityProduct()).toMatchObject({ definitionUrl: 'https://example.test/product', currentDefinitionSource: 'structured' });
+  });
+
+  it.each(['blank title', 'failed completion', 'delete confirmation', 'ineligible target'] as const)('Product parity keeps %s recoverable when Current is requested', async failure => {
+    const user = userEvent.setup(); const section = paritySection(renderProductInspector(productParityDocument(coexist)));
+    await user.click(section.getByRole('button', { name: 'Edit Product Definition' }));
+    if (failure === 'delete confirmation') await user.click(section.getByRole('button', { name: 'Delete' }));
+    else {
+      const field = failure === 'blank title' ? section.getByLabelText('Block title') : section.getByLabelText('Block text');
+      fireEvent.focus(field); fireEvent.change(field, { target: { value: failure === 'failed completion' ? 'New body' : '' } });
+      if (failure === 'failed completion') vi.spyOn(domain, 'updateProductDefinitionBlock').mockImplementationOnce(() => { throw new Error('Completion failed.'); });
+    }
+    const setter = vi.spyOn(domain, 'setProductCurrentDefinitionSource');
+    fireEvent.click(section.getByRole('button', { name: 'Make Structured Definition current' }));
+    expect(parityProduct().currentDefinitionSource).not.toBe('structured');
+    expect(section.getByLabelText('Product Definition editor')).toBeInTheDocument();
+    if (failure === 'delete confirmation') expect(section.getByRole('group', { name: 'Delete Not part of whole text?' })).toBeInTheDocument();
+    else expect(section.getByRole('alert')).toBeInTheDocument();
+    if (failure === 'ineligible target') { expect(setter).toHaveBeenCalledOnce(); expect(parityProduct().definitionBlocks![0]!.text).toBe(''); }
+    else expect(setter).not.toHaveBeenCalled();
+  });
+
+  it.each(['free_form', 'structured'] as const)('Product parity edits and clears only the %s External copy', async source => {
+    const user = userEvent.setup(); const section = paritySection(renderProductInspector(productParityDocument({ ...coexist, currentDefinitionSource: source })));
+    const own = source === 'free_form' ? 'freeFormExternalCopyUrl' : 'structuredExternalCopyUrl';
+    const other = source === 'free_form' ? 'structuredExternalCopyUrl' : 'freeFormExternalCopyUrl';
+    await user.click(section.getByRole('button', { name: 'Edit link' }));
+    const input = section.getByLabelText(`External copy URL for ${source === 'free_form' ? 'Free-form' : 'Structured'} Definition`);
+    await user.clear(input); await user.type(input, 'https://example.test/changed{Enter}');
+    expect(parityProduct()[own]).toBe('https://example.test/changed'); expect(parityProduct()[other]).toBe(coexist[other]);
+    await user.click(section.getByRole('button', { name: 'Clear link' }));
+    expect(parityProduct()[own]).toBeUndefined(); expect(parityProduct()[other]).toBe(coexist[other]);
+    await user.click(section.getByRole('button', { name: 'Add link' }));
+    await user.type(section.getByRole('textbox'), 'https://example.test/blur'); await user.tab();
+    expect(parityProduct()[own]).toBe('https://example.test/blur');
+    await user.click(section.getByRole('button', { name: 'Edit link' })); await user.clear(section.getByRole('textbox')); await user.keyboard('{Enter}');
+    expect(parityProduct()[own]).toBeUndefined();
+  });
+
+  it('Product parity validates External copy, blocks editor/navigation transfer, and Escape restores only its action focus', async () => {
+    const user = userEvent.setup(); const inspector = renderProductInspector(productParityDocument(coexist)); const section = paritySection(inspector);
+    await user.click(section.getByRole('button', { name: 'Edit link' }));
+    await user.clear(section.getByRole('textbox')); await user.type(section.getByRole('textbox'), 'ftp://example.test/bad{Enter}');
+    expect(section.getByRole('alert')).toBeInTheDocument();
+    await user.click(section.getByRole('button', { name: 'Edit Product Definition' }));
+    expect(section.queryByLabelText('Product Definition editor')).not.toBeInTheDocument();
+    fireEvent.click(globalThis.document.querySelector<HTMLElement>('[data-node-id="offer-a"]')!);
+    expect(section.getByRole('textbox')).toHaveValue('ftp://example.test/bad');
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(section.getByRole('button', { name: 'Edit link' })).toHaveFocus());
+    expect(parityProduct()).toMatchObject(coexist);
+    expect(section.queryByRole('alert')).not.toBeInTheDocument();
+    await user.click(section.getByRole('button', { name: 'Edit Product Definition' }));
+    await user.click(section.getByRole('button', { name: 'Make Structured Definition current' })); await user.click(section.getByRole('button', { name: 'Close' }));
+    await user.click(section.getByRole('button', { name: 'Edit link' }));
+    expect(section.getByLabelText('External copy URL for Structured Definition')).toHaveValue(coexist.structuredExternalCopyUrl);
+    expect(section.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('Product parity uses the exact committed Product document for Current without synchronizing independent copies', async () => {
+    const user = userEvent.setup(); const inspector = renderProductInspector(productParityDocument({ ...coexist, definitionUrl: 'https://example.test/document', freeFormExternalCopyUrl: undefined })); const section = paritySection(inspector);
+    await user.click(section.getByRole('button', { name: 'Use this document' }));
+    expect(parityProduct()).toMatchObject({ freeFormExternalCopyUrl: 'https://example.test/document', structuredExternalCopyUrl: coexist.structuredExternalCopyUrl });
+    expect(within(section.getByRole('group', { name: 'External copy' })).getByText('Same as Product document')).toBeInTheDocument();
+    expect(section.getAllByRole('link')).toHaveLength(1);
+    await user.click(section.getByRole('button', { name: 'Edit Product Definition' }));
+    await user.clear(section.getByLabelText('Product document URL')); await user.type(section.getByLabelText('Product document URL'), 'https://example.test/new{Enter}');
+    await user.click(section.getByRole('button', { name: 'Close' }));
+    expect(section.getByRole('link', { name: 'https://example.test/document' })).toBeInTheDocument();
+    expect(parityProduct().freeFormExternalCopyUrl).toBe('https://example.test/document');
+  });
+
+  it('Product parity reports clipboard failure without mutation and resets feedback on representation change', async () => {
+    const user = userEvent.setup(); vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('Denied'));
+    const section = paritySection(renderProductInspector(productParityDocument(coexist))); const before = window.__VEE_DEV__!.dump();
+    await user.click(section.getByRole('button', { name: 'Copy' }));
+    expect(section.getByRole('status')).toHaveTextContent('Product definition could not be copied.'); expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    await user.click(section.getByRole('button', { name: 'Edit Product Definition' })); await user.click(section.getByRole('button', { name: 'Make Structured Definition current' })); await user.click(section.getByRole('button', { name: 'Close' }));
+    expect(section.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('Product parity measures actual overflow, resizes and font changes through the shared disclosure owner', async () => {
+    const user = userEvent.setup(); const inspector = renderProductInspector(productParityDocument({ definitionText: 'Short body' })); const section = paritySection(inspector);
+    expect(section.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
+    measureAuthoredContent(inspector, { scrollHeight: 72, clientHeight: 72 });
+    expect(section.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
+    measureAuthoredContent(inspector, { scrollHeight: 200, clientHeight: 72, width: 190 });
+    await user.click(section.getByRole('button', { name: 'Show more' }));
+    expect(section.getByRole('button', { name: 'Show less' })).toHaveAttribute('aria-expanded', 'true');
+    measureAuthoredContent(inspector, { scrollHeight: 72, clientHeight: 72, notifyResize: false }); finishFontLoading();
+    expect(section.queryByRole('button', { name: 'Show less' })).not.toBeInTheDocument();
+    measureAuthoredContent(inspector, { scrollHeight: 200, clientHeight: 72, notifyResize: false });
+    await act(async () => resolveFontsReady(document.fonts));
+    expect(section.getByRole('button', { name: 'Show more' })).toBeInTheDocument();
+    expect(parityProduct().definitionText).toBe('Short body');
+  });
+
+  it('Product parity keeps expansion while the broad editor mounts, but invalidates source-specific presentation after Current changes', async () => {
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('authored-content-text') ? 200 : 0; });
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('authored-content-text') ? 72 : 0; });
+    const user = userEvent.setup(); const inspector = renderProductInspector(productParityDocument(coexist)); const section = paritySection(inspector);
+    measureAuthoredContent(inspector, { scrollHeight: 200, clientHeight: 72 });
+    await user.click(section.getByRole('button', { name: 'Show more' }));
+    await user.click(section.getByRole('button', { name: 'Edit Product Definition' })); await user.click(section.getByRole('button', { name: 'Close' }));
+    measureAuthoredContent(inspector, { scrollHeight: 200, clientHeight: 72 });
+    expect(section.getByRole('button', { name: 'Show less' })).toBeInTheDocument();
+    await user.click(section.getByRole('button', { name: 'Edit Product Definition' })); await user.click(section.getByRole('button', { name: 'Make Structured Definition current' })); await user.click(section.getByRole('button', { name: 'Close' }));
+    measureAuthoredContent(inspector, { scrollHeight: 200, clientHeight: 72 });
+    expect(section.getByRole('button', { name: 'Show more' })).toBeInTheDocument();
+    expect(section.queryByRole('button', { name: 'Show less' })).not.toBeInTheDocument();
   });
 
 });
