@@ -1229,7 +1229,7 @@ describe('Product Definition Inspector', () => {
     const user = userEvent.setup(); const document = productBusinessStructureDocument();
     Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionBlocks: [{ id: 'definition-block', title: 'Hidden', text: 'Other body' }], currentDefinitionSource: 'structured', freeFormExternalCopyUrl: 'https://example.com/free', structuredExternalCopyUrl: 'https://example.com/structured' });
     const inspector = renderProductInspector(document); const before = window.__VEE_DEV__!.dump();
-    await user.click(definition(inspector).getByRole('button', { name: 'Add Definition' }));
+    await user.click(definition(inspector).getByRole('button', { name: 'Edit Product Definition' }));
     const url = editor(inspector).getByLabelText('Product document URL'); expect(url).toHaveFocus();
     await user.type(url, 'https://example.com/product{Enter}');
     expect(storedProduct().definitionUrl).toBe('https://example.com/product');
@@ -1247,7 +1247,7 @@ describe('Product Definition Inspector', () => {
     await user.clear(editor(inspector).getByLabelText('Definition text'));
     await user.click(definition(inspector).getByRole('button', { name: 'Close' }));
     expect(storedProduct().definitionUrl).toBeUndefined(); expect(storedProduct().definitionText).toBeUndefined();
-    expect(definition(inspector).getByRole('button', { name: 'Add Definition' })).toBeInTheDocument();
+    expect(definition(inspector).getByRole('button', { name: 'Edit Product Definition' })).toBeInTheDocument();
   });
 
   it('retains invalid URL errors across Close, outside and switch attempts, then recovers', async () => {
@@ -1337,6 +1337,490 @@ describe('Product Definition Inspector', () => {
     expect(storedProduct().definitionText).toBe('Durable description');
     expect(window.__VEE_DEV__!.dump().productJobIntents[0]!.addressedDesiredOutcomeIds).toEqual(action === 'Apply' ? [] : ['do-a']);
   });
+});
+
+describe('Product Structured Definition Inspector', () => {
+  it('anchors one focused local draft below its committed block and preserves that anchor through reorder and Cancel', async () => {
+    const document = productBusinessStructureDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionBlocks: [{ id: 'first', title: 'First' }, { id: 'middle', title: 'Middle' }, { id: 'last', title: 'Last' }] });
+    const user = userEvent.setup();
+    const inspector = renderProductInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Product Definition' }));
+    const editor = inspector.getByLabelText('Product Definition editor');
+    const cards = () => Array.from(editor.querySelectorAll<HTMLElement>('.authored-content-block-list > article'));
+    const firstCard = editor.querySelector<HTMLElement>('[data-block-id="first"]')!;
+    const firstAddBelow = within(firstCard).getByRole('button', { name: 'Add block below' });
+    expect(editor.querySelectorAll('[data-block-id]')).toHaveLength(3);
+    expect(inspector.getAllByRole('button', { name: 'Add block below' })).toHaveLength(3);
+
+    await user.click(firstAddBelow);
+    const title = inspector.getByLabelText('Block title', { selector: '#product-definition-new-block-title' });
+    expect(title).toHaveFocus();
+    expect(cards()[1]).toHaveClass('authored-content-new-block');
+    await user.click(inspector.getByRole('button', { name: 'Add block' }));
+    expect(inspector.getByLabelText('Block title', { selector: '#product-definition-new-block-title' })).toHaveFocus();
+    expect(cards()[1]).toHaveClass('authored-content-new-block');
+
+    await user.click(within(firstCard).getByRole('button', { name: 'Move down' }));
+    const reorderedCards = cards();
+    expect(reorderedCards.map(card => card.dataset.blockId ?? 'draft')).toEqual(['middle', 'first', 'draft', 'last']);
+    await user.click(within(reorderedCards[2]!).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(within(editor.querySelector<HTMLElement>('[data-block-id="first"]')!).getByRole('button', { name: 'Add block below' })).toHaveFocus());
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product')).toMatchObject({ definitionBlocks: [{ id: 'middle', title: 'Middle' }, { id: 'first', title: 'First' }, { id: 'last', title: 'Last' }] });
+  });
+
+  it('commits anchored drafts by Enter or blur and section drafts at the end', async () => {
+    const document = productBusinessStructureDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionBlocks: [{ id: 'first', title: 'First' }, { id: 'middle', title: 'Middle' }, { id: 'last', title: 'Last' }] });
+    const user = userEvent.setup();
+    const inspector = renderProductInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Product Definition' }));
+    const card = (id: string) => inspector.getByLabelText('Product Definition editor').querySelector<HTMLElement>(`[data-block-id="${id}"]`)!;
+    const blockIds = () => (window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>).definitionBlocks?.map(block => block.id) ?? [];
+    const blockTitles = () => (window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>).definitionBlocks?.map(block => block.title) ?? [];
+
+    await user.click(within(card('first')).getByRole('button', { name: 'Add block below' }));
+    await user.type(inspector.getByLabelText('Block title', { selector: '#product-definition-new-block-title' }), 'After first{Enter}');
+    expect(blockTitles()).toEqual(['First', 'After first', 'Middle', 'Last']);
+
+    await user.click(within(card('middle')).getByRole('button', { name: 'Add block below' }));
+    const middleDraft = inspector.getByLabelText('Block title', { selector: '#product-definition-new-block-title' });
+    await user.type(middleDraft, 'After middle');
+    fireEvent.blur(middleDraft);
+    expect(blockTitles()).toEqual(['First', 'After first', 'Middle', 'After middle', 'Last']);
+
+    await user.click(inspector.getByRole('button', { name: 'Add block' }));
+    await user.type(inspector.getByLabelText('Block title', { selector: '#product-definition-new-block-title' }), 'At end{Enter}');
+    expect(blockTitles()).toEqual(['First', 'After first', 'Middle', 'After middle', 'Last', 'At end']);
+    expect(new Set(blockIds()).size).toBe(6);
+  });
+
+  it('keeps a stale anchored draft recoverable and never inserts it elsewhere', async () => {
+    const document = productBusinessStructureDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionBlocks: [{ id: 'first', title: 'First' }, { id: 'last', title: 'Last' }] });
+    const user = userEvent.setup();
+    const inspector = renderProductInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Product Definition' }));
+    const first = inspector.getByLabelText('Product Definition editor').querySelector<HTMLElement>('[data-block-id="first"]')!;
+    await user.click(within(first).getByRole('button', { name: 'Add block below' }));
+    await user.click(within(first).getByRole('button', { name: 'Delete' }));
+    const staleDraft = inspector.getByLabelText('Block title', { selector: '#product-definition-new-block-title' });
+    fireEvent.change(staleDraft, { target: { value: 'Do not misplace' } });
+    staleDraft.focus();
+    fireEvent.keyDown(staleDraft, { key: 'Enter' });
+    expect(inspector.getByRole('alert')).toHaveTextContent('anchor does not belong');
+    expect(staleDraft).toHaveFocus();
+    expect((window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>).definitionBlocks).toEqual([{ id: 'last', title: 'Last' }]);
+  });
+
+  it('creates at most one local new-block draft and commits only a nonblank title', async () => {
+    const user = userEvent.setup();
+    const inspector = renderProductInspector();
+    await user.click(inspector.getByRole('button', { name: 'Add Definition' }));
+    const before = window.__VEE_DEV__!.dump();
+    await user.click(inspector.getByRole('button', { name: 'Add block' }));
+    const title = inspector.getByLabelText('Block title');
+    expect(title).toHaveFocus();
+    await user.click(inspector.getByRole('button', { name: 'Add block' }));
+    expect(inspector.getAllByLabelText('Block title')).toHaveLength(1);
+    fireEvent.keyDown(title, { key: 'Enter' });
+    expect(inspector.getByRole('alert')).toHaveTextContent('Block title is required');
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    fireEvent.change(title, { target: { value: 'Problem' } });
+    fireEvent.keyDown(title, { key: 'Enter' });
+    const offer = window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product');
+    expect(offer).toMatchObject({ definitionBlocks: [expect.objectContaining({ title: 'Problem' })] });
+    expect((offer as Extract<Entity, { kind: 'product' }>).definitionBlocks?.[0]?.id).toBeTruthy();
+    const createdId = (offer as Extract<Entity, { kind: 'product' }>).definitionBlocks![0]!.id;
+    expect(globalThis.document.getElementById(`product-definition-block-text-${encodeURIComponent(createdId)}`)).toHaveFocus();
+  });
+
+  it('progresses section and anchored new-block title Enter to the created stable block text', async () => {
+    const document = productBusinessStructureDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionBlocks: [{ id: 'first', title: 'Same' }, { id: 'last', title: 'Same' }] });
+    const user = userEvent.setup();
+    const inspector = renderProductInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Product Definition' }));
+    const editor = inspector.getByLabelText('Product Definition editor');
+
+    await user.click(inspector.getByRole('button', { name: 'Add block' }));
+    await user.type(inspector.getByLabelText('Block title', { selector: '#product-definition-new-block-title' }), 'End{Enter}');
+    let blocks = (window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>).definitionBlocks!;
+    const end = blocks.at(-1)!;
+    expect(end.title).toBe('End');
+    expect(globalThis.document.getElementById(`product-definition-block-text-${encodeURIComponent(end.id)}`)).toHaveFocus();
+
+    await user.click(within(editor.querySelector<HTMLElement>('[data-block-id="first"]')!).getByRole('button', { name: 'Add block below' }));
+    await user.type(inspector.getByLabelText('Block title', { selector: '#product-definition-new-block-title' }), 'Anchored{Enter}');
+    blocks = (window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>).definitionBlocks!;
+    const anchored = blocks.find(block => block.title === 'Anchored')!;
+    expect(blocks.map(block => block.id)).toEqual(['first', anchored.id, 'last', end.id]);
+    expect(globalThis.document.getElementById(`product-definition-block-text-${encodeURIComponent(anchored.id)}`)).toHaveFocus();
+  });
+
+  it('commits a title once on Enter and focuses text by stable block ID without changing siblings', async () => {
+    const document = productBusinessStructureDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionBlocks: [{ id: 'first/id', title: 'Same', text: 'First text' }, { id: 'second', title: 'Same', text: 'Second text' }] });
+    const user = userEvent.setup();
+    const inspector = renderProductInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Product Definition' }));
+    const update = vi.spyOn(domain, 'updateProductDefinitionBlock');
+    const firstCard = inspector.getByLabelText('Product Definition editor').querySelector<HTMLElement>('[data-block-id="first/id"]')!;
+    const title = within(firstCard).getByLabelText('Block title');
+    fireEvent.change(title, { target: { value: 'Renamed' } });
+
+    fireEvent.keyDown(title, { key: 'Enter' });
+
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product')).toMatchObject({ definitionBlocks: [
+      { id: 'first/id', title: 'Renamed', text: 'First text' },
+      { id: 'second', title: 'Same', text: 'Second text' },
+    ] });
+    expect(globalThis.document.getElementById(`product-definition-block-text-${encodeURIComponent('first/id')}`)).toHaveFocus();
+    expect(update).toHaveBeenCalledTimes(1);
+    update.mockRestore();
+  });
+
+  it('keeps invalid and failed committed titles focused and recoverable', async () => {
+    const document = productBusinessStructureDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionBlocks: [{ id: 'first', title: 'First' }] });
+    const user = userEvent.setup();
+    const inspector = renderProductInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Product Definition' }));
+    const title = inspector.getByLabelText('Block title');
+    title.focus();
+    fireEvent.change(title, { target: { value: '' } });
+    fireEvent.keyDown(title, { key: 'Enter' });
+    expect(title).toHaveFocus();
+    expect(inspector.getByRole('alert')).toHaveTextContent('Block title is required');
+
+    fireEvent.change(title, { target: { value: 'Retry me' } });
+    const failure = vi.spyOn(domain, 'updateProductDefinitionBlock').mockImplementationOnce(() => { throw new Error('The block is stale.'); });
+    fireEvent.keyDown(title, { key: 'Enter' });
+    expect(title).toHaveFocus();
+    expect(inspector.getByRole('alert')).toHaveTextContent('The block is stale.');
+    expect((window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>).definitionBlocks).toEqual([{ id: 'first', title: 'First' }]);
+    failure.mockRestore();
+  });
+
+  it('commits title blur without stealing focus from the chosen action surface', async () => {
+    const document = productBusinessStructureDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionBlocks: [{ id: 'first', title: 'First' }] });
+    const user = userEvent.setup();
+    const inspector = renderProductInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Product Definition' }));
+    const title = inspector.getByLabelText('Block title');
+    title.focus();
+    fireEvent.change(title, { target: { value: 'Blurred' } });
+    const text = inspector.getByLabelText('Block text');
+
+    text.focus();
+
+    expect(text).toHaveFocus();
+    expect((window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>).definitionBlocks).toEqual([{ id: 'first', title: 'Blurred' }]);
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    expect(text).toHaveFocus();
+  });
+
+  it('creates a valid new block on blur without redirecting the chosen control to its text', async () => {
+    const document = productBusinessStructureDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionBlocks: [{ id: 'first', title: 'First' }] });
+    const user = userEvent.setup();
+    const inspector = renderProductInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Product Definition' }));
+    await user.click(inspector.getByRole('button', { name: 'Add block' }));
+    const title = inspector.getByLabelText('Block title', { selector: '#product-definition-new-block-title' });
+    await user.type(title, 'Blur-created');
+    const close = inspector.getByRole('button', { name: 'Close' });
+
+    close.focus();
+
+    const blocks = (window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>).definitionBlocks!;
+    expect(blocks.map(block => block.title)).toEqual(['First', 'Blur-created']);
+    expect(close).toHaveFocus();
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    expect(close).toHaveFocus();
+  });
+
+  it('edits, reorders, and progressively cancels block-local state without changing siblings', async () => {
+    const document = productBusinessStructureDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionUrl: 'https://example.test/source', definitionText: 'Free form', definitionBlocks: [{ id: 'first', title: 'First', text: 'Body' }, { id: 'second', title: 'Second' }] });
+    const user = userEvent.setup();
+    const inspector = renderProductInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Product Definition' }));
+    const titles = inspector.getAllByLabelText('Block title');
+    fireEvent.change(titles[0]!, { target: { value: 'Renamed' } });
+    fireEvent.keyDown(titles[0]!, { key: 'Enter' });
+    const texts = inspector.getAllByLabelText('Block text');
+    fireEvent.change(texts[0]!, { target: { value: 'Line one\nLine two' } });
+    fireEvent.blur(texts[0]!);
+    await user.click(inspector.getAllByRole('button', { name: 'Move down' })[0]!);
+    let offer = window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>;
+    expect(offer.definitionBlocks).toEqual([{ id: 'second', title: 'Second' }, { id: 'first', title: 'Renamed', text: 'Line one\nLine two' }]);
+    expect(offer).toMatchObject({ definitionUrl: 'https://example.test/source', definitionText: 'Free form' });
+    expect(inspector.getAllByRole('button', { name: 'Move up' })[0]).toBeDisabled();
+    const renamed = inspector.getAllByLabelText('Block title')[1]!;
+    await user.click(renamed);
+    fireEvent.change(renamed, { target: { value: '' } });
+    fireEvent.keyDown(renamed, { key: 'Escape' });
+    expect(inspector.getAllByLabelText('Block title')[1]).toHaveValue('Renamed');
+    offer = window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>;
+    expect(offer.definitionBlocks?.[1]?.title).toBe('Renamed');
+  });
+
+  it('deletes empty-text blocks immediately, confirms authored text, and renders a read-only count', async () => {
+    const document = productBusinessStructureDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionBlocks: [{ id: 'blank', title: 'Blank', text: '   ' }, { id: 'authored', title: 'Authored', text: 'Keep?' }] });
+    const user = userEvent.setup();
+    const inspector = renderProductInspector(document);
+    expect(inspector.getByText('Structured Definition · 2 blocks')).toBeInTheDocument();
+    expect(inspector.queryByText('No content documented')).not.toBeInTheDocument();
+    expect(inspector.queryByText('Keep?')).not.toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Edit Product Definition' }));
+    await user.click(inspector.getAllByRole('button', { name: 'Delete' })[0]!);
+    expect((window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>).definitionBlocks?.map(block => block.id)).toEqual(['authored']);
+    await user.click(inspector.getByRole('button', { name: 'Delete' }));
+    expect(inspector.getByRole('group', { name: 'Delete Authored?' })).toBeInTheDocument();
+    fireEvent.keyDown(globalThis.document.activeElement ?? globalThis.document.body, { key: 'Escape' });
+    expect(inspector.queryByRole('button', { name: 'Delete block' })).not.toBeInTheDocument();
+    expect((window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>).definitionBlocks).toHaveLength(1);
+  });
+
+  it.each([
+    ['Control', { ctrlKey: true }],
+    ['Meta', { metaKey: true }],
+  ])('%s+Enter commits multiline Block text before opening one anchored draft', async (_modifier, modifier) => {
+    const document = productBusinessStructureDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionBlocks: [{ id: 'first', title: 'First', text: 'Old' }, { id: 'middle', title: 'Middle' }, { id: 'last', title: 'Last' }] });
+    const user = userEvent.setup();
+    const inspector = renderProductInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Product Definition' }));
+    const editor = inspector.getByLabelText('Product Definition editor');
+    const first = editor.querySelector<HTMLElement>('[data-block-id="first"]')!;
+    const text = within(first).getByLabelText('Block text');
+    await user.click(text);
+    fireEvent.change(text, { target: { value: 'Line one\nLine two' } });
+
+    fireEvent.keyDown(text, { key: 'Enter', ...modifier });
+
+    const title = inspector.getByLabelText('Block title', { selector: '#product-definition-new-block-title' });
+    expect(title).toHaveFocus();
+    expect(title.closest('article')?.previousElementSibling).toBe(first);
+    expect(editor.querySelectorAll('.authored-content-new-block')).toHaveLength(1);
+    const afterShortcut = window.__VEE_DEV__!.dump();
+    expect((afterShortcut.entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>).definitionBlocks).toEqual([
+      { id: 'first', title: 'First', text: 'Line one\nLine two' },
+      { id: 'middle', title: 'Middle' },
+      { id: 'last', title: 'Last' },
+    ]);
+
+    fireEvent.blur(text);
+    expect(window.__VEE_DEV__!.dump()).toEqual(afterShortcut);
+    fireEvent.keyDown(title, { key: 'Escape' });
+    expect((window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>).definitionBlocks?.[0]).toEqual({ id: 'first', title: 'First', text: 'Line one\nLine two' });
+  });
+
+  it.each([
+    ['plain Enter', { key: 'Enter' }],
+    ['Shift+Enter', { key: 'Enter', shiftKey: true }],
+  ])('leaves %s available for multiline Block text without creating a draft', async (_name, keyboard) => {
+    const document = productBusinessStructureDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionBlocks: [{ id: 'first', title: 'First', text: 'Line one' }] });
+    const user = userEvent.setup();
+    const inspector = renderProductInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Product Definition' }));
+    const text = inspector.getByLabelText('Block text');
+    fireEvent.focus(text);
+    fireEvent.keyDown(text, keyboard);
+    fireEvent.change(text, { target: { value: 'Line one\n' } });
+
+    expect(text).toHaveValue('Line one\n');
+    expect(inspector.queryByLabelText('Block title', { selector: '#product-definition-new-block-title' })).not.toBeInTheDocument();
+    expect((window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>).definitionBlocks).toEqual([{ id: 'first', title: 'First', text: 'Line one' }]);
+  });
+
+  it('keeps an existing draft and its anchor while committing text from another stable block ID', async () => {
+    const document = productBusinessStructureDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionBlocks: [{ id: 'first', title: 'First' }, { id: 'middle', title: 'Middle' }, { id: 'last', title: 'Last' }] });
+    const user = userEvent.setup();
+    const inspector = renderProductInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Product Definition' }));
+    const editor = inspector.getByLabelText('Product Definition editor');
+    await user.click(within(editor.querySelector<HTMLElement>('[data-block-id="first"]')!).getByRole('button', { name: 'Add block below' }));
+    const middleText = within(editor.querySelector<HTMLElement>('[data-block-id="middle"]')!).getByLabelText('Block text');
+    fireEvent.change(middleText, { target: { value: 'Committed middle' } });
+    fireEvent.keyDown(middleText, { key: 'Enter', ctrlKey: true });
+
+    const draft = editor.querySelector<HTMLElement>('.authored-content-new-block')!;
+    expect(draft.previousElementSibling).toHaveAttribute('data-block-id', 'first');
+    expect(editor.querySelectorAll('.authored-content-new-block')).toHaveLength(1);
+    expect(inspector.getByLabelText('Block title', { selector: '#product-definition-new-block-title' })).toHaveFocus();
+    expect((window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>).definitionBlocks).toEqual([{ id: 'first', title: 'First' }, { id: 'middle', title: 'Middle', text: 'Committed middle' }, { id: 'last', title: 'Last' }]);
+  });
+
+  it('keeps a failed continuation recoverable in the current block without moving an existing draft', async () => {
+    const document = productBusinessStructureDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionBlocks: [{ id: 'first', title: 'First' }, { id: 'middle', title: 'Middle', text: 'Old middle' }] });
+    const user = userEvent.setup();
+    const inspector = renderProductInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Product Definition' }));
+    const editor = inspector.getByLabelText('Product Definition editor');
+    await user.click(within(editor.querySelector<HTMLElement>('[data-block-id="first"]')!).getByRole('button', { name: 'Add block below' }));
+    const text = within(editor.querySelector<HTMLElement>('[data-block-id="middle"]')!).getByLabelText('Block text');
+    await user.click(text);
+    fireEvent.change(text, { target: { value: 'Recover this draft' } });
+    const failure = vi.spyOn(domain, 'updateProductDefinitionBlock').mockImplementationOnce(() => { throw new Error('The block is stale.'); });
+
+    fireEvent.keyDown(text, { key: 'Enter', ctrlKey: true });
+
+    expect(text).toHaveFocus();
+    expect(text).toHaveValue('Recover this draft');
+    expect(within(editor.querySelector<HTMLElement>('[data-block-id="middle"]')!).getByRole('alert')).toHaveTextContent('The block is stale.');
+    const draft = editor.querySelector<HTMLElement>('.authored-content-new-block')!;
+    expect(draft.previousElementSibling).toHaveAttribute('data-block-id', 'first');
+    expect(editor.querySelectorAll('.authored-content-new-block')).toHaveLength(1);
+    expect((window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>).definitionBlocks).toEqual([{ id: 'first', title: 'First' }, { id: 'middle', title: 'Middle', text: 'Old middle' }]);
+    failure.mockRestore();
+  });
+
+  it('exposes the local continuation shortcut on every Add block below action without another control', async () => {
+    const document = productBusinessStructureDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionBlocks: [{ id: 'first', title: 'First' }, { id: 'middle', title: 'Middle' }, { id: 'last', title: 'Last' }] });
+    const user = userEvent.setup();
+    const inspector = renderProductInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Product Definition' }));
+
+    const editor = inspector.getByLabelText('Product Definition editor');
+    const assertLocalShortcutStructure = () => {
+      const actions = inspector.getAllByRole('button', { name: 'Add block below' });
+      const descriptions = Array.from(editor.querySelectorAll<HTMLElement>('.authored-content-block-continuation > .visually-hidden'));
+      const tooltips = Array.from(editor.querySelectorAll<HTMLElement>('.authored-content-block-shortcut-hint'));
+      expect(actions).toHaveLength(editor.querySelectorAll('[data-block-id]').length);
+      expect(new Set(descriptions.map(description => description.id)).size).toBe(descriptions.length);
+      expect(new Set(tooltips.map(tooltip => tooltip.id)).size).toBe(tooltips.length);
+      expect(new Set([...descriptions, ...tooltips].map(element => element.id)).size).toBe(descriptions.length + tooltips.length);
+
+      for (const action of actions) {
+        expect(action).toHaveAccessibleName('Add block below');
+        expect(action).toHaveAttribute('aria-keyshortcuts', 'Control+Enter Meta+Enter');
+        const descriptionId = action.getAttribute('aria-describedby');
+        expect(descriptionId?.trim().split(/\s+/)).toHaveLength(1);
+        const description = globalThis.document.getElementById(descriptionId!);
+        expect(description).toHaveClass('visually-hidden');
+        expect(description).toHaveTextContent('From Block text, press Control or Command plus Enter to add a block below');
+        expect(action).toHaveAccessibleDescription('From Block text, press Control or Command plus Enter to add a block below');
+
+        const wrapper = action.closest('.authored-content-block-continuation');
+        const blockId = action.closest<HTMLElement>('[data-block-id]')!.dataset.blockId!;
+        const tooltip = wrapper?.querySelector<HTMLElement>('.authored-content-block-shortcut-hint');
+        expect(description?.id).toBe(`product-definition-block-shortcut-description-${encodeURIComponent(blockId)}`);
+        expect(tooltip?.id).toBe(`product-definition-block-shortcut-tooltip-${encodeURIComponent(blockId)}`);
+        expect(tooltip).toHaveAttribute('aria-hidden', 'true');
+        expect(tooltip).toHaveTextContent('From Block text: Ctrl/⌘ + Enter');
+        expect(tooltip?.querySelector('button, a, input, textarea, select, [tabindex]')).toBeNull();
+        expect(wrapper).toContainElement(description);
+        expect(wrapper).toContainElement(tooltip ?? null);
+        expect(action).not.toHaveAttribute('aria-describedby', tooltip?.id);
+      }
+    };
+
+    assertLocalShortcutStructure();
+    await user.click(within(editor.querySelector<HTMLElement>('[data-block-id="first"]')!).getByRole('button', { name: 'Move down' }));
+    assertLocalShortcutStructure();
+
+    await user.click(within(editor.querySelector<HTMLElement>('[data-block-id="middle"]')!).getByRole('button', { name: 'Add block below' }));
+    await user.type(inspector.getByLabelText('Block title', { selector: '#product-definition-new-block-title' }), 'Created{Enter}');
+    assertLocalShortcutStructure();
+    const createdId = (window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>).definitionBlocks?.find(block => block.title === 'Created')!.id;
+    await user.click(within(editor.querySelector<HTMLElement>(`[data-block-id="${createdId}"]`)!).getByRole('button', { name: 'Delete' }));
+    assertLocalShortcutStructure();
+  });
+
+  it('recognizes structured-only Definition and excludes representation-parity controls', () => {
+    const document = productBusinessStructureDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionBlocks: [{ id: 'one', title: 'Title only' }] });
+    const inspector = renderProductInspector(document);
+    const section = within(inspector.getByRole('region', { name: 'Product Definition' }));
+    expect(section.getByRole('button', { name: 'Edit Product Definition' })).toBeInTheDocument();
+    expect(section.getByText('Structured Definition · 1 block')).toBeInTheDocument();
+    expect(section.queryByRole('button', { name: 'Add Definition' })).not.toBeInTheDocument();
+    fireEvent.click(section.getByRole('button', { name: 'Edit Product Definition' }));
+    expect(section.getByRole('region', { name: 'Structured Definition' })).toBeInTheDocument();
+    for (const name of ['Make current', 'Copy', 'Show more', 'Show less', 'Use this document']) expect(section.queryByRole('button', { name })).not.toBeInTheDocument();
+    expect(section.queryByText(/PAS|AIDA|External copy|Current ·/)).not.toBeInTheDocument();
+  });
+
+  it.each(['Close', 'outside', 'switch'] as const)('naturally completes an active block title on %s without losing sibling state', async dismissal => {
+    const document = productBusinessStructureDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionUrl: 'https://example.com/document', definitionText: 'Product description', definitionBlocks: [{ id: 'first', title: 'First', text: 'Body' }] });
+    const user = userEvent.setup(); const inspector = renderProductInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Product Definition' }));
+    const editor = within(inspector.getByLabelText('Product Definition editor'));
+    await user.clear(editor.getByLabelText('Block title')); await user.type(editor.getByLabelText('Block title'), 'Updated');
+    if (dismissal === 'Close') await user.click(within(inspector.getByRole('region', { name: 'Product Definition' })).getByRole('button', { name: 'Close' }));
+    else if (dismissal === 'outside') fireEvent.pointerDown(inspector.getByRole('heading', { name: 'Orbit' }));
+    else await user.click(inspector.getByRole('button', { name: 'Edit Offers' }));
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product')).toMatchObject({ definitionUrl: 'https://example.com/document', definitionText: 'Product description', definitionBlocks: [{ id: 'first', title: 'Updated', text: 'Body' }] });
+    expect(inspector.queryByLabelText('Product Definition editor')).not.toBeInTheDocument();
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+  });
+
+  it('preserves an unresolved document error during block commits and blocks outer dismissal', async () => {
+    const document = productBusinessStructureDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionUrl: 'https://example.com/document', definitionText: 'Free body', definitionBlocks: [{ id: 'first', title: 'First', text: 'Structured body' }], currentDefinitionSource: 'structured', freeFormExternalCopyUrl: 'https://example.com/free', structuredExternalCopyUrl: 'https://example.com/structured' });
+    const user = userEvent.setup(); const inspector = renderProductInspector(document);
+    const section = within(inspector.getByRole('region', { name: 'Product Definition' }));
+    await user.click(section.getByRole('button', { name: 'Edit Product Definition' }));
+    await user.clear(section.getByLabelText('Product document URL')); await user.type(section.getByLabelText('Product document URL'), 'invalid{Enter}');
+    await user.clear(section.getByLabelText('Block text')); await user.type(section.getByLabelText('Block text'), 'Revised body');
+    await user.click(section.getByRole('button', { name: 'Close' }));
+    expect(section.getByRole('alert')).toHaveTextContent('absolute http: or https: URL');
+    expect(section.getByLabelText('Product Definition editor')).toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product')).toMatchObject({ definitionUrl: 'https://example.com/document', definitionText: 'Free body', definitionBlocks: [{ id: 'first', title: 'First', text: 'Revised body' }], currentDefinitionSource: 'structured', freeFormExternalCopyUrl: 'https://example.com/free', structuredExternalCopyUrl: 'https://example.com/structured' });
+    await user.keyboard('{Escape}');
+    expect(section.queryByLabelText('Product Definition editor')).not.toBeInTheDocument();
+  });
+
+  it.each(['Apply', 'Discard'] as const)('preserves block commits and pending legacy intent state through %s', async action => {
+    const document = productBusinessStructureDocument();
+    document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
+    const user = userEvent.setup(); const inspector = renderProductInspector(document); const intent = within(inspector.getByRole('group', { name: 'Client intent' }));
+    await user.click(intent.getByRole('button', { name: 'Expand Make progress' })); await user.click(intent.getByLabelText('Finish faster'));
+    await user.click(inspector.getByRole('button', { name: 'Add Definition' })); await user.click(inspector.getByRole('button', { name: 'Add block' }));
+    await user.type(inspector.getByLabelText('Block title'), 'Delivery{Enter}');
+    await user.type(inspector.getByLabelText('Block text'), 'One weekly session');
+    await user.click(within(inspector.getByRole('region', { name: 'Product Definition' })).getByRole('button', { name: 'Close' }));
+    expect(intent.getByLabelText('Finish faster')).not.toBeChecked(); expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
+    if (action === 'Apply') await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
+    else { fireEvent.click(globalThis.document.querySelector<HTMLElement>('[data-node-id="offer-a"]')!); await user.click(within(screen.getByRole('dialog', { name: 'Unsaved Product changes' })).getByRole('button', { name: 'Discard' })); }
+    expect((window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>).definitionBlocks).toEqual([{ id: expect.any(String), title: 'Delivery', text: 'One weekly session' }]);
+    expect(window.__VEE_DEV__!.dump().productJobIntents[0]!.addressedDesiredOutcomeIds).toEqual(action === 'Apply' ? [] : ['do-a']);
+  });
+
+  it.each(['Product', 'Offer'] as const)('keeps %s reorder focus on the same block when the move action becomes disabled', async kind => {
+    const document = kind === 'Product' ? productBusinessStructureDocument() : offerNeighborhoodDocument();
+    const id = kind === 'Product' ? 'product' : 'offer-a';
+    Object.assign(document.entities.find(entity => entity.id === id)!, { [kind === 'Product' ? 'definitionBlocks' : 'contentBlocks']: [{ id: 'first', title: 'First' }, { id: 'second', title: 'Second' }] });
+    const user = userEvent.setup(); const inspector = kind === 'Product' ? renderProductInspector(document) : renderOfferInspector(document);
+    await user.click(inspector.getByRole('button', { name: kind === 'Product' ? 'Edit Product Definition' : 'Edit Offer Content' }));
+    const block = within(inspector.getByLabelText(kind === 'Product' ? 'Product Definition editor' : 'Offer Content editor').querySelector<HTMLElement>('[data-block-id="second"]')!);
+    await user.click(block.getByRole('button', { name: 'Move up' }));
+    expect(block.getByRole('button', { name: 'Move up' })).toBeDisabled(); expect(block.getByRole('button', { name: 'Add block below' })).toHaveFocus();
+  });
+
+  it.each(['add', 'remove', 'reorder'] as const)('keeps a failed %s operation local and recoverable', async operation => {
+    const document = productBusinessStructureDocument();
+    Object.assign(document.entities.find(entity => entity.id === 'product')!, { definitionBlocks: [{ id: 'first', title: 'First' }, { id: 'second', title: 'Second' }] });
+    const user = userEvent.setup(); const inspector = renderProductInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Product Definition' }));
+    const before = window.__VEE_DEV__!.dump();
+    const method = operation === 'add' ? 'addProductDefinitionBlock' : operation === 'remove' ? 'removeProductDefinitionBlock' : 'reorderProductDefinitionBlocks';
+    const failure = vi.spyOn(domain, method).mockImplementationOnce(() => { throw new Error('Owner operation failed.'); });
+    if (operation === 'add') { await user.click(inspector.getByRole('button', { name: 'Add block' })); await user.type(inspector.getByLabelText('Block title', { selector: '#product-definition-new-block-title' }), 'Keep draft{Enter}'); }
+    else { const first = within(inspector.getByLabelText('Product Definition editor').querySelector<HTMLElement>('[data-block-id="first"]')!); await user.click(first.getByRole('button', { name: operation === 'remove' ? 'Delete' : 'Move down' })); }
+    expect(inspector.getByRole('alert')).toHaveTextContent('Owner operation failed.'); expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    failure.mockRestore();
+  });
+
 });
 
 describe('Offer Content Inspector', () => {

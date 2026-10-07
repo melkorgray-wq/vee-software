@@ -2,7 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useReducer, useRef, useState, typ
 import { createPortal } from 'react-dom';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { CLIENT_ROOT_ENTITY_KINDS, DomainError, addEntity, addOfferContentBlock, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, offerContentSourceState, offerContentWholeText, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, removeOfferContentBlock, reorderOfferContentBlocks, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferContentExternalCopyUrl, setOfferCurrentContentSource, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateOfferContent, updateOfferContentBlock, updateProductDefinition, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type OfferContentBlock, type OfferCurrentContentSource, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
+import { CLIENT_ROOT_ENTITY_KINDS, DomainError, addEntity, addOfferContentBlock, addProductDefinitionBlock, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, offerContentSourceState, offerContentWholeText, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, removeOfferContentBlock, removeProductDefinitionBlock, reorderOfferContentBlocks, reorderProductDefinitionBlocks, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferContentExternalCopyUrl, setOfferCurrentContentSource, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateOfferContent, updateOfferContentBlock, updateProductDefinitionBlock, updateProductDefinition, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type OfferContentBlock, type OfferCurrentContentSource, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, disclosureOverlayPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction, type Point, type WorkspaceShortcutState } from '../map-interaction';
@@ -86,20 +86,68 @@ function ClientIntentJobGroup({ group, onCheckedChange }: {
   </div>;
 }
 type OperationFeedback = { text: string; kind: 'success' | 'error' };
-type OfferContentBlockDraft = { title: string; text: string; titleError?: string | undefined; textError?: string | undefined };
-type OfferContentBlockPlacement = { kind: 'end' } | { kind: 'after'; blockId: string };
+type AuthoredBlockDraft = { title: string; text: string; titleError?: string | undefined; textError?: string | undefined };
+type AuthoredBlockPlacement = { kind: 'end' } | { kind: 'after'; blockId: string };
 type ProductDefinitionField = 'definitionUrl' | 'definitionText';
-type ProductDefinitionDraft = { productId: string; definitionUrl: string; definitionText: string; error?: string | undefined };
+type ProductDefinitionDraft = {
+  productId: string; definitionUrl: string; definitionText: string; error?: string | undefined;
+  blocks: Record<string, AuthoredBlockDraft>;
+  newBlock?: { title: string; placement: AuthoredBlockPlacement; error?: string | undefined } | undefined;
+  deleteConfirmationBlockId?: string | undefined;
+};
+type ActiveProductDefinitionField = ProductDefinitionField | { kind: 'newBlockTitle' } | { kind: 'blockTitle' | 'blockText'; blockId: string };
 type OfferContentDraft = {
   offerId: string;
   contentUrl: string;
   contentText: string;
   error?: string | undefined;
   currentSourceError?: string | undefined;
-  newBlock?: { title: string; placement: OfferContentBlockPlacement; error?: string | undefined } | undefined;
-  blocks: Record<string, OfferContentBlockDraft>;
+  newBlock?: { title: string; placement: AuthoredBlockPlacement; error?: string | undefined } | undefined;
+  blocks: Record<string, AuthoredBlockDraft>;
   deleteConfirmationBlockId?: string | undefined;
 };
+type AuthoredBlockListProps = {
+  prefix: string; classPrefix: string;
+  blocks: readonly OfferContentBlock[];
+  drafts: Record<string, AuthoredBlockDraft>;
+  newBlock: OfferContentDraft['newBlock']; confirmationId: string | undefined;
+  onNewFocus: () => void; onNewChange: (value: string) => void; onNewBlur: () => void; onNewEnter: () => void; onCancelNew: () => void;
+  onFieldFocus: (id: string, field: 'title' | 'text') => void;
+  onFieldChange: (id: string, field: 'title' | 'text', value: string) => void;
+  onFieldBlur: (id: string, field: 'title' | 'text') => void;
+  onTitleEnter: (id: string) => void; onContinue: (id: string) => void;
+  onMove: (id: string, offset: -1 | 1) => void; onStart: (placement: AuthoredBlockPlacement) => void;
+  onDelete: (id: string) => void; onCancelDelete: (id: string) => void; onConfirmDelete: (id: string) => void;
+};
+function AuthoredBlockList(props: AuthoredBlockListProps) {
+  const { prefix, classPrefix: css, blocks, drafts, newBlock } = props;
+  const id = (part: string, blockId: string) => `${prefix}-block-${part}-${encodeURIComponent(blockId)}`;
+  const draftCard = newBlock && <article className={`${css}-block ${css}-new-block`} data-draft-placement={newBlock.placement.kind}>
+    <label>Block title<input id={`${prefix}-new-block-title`} required value={newBlock.title} aria-invalid={Boolean(newBlock.error)} onFocus={props.onNewFocus} onChange={event => props.onNewChange(event.target.value)} onBlur={props.onNewBlur} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); props.onNewEnter(); } }} /></label>
+    {newBlock.error && <p className="error-message" role="alert">{newBlock.error}</p>}
+    <button type="button" className="inspector-secondary-action" onMouseDown={event => event.preventDefault()} onClick={props.onCancelNew}>Cancel</button>
+  </article>;
+  const anchor = newBlock?.placement.kind === 'after' ? newBlock.placement.blockId : undefined;
+  return <div className={`${css}-block-list`}>
+    {blocks.map((block, index) => {
+      const draft = drafts[block.id] ?? { title: block.title, text: block.text ?? '' };
+      return <Fragment key={block.id}><article className={`${css}-block`} data-block-id={block.id}>
+        <label>Block title<input id={id('title', block.id)} required value={draft.title} aria-invalid={Boolean(draft.titleError)} onFocus={() => props.onFieldFocus(block.id, 'title')} onChange={event => props.onFieldChange(block.id, 'title', event.target.value)} onBlur={() => props.onFieldBlur(block.id, 'title')} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); props.onTitleEnter(block.id); } }} /></label>
+        {draft.titleError && <p className="error-message" role="alert">{draft.titleError}</p>}
+        <label>Block text<textarea id={id('text', block.id)} rows={4} value={draft.text} onFocus={() => props.onFieldFocus(block.id, 'text')} onChange={event => props.onFieldChange(block.id, 'text', event.target.value)} onBlur={() => props.onFieldBlur(block.id, 'text')} onKeyDown={event => { if (event.key !== 'Enter' || (!event.ctrlKey && !event.metaKey)) return; event.preventDefault(); event.stopPropagation(); props.onContinue(block.id); }} /></label>
+        {draft.textError && <p className="error-message" role="alert">{draft.textError}</p>}
+        <div className={`${css}-block-actions`}>
+          <button id={id('move-up', block.id)} type="button" className="inspector-secondary-action" disabled={index === 0} onClick={() => props.onMove(block.id, -1)}>Move up</button>
+          <button id={id('move-down', block.id)} type="button" className="inspector-secondary-action" disabled={index === blocks.length - 1} onClick={() => props.onMove(block.id, 1)}>Move down</button>
+          <span className={`${css}-block-continuation`}><button id={id('add-below', block.id)} type="button" className="inspector-secondary-action" aria-keyshortcuts="Control+Enter Meta+Enter" aria-describedby={id('shortcut-description', block.id)} onClick={() => props.onStart({ kind: 'after', blockId: block.id })}>Add block below</button><span id={id('shortcut-description', block.id)} className="visually-hidden">From Block text, press Control or Command plus Enter to add a block below</span><span id={id('shortcut-tooltip', block.id)} className={`${css}-block-shortcut-hint`} aria-hidden="true">From Block text: Ctrl/⌘ + Enter</span></span>
+          <button id={id('delete', block.id)} type="button" className="inspector-secondary-action" onClick={() => props.onDelete(block.id)}>Delete</button>
+        </div>
+        {props.confirmationId === block.id && <div className={`${css}-block-confirmation`} role="group" aria-label={`Delete ${block.title}?`}><p>Delete “{block.title}”?</p><div><button type="button" className="inspector-secondary-action" onClick={() => props.onCancelDelete(block.id)}>Cancel</button><button type="button" onClick={() => props.onConfirmDelete(block.id)}>Delete block</button></div></div>}
+      </article>{anchor === block.id && draftCard}</Fragment>;
+    })}
+    {newBlock && (newBlock.placement.kind === 'end' || !blocks.some(block => block.id === anchor)) && draftCard}
+  </div>;
+}
 type ActiveOfferContentField =
   | { kind: 'contentUrl' }
   | { kind: 'contentText' }
@@ -742,10 +790,13 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const inspectorTitleButtonRef = useRef<HTMLButtonElement>(null);
   const [productDefinitionDraft, setProductDefinitionDraft] = useState<ProductDefinitionDraft | null>(null);
   const productDefinitionDraftRef = useRef<ProductDefinitionDraft | null>(null);
-  const activeProductDefinitionFieldRef = useRef<ProductDefinitionField | null>(null);
+  const activeProductDefinitionFieldRef = useRef<ActiveProductDefinitionField | null>(null);
   const productDefinitionEditorRef = useRef<HTMLElement>(null);
   const productDefinitionButtonRef = useRef<HTMLButtonElement>(null);
   const dismissingProductDefinitionRef = useRef(false);
+  const pendingProductNewBlockFocusRef = useRef(false);
+  const productEnterCompletedTitleRef = useRef<{ kind: 'newBlock' } | { kind: 'committedBlock'; blockId: string } | null>(null);
+  const productShortcutCompletedTextRef = useRef<string | null>(null);
   const [offerContentDraft, setOfferContentDraft] = useState<OfferContentDraft | null>(null);
   const [offerContentCopyStatus, setOfferContentCopyStatus] = useState<string | null>(null);
   const [externalCopyEditor, setExternalCopyEditor] = useState<ExternalCopyEditor | null>(null);
@@ -884,6 +935,12 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   useEffect(() => () => {
     offerContentDisclosureSnapshotRef.current = null;
   }, []);
+
+  useLayoutEffect(() => {
+    if (!pendingProductNewBlockFocusRef.current || !productDefinitionDraft?.newBlock) return;
+    pendingProductNewBlockFocusRef.current = false;
+    globalThis.document.getElementById('product-definition-new-block-title')?.focus();
+  }, [productDefinitionDraft?.newBlock]);
 
   useLayoutEffect(() => {
     if (!pendingNewBlockFocusRef.current || !offerContentDraft?.newBlock) return;
@@ -1027,13 +1084,14 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     if (!pendingLocalFocusIdsRef.current.length) return;
     const focused = pendingLocalFocusIdsRef.current.some(id => {
       const target = globalThis.document.getElementById(id);
-      if (!target) return false;
+      if (!target || target.matches(':disabled')) return false;
       target.focus();
-      return true;
+      return globalThis.document.activeElement === target;
     });
     if (focused) {
       pendingLocalFocusIdsRef.current = [];
       enterCompletedBlockTitleRef.current = null;
+      productEnterCompletedTitleRef.current = null;
     }
   });
   function closeProductConfirmation() {
@@ -1043,7 +1101,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     requestAnimationFrame(() => (targetId ? globalThis.document.getElementById(targetId) : target)?.focus());
   }
   type OfferContentEditorCloseReason = 'explicit' | 'escape' | 'pointer' | 'switch-editor';
-  const contentBlockDraft = (block: OfferContentBlock): OfferContentBlockDraft => ({ title: block.title, text: block.text ?? '' });
+  const contentBlockDraft = (block: OfferContentBlock): AuthoredBlockDraft => ({ title: block.title, text: block.text ?? '' });
   function setCurrentOfferContentDraft(next: OfferContentDraft | null) {
     offerContentDraftRef.current = next;
     setOfferContentDraft(next);
@@ -1208,12 +1266,98 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       return false;
     }
   }
+  function committedProduct(source: MapDocument, productId: string) {
+    return source.entities.find((entity): entity is Extract<Entity, { kind: 'product' }> => entity.kind === 'product' && entity.id === productId);
+  }
+  function commitNewProductDefinitionBlock(focusTextAfterCommit = false): string | null {
+    const draft = productDefinitionDraftRef.current;
+    if (!draft?.newBlock) return null;
+    if (!draft.newBlock.title.trim()) {
+      setCurrentProductDefinitionDraft({ ...draft, newBlock: { ...draft.newBlock, error: 'Block title is required.' } });
+      return null;
+    }
+    try {
+      const blockId = crypto.randomUUID();
+      const next = addProductDefinitionBlock(documentRef.current, {
+        productId: draft.productId,
+        blockId,
+        title: draft.newBlock.title,
+        ...(draft.newBlock.placement.kind === 'after' ? { afterBlockId: draft.newBlock.placement.blockId } : {}),
+      });
+      const added = committedProduct(next, draft.productId)?.definitionBlocks?.find(block => block.id === blockId);
+      if (!added) throw new Error('The created block could not be read from the Product.');
+      if (focusTextAfterCommit) {
+        productEnterCompletedTitleRef.current = { kind: 'newBlock' };
+        pendingLocalFocusIdsRef.current = [`product-definition-block-text-${encodeURIComponent(added.id)}`];
+      }
+      documentRef.current = next;
+      setDocument(next);
+      setCurrentProductDefinitionDraft({ ...draft, newBlock: undefined, blocks: { ...draft.blocks, [added.id]: contentBlockDraft(added) } });
+      activeProductDefinitionFieldRef.current = null;
+      return added.id;
+    } catch (error) {
+      setCurrentProductDefinitionDraft({ ...draft, newBlock: { ...draft.newBlock, error: error instanceof Error ? error.message : 'Block could not be added. Try again.' } });
+      return null;
+    }
+  }
+  function commitProductDefinitionBlockField(blockId: string, field: 'title' | 'text') {
+    const draft = productDefinitionDraftRef.current;
+    const blockDraft = draft?.blocks[blockId];
+    if (!draft || !blockDraft) return false;
+    if (field === 'title' && !blockDraft.title.trim()) {
+      setCurrentProductDefinitionDraft({ ...draft, blocks: { ...draft.blocks, [blockId]: { ...blockDraft, titleError: 'Block title is required.' } } });
+      return false;
+    }
+    try {
+      const next = updateProductDefinitionBlock(documentRef.current, { productId: draft.productId, blockId, field, value: blockDraft[field] });
+      const block = committedProduct(next, draft.productId)?.definitionBlocks?.find(item => item.id === blockId);
+      if (!block) throw new Error('The updated block could not be read from the Product.');
+      documentRef.current = next;
+      setDocument(next);
+      setCurrentProductDefinitionDraft({ ...draft, blocks: { ...draft.blocks, [blockId]: { ...contentBlockDraft(block) } } });
+      return true;
+    } catch (error) {
+      const errorKey = field === 'title' ? 'titleError' : 'textError';
+      setCurrentProductDefinitionDraft({ ...draft, blocks: { ...draft.blocks, [blockId]: { ...blockDraft, [errorKey]: error instanceof Error ? error.message : `Block ${field} could not be updated. Try again.` } } });
+      return false;
+    }
+  }
+  function completeActiveProductDefinitionField() {
+    const field = activeProductDefinitionFieldRef.current;
+    if (!field) return true;
+    const completed = typeof field === 'string' ? commitProductDefinitionField(field)
+      : field.kind === 'newBlockTitle' ? commitNewProductDefinitionBlock() !== null
+      : commitProductDefinitionBlockField(field.blockId, field.kind === 'blockTitle' ? 'title' : 'text');
+    if (completed) activeProductDefinitionFieldRef.current = null;
+    return completed;
+  }
+  function abandonActiveProductDefinitionBlock() {
+    const field = activeProductDefinitionFieldRef.current;
+    const draft = productDefinitionDraftRef.current;
+    if (!draft || !field || typeof field === 'string') return false;
+    if (field.kind === 'newBlockTitle') {
+      pendingLocalFocusIdsRef.current = [draft.newBlock?.placement.kind === 'after'
+        ? `product-definition-block-add-below-${encodeURIComponent(draft.newBlock.placement.blockId)}` : 'product-definition-add-block'];
+      setCurrentProductDefinitionDraft({ ...draft, newBlock: undefined });
+    } else {
+      const block = committedProduct(documentRef.current, draft.productId)?.definitionBlocks?.find(item => item.id === field.blockId);
+      if (block) setCurrentProductDefinitionDraft({ ...draft, blocks: { ...draft.blocks, [block.id]: contentBlockDraft(block) } });
+    }
+    activeProductDefinitionFieldRef.current = null;
+    return true;
+  }
   function closeProductDefinitionEditor(reason: OfferContentEditorCloseReason) {
     const draft = productDefinitionDraftRef.current;
     if (!draft) return true;
-    const field = activeProductDefinitionFieldRef.current;
-    if (reason !== 'escape') {
-      if (field && !commitProductDefinitionField(field)) return false;
+    if (reason === 'escape') {
+      if (draft.deleteConfirmationBlockId) {
+        setCurrentProductDefinitionDraft({ ...draft, deleteConfirmationBlockId: undefined });
+        pendingLocalFocusIdsRef.current = [`product-definition-block-delete-${encodeURIComponent(draft.deleteConfirmationBlockId)}`];
+        return false;
+      }
+      if (abandonActiveProductDefinitionBlock()) return false;
+    } else {
+      if (!completeActiveProductDefinitionField()) return false;
       if (productDefinitionDraftRef.current?.error && !commitProductDefinitionField('definitionUrl')) return false;
     }
     return dismissAuthoredPropertyEditor(reason, dismissingProductDefinitionRef, () => {
@@ -3629,7 +3773,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   function productDefinitionSection() {
     if (selected?.kind !== 'product') return null;
     const editing = productDefinitionDraft?.productId === selected.id;
-    const hasDefinition = Boolean(selected.definitionUrl || selected.definitionText);
+    const hasDefinition = Boolean(selected.definitionUrl || selected.definitionText || selected.definitionBlocks?.length);
     const openEditor = () => {
       if (!closeProductOffersEditor('switch-editor') || !closeAuthoredPropertyEditors('switch-editor')) return;
       closeConnectedTouchpointsEditor('switch-editor');
@@ -3639,10 +3783,84 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       setBusinessInlineEdit(null);
       activeProductDefinitionFieldRef.current = null;
       const product = documentRef.current.entities.find((entity): entity is Extract<Entity, { kind: 'product' }> => entity.kind === 'product' && entity.id === selected.id)!;
-      setCurrentProductDefinitionDraft({ productId: product.id, definitionUrl: product.definitionUrl ?? '', definitionText: product.definitionText ?? '' });
+      productEnterCompletedTitleRef.current = null;
+      productShortcutCompletedTextRef.current = null;
+      setCurrentProductDefinitionDraft({ productId: product.id, definitionUrl: product.definitionUrl ?? '', definitionText: product.definitionText ?? '', blocks: Object.fromEntries((product.definitionBlocks ?? []).map(block => [block.id, contentBlockDraft(block)])) });
     };
     const blurField = (field: ProductDefinitionField, target: EventTarget | null) => {
       if (!dismissingProductDefinitionRef.current && !(target instanceof HTMLElement && target.matches('[data-product-definition-close]'))) commitProductDefinitionField(field);
+    };
+    const cancelNewBlock = () => {
+      const draft = productDefinitionDraftRef.current;
+      if (!draft?.newBlock) return;
+      const returnFocusId = draft.newBlock.placement.kind === 'after'
+        ? `product-definition-block-add-below-${encodeURIComponent(draft.newBlock.placement.blockId)}`
+        : 'product-definition-add-block';
+      activeProductDefinitionFieldRef.current = null;
+      pendingLocalFocusIdsRef.current = [returnFocusId];
+      setCurrentProductDefinitionDraft({ ...draft, newBlock: undefined });
+    };
+    const startNewBlockDraft = (placement: AuthoredBlockPlacement) => {
+      const draft = productDefinitionDraftRef.current;
+      if (!draft) return;
+      if (draft.newBlock) {
+        globalThis.document.getElementById('product-definition-new-block-title')?.focus();
+        return;
+      }
+      activeProductDefinitionFieldRef.current = { kind: 'newBlockTitle' };
+      pendingProductNewBlockFocusRef.current = true;
+      setCurrentProductDefinitionDraft({ ...draft, newBlock: { title: '', placement } });
+    };
+    const continueAfterBlockText = (blockId: string) => {
+      if (!commitProductDefinitionBlockField(blockId, 'text')) return;
+      activeProductDefinitionFieldRef.current = null;
+      productShortcutCompletedTextRef.current = blockId;
+      startNewBlockDraft({ kind: 'after', blockId });
+    };
+    const cancelDelete = (blockId: string) => {
+      const draft = productDefinitionDraftRef.current;
+      if (!draft) return;
+      setCurrentProductDefinitionDraft({ ...draft, deleteConfirmationBlockId: undefined });
+      requestAnimationFrame(() => globalThis.document.getElementById(`product-definition-block-delete-${encodeURIComponent(blockId)}`)?.focus());
+    };
+    const removeBlock = (blockId: string) => {
+      const draft = productDefinitionDraftRef.current;
+      if (!draft) return;
+      const blocks = committedProduct(documentRef.current, draft.productId)?.definitionBlocks ?? [];
+      const removedIndex = blocks.findIndex(block => block.id === blockId);
+      try {
+        const next = removeProductDefinitionBlock(documentRef.current, { productId: draft.productId, blockId });
+        documentRef.current = next;
+        setDocument(next);
+        const remainingDrafts = { ...draft.blocks };
+        delete remainingDrafts[blockId];
+        setCurrentProductDefinitionDraft({ ...draft, blocks: remainingDrafts, deleteConfirmationBlockId: undefined });
+        if (activeProductDefinitionFieldRef.current && typeof activeProductDefinitionFieldRef.current !== 'string' && 'blockId' in activeProductDefinitionFieldRef.current && activeProductDefinitionFieldRef.current.blockId === blockId) activeProductDefinitionFieldRef.current = null;
+        const remaining = committedProduct(next, draft.productId)?.definitionBlocks ?? [];
+        const focusId = remaining[Math.min(removedIndex, remaining.length - 1)]?.id;
+        requestAnimationFrame(() => globalThis.document.getElementById(focusId ? `product-definition-block-delete-${encodeURIComponent(focusId)}` : 'product-definition-add-block')?.focus());
+      } catch (error) {
+        const blockDraft = draft.blocks[blockId];
+        if (blockDraft) setCurrentProductDefinitionDraft({ ...draft, blocks: { ...draft.blocks, [blockId]: { ...blockDraft, textError: error instanceof Error ? error.message : 'Block could not be deleted. Try again.' } } });
+      }
+    };
+    const moveBlock = (blockId: string, offset: -1 | 1) => {
+      const draft = productDefinitionDraftRef.current;
+      if (!draft) return;
+      const ids = (committedProduct(documentRef.current, draft.productId)?.definitionBlocks ?? []).map(block => block.id);
+      const from = ids.indexOf(blockId);
+      const to = from + offset;
+      if (from < 0 || to < 0 || to >= ids.length) return;
+      [ids[from], ids[to]] = [ids[to]!, ids[from]!];
+      try {
+        const next = reorderProductDefinitionBlocks(documentRef.current, { productId: draft.productId, blockIds: ids });
+        documentRef.current = next;
+        pendingLocalFocusIdsRef.current = [`product-definition-block-move-${offset < 0 ? 'up' : 'down'}-${encodeURIComponent(blockId)}`, `product-definition-block-add-below-${encodeURIComponent(blockId)}`];
+        setDocument(next);
+      } catch (error) {
+        const blockDraft = draft.blocks[blockId];
+        if (blockDraft) setCurrentProductDefinitionDraft({ ...draft, blocks: { ...draft.blocks, [blockId]: { ...blockDraft, textError: error instanceof Error ? error.message : 'Block could not be moved. Try again.' } } });
+      }
     };
     const url = safeUrl(selected.definitionUrl);
     return <section ref={productDefinitionEditorRef} className="authored-property-section" aria-labelledby="product-definition-heading">
@@ -3654,7 +3872,27 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         <label>Definition text<textarea rows={6} aria-describedby="product-definition-text-description" value={productDefinitionDraft.definitionText} onFocus={() => { activeProductDefinitionFieldRef.current = 'definitionText'; }} onChange={event => { activeProductDefinitionFieldRef.current = 'definitionText'; setCurrentProductDefinitionDraft({ ...productDefinitionDraft, definitionText: event.target.value }); }} onBlur={event => blurField('definitionText', event.relatedTarget)} /></label>
         <p id="product-definition-text-description">Describe what the Product itself is: a good, service, or experience.</p>
         {productDefinitionDraft.error && <p id="product-definition-url-error" className="error-message" role="alert">{productDefinitionDraft.error}</p>}
+        <section className="authored-structured-content" aria-labelledby="product-structured-definition-heading">
+          <div className="authored-structured-content-heading"><h5 id="product-structured-definition-heading">Structured Definition</h5><button id="product-definition-add-block" type="button" className="inspector-secondary-action" onClick={() => startNewBlockDraft({ kind: 'end' })}>Add block</button></div>
+          <AuthoredBlockList prefix="product-definition" classPrefix="authored-content" blocks={selected.definitionBlocks ?? []} drafts={productDefinitionDraft.blocks} newBlock={productDefinitionDraft.newBlock} confirmationId={productDefinitionDraft.deleteConfirmationBlockId}
+      onNewFocus={() => { activeProductDefinitionFieldRef.current = { kind: 'newBlockTitle' }; }}
+      onNewChange={value => { const draft = productDefinitionDraftRef.current; if (draft?.newBlock) setCurrentProductDefinitionDraft({ ...draft, newBlock: { ...draft.newBlock, title: value, error: undefined } }); }}
+      onNewBlur={() => { if (productEnterCompletedTitleRef.current?.kind === 'newBlock') { productEnterCompletedTitleRef.current = null; return; } if (!dismissingProductDefinitionRef.current) commitNewProductDefinitionBlock(); }}
+      onNewEnter={() => commitNewProductDefinitionBlock(true)} onCancelNew={cancelNewBlock}
+      onFieldFocus={(blockId, field) => { activeProductDefinitionFieldRef.current = { kind: field === 'title' ? 'blockTitle' : 'blockText', blockId }; }}
+      onFieldChange={(blockId, field, value) => { const draft = productDefinitionDraftRef.current; if (draft) setCurrentProductDefinitionDraft({ ...draft, blocks: { ...draft.blocks, [blockId]: { ...draft.blocks[blockId]!, [field]: value, [field === 'title' ? 'titleError' : 'textError']: undefined } } }); }}
+      onFieldBlur={(blockId, field) => {
+        if (field === 'title' && productEnterCompletedTitleRef.current?.kind === 'committedBlock' && productEnterCompletedTitleRef.current.blockId === blockId) { productEnterCompletedTitleRef.current = null; return; }
+        if (field === 'text' && productShortcutCompletedTextRef.current === blockId) { productShortcutCompletedTextRef.current = null; return; }
+        if (!dismissingProductDefinitionRef.current && commitProductDefinitionBlockField(blockId, field)) activeProductDefinitionFieldRef.current = null;
+      }}
+      onTitleEnter={blockId => { if (commitProductDefinitionBlockField(blockId, 'title')) { productEnterCompletedTitleRef.current = { kind: 'committedBlock', blockId }; pendingLocalFocusIdsRef.current = [`product-definition-block-text-${encodeURIComponent(blockId)}`]; } }}
+      onContinue={continueAfterBlockText} onMove={moveBlock} onStart={startNewBlockDraft}
+      onDelete={blockId => { const draft = productDefinitionDraftRef.current; const block = draft && committedProduct(documentRef.current, draft.productId)?.definitionBlocks?.find(item => item.id === blockId); if (draft && block?.text?.trim()) setCurrentProductDefinitionDraft({ ...draft, deleteConfirmationBlockId: blockId }); else removeBlock(blockId); }}
+      onCancelDelete={cancelDelete} onConfirmDelete={removeBlock} />
+        </section>
       </div> : <div className="authored-property-read">
+        {!!selected.definitionBlocks?.length && <p className="authored-content-structured-indicator">Structured Definition · {selected.definitionBlocks.length} {selected.definitionBlocks.length === 1 ? 'block' : 'blocks'}</p>}
         {selected.definitionText && <p className="authored-property-text">{selected.definitionText}</p>}
         {selected.definitionUrl && <div className="authored-property-document" role="group" aria-labelledby="product-definition-document-heading"><h5 id="product-definition-document-heading">Product document</h5><p>An external document describing the Product itself.</p>{url ? <a className="business-structure-external-link authored-property-document-link" href={url} target="_blank" rel="noopener noreferrer">{selected.definitionUrl}</a> : <span>{selected.definitionUrl}</span>}</div>}
       </div>}
@@ -3789,7 +4027,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       pendingLocalFocusIdsRef.current = [returnFocusId];
       setCurrentOfferContentDraft({ ...draft, newBlock: undefined });
     };
-    const startNewBlockDraft = (placement: OfferContentBlockPlacement) => {
+    const startNewBlockDraft = (placement: AuthoredBlockPlacement) => {
       const draft = offerContentDraftRef.current;
       if (!draft) return;
       if (draft.newBlock) {
@@ -3844,21 +4082,13 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       try {
         const next = reorderOfferContentBlocks(documentRef.current, { offerId: draft.offerId, blockIds: ids });
         documentRef.current = next;
-        pendingLocalFocusIdsRef.current = [`offer-content-block-move-${offset < 0 ? 'up' : 'down'}-${encodeURIComponent(blockId)}`];
+        pendingLocalFocusIdsRef.current = [`offer-content-block-move-${offset < 0 ? 'up' : 'down'}-${encodeURIComponent(blockId)}`, `offer-content-block-add-below-${encodeURIComponent(blockId)}`];
         setDocument(next);
       } catch (error) {
         const blockDraft = draft.blocks[blockId];
         if (blockDraft) setCurrentOfferContentDraft({ ...draft, blocks: { ...draft.blocks, [blockId]: { ...blockDraft, textError: error instanceof Error ? error.message : 'Block could not be moved. Try again.' } } });
       }
     };
-    const activeNewBlock = offerContentDraft?.newBlock;
-    const newBlockDraftCard = activeNewBlock && <article className="offer-content-block offer-content-new-block" data-draft-placement={activeNewBlock.placement.kind}>
-      <label>Block title<input id="offer-content-new-block-title" required value={activeNewBlock.title} aria-invalid={Boolean(activeNewBlock.error)} onFocus={() => { activeOfferContentFieldRef.current = { kind: 'newBlockTitle' }; }} onChange={event => { const draft = offerContentDraftRef.current; if (draft?.newBlock) setCurrentOfferContentDraft({ ...draft, newBlock: { ...draft.newBlock, title: event.target.value, error: undefined } }); }} onBlur={() => { if (enterCompletedBlockTitleRef.current?.kind === 'newBlock') { enterCompletedBlockTitleRef.current = null; return; } if (!dismissingOfferContentRef.current) commitNewOfferContentBlock(); }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); commitNewOfferContentBlock(true); } }} /></label>
-      {activeNewBlock.error && <p className="error-message" role="alert">{activeNewBlock.error}</p>}
-      <button type="button" className="inspector-secondary-action" onMouseDown={event => event.preventDefault()} onClick={cancelNewBlock}>Cancel</button>
-    </article>;
-    const anchoredDraftId = activeNewBlock?.placement.kind === 'after' ? activeNewBlock.placement.blockId : undefined;
-    const anchoredDraftIsRendered = anchoredDraftId !== undefined && (selected.contentBlocks ?? []).some(block => block.id === anchoredDraftId);
     return <section ref={offerContentEditorRef} className="offer-content" aria-labelledby="offer-content-heading">
       {editing ? <div className="offer-content-heading"><h4 id="offer-content-heading">Offer Content</h4><button data-offer-content-close type="button" className="inspector-secondary-action" onClick={() => closeOfferContentEditor('explicit')}>Close</button></div> : <h4 id="offer-content-heading" aria-label="Offer Content"><button ref={offerContentButtonRef} data-touchpoint-editor-affordance type="button" className="inspector-property-heading-action" aria-label={selected.contentUrl || selected.contentText || selected.contentBlocks?.length ? 'Edit Offer Content' : 'Add content'} onClick={openEditor}>{selected.contentUrl || selected.contentText || selected.contentBlocks?.length ? 'Offer Content' : 'Add content'}<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h4>}
       {editing ? <div className="inspector-relation-editor offer-content-editor" aria-label="Offer Content editor">
@@ -3872,22 +4102,22 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         <section className="offer-structured-content" aria-labelledby="offer-structured-content-heading">
           <div className="offer-structured-content-heading"><h5 id="offer-structured-content-heading">Structured Content</h5>{sourceState.structuredEligible && sourceState.currentContentSource === 'structured' ? <span id={structuredCurrentId} className="offer-content-current-marker" tabIndex={-1}>Current</span> : sourceState.structuredEligible && sourceState.freeFormEligible ? <button type="button" className="inspector-secondary-action" aria-label="Make Structured Content current" onClick={() => requestOfferCurrentContentSource('structured')}>Make current</button> : null}<button id="offer-content-add-block" type="button" className="inspector-secondary-action" onClick={() => startNewBlockDraft({ kind: 'end' })}>Add block</button></div>
           <p className="offer-structured-content-help">Structure the Offer as named blocks. Think PAS, AIDA, BAB or 4Ps — or mix the logic and build your own.</p>
-          <div className="offer-content-block-list">
-            {(selected.contentBlocks ?? []).map((block, index) => {
-              const blockDraft = offerContentDraft.blocks[block.id] ?? contentBlockDraft(block);
-              const confirming = offerContentDraft.deleteConfirmationBlockId === block.id;
-              const draftFollowsBlock = offerContentDraft.newBlock?.placement.kind === 'after' && offerContentDraft.newBlock.placement.blockId === block.id;
-              return <Fragment key={block.id}><article className="offer-content-block" data-block-id={block.id}>
-                <label>Block title<input id={`offer-content-block-title-${encodeURIComponent(block.id)}`} required value={blockDraft.title} aria-invalid={Boolean(blockDraft.titleError)} onFocus={() => { activeOfferContentFieldRef.current = { kind: 'blockTitle', blockId: block.id }; }} onChange={event => setCurrentOfferContentDraft({ ...offerContentDraft, blocks: { ...offerContentDraft.blocks, [block.id]: { ...blockDraft, title: event.target.value, titleError: undefined } } })} onBlur={() => { const completion = enterCompletedBlockTitleRef.current; if (completion?.kind === 'committedBlock' && completion.blockId === block.id) { enterCompletedBlockTitleRef.current = null; return; } if (!dismissingOfferContentRef.current && commitOfferContentBlockField(block.id, 'title')) activeOfferContentFieldRef.current = null; }} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); if (commitOfferContentBlockField(block.id, 'title')) { enterCompletedBlockTitleRef.current = { kind: 'committedBlock', blockId: block.id }; pendingLocalFocusIdsRef.current = [`offer-content-block-text-${encodeURIComponent(block.id)}`]; } } }} /></label>
-                {blockDraft.titleError && <p className="error-message" role="alert">{blockDraft.titleError}</p>}
-                <label>Block text<textarea id={`offer-content-block-text-${encodeURIComponent(block.id)}`} rows={4} value={blockDraft.text} onFocus={() => { activeOfferContentFieldRef.current = { kind: 'blockText', blockId: block.id }; }} onChange={event => setCurrentOfferContentDraft({ ...offerContentDraft, blocks: { ...offerContentDraft.blocks, [block.id]: { ...blockDraft, text: event.target.value, textError: undefined } } })} onBlur={() => { if (shortcutCompletedBlockTextRef.current === block.id) { shortcutCompletedBlockTextRef.current = null; return; } if (!dismissingOfferContentRef.current && commitOfferContentBlockField(block.id, 'text')) activeOfferContentFieldRef.current = null; }} onKeyDown={event => { if (event.key !== 'Enter' || (!event.ctrlKey && !event.metaKey)) return; event.preventDefault(); event.stopPropagation(); continueAfterBlockText(block.id); }} /></label>
-                {blockDraft.textError && <p className="error-message" role="alert">{blockDraft.textError}</p>}
-                <div className="offer-content-block-actions"><button id={`offer-content-block-move-up-${encodeURIComponent(block.id)}`} type="button" className="inspector-secondary-action" disabled={index === 0} onClick={() => moveBlock(block.id, -1)}>Move up</button><button id={`offer-content-block-move-down-${encodeURIComponent(block.id)}`} type="button" className="inspector-secondary-action" disabled={index === (selected.contentBlocks?.length ?? 0) - 1} onClick={() => moveBlock(block.id, 1)}>Move down</button><span className="offer-content-block-continuation"><button id={`offer-content-block-add-below-${encodeURIComponent(block.id)}`} type="button" className="inspector-secondary-action" aria-keyshortcuts="Control+Enter Meta+Enter" aria-describedby={`offer-content-block-shortcut-description-${encodeURIComponent(block.id)}`} onClick={() => startNewBlockDraft({ kind: 'after', blockId: block.id })}>Add block below</button><span id={`offer-content-block-shortcut-description-${encodeURIComponent(block.id)}`} className="visually-hidden">From Block text, press Control or Command plus Enter to add a block below</span><span id={`offer-content-block-shortcut-tooltip-${encodeURIComponent(block.id)}`} className="offer-content-block-shortcut-hint" aria-hidden="true">From Block text: Ctrl/⌘ + Enter</span></span><button id={`offer-content-block-delete-${encodeURIComponent(block.id)}`} type="button" className="inspector-secondary-action" onClick={() => block.text?.trim() ? setCurrentOfferContentDraft({ ...offerContentDraft, deleteConfirmationBlockId: block.id }) : removeBlock(block.id)}>Delete</button></div>
-                {confirming && <div className="offer-content-block-confirmation" role="group" aria-label={`Delete ${block.title}?`}><p>Delete “{block.title}”?</p><div><button type="button" className="inspector-secondary-action" onClick={() => cancelDelete(block.id)}>Cancel</button><button type="button" onClick={() => removeBlock(block.id)}>Delete block</button></div></div>}
-              </article>{draftFollowsBlock && newBlockDraftCard}</Fragment>;
-            })}
-            {offerContentDraft.newBlock && (offerContentDraft.newBlock.placement.kind === 'end' || !anchoredDraftIsRendered) && newBlockDraftCard}
-          </div>
+          <AuthoredBlockList prefix="offer-content" classPrefix="offer-content" blocks={selected.contentBlocks ?? []} drafts={offerContentDraft.blocks} newBlock={offerContentDraft.newBlock} confirmationId={offerContentDraft.deleteConfirmationBlockId}
+      onNewFocus={() => { activeOfferContentFieldRef.current = { kind: 'newBlockTitle' }; }}
+      onNewChange={value => { const draft = offerContentDraftRef.current; if (draft?.newBlock) setCurrentOfferContentDraft({ ...draft, newBlock: { ...draft.newBlock, title: value, error: undefined } }); }}
+      onNewBlur={() => { if (enterCompletedBlockTitleRef.current?.kind === 'newBlock') { enterCompletedBlockTitleRef.current = null; return; } if (!dismissingOfferContentRef.current) commitNewOfferContentBlock(); }}
+      onNewEnter={() => commitNewOfferContentBlock(true)} onCancelNew={cancelNewBlock}
+      onFieldFocus={(blockId, field) => { activeOfferContentFieldRef.current = { kind: field === 'title' ? 'blockTitle' : 'blockText', blockId }; }}
+      onFieldChange={(blockId, field, value) => { const draft = offerContentDraftRef.current; if (draft) setCurrentOfferContentDraft({ ...draft, blocks: { ...draft.blocks, [blockId]: { ...draft.blocks[blockId]!, [field]: value, [field === 'title' ? 'titleError' : 'textError']: undefined } } }); }}
+      onFieldBlur={(blockId, field) => {
+        if (field === 'title' && enterCompletedBlockTitleRef.current?.kind === 'committedBlock' && enterCompletedBlockTitleRef.current.blockId === blockId) { enterCompletedBlockTitleRef.current = null; return; }
+        if (field === 'text' && shortcutCompletedBlockTextRef.current === blockId) { shortcutCompletedBlockTextRef.current = null; return; }
+        if (!dismissingOfferContentRef.current && commitOfferContentBlockField(blockId, field)) activeOfferContentFieldRef.current = null;
+      }}
+      onTitleEnter={blockId => { if (commitOfferContentBlockField(blockId, 'title')) { enterCompletedBlockTitleRef.current = { kind: 'committedBlock', blockId }; pendingLocalFocusIdsRef.current = [`offer-content-block-text-${encodeURIComponent(blockId)}`]; } }}
+      onContinue={continueAfterBlockText} onMove={moveBlock} onStart={startNewBlockDraft}
+      onDelete={blockId => { const draft = offerContentDraftRef.current; const block = draft && committedOffer(documentRef.current, draft.offerId)?.contentBlocks?.find(item => item.id === blockId); if (draft && block?.text?.trim()) setCurrentOfferContentDraft({ ...draft, deleteConfirmationBlockId: blockId }); else removeBlock(blockId); }}
+      onCancelDelete={cancelDelete} onConfirmDelete={removeBlock} />
         </section>
       </div> : <div className="offer-content-read">
         {sourceState.currentContentSource && <span className="offer-content-source-marker">Current · {sourceState.currentContentSource === 'free_form' ? 'Free-form' : 'Structured'}</span>}
