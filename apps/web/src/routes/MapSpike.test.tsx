@@ -7834,3 +7834,188 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
     expect(inspector.getByRole('heading', { name: 'Subscription 2' })).toBeInTheDocument();
   });
 });
+
+function productNeighborhoodInspectorDocument(): MapDocument {
+  const document = touchpointInspectorDocument(true);
+  document.entities.push(
+    { id: 'product-other', kind: 'product', title: 'Other Product' },
+    { id: 'offer-other', kind: 'offer', title: 'Neighbor Offer', currentContentSource: null },
+    { id: 'offer-extra', kind: 'offer', title: 'Neighbor Extra', currentContentSource: null },
+    { id: 'rj', kind: 'related_job', title: 'Coordinate' },
+    { id: 'ccj', kind: 'consumption_chain_job', title: 'Adopt' },
+    { id: 'ej', kind: 'emotional_job', title: 'Feel assured' },
+    { id: 'sj', kind: 'social_job', title: 'Signal expertise' },
+    { id: 'do-common', kind: 'desired_outcome', title: 'Shared outcome' },
+  );
+  document.relationships.push(
+    ...['offer-other', 'offer-extra'].flatMap(offerId => [
+      { id: `owner:${offerId}`, kind: 'product_packaged_as_offer' as const, productId: 'product-other', offerId },
+      { id: `present:${offerId}`, kind: 'offer_presented_at_touchpoint' as const, offerId, touchpointId: 'touch' },
+    ]),
+    { id: 'common', kind: 'job_has_desired_outcome', jobId: 'job', desiredOutcomeId: 'do-common' },
+  );
+  for (const jobId of ['job', 'rj', 'ccj', 'ej', 'sj']) {
+    document.productJobIntents.push(
+      { id: `p:${jobId}`, productId: 'product', jobId, addressedDesiredOutcomeIds: jobId === 'job' ? ['do-common', 'do-a'] : [] },
+      { id: `q:${jobId}`, productId: 'product-other', jobId, addressedDesiredOutcomeIds: jobId === 'job' ? ['do-common', 'do-b'] : [] },
+    );
+  }
+  return document;
+}
+
+function renderProductNeighborhood(document = productNeighborhoodInspectorDocument()) {
+  render(<MapSpike initialDocument={document} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Orbit' }));
+  fireEvent.click(screen.getByRole('tab', { name: 'Entity Inspector' }));
+  return within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
+}
+
+async function expandProductGround(user: ReturnType<typeof userEvent.setup>, region: HTMLElement, title: string) {
+  const button = within(region).getByRole('button', { name: `${title}, 1 Products` });
+  if (button.getAttribute('aria-expanded') !== 'true') await user.click(button);
+  return within(button.closest<HTMLElement>('.derived-neighborhood-slice')!);
+}
+
+describe('Product Neighborhood Inspector', () => {
+  it('omits absent grounds and places nonempty shared presentation after Definition before intent', () => {
+    const first = renderProductNeighborhood(touchpointInspectorDocument());
+    expect(first.queryByRole('region', { name: 'Product neighborhood' })).not.toBeInTheDocument();
+    cleanup();
+    const inspector = renderProductNeighborhood();
+    const region = inspector.getByRole('region', { name: 'Product neighborhood' });
+    expectSharedNeighborhoodControls(region, ['Touchpoint', 'Core Functional Job', 'Related Job', 'Consumption Chain Job', 'Emotional Job', 'Social Job']);
+    expect(region).toHaveTextContent('Derived');
+    expect(region.parentElement?.tagName).toBe('FORM');
+    expect(inspector.getByRole('region', { name: 'Product Definition' }).compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(region.compareDocumentPosition(inspector.getByRole('group', { name: 'Client intent' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect([...region.querySelectorAll<HTMLElement>('.derived-neighborhood-slice')].map(panel => panel.dataset.groundTypeId)).toEqual(['touchpoint', 'core_functional_job', 'related_job', 'consumption_chain_job', 'emotional_job', 'social_job']);
+    expect(within(region).getAllByRole('button', { name: /, 1 Products$/ })).toHaveLength(6);
+    expect(within(region).queryByRole('checkbox', { name: 'Financial Desired Outcome' })).not.toBeInTheDocument();
+  });
+
+  it('shows bilateral Offer provenance and exact Product DO categories with explicit None', async () => {
+    const user = userEvent.setup(); const inspector = renderProductNeighborhood();
+    const region = inspector.getByRole('region', { name: 'Product neighborhood' });
+    const touch = await expandProductGround(user, region, 'Checkout');
+    expect(touch.getByText('Offers for Orbit')).toBeInTheDocument();
+    expect(touch.getByText('Offers for Other Product')).toBeInTheDocument();
+    for (const name of ['Checkout', 'Subscription', 'Consulting', 'Other Product', 'Neighbor Offer', 'Neighbor Extra']) expect(touch.getByRole('button', { name })).toBeInTheDocument();
+    const cfj = await expandProductGround(user, region, 'Make progress');
+    expect(cfj.getByText('Shared selected outcomes').parentElement).toHaveTextContent('Shared outcome');
+    expect(cfj.getByText('Only Orbit').parentElement).toHaveTextContent('Finish faster');
+    expect(cfj.getByText('Only Other Product').parentElement).toHaveTextContent('Reduce errors');
+    for (const title of ['Coordinate', 'Adopt']) {
+      const card = await expandProductGround(user, region, title);
+      expect(card.getAllByText('None')).toHaveLength(3);
+      expect(card.queryByText('Offers for Orbit')).not.toBeInTheDocument();
+    }
+    for (const title of ['Feel assured', 'Signal expertise']) {
+      const card = await expandProductGround(user, region, title);
+      expect(card.queryByText('Shared selected outcomes')).not.toBeInTheDocument();
+      expect(card.queryByText('None')).not.toBeInTheDocument();
+      expect(card.getByRole('button', { name: 'Other Product' })).toBeInTheDocument();
+    }
+  });
+
+  it('filters with multi-select OR, Dim/Hide/Reset without changing disclosure, document or history', async () => {
+    const user = userEvent.setup(); const document = productNeighborhoodInspectorDocument(); const inspector = renderProductNeighborhood(document);
+    const before = structuredClone(window.__VEE_DEV__!.dump());
+    const region = inspector.getByRole('region', { name: 'Product neighborhood' }); const neighborhood = within(region);
+    await expandProductGround(user, region, 'Make progress');
+    await user.click(neighborhood.getByRole('checkbox', { name: 'Touchpoint' }));
+    expect(region.querySelectorAll('.is-dimmed')).toHaveLength(5);
+    await user.click(neighborhood.getByRole('checkbox', { name: 'Core Functional Job' }));
+    expect(region.querySelectorAll('.is-dimmed')).toHaveLength(4);
+    await user.click(neighborhood.getByRole('radio', { name: 'Hide' }));
+    expect(region.querySelectorAll('.derived-neighborhood-slice')).toHaveLength(2);
+    await user.click(neighborhood.getByRole('checkbox', { name: 'Core Functional Job' }));
+    expect(neighborhood.queryByRole('button', { name: 'Make progress, 1 Products' })).not.toBeInTheDocument();
+    await user.click(neighborhood.getByRole('button', { name: 'Reset ground type filters' }));
+    expect(neighborhood.getByRole('button', { name: 'Make progress, 1 Products' })).toHaveAttribute('aria-expanded', 'true');
+    expect(region.querySelectorAll('.derived-neighborhood-slice')).toHaveLength(6);
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    expect(inspector.getByRole('button', { name: 'Inspector Back' })).toBeDisabled();
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['Checkout', 'Checkout'], ['Checkout', 'Other Product'], ['Checkout', 'Neighbor Offer'],
+    ['Checkout', 'Subscription'], ['Make progress', 'Make progress'], ['Make progress', 'Finish faster'],
+  ])('navigates %s → %s through shared history with owner filter reset and retained disclosure', async (groundTitle, targetTitle) => {
+    const user = userEvent.setup(); const inspector = renderProductNeighborhood();
+    let region = inspector.getByRole('region', { name: 'Product neighborhood' });
+    const card = await expandProductGround(user, region, groundTitle);
+    await user.click(within(region).getByRole('checkbox', { name: groundTitle === 'Checkout' ? 'Touchpoint' : 'Core Functional Job' }));
+    await user.click(card.getByRole('button', { name: targetTitle }));
+    expect(inspector.getByRole('heading', { name: targetTitle })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    expect(inspector.getByRole('heading', { name: 'Orbit' })).toBeInTheDocument();
+    region = inspector.getByRole('region', { name: 'Product neighborhood' });
+    expect(within(region).getAllByRole('checkbox').every(input => !(input as HTMLInputElement).checked)).toBe(true);
+    expect(within(region).getByRole('radio', { name: 'Dim' })).toBeChecked();
+    expect(within(region).getByRole('button', { name: `${groundTitle}, 1 Products` })).toHaveAttribute('aria-expanded', 'true');
+    await user.click(inspector.getByRole('button', { name: 'Inspector Forward' }));
+    expect(inspector.getByRole('heading', { name: targetTitle })).toBeInTheDocument();
+  });
+
+  it('derives only committed intent, updates after Apply, and preserves dirty navigation Cancel/Discard', async () => {
+    const user = userEvent.setup(); const document = productNeighborhoodInspectorDocument();
+    document.productJobIntents = document.productJobIntents.filter(intent => intent.productId !== 'product');
+    const inspector = renderProductNeighborhood(document);
+    const intent = within(inspector.getByRole('group', { name: 'Client intent' }));
+    await user.click(intent.getByRole('checkbox', { name: /Make progress/ }));
+    let region = inspector.getByRole('region', { name: 'Product neighborhood' });
+    expect(within(region).queryByRole('checkbox', { name: 'Core Functional Job' })).not.toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
+    region = inspector.getByRole('region', { name: 'Product neighborhood' });
+    expect(within(region).getByRole('checkbox', { name: 'Core Functional Job' })).toBeInTheDocument();
+    await user.click(intent.getByRole('checkbox', { name: /Make progress/ }));
+    const before = structuredClone(window.__VEE_DEV__!.dump());
+    const card = await expandProductGround(user, region, 'Checkout');
+    await user.click(card.getByRole('button', { name: 'Other Product' }));
+    const dialog = within(screen.getByRole('dialog', { name: 'Unsaved Product changes' }));
+    await user.click(dialog.getByRole('button', { name: 'Keep editing' }));
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    await user.click(card.getByRole('button', { name: 'Other Product' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Unsaved Product changes' })).getByRole('button', { name: 'Discard' }));
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    expect(within(inspector.getByRole('region', { name: 'Product neighborhood' })).getByRole('checkbox', { name: 'Core Functional Job' })).toBeInTheDocument();
+  });
+});
+
+describe('Shared Neighborhood owner reset', () => {
+  it('resets Offer filters on owner navigation and Back even without interacting with the second owner', async () => {
+    const user = userEvent.setup(); const inspector = renderOfferInspector(coPresentedOfferNeighborhoodDocument());
+    let region = inspector.getByRole('region', { name: 'Offer neighborhood' });
+    const neighborhood = within(region);
+    await user.click(neighborhood.getByRole('checkbox', { name: 'Touchpoint' }));
+    const disclosure = neighborhood.getByRole('button', { name: 'Other Offers on Alpha room, 4 Offers' });
+    if (disclosure.getAttribute('aria-expanded') !== 'true') await user.click(disclosure);
+    await user.click(within(disclosure.closest<HTMLElement>('.derived-neighborhood-slice')!).getByRole('button', { name: 'Unrelated Offer' }));
+    expect(inspector.getByRole('heading', { name: 'Unrelated Offer' })).toBeInTheDocument();
+    expect(within(inspector.getByRole('region', { name: 'Offer neighborhood' })).getByRole('checkbox', { name: 'Touchpoint' })).not.toBeChecked();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    region = inspector.getByRole('region', { name: 'Offer neighborhood' });
+    expect(within(region).getByRole('checkbox', { name: 'Touchpoint' })).not.toBeChecked();
+    expect(within(region).getByRole('radio', { name: 'Dim' })).toBeChecked();
+  });
+});
+
+describe('Touchpoint Neighborhood owner reset', () => {
+  it('resets filters on Touchpoint navigation and Back while retaining the source disclosure', async () => {
+    const user = userEvent.setup(); const document = touchpointInspectorDocument();
+    document.entities.push({ id: 'other-touch', kind: 'touchpoint', title: 'Other checkout' });
+    document.relationships.push({ id: 'other-link', kind: 'offer_presented_at_touchpoint', offerId: 'offer-a', touchpointId: 'other-touch' });
+    const inspector = renderTouchpointInspector(document);
+    const region = inspector.getByRole('region', { name: 'Touchpoint neighborhood' });
+    await user.click(within(region).getByRole('checkbox', { name: 'Offer' }));
+    await user.click(within(region).getByRole('button', { name: 'Other checkout' }));
+    expect(within(inspector.getByRole('region', { name: 'Touchpoint neighborhood' })).getByRole('checkbox', { name: 'Offer' })).not.toBeChecked();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    expect(within(inspector.getByRole('region', { name: 'Touchpoint neighborhood' })).getByRole('checkbox', { name: 'Offer' })).not.toBeChecked();
+    expect(within(inspector.getByRole('region', { name: 'Touchpoint neighborhood' })).getByRole('radio', { name: 'Dim' })).toBeChecked();
+    expect(within(inspector.getByRole('region', { name: 'Touchpoint neighborhood' })).getByRole('button', { name: 'Other checkout' })).toBeInTheDocument();
+  });
+});

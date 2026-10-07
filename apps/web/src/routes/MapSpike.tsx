@@ -24,6 +24,7 @@ import { offerClientIntent, offerClientIntentDiscovery, type OfferClientIntentGr
 import type { ClientIntentDiscoveryKind } from '../client-intent-discovery';
 import { initialCompactOverviewExpandedGroupIds } from '../compact-overview-presentation';
 import { useClientScopePackedLayout, usePackedPanelLayout } from '../client-scope-packed-layout';
+import { deriveProductNeighborhood, type ProductNeighborhoodGround } from '../product-neighborhood';
 import { deriveOfferClientIntentNeighborhood, type OfferClientIntentGround, type OfferClientIntentJobComparison, type OfferClientIntentGroundTypeId } from '../offer-client-intent-neighborhood';
 import { deriveTouchpointClientIntentNeighborhood, type TouchpointClientIntentFinancialDesiredOutcomeGround, type TouchpointClientIntentJobComparison, type TouchpointClientIntentJobGround } from '../touchpoint-client-intent-neighborhood';
 
@@ -670,7 +671,7 @@ function SemanticNeighborhoodContent({ model, onNavigate }: { model: Neighborhoo
 
 function NeighborhoodGroups({ groups, entityNoun, inspectedOwnerId, expansionSnapshot, onToggle, emptyStateText, onNavigate, ariaLabel, contentIdPrefix }: {
   groups: readonly NeighborhoodPresentationGroup[];
-  entityNoun: 'Offers' | 'Touchpoints';
+  entityNoun: 'Offers' | 'Touchpoints' | 'Products';
   inspectedOwnerId: string;
   expansionSnapshot: Readonly<Record<string, boolean>> | undefined;
   onToggle: (groupId: string) => void;
@@ -682,6 +683,10 @@ function NeighborhoodGroups({ groups, entityNoun, inspectedOwnerId, expansionSna
   type FocusMode = 'dim' | 'hide';
   type FocusState = { ownerId: string; selectedGroundTypeIds: Set<string>; focusMode: FocusMode };
   const [storedFocusState, setStoredFocusState] = useState<FocusState>(() => ({ ownerId: inspectedOwnerId, selectedGroundTypeIds: new Set(), focusMode: 'dim' }));
+  // Commit the owner reset so returning through history cannot revive a previous owner's filters.
+  if (storedFocusState.ownerId !== inspectedOwnerId) {
+    setStoredFocusState({ ownerId: inspectedOwnerId, selectedGroundTypeIds: new Set(), focusMode: 'dim' });
+  }
   const availableTypes = groups.reduce<{ id: string; label: string }[]>((types, group) => {
     if (!types.some(type => type.id === group.groundTypeId)) types.push({ id: group.groundTypeId, label: group.groundTypeLabel });
     return types;
@@ -895,6 +900,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [businessInlineEdit, setBusinessInlineEdit] = useState<{ property: 'url'; value: string; error?: string } | { property: 'located-in'; query: string; error?: string } | null>(null);
   const [productExpanded, setProductExpanded] = useState<Record<string, boolean>>({});
   const [neighborhoodExpanded, setNeighborhoodExpanded] = useState<Record<string, Record<string, boolean>>>({});
+  const [productNeighborhoodExpanded, setProductNeighborhoodExpanded] = useState<Record<string, Record<string, boolean>>>({});
   const [offerNeighborhoodExpanded, setOfferNeighborhoodExpanded] = useState<Record<string, Record<string, boolean>>>({});
   const [offerResistanceExpanded, setOfferResistanceExpanded] = useState<Record<string, Record<string, boolean>>>({});
   const [connectionPicker, setConnectionPicker] = useState<ClientScopeEditor | null>(null);
@@ -1049,6 +1055,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setProductInlineTitle('');
     setProductExpanded({});
     setNeighborhoodExpanded({});
+    setProductNeighborhoodExpanded({});
     setOfferNeighborhoodExpanded({});
     setOfferResistanceExpanded({});
     setProductIntentSectionIds([]);
@@ -4215,6 +4222,59 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       </div>}
     </section>;
   }
+  function productNeighborhoodSection() {
+    if (selected?.kind !== 'product') return null;
+    const projection = deriveProductNeighborhood(document, selected.id);
+    if (!projection?.grounds.length) return null;
+    const entitiesById = new Map(document.entities.map(entity => [entity.id, entity]));
+    const resolve = (id: string): NeighborhoodSemanticEntity => {
+      const entity = entitiesById.get(id);
+      if (!entity) throw new Error(`Product Neighborhood projection references missing entity ${id}`);
+      return entity;
+    };
+    const outcomes = (ids: readonly string[]): NeighborhoodSemanticOutcome[] => ids.map(id => ({ entity: resolve(id) }));
+    const modelFor = (ground: ProductNeighborhoodGround): NeighborhoodSemanticViewModel => {
+      if (ground.basisKind === 'touchpoint') return {
+        basisLabel: 'Shared Touchpoint', basisEntity: resolve(ground.basisId),
+        explanation: 'Each Product reaches this Touchpoint through its own contributing Offers.',
+        contributorGroups: [{ label: `Offers for ${selected.title}`, offers: ground.inspectedContributorOfferIds.map(resolve) }],
+        neighbors: ground.neighbors.map(neighbor => ({
+          entity: resolve(neighbor.productId),
+          contributorGroups: [{ label: `Offers for ${resolve(neighbor.productId).title}`, offers: neighbor.contributorOfferIds.map(resolve) }],
+        })),
+      };
+      if (!('inspectedDesiredOutcomeIds' in ground)) return {
+        basisLabel: 'Job basis', basisEntity: resolve(ground.basisId),
+        neighbors: ground.neighbors.map(neighbor => ({ entity: resolve(neighbor.productId) })),
+      };
+      return {
+        basisLabel: 'Job basis', basisEntity: resolve(ground.basisId),
+        explanation: 'This ground exists because these Products intend to address the same Job. Outcome rows compare only their local Product subsets.',
+        neighbors: ground.neighbors.map(neighbor => ({
+          entity: resolve(neighbor.productId),
+          outcomeCategories: [
+            { label: 'Shared selected outcomes', outcomes: outcomes(neighbor.commonDesiredOutcomeIds) },
+            { label: `Only ${selected.title}`, outcomes: outcomes(neighbor.inspectedOnlyDesiredOutcomeIds) },
+            { label: `Only ${resolve(neighbor.productId).title}`, outcomes: outcomes(neighbor.neighborOnlyDesiredOutcomeIds) },
+          ],
+        })),
+      };
+    };
+    const groups: NeighborhoodPresentationGroup[] = projection.grounds.map(ground => ({
+      id: ground.id, label: resolve(ground.basisId).title,
+      groundTypeId: ground.basisKind === 'touchpoint' ? 'touchpoint' : ground.jobKind,
+      groundTypeLabel: ground.basisKind === 'touchpoint' ? 'Touchpoint' : CLIENT_INTENT_GROUND_TYPE_LABELS[ground.jobKind],
+      count: ground.count, linkedEntities: ground.neighbors.map(neighbor => resolve(neighbor.productId)),
+      basisKind: ground.basisKind, basisId: ground.basisId,
+      renderExpandedContent: onNavigate => <SemanticNeighborhoodContent model={modelFor(ground)} onNavigate={onNavigate} />,
+    }));
+    const initialExpansion = initialCompactOverviewExpandedGroupIds(groups);
+    const toggle = (groupId: string) => setProductNeighborhoodExpanded(current => {
+      const snapshot = current[selected.id] ?? Object.fromEntries(groups.map(group => [group.id, initialExpansion.has(group.id)]));
+      return { ...current, [selected.id]: { ...snapshot, [groupId]: !(snapshot[groupId] ?? false) } };
+    });
+    return <NeighborhoodGroups groups={groups} entityNoun="Products" inspectedOwnerId={selected.id} expansionSnapshot={productNeighborhoodExpanded[selected.id]} onToggle={toggle} emptyStateText="No related Products" onNavigate={navigateInspector} ariaLabel="Product neighborhood" contentIdPrefix="product-neighborhood" />;
+  }
   function offerNeighborhoodSection() {
     if (selected?.kind !== 'offer') return null;
     type OfferEntity = Extract<Entity, { kind: 'offer' }>;
@@ -4772,6 +4832,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             >
               {productBusinessStructureSection()}
               {productDefinitionSection()}
+              {productNeighborhoodSection()}
               {touchpointBusinessStructureSection()}
               {touchpointClientScopeSection()}
               {touchpointResistanceSection()}
