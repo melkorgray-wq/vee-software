@@ -48,6 +48,12 @@ For a **Product**, the accepted projection-only structural ground is a shared do
 - Grounds sort by Touchpoint title then ID; neighboring Products and contributing Offers on both sides sort by their own title then ID. Repeated presentation paths merge provenance without mutating the committed document.
 - This checkpoint exposes no Product Inspector Neighborhood, UI adapter, filters, disclosure, or navigation. No direct Product–Touchpoint relationship is created.
 
+Product also has accepted **direct Product Job Intent** grounds for `core_functional_job`, `related_job`, `consumption_chain_job`, `emotional_job`, and `social_job`. Both Products must own committed `ProductJobIntent` resolving to the same existing supported Job entity; matching uses Job entity ID, never intent record ID, Offer selections, or Touchpoint encounter selections. Invalid Product/Job endpoints are ignored. The inspected Product is excluded and grounds without neighbors are omitted.
+
+- Job identity alone is sufficient, including empty, identical, partially overlapping, and disjoint ordinary Desired Outcome scopes. For CFJ/RJ/CCJ, comparison retains inspected selected IDs and each neighbor's selected, common, inspected-only, and neighbor-only IDs. Only existing ordinary `desired_outcome` entities linked to the concrete Job by `job_has_desired_outcome` contribute. Duplicate valid IDs merge; stale, wrong-kind and other-Job IDs do not contribute.
+- Duplicate intent records for one Product/Job merge valid DO detail into one scope; neighbors remain unique Products and counts reflect those Products. EJ/SJ expose no ordinary DO comparison detail even with malformed outcome IDs. Job grounds carry no Offer provenance. FDO is not a Product Job ground.
+- The discriminated projection retains unchanged Touchpoint grounds first, then CFJ, RJ, CCJ, EJ, SJ. Job grounds use `client-intent:<job-kind>:<job-id>` identities, sorted by Job title then ID within kind; neighbors and DO arrays sort by their own title then ID. This is projection-only: no Product Inspector adapter or interaction is introduced.
+
 The accepted Offer Client-intent semantic projection adds six ground types, in deterministic order: `core_functional_job`, `related_job`, `consumption_chain_job`, `emotional_job`, `social_job`, and `financial_desired_outcome`. These IDs classify Offer-Neighborhood projection grounds; they do not introduce a new ontology taxonomy. Client-intent grounds are derived only from valid Offer-owned `OfferJobSelection` and `OfferFinancialIntent` records. Product intent by itself is not an Offer ground.
 
 - A Job ground's concrete basis is the resolved Job entity ID, not a Product-intent or Offer-selection record ID. Product Job intents belonging to different Products therefore match when their valid Offer selections resolve to the same Job. A Job ground exists only when the inspected Offer and at least one other valid Offer select that Job.
@@ -70,7 +76,7 @@ Product, Offer, and Touchpoint are graph entities. `Located in` is a registry re
 
 ## Current runtime behavior
 
-- `deriveProductNeighborhood()` in `apps/web/src/product-neighborhood.ts` implements the framework-independent Product shared-downstream-Touchpoint projection only. Invalid inspected endpoints return `undefined`; a valid Product without neighbors returns empty grounds. Product Inspector integration remains deferred. Focused evidence lives in `apps/web/src/product-neighborhood.test.ts`.
+- `deriveProductNeighborhood()` in `apps/web/src/product-neighborhood.ts` implements the framework-independent Product shared-downstream-Touchpoint and direct Product Job Intent projections. Invalid inspected endpoints return `undefined`; a valid Product without neighbors returns empty grounds. Product Inspector integration remains deferred. Focused evidence lives in `apps/web/src/product-neighborhood.test.ts`.
 
 - `deriveTouchpointBusinessStructure()` derives the Touchpoint projection from committed records. Its `otherTouchpointsByOffer` and `otherTouchpointsInContainer` fields feed `touchpointBusinessStructureSection()` in `apps/web/src/routes/MapSpike.tsx`.
 - `offerNeighborhoodSection()` derives the existing Product and shared-Touchpoint grounds, invokes `deriveOfferClientIntentNeighborhood()` once for the committed document and inspected Offer, and adapts that framework-independent projection to `NeighborhoodPresentationGroup`. Step 3B, the read-only runtime integration, is implemented. Structural grounds remain first (nonempty Product, then deterministic shared Touchpoints), followed by semantic grounds in canonical CFJ, RJ, CCJ, EJ, SJ, FDO order.
@@ -91,13 +97,13 @@ For the mandatory per-kind transfer sequence, owner chain, and evidence gate, us
 ## Deferred decisions and open questions
 
 - A relevant-Repulsor ground is deferred until Offer-level exposure semantics are agreed. It is not implementation-ready.
-- Client-intent matching/grouping beyond the accepted Offer and Touchpoint projections remains open; no speculative relation or algorithm may fill those gaps.
+- Client-intent matching/grouping beyond the accepted direct Product Job, Offer, and Touchpoint projections remains open; no speculative relation or algorithm may fill those gaps.
 
 ## Owner chain and change gate
 
 The verified owner chains are:
 
-- Product shared-downstream-Touchpoint derivation: `deriveProductNeighborhood()` in `apps/web/src/product-neighborhood.ts`, with focused regressions in `apps/web/src/product-neighborhood.test.ts`;
+- Product shared-downstream-Touchpoint and direct Job Intent derivation: `deriveProductNeighborhood()` in `apps/web/src/product-neighborhood.ts`, with focused regressions in `apps/web/src/product-neighborhood.test.ts`;
 - Touchpoint derivation: `deriveTouchpointBusinessStructure()` and `otherTouchpointsByOffer` / `otherTouchpointsInContainer` in `apps/web/src/touchpoint-business-structure.ts`;
 - Offer Client-intent semantic derivation: `deriveOfferClientIntentNeighborhood()` in `apps/web/src/offer-client-intent-neighborhood.ts`, with focused regressions in `apps/web/src/offer-client-intent-neighborhood.test.ts`;
 - Touchpoint Client-intent semantic derivation: `deriveTouchpointClientIntentNeighborhood()` in `apps/web/src/touchpoint-client-intent-neighborhood.ts`, with focused regressions in `apps/web/src/touchpoint-client-intent-neighborhood.test.ts`;
