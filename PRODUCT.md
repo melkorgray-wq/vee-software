@@ -52,7 +52,7 @@ Product, Offer, and Touchpoint form the Business-side architecture through which
 
 These types are attraction-oriented by what they already mean; there is no generic Attraction Point entity above them. A weak or ineffective Touchpoint remains a weak attraction point, not a repulsion point. Business-side repulsion points are not part of the product direction.
 
-A framework-independent read-only Product Neighborhood projection derives shared downstream Touchpoints from valid committed Product → Offer → Touchpoint paths. Neighbors are unique Products; Offers retain provenance on both sides. This structural projection adds no relationships and is not yet integrated into the Product Inspector. Product Job, Financial Desired Outcome, and Repulsor Neighborhood grounds remain outside this checkpoint.
+A framework-independent read-only Product Neighborhood projection derives shared downstream Touchpoints from valid committed Product → Offer → Touchpoint paths. Neighbors are unique Products; Offers retain provenance on both sides. The projection also derives shared concrete Core Functional, Related, Consumption Chain, Emotional and Social Jobs directly from committed Product Job Intent. Ordinary Desired Outcome subsets refine comparison for the first three Job kinds; shared Job identity is sufficient even with empty or disjoint scopes. This projection adds no relationships and is not yet integrated into the Product Inspector. Financial Desired Outcome and Repulsor Neighborhood grounds remain outside this checkpoint.
 
 ### Product Definition
 
