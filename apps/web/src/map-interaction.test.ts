@@ -8,7 +8,6 @@ it('arbitrates every workspace shortcut interaction state in one policy', () => 
   expect(workspaceShortcutAction('tooltip')).toBe('dismiss-and-switch');
   expect(workspaceShortcutAction('inline-edit')).toBe('ignore');
   expect(workspaceShortcutAction('create-draft')).toBe('ignore');
-  expect(workspaceShortcutAction('dirty-inspector')).toBe('confirm');
   expect(workspaceShortcutAction('impact-confirmation')).toBe('ignore');
   expect(workspaceShortcutAction('node', true)).toBe('ignore');
 });
