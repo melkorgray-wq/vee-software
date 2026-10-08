@@ -7,6 +7,27 @@ import { applyTouchpointIntentDraft, type Entity, type MapDocument } from '@vee/
 import * as domain from '@vee/domain';
 import { parentTouchpointOptions } from '../map-interaction';
 
+// Checkpoint 3 has no rendered Product intent draft controls. Inject only an
+// unrelated legacy title draft to retain the transitional Apply/navigation guards.
+const legacyProductDraft = vi.hoisted(() => ({ stageTitle: null as ((title: string) => void) | null }));
+vi.mock('react', async importOriginal => {
+  const actual = await importOriginal<typeof import('react')>();
+  const useState: typeof actual.useState = ((initial: unknown) => {
+    const [value, setValue] = actual.useState(initial);
+    if (value && typeof value === 'object' && 'productIntentOutcomes' in value && 'kind' in value && value.kind === 'product') {
+      legacyProductDraft.stageTitle = title => setValue((current: unknown) => current && typeof current === 'object' ? { ...current, title } : current);
+    }
+    return [value, setValue];
+  }) as typeof actual.useState;
+  return { ...actual, useState };
+});
+function stageLegacyProductTitle() {
+  act(() => {
+    if (!legacyProductDraft.stageTitle) throw new Error('Product draft is unavailable');
+    legacyProductDraft.stageTitle('Unapplied legacy title');
+  });
+}
+
 type MockNode = { id: string; position: { x: number; y: number }; selected?: boolean; className?: string; data: { title: string; kindLabel: string } };
 type MockEdge = { id: string; source: string; target: string; type?: string; markerEnd?: { type: string }; label?: string };
 const { setViewportSpy } = vi.hoisted(() => ({ setViewportSpy: vi.fn(() => Promise.resolve(true)) }));
@@ -18,6 +39,7 @@ vi.mock('../router', () => ({ Link: ({ children }: { children: ReactNode }) => <
 
 afterEach(() => {
   cleanup();
+  legacyProductDraft.stageTitle = null;
   delete window.__VEE_DEV__;
 });
 
@@ -1319,17 +1341,16 @@ describe('Product Definition Inspector', () => {
     expect(storedProduct().definitionText).toBe('Keep this sibling');
   });
 
-  it.each(['Apply', 'Discard'])('preserves Definition and an existing legacy intent draft through %s', async action => {
+  it.each(['Apply', 'Discard'])('preserves Definition and an unrelated legacy draft through %s', async action => {
     const user = userEvent.setup(); const document = productBusinessStructureDocument();
     document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
-    const inspector = renderProductInspector(document); const intent = within(inspector.getByRole('group', { name: 'Client intent' }));
-    await user.click(intent.getByRole('button', { name: 'Expand Make progress' }));
-    await user.click(intent.getByLabelText('Finish faster'));
+    const inspector = renderProductInspector(document);
+    stageLegacyProductTitle();
     expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
     await user.click(definition(inspector).getByRole('button', { name: 'Add Definition' }));
     await user.type(editor(inspector).getByLabelText('Definition text'), 'Durable description');
     await user.click(definition(inspector).getByRole('button', { name: 'Close' }));
-    expect(intent.getByLabelText('Finish faster')).not.toBeChecked();
+    expect(window.__VEE_DEV__!.dump().productJobIntents[0]!.addressedDesiredOutcomeIds).toEqual(['do-a']);
     expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
     if (action === 'Apply') await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
     else {
@@ -1337,7 +1358,8 @@ describe('Product Definition Inspector', () => {
       await user.click(within(screen.getByRole('dialog', { name: 'Unsaved Product changes' })).getByRole('button', { name: 'Discard' }));
     }
     expect(storedProduct().definitionText).toBe('Durable description');
-    expect(window.__VEE_DEV__!.dump().productJobIntents[0]!.addressedDesiredOutcomeIds).toEqual(action === 'Apply' ? [] : ['do-a']);
+    expect(window.__VEE_DEV__!.dump().productJobIntents[0]!.addressedDesiredOutcomeIds).toEqual(['do-a']);
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product')!.title).toBe(action === 'Apply' ? 'Unapplied legacy title' : 'Orbit');
   });
 });
 
@@ -1782,20 +1804,21 @@ describe('Product Structured Definition Inspector', () => {
     expect(section.queryByLabelText('Product Definition editor')).not.toBeInTheDocument();
   });
 
-  it.each(['Apply', 'Discard'] as const)('preserves block commits and pending legacy intent state through %s', async action => {
+  it.each(['Apply', 'Discard'] as const)('preserves block commits and an unrelated legacy draft through %s', async action => {
     const document = productBusinessStructureDocument();
     document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
-    const user = userEvent.setup(); const inspector = renderProductInspector(document); const intent = within(inspector.getByRole('group', { name: 'Client intent' }));
-    await user.click(intent.getByRole('button', { name: 'Expand Make progress' })); await user.click(intent.getByLabelText('Finish faster'));
+    const user = userEvent.setup(); const inspector = renderProductInspector(document);
+    stageLegacyProductTitle();
     await user.click(inspector.getByRole('button', { name: 'Add Definition' })); await user.click(inspector.getByRole('button', { name: 'Add block' }));
     await user.type(inspector.getByLabelText('Block title'), 'Delivery{Enter}');
     await user.type(inspector.getByLabelText('Block text'), 'One weekly session');
     await user.click(within(inspector.getByRole('region', { name: 'Product Definition' })).getByRole('button', { name: 'Close' }));
-    expect(intent.getByLabelText('Finish faster')).not.toBeChecked(); expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
+    expect(window.__VEE_DEV__!.dump().productJobIntents[0]!.addressedDesiredOutcomeIds).toEqual(['do-a']); expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
     if (action === 'Apply') await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
     else { fireEvent.click(globalThis.document.querySelector<HTMLElement>('[data-node-id="offer-a"]')!); await user.click(within(screen.getByRole('dialog', { name: 'Unsaved Product changes' })).getByRole('button', { name: 'Discard' })); }
     expect((window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product') as Extract<Entity, { kind: 'product' }>).definitionBlocks).toEqual([{ id: expect.any(String), title: 'Delivery', text: 'One weekly session' }]);
-    expect(window.__VEE_DEV__!.dump().productJobIntents[0]!.addressedDesiredOutcomeIds).toEqual(action === 'Apply' ? [] : ['do-a']);
+    expect(window.__VEE_DEV__!.dump().productJobIntents[0]!.addressedDesiredOutcomeIds).toEqual(['do-a']);
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product')!.title).toBe(action === 'Apply' ? 'Unapplied legacy title' : 'Orbit');
   });
 
   it.each(['Product', 'Offer'] as const)('keeps %s reorder focus on the same block when the move action becomes disabled', async kind => {
@@ -6268,14 +6291,15 @@ describe('map-first authoring interactions', () => {
     expect(screen.queryByRole('button', { name: 'Cancelled Product' })).not.toBeInTheDocument(); expect(document.querySelector('[data-source], [data-target]')).not.toBeInTheDocument();
     fireEvent.contextMenu(screen.getByLabelText('Map canvas'), { clientX: 580, clientY: 380 }); await user.click(screen.getByRole('menuitem', { name: 'Product' })); editor = contextualEditor('Add Product'); await user.type(editor.getByLabelText('Title'), 'Orbit'); await user.click(editor.getByRole('button', { name: 'Create' }));
     expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true'); expect(screen.getByRole('button', { name: 'Orbit' })).toBeInTheDocument(); expect(document.querySelector('[data-source], [data-target]')).not.toBeInTheDocument();
-    const inspector = await openInspector(user); expect(inspector.getByRole('heading', { name: 'Orbit' })).toBeInTheDocument(); expect(inspector.getByRole('group', { name: 'Client intent' })).toBeInTheDocument();
+    const inspector = await openInspector(user); expect(inspector.getByRole('heading', { name: 'Orbit' })).toBeInTheDocument(); expect(inspector.getByRole('region', { name: 'Client intent' })).toBeInTheDocument();
     bounds.mockRestore();
   });
   it('creates an Offer structurally without initializing semantic intent', async () => {
     const user = userEvent.setup(); render(<MapSpike />);
     await user.click(screen.getByRole('button', { name: 'Add element' })); await user.click(screen.getByRole('button', { name: 'Client side' })); await user.selectOptions(screen.getByLabelText('Client element type'), 'financial_desired_outcome'); await user.type(screen.getByLabelText('Title'), 'Stay affordable'); await user.click(screen.getByRole('button', { name: 'Create' })); await openMap(user);
-    await globalProduct(user); const inspector = await openInspector(user); const jobs = inspector.getByRole('group', { name: 'Client intent' }); await user.click(within(jobs).getByRole('button', { name: '+ Add Client Job' })); await user.click(within(jobs).getByRole('button', { name: 'Core Functional Job' })); await user.type(within(jobs).getByLabelText('New Client Job title'), 'Make progress{Enter}');
-    expect(within(jobs).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ })).toBeChecked(); await user.click(within(jobs).getByRole('button', { name: 'Expand Make progress' })); await user.click(within(jobs).getByRole('button', { name: '+ Add Desired Outcome' })); await user.type(within(jobs).getByLabelText('New Desired Outcome title'), 'Finish faster{Enter}'); expect(within(jobs).getByLabelText('Finish faster')).toBeChecked(); await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
+    await user.click(screen.getByRole('button', { name: 'Add element' })); await user.click(screen.getByRole('button', { name: 'Client side' })); await user.type(screen.getByLabelText('Title'), 'Make progress'); await user.click(screen.getByRole('button', { name: 'Create' })); await openMap(user);
+    await user.click(screen.getByRole('button', { name: 'Make progress' })); fireEvent.keyDown(window, { key: 'Tab' }); await user.click(screen.getByRole('menuitem', { name: 'Desired Outcome' })); const outcome = contextualEditor('Add Desired Outcome'); await user.type(outcome.getByLabelText('Title'), 'Finish faster'); await user.click(outcome.getByRole('button', { name: 'Create' }));
+    await globalProduct(user); const inspector = await openInspector(user); await user.click(inspector.getByRole('button', { name: 'Edit Client intent' })); const jobs = within(inspector.getByRole('region', { name: 'Client intent' })); await user.click(jobs.getByRole('checkbox', { name: 'Finish faster' })); await user.click(jobs.getByRole('button', { name: 'Close Client intent editor' }));
     await openMap(user); await user.click(screen.getByRole('button', { name: 'Orbit' })); fireEvent.keyDown(window, { key: 'Tab' }); await user.click(screen.getByRole('menuitem', { name: 'Offer' })); let offer = contextualEditor('Add Offer');
     expect(offer.getByLabelText('Title')).toBeInTheDocument(); expect(offer.getByRole('button', { name: 'Create' })).toBeInTheDocument(); expect(offer.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
     expect(offer.queryByText('Which parts of this Product’s Client intent does this Offer carry?')).not.toBeInTheDocument(); expect(offer.queryByText('Which financial criteria does this Offer address?')).not.toBeInTheDocument(); expect(offer.queryByLabelText('Linked Product')).not.toBeInTheDocument(); expect(offer.queryByText(/Touchpoint distribution/i)).not.toBeInTheDocument();
@@ -6376,21 +6400,21 @@ describe('map-first authoring interactions', () => {
     await openInspector(user); expect(within(inspector.getByRole('group', { name: 'Parent property' })).getByRole('button', { name: 'Services' })).toBeInTheDocument(); expect(inspector.queryByLabelText('Parent Touchpoint')).not.toBeInTheDocument();
   });
   it('cancels a contextual draft without inserting an entity', async () => { const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); await user.click(screen.getByRole('button', { name: 'Orbit' })); fireEvent.keyDown(window, { key: 'Tab' }); await user.click(screen.getByRole('menuitem', { name: 'Offer' })); await user.type(contextualEditor('Add Offer').getByLabelText('Title'), 'Draft offer'); fireEvent.keyDown(window, { key: 'Escape' }); expect(screen.queryByText('Draft offer')).not.toBeInTheDocument(); expect(screen.queryByText('packaged as')).not.toBeInTheDocument(); });
-  it('keeps durable Product branches stable, restores draft outcome scope, and rebuilds sections after Apply', async () => {
-    const user = userEvent.setup(); render(<MapSpike />);
-    await user.click(screen.getByRole('button', { name: 'Add element' })); await user.click(screen.getByRole('button', { name: 'Client side' })); await user.type(screen.getByLabelText('Title'), 'Make progress'); await user.click(screen.getByRole('button', { name: 'Create' })); await openMap(user);
-    await user.click(screen.getByRole('button', { name: 'Make progress' })); fireEvent.keyDown(window, { key: 'Tab' }); await user.click(screen.getByRole('menuitem', { name: 'Desired Outcome' })); const outcomeEditor = contextualEditor('Add Desired Outcome'); await user.type(outcomeEditor.getByLabelText('Title'), 'Finish faster'); await user.click(outcomeEditor.getByRole('button', { name: 'Create' }));
-    await globalProduct(user); const inspector = await openInspector(user); const intent = inspector.getByRole('group', { name: 'Client intent' });
-    const otherHeading = within(intent).getByRole('heading', { name: 'Other Client Jobs' });
-    await user.click(within(intent).getByRole('button', { name: 'Expand Make progress' }));
-    expect(otherHeading.compareDocumentPosition(within(intent).getByText('Make progress')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    await user.click(within(intent).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ }));
-    expect(otherHeading.compareDocumentPosition(within(intent).getByText('Make progress')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    await user.click(within(intent).getByLabelText('Finish faster'));
-    await user.click(within(intent).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ })); expect(within(intent).getByLabelText('Finish faster')).not.toBeChecked();
-    await user.click(within(intent).getByRole('checkbox', { name: /^Make progress\s*Core Functional Job$/ })); expect(within(intent).getByLabelText('Finish faster')).toBeChecked();
-    await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
-    expect(within(intent).getByRole('heading', { name: 'Product intent' }).compareDocumentPosition(within(intent).getByText('Make progress')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  it('keeps Product membership after the last outcome is removed and preserves read disclosure', async () => {
+    const user = userEvent.setup(); const document = productBusinessStructureDocument();
+    const inspector = renderProductInspector(document);
+    await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
+    const intent = within(inspector.getByRole('region', { name: 'Client intent' }));
+    await user.click(intent.getByRole('checkbox', { name: 'Finish faster' }));
+    await user.click(intent.getByRole('checkbox', { name: 'Finish faster' }));
+    expect(window.__VEE_DEV__!.dump().productJobIntents).toEqual([expect.objectContaining({ jobId: 'job', addressedDesiredOutcomeIds: [] })]);
+    await user.click(intent.getByRole('button', { name: 'Close Client intent editor' }));
+    const panel = intent.getByRole('button', { name: 'Core Functional Job, 1' });
+    if (panel.getAttribute('aria-expanded') !== 'true') await user.click(panel);
+    expect(intent.getByText('Desired Outcome not described yet')).toBeInTheDocument();
+    await user.click(intent.getByRole('button', { name: 'Edit Client intent' })); await waitFor(() => expect(intent.getByRole('searchbox')).toHaveFocus()); await user.keyboard('{Escape}');
+    expect(intent.getByRole('button', { name: 'Core Functional Job, 1' })).toHaveAttribute('aria-expanded', 'true');
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
   });
   it('does not treat an immediate Inspector title commit as an Apply-owned dirty change', async () => {
     const user = userEvent.setup(); render(<MapSpike />); await globalProduct(user); const inspector = await openInspector(user);
@@ -7450,12 +7474,11 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(document);
     await user.click(within(inspector.getByRole('group', { name: 'Offers property' })).getByRole('button', { name: 'Subscription' }));
     await user.click(inspector.getByRole('button', { name: 'Orbit' }));
-    const intent = inspector.getByRole('group', { name: 'Client intent' });
-    await user.click(within(intent).getByRole('button', { name: 'Expand Make progress' }));
+    await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
+    const intent = inspector.getByRole('region', { name: 'Client intent' });
     await user.click(within(intent).getByRole('checkbox', { name: 'Reduce errors' }));
-    await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
     const review = screen.getByRole('dialog', { name: 'This change affects downstream intent' });
-    expect(within(review).getByRole('button', { name: 'Apply changes' })).toBeInTheDocument();
+    expect(within(review).getByRole('button', { name: 'Confirm removal' })).toBeInTheDocument();
     expect(within(review).getByText('loses Reduce errors')).toBeInTheDocument();
   });
 
@@ -7552,9 +7575,7 @@ describe('focused Touchpoint Inspector intent scenarios', () => {
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(document);
     await user.click(within(inspector.getByRole('group', { name: 'Offers property' })).getByRole('button', { name: 'Subscription' }));
     await user.click(inspector.getByRole('button', { name: 'Orbit' }));
-    const intent = inspector.getByRole('group', { name: 'Client intent' });
-    await user.click(within(intent).getByRole('button', { name: 'Expand Make progress' }));
-    await user.click(within(intent).getByLabelText('Finish faster'));
+    stageLegacyProductTitle();
     fireEvent.click(globalThis.document.querySelector<HTMLElement>('[data-node-id="offer-a"]')!);
     const confirmation = screen.getByRole('dialog', { name: 'Unsaved Product changes' });
     await user.click(within(confirmation).getByRole('button', { name: 'Keep editing' }));
@@ -7887,7 +7908,7 @@ describe('Product Neighborhood Inspector', () => {
     expect(region).toHaveTextContent('Derived');
     expect(region.parentElement?.tagName).toBe('FORM');
     expect(inspector.getByRole('region', { name: 'Product Definition' }).compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(region.compareDocumentPosition(inspector.getByRole('group', { name: 'Client intent' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(region.compareDocumentPosition(inspector.getByRole('region', { name: 'Client intent' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect([...region.querySelectorAll<HTMLElement>('.derived-neighborhood-slice')].map(panel => panel.dataset.groundTypeId)).toEqual(['touchpoint', 'core_functional_job', 'related_job', 'consumption_chain_job', 'emotional_job', 'social_job']);
     expect(within(region).getAllByRole('button', { name: /, 1 Products$/ })).toHaveLength(6);
     expect(within(region).queryByRole('checkbox', { name: 'Financial Desired Outcome' })).not.toBeInTheDocument();
@@ -7959,18 +7980,17 @@ describe('Product Neighborhood Inspector', () => {
     expect(inspector.getByRole('heading', { name: targetTitle })).toBeInTheDocument();
   });
 
-  it('derives only committed intent, updates after Apply, and preserves dirty navigation Cancel/Discard', async () => {
+  it('updates Neighborhood after immediate intent completion and preserves dirty navigation Cancel/Discard', async () => {
     const user = userEvent.setup(); const document = productNeighborhoodInspectorDocument();
     document.productJobIntents = document.productJobIntents.filter(intent => intent.productId !== 'product');
     const inspector = renderProductNeighborhood(document);
-    const intent = within(inspector.getByRole('group', { name: 'Client intent' }));
+    await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
+    const intent = within(inspector.getByRole('region', { name: 'Client intent' }));
     await user.click(intent.getByRole('checkbox', { name: /Make progress/ }));
-    let region = inspector.getByRole('region', { name: 'Product neighborhood' });
-    expect(within(region).queryByRole('checkbox', { name: 'Core Functional Job' })).not.toBeInTheDocument();
-    await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
-    region = inspector.getByRole('region', { name: 'Product neighborhood' });
+    await user.click(intent.getByRole('button', { name: 'Close Client intent editor' }));
+    const region = inspector.getByRole('region', { name: 'Product neighborhood' });
     expect(within(region).getByRole('checkbox', { name: 'Core Functional Job' })).toBeInTheDocument();
-    await user.click(intent.getByRole('checkbox', { name: /Make progress/ }));
+    stageLegacyProductTitle();
     const before = structuredClone(window.__VEE_DEV__!.dump());
     const card = await expandProductGround(user, region, 'Checkout');
     await user.click(card.getByRole('button', { name: 'Other Product' }));
@@ -8017,5 +8037,171 @@ describe('Touchpoint Neighborhood owner reset', () => {
     expect(within(inspector.getByRole('region', { name: 'Touchpoint neighborhood' })).getByRole('checkbox', { name: 'Offer' })).not.toBeChecked();
     expect(within(inspector.getByRole('region', { name: 'Touchpoint neighborhood' })).getByRole('radio', { name: 'Dim' })).toBeChecked();
     expect(within(inspector.getByRole('region', { name: 'Touchpoint neighborhood' })).getByRole('button', { name: 'Other checkout' })).toBeInTheDocument();
+  });
+});
+
+describe('Product Client intent integration', () => {
+  function fixture() {
+    const d = touchpointInspectorDocument();
+    d.entities.push({ id: 'rj', kind: 'related_job', title: 'Related task' }, { id: 'ccj', kind: 'consumption_chain_job', title: 'Consume' }, { id: 'ej', kind: 'emotional_job', title: 'Feel calm' }, { id: 'sj', kind: 'social_job', title: 'Look capable' });
+    d.relationships.push({ id: 'rj-context', kind: 'core_functional_job_has_related_job', coreFunctionalJobId: 'job', relatedJobId: 'rj' });
+    return d;
+  }
+  it('keeps the empty read section and focuses search; closes without create UI or dirty state', async () => {
+    const user = userEvent.setup(); const inspector = renderProductInspector(fixture());
+    let section = inspector.getByRole('region', { name: 'Client intent' });
+    expect(within(section).getByText('No Client intent selected.')).toBeInTheDocument();
+    await user.click(within(section).getByRole('button', { name: 'Edit Client intent' }));
+    section = inspector.getByRole('region', { name: 'Client intent' });
+    await waitFor(() => expect(within(section).getByRole('searchbox')).toHaveFocus());
+    expect(within(section).queryByText(/Create .* as/)).not.toBeInTheDocument();
+    expect(within(section).queryByRole('checkbox', { name: /Stay affordable/ })).not.toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(inspector.getByRole('button', { name: 'Edit Client intent' })).toHaveFocus());
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+    await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
+    await user.click(inspector.getByRole('button', { name: 'Close Client intent editor' }));
+    await waitFor(() => expect(inspector.getByRole('button', { name: 'Edit Client intent' })).toHaveFocus());
+  });
+  it('selects matching DO under an unselected Job immediately, preserves query, and removes last DO without membership loss', async () => {
+    const user = userEvent.setup(); const inspector = renderProductInspector(fixture());
+    await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
+    const editor = within(inspector.getByRole('region', { name: 'Client intent' }));
+    const search = editor.getByRole('searchbox'); await user.type(search, 'Finish faster');
+    await user.click(editor.getByRole('checkbox', { name: 'Finish faster' }));
+    expect(window.__VEE_DEV__!.dump().productJobIntents).toMatchObject([{ jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] }]);
+    expect(search).toHaveValue('Finish faster'); expect(editor.getByRole('checkbox', { name: 'Finish faster' })).toBeChecked();
+    expect(inspector.queryByText('Unsaved changes')).not.toBeInTheDocument();
+    await user.click(editor.getByRole('checkbox', { name: 'Finish faster' }));
+    expect(window.__VEE_DEV__!.dump().productJobIntents[0]!.addressedDesiredOutcomeIds).toEqual([]);
+    await user.click(editor.getByRole('button', { name: 'Close Client intent editor' }));
+    expect(inspector.getByText('Desired Outcome not described yet')).toBeInTheDocument();
+  });
+  it('renders five shared panels, no direct Job outcomes, and navigable Related Job context', async () => {
+    const user = userEvent.setup(); const d = fixture();
+    for (const jobId of ['job', 'rj', 'ccj', 'ej', 'sj']) d.productJobIntents.push({ id: `intent-${jobId}`, productId: 'product', jobId, addressedDesiredOutcomeIds: jobId === 'job' ? ['do-a'] : [] });
+    const inspector = renderProductInspector(d); const section = within(inspector.getByRole('region', { name: 'Client intent' }));
+    expect(section.getAllByRole('button').filter(b => b.classList.contains('client-scope-view-disclosure')).map(b => b.getAttribute('aria-label'))).toEqual(['Core Functional Job, 1', 'Related Job, 1', 'Consumption Chain Job, 1', 'Emotional Job, 1', 'Social Job, 1']);
+    await user.click(section.getByRole('button', { name: 'Related Job, 1' }));
+    expect(section.getByText('Related to:')).toBeInTheDocument();
+    await user.click(section.getByRole('button', { name: 'Make progress' }));
+    expect(inspector.getByRole('heading', { name: 'Make progress' })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    expect(within(inspector.getByRole('region', { name: 'Client intent' })).getByRole('button', { name: 'Related Job, 1' })).toHaveAttribute('aria-expanded', 'true');
+  });
+  it.each(['Apply', 'Discard'] as const)('preserves immediate intent and unrelated legacy draft through %s', async action => {
+    const user = userEvent.setup(); const inspector = renderProductInspector(fixture());
+    stageLegacyProductTitle();
+    await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
+    const editor = within(inspector.getByRole('region', { name: 'Client intent' }));
+    await user.click(editor.getByRole('checkbox', { name: 'Finish faster' }));
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeEnabled();
+    await user.click(editor.getByRole('button', { name: 'Close Client intent editor' }));
+    if (action === 'Apply') await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
+    else { fireEvent.click(globalThis.document.querySelector<HTMLElement>('[data-node-id="offer-a"]')!); await user.click(within(screen.getByRole('dialog', { name: 'Unsaved Product changes' })).getByRole('button', { name: 'Discard' })); }
+    expect(window.__VEE_DEV__!.dump().productJobIntents).toEqual([expect.objectContaining({ jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] })]);
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product')!.title).toBe(action === 'Apply' ? 'Unapplied legacy title' : 'Orbit');
+  });
+  it('retains query and committed state on failed completion, and commits one successful command', async () => {
+    const user = userEvent.setup(); const inspector = renderProductInspector(fixture());
+    await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
+    const editor = within(inspector.getByRole('region', { name: 'Client intent' }));
+    await user.type(editor.getByRole('searchbox'), 'Finish faster');
+    const before = structuredClone(window.__VEE_DEV__!.dump());
+    const command = vi.spyOn(domain, 'applyProductClientIntentCommand');
+    command.mockImplementationOnce(() => { throw new Error('Product intent failed'); });
+    try {
+      await user.click(editor.getByRole('checkbox', { name: 'Finish faster' }));
+      expect(editor.getByRole('alert')).toHaveTextContent('Product intent failed');
+      expect(editor.getByRole('searchbox')).toHaveValue('Finish faster'); expect(window.__VEE_DEV__!.dump()).toEqual(before);
+      command.mockClear(); await user.click(editor.getByRole('checkbox', { name: 'Finish faster' }));
+      expect(command).toHaveBeenCalledTimes(1); expect(editor.queryByRole('alert')).not.toBeInTheDocument();
+      expect(editor.getByRole('checkbox', { name: 'Finish faster' })).toHaveFocus();
+    } finally { command.mockRestore(); }
+  });
+  it('preserves Definition validation on transfer and leaves the new focus owner on outside/switch', async () => {
+    const user = userEvent.setup(); const inspector = renderProductInspector(fixture());
+    await user.click(inspector.getByRole('button', { name: 'Add Definition' }));
+    await user.type(inspector.getByLabelText('Product document URL'), 'invalid{Enter}');
+    await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
+    expect(inspector.queryByRole('searchbox')).not.toBeInTheDocument(); expect(inspector.getByRole('alert')).toBeInTheDocument();
+    await user.click(inspector.getByLabelText('Product document URL')); await user.keyboard('{Escape}');
+    await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
+    await waitFor(() => expect(inspector.getByRole('searchbox')).toHaveFocus());
+    await user.click(inspector.getByRole('button', { name: 'Add Definition' }));
+    expect(inspector.queryByRole('searchbox')).not.toBeInTheDocument(); await waitFor(() => expect(inspector.getByLabelText('Product document URL')).toHaveFocus());
+    await user.keyboard('{Escape}');
+    await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
+    await user.click(inspector.getByRole('button', { name: 'Edit title, Orbit' }));
+    expect(inspector.queryByRole('searchbox')).not.toBeInTheDocument(); expect(inspector.getByRole('textbox', { name: 'Edit title, Orbit' })).toHaveFocus();
+  });
+  it('browses a matching kind and restores query results without creation controls', async () => {
+    const user = userEvent.setup(); const inspector = renderProductInspector(fixture());
+    await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
+    const editor = within(inspector.getByRole('region', { name: 'Client intent' }));
+    await user.type(editor.getByRole('searchbox'), 'emotional'); await user.click(editor.getByRole('button', { name: 'Browse Emotional Job' }));
+    expect(editor.getByRole('checkbox', { name: 'Feel calm' })).toBeInTheDocument(); expect(editor.queryByRole('checkbox', { name: 'Make progress' })).not.toBeInTheDocument();
+    await user.click(editor.getByRole('button', { name: 'Back to results for “emotional”' })); expect(editor.getByRole('searchbox')).toHaveValue('emotional');
+    expect(editor.queryByRole('button', { name: /Create|Add Client|Add Desired/ })).not.toBeInTheDocument();
+  });
+  it('isolates Product disclosure and keeps navigation/history separate from read controls', async () => {
+    const user = userEvent.setup(); const d = fixture();
+    d.entities.push({ id: 'other-product', kind: 'product', title: 'Other Product' }); d.placements.push({ viewId: 'spike-view', entityId: 'other-product', x: 1200, y: 0 });
+    for (const productId of ['product', 'other-product']) d.productJobIntents.push({ id: `intent-${productId}`, productId, jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
+    const inspector = renderProductInspector(d); const before = structuredClone(window.__VEE_DEV__!.dump());
+    const panel = inspector.getByRole('button', { name: 'Core Functional Job, 1' });
+    const original = panel.getAttribute('aria-expanded'); await user.click(panel);
+    expect(window.__VEE_DEV__!.dump()).toEqual(before); expect(inspector.getByRole('button', { name: 'Inspector Back' })).toBeDisabled();
+    fireEvent.click(globalThis.document.querySelector<HTMLElement>('[data-node-id="other-product"]')!);
+    expect(inspector.getByRole('button', { name: 'Core Functional Job, 1' })).toHaveAttribute('aria-expanded', original);
+    fireEvent.click(globalThis.document.querySelector<HTMLElement>('[data-node-id="product"]')!);
+    expect(inspector.getByRole('button', { name: 'Core Functional Job, 1' })).toHaveAttribute('aria-expanded', original === 'true' ? 'false' : 'true');
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+  });
+  it('cannot bypass invalid External copy completion when opening Client intent', async () => {
+    const user = userEvent.setup(); const d = fixture();
+    Object.assign(d.entities.find(entity => entity.id === 'product')!, { definitionText: 'Description', currentDefinitionSource: 'free_form' });
+    const inspector = renderProductInspector(d);
+    await user.click(inspector.getByRole('button', { name: 'Add link' }));
+    await user.type(inspector.getByLabelText('External copy URL for Free-form Definition'), 'invalid');
+    await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
+    expect(inspector.queryByRole('searchbox')).not.toBeInTheDocument(); expect(inspector.getByRole('alert')).toBeInTheDocument();
+    await user.click(inspector.getByLabelText('External copy URL for Free-form Definition')); await user.keyboard('{Escape}');
+    await user.click(inspector.getByRole('button', { name: 'Edit Client intent' })); await waitFor(() => expect(inspector.getByRole('searchbox')).toHaveFocus());
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === 'product')).not.toHaveProperty('freeFormExternalCopyUrl');
+  });
+  it('reviews exact removal impact including mitigation; Cancel/Escape preserve document and Confirm commits once', async () => {
+    const user = userEvent.setup(); const d = fixture();
+    d.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
+    d.offerJobSelections.push({ id: 'offer-selection', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] });
+    d.touchpointJobSelections.push({ id: 'touch-selection', touchpointId: 'touch', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] });
+    d.entities.push({ id: 'rep', kind: 'repulsor', title: 'Friction' });
+    d.relationships.push({ id: 'resists', kind: 'repulsor_resists', repulsorId: 'rep', targetEntityId: 'job' }, { id: 'mitigates', kind: 'touchpoint_mitigates_repulsor', touchpointId: 'touch', repulsorId: 'rep' });
+    const inspector = renderProductInspector(d); await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
+    const editor = within(inspector.getByRole('region', { name: 'Client intent' }));
+    const before = structuredClone(window.__VEE_DEV__!.dump()); const checkbox = editor.getByRole('checkbox', { name: 'Make progress' });
+    await user.click(checkbox); let dialog = within(screen.getByRole('dialog'));
+    expect(dialog.getByText(/loses mitigation intent for Friction/)).toBeInTheDocument(); expect(dialog.queryByText('offer-selection')).not.toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    await user.tab(); expect(dialog.getByRole('button', { name: 'Confirm removal' })).toHaveFocus();
+    await user.tab(); expect(dialog.getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    await user.tab({ shift: true }); expect(dialog.getByRole('button', { name: 'Confirm removal' })).toHaveFocus();
+    fireEvent.click(globalThis.document.querySelector<HTMLElement>('[data-node-id="offer-a"]')!);
+    expect(inspector.getByRole('heading', { name: 'Orbit' })).toBeInTheDocument();
+    fireEvent.click(editor.getByRole('button', { name: 'Close Client intent editor' }));
+    expect(editor.getByRole('searchbox')).toBeInTheDocument();
+    await user.click(dialog.getByRole('button', { name: 'Cancel' })); await waitFor(() => expect(checkbox).toHaveFocus());
+    await user.click(checkbox); await waitFor(() => expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' })).toHaveFocus()); await user.keyboard('{Escape}'); await waitFor(() => expect(checkbox).toHaveFocus());
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    await user.click(checkbox); dialog = within(screen.getByRole('dialog'));
+    const command = vi.spyOn(domain, 'applyProductClientIntentCommand');
+    command.mockImplementationOnce(() => { throw new Error('Confirmation failed'); });
+    await user.click(dialog.getByRole('button', { name: 'Confirm removal' }));
+    expect(dialog.getByRole('alert')).toHaveTextContent('Confirmation failed'); expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    command.mockClear();
+    try { await user.click(dialog.getByRole('button', { name: 'Confirm removal' })); expect(command).toHaveBeenCalledTimes(1); expect(command).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ productId: 'product', confirmedImpact: true })); } finally { command.mockRestore(); }
+    await waitFor(() => expect(checkbox).toHaveFocus());
+    expect(window.__VEE_DEV__!.dump().productJobIntents).toEqual([]); expect(window.__VEE_DEV__!.dump().relationships.map(r => r.id)).not.toContain('mitigates');
+    expect(inspector.getByRole('region', { name: 'Client intent' })).toBeInTheDocument();
   });
 });
