@@ -175,7 +175,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .semantic-neighborhood-content, .semantic-neighborhood-neighbor-block, .semantic-neighborhood-job-outcome-branch, .semantic-neighborhood-comparison-category { display: grid; min-width: 0; }
 .semantic-neighborhood-content { align-content: start; gap: .6rem; }
 .semantic-neighborhood-basis { display: grid; justify-items: start; gap: .15rem; min-width: 0; }
-.semantic-neighborhood-basis > span, .semantic-neighborhood-category-label { color: rgba(255,255,255,.58); font-size: .68rem; line-height: 1.25; }
+.semantic-neighborhood-basis > span, .semantic-neighborhood-category-label { min-width: 0; overflow-wrap: anywhere; color: rgba(255,255,255,.58); font-size: .68rem; line-height: 1.25; }
 .semantic-neighborhood-basis button, .semantic-neighborhood-neighbor button, .semantic-neighborhood-comparison-category button, .semantic-neighborhood-provenance button { max-width: 100%; padding: .15rem 0; border: 0; background: transparent; color: var(--color-accent); text-align: left; text-decoration: underline; text-underline-offset: .18em; overflow-wrap: anywhere; }
 .semantic-neighborhood-basis button:focus-visible, .semantic-neighborhood-neighbor button:focus-visible, .semantic-neighborhood-comparison-category button:focus-visible, .semantic-neighborhood-provenance button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .semantic-neighborhood-explanation { margin: 0; color: rgba(255,255,255,.66); font-size: .7rem; line-height: 1.4; overflow-wrap: anywhere; }
@@ -190,7 +190,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .semantic-neighborhood-empty { color: rgba(255,255,255,.52); font-size: .72rem; font-style: italic; }
 .semantic-neighborhood-neighbors { min-width: 0; }
 .semantic-neighborhood-provenance { display: grid; gap: .15rem; min-width: 0; }
-.semantic-neighborhood-provenance > span { color: rgba(255,255,255,.58); font-size: .68rem; line-height: 1.25; }
+.semantic-neighborhood-provenance > span { min-width: 0; overflow-wrap: anywhere; color: rgba(255,255,255,.58); font-size: .68rem; line-height: 1.25; }
 .semantic-neighborhood-provenance ul { display: flex; flex-wrap: wrap; gap: .15rem .5rem; min-width: 0; margin: 0; padding: 0; list-style: none; }
 .semantic-neighborhood-provenance li, .semantic-neighborhood-outcome { min-width: 0; max-width: 100%; }
 .semantic-neighborhood-outcome { display: grid; justify-items: start; gap: .15rem; }
