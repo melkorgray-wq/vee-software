@@ -1416,3 +1416,71 @@ export function duplicateEntity(document: MapDocument, input: { sourceEntityId: 
   return copy;
 }
 export function movePlacement(document: MapDocument, input: { entityId: string; viewId: string; x: number; y: number }): MapDocument { finite(input.x, input.y); if (!document.entities.some(e => e.id === input.entityId)) throw new DomainError('unknown_entity', 'Entity does not exist.'); if (!document.placements.some(p => p.entityId === input.entityId && p.viewId === input.viewId)) throw new DomainError('unknown_placement', 'Placement does not exist.'); return { ...document, placements: document.placements.map(p => p.entityId === input.entityId && p.viewId === input.viewId ? { ...p, x: input.x, y: input.y } : p) }; }
+
+export type ProductClientIntentCommand =
+  | { kind: 'select-job' | 'remove-job'; jobId: string; newIntentId?: string }
+  | { kind: 'select-desired-outcome' | 'remove-desired-outcome'; jobId: string; desiredOutcomeId: string; newIntentId?: string }
+  | { kind: 'create-job'; creation: PlacementInput & { kind: 'core_functional_job' | 'consumption_chain_job' | 'emotional_job' | 'social_job' }; newIntentId: string }
+  | { kind: 'create-related-job'; creation: PlacementInput & { parentEntityId: string; relationshipId: string }; newIntentId: string }
+  | { kind: 'create-desired-outcome'; creation: PlacementInput & { parentEntityId: string; relationshipId: string }; newIntentId?: string };
+export interface ProductClientIntentCommandImpact extends ProductIntentChangeImpact { mitigationRelationshipIds: string[] }
+export type ProductClientIntentCommandResult =
+  | { status: 'complete'; document: MapDocument }
+  | { status: 'confirmation-required'; productId: string; command: ProductClientIntentCommand; impact: ProductClientIntentCommandImpact };
+
+/** Completes one Product-owned semantic operation. Confirmation replays the operation against fresh committed state. */
+export function applyProductClientIntentCommand(document: MapDocument, input: { productId: string; command: ProductClientIntentCommand; confirmedImpact?: boolean }): ProductClientIntentCommandResult {
+  entityOfKind(document, input.productId, 'product', 'Product');
+  const { command } = input;
+  const owned = document.productJobIntents.filter(intent => intent.productId === input.productId);
+  const jobs = new Set<string>();
+  for (const intent of owned) {
+    if (jobs.has(intent.jobId) || document.productJobIntents.filter(record => record.id === intent.id).length !== 1) {
+      throw new DomainError('ambiguous_product_job_intent', 'Product intent mutation requires unambiguous Job membership and record IDs.');
+    }
+    jobs.add(intent.jobId);
+  }
+  const findIntent = (jobId: string) => owned.find(intent => intent.jobId === jobId);
+  const assertJob = (jobId: string) => {
+    validateProductJobIntent(document, { productId: input.productId, jobId, addressedDesiredOutcomeIds: [] }, findIntent(jobId)?.id);
+    const intent = findIntent(jobId);
+    if (intent) validateProductJobIntent(document, intent, intent.id);
+  };
+  const select = (source: MapDocument, jobId: string, outcomeId: string | undefined, newIntentId: string | undefined): MapDocument => {
+    const intent = findIntent(jobId);
+    if (intent) {
+      if (outcomeId === undefined || intent.addressedDesiredOutcomeIds.includes(outcomeId)) return source;
+      return updateProductJobIntent(source, { ...intent, addressedDesiredOutcomeIds: [...intent.addressedDesiredOutcomeIds, outcomeId] });
+    }
+    if (!newIntentId?.trim()) throw new DomainError('missing_product_job_intent_id', 'New Product Job membership requires a stable ID.');
+    return addProductJobIntent(source, { id: newIntentId, productId: input.productId, jobId, addressedDesiredOutcomeIds: outcomeId === undefined ? [] : [outcomeId] });
+  };
+  if (command.kind === 'create-job' || command.kind === 'create-related-job' || command.kind === 'create-desired-outcome') {
+    if (!command.creation.entityId.trim()) throw new DomainError('invalid_product_intent_entity_id', 'Creation requires a stable entity ID.');
+    if (command.kind === 'create-job' && !(['core_functional_job', 'consumption_chain_job', 'emotional_job', 'social_job'] as readonly string[]).includes(command.creation.kind)) throw new DomainError('invalid_product_job_kind', 'This operation creates only ordinary eligible Product Jobs.');
+    if (command.kind !== 'create-desired-outcome' && findIntent(command.creation.entityId)) throw new DomainError('invalid_product_job_reference', 'Creation cannot repair an existing stale Product Job membership.');
+    if (command.kind === 'create-desired-outcome') assertJob(command.creation.parentEntityId);
+    if (command.kind !== 'create-job') {
+      if (!command.creation.relationshipId.trim() || document.relationships.some(relation => relation.id === command.creation.relationshipId)) throw new DomainError('invalid_product_intent_relationship_id', 'Creation requires a fresh canonical relationship ID.');
+    }
+    const creation = command.kind === 'create-job' ? command.creation : { ...command.creation, kind: command.kind === 'create-related-job' ? 'related_job' as const : 'desired_outcome' as const };
+    const candidate = addEntity(document, creation);
+    return { status: 'complete', document: select(candidate, command.kind === 'create-desired-outcome' ? command.creation.parentEntityId : command.creation.entityId, command.kind === 'create-desired-outcome' ? command.creation.entityId : undefined, command.newIntentId) };
+  }
+  assertJob(command.jobId);
+  if (command.kind === 'select-desired-outcome' || command.kind === 'remove-desired-outcome') {
+    validateProductJobIntent(document, { productId: input.productId, jobId: command.jobId, addressedDesiredOutcomeIds: [command.desiredOutcomeId] }, findIntent(command.jobId)?.id);
+  }
+  if (command.kind === 'select-job' || command.kind === 'select-desired-outcome') {
+    return { status: 'complete', document: select(document, command.jobId, command.kind === 'select-desired-outcome' ? command.desiredOutcomeId : undefined, command.newIntentId) };
+  }
+  const intent = findIntent(command.jobId);
+  if (!intent || (command.kind === 'remove-desired-outcome' && !intent.addressedDesiredOutcomeIds.includes(command.desiredOutcomeId))) return { status: 'complete', document };
+  const candidate = command.kind === 'remove-job' ? removeProductJobIntent(document, intent.id) : updateProductJobIntent(document, { ...intent, addressedDesiredOutcomeIds: intent.addressedDesiredOutcomeIds.filter(id => id !== ('desiredOutcomeId' in command ? command.desiredOutcomeId : undefined)) });
+  const impact: ProductClientIntentCommandImpact = {
+    ...getProductIntentChangeImpact(document, { productId: input.productId, intents: candidate.productJobIntents.filter(record => record.productId === input.productId).map(record => ({ jobId: record.jobId, addressedDesiredOutcomeIds: record.addressedDesiredOutcomeIds })) }),
+    mitigationRelationshipIds: document.relationships.filter(relation => relation.kind === 'touchpoint_mitigates_repulsor' && !candidate.relationships.some(retained => retained.id === relation.id)).map(relation => relation.id),
+  };
+  if (Object.values(impact).some(items => items.length > 0) && !input.confirmedImpact) return { status: 'confirmation-required', productId: input.productId, command, impact };
+  return { status: 'complete', document: candidate };
+}

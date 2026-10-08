@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { applyProductClientIntentCommand, type MapDocument, type ProductClientIntentCommand } from './index';
 import { addProductDefinitionBlock, productDefinitionSourceState, productDefinitionWholeText, removeProductDefinitionBlock, reorderProductDefinitionBlocks, setProductCurrentDefinitionSource, setProductDefinitionExternalCopyUrl, updateProductDefinition, updateProductDefinitionBlock } from './index';
 import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addOfferContentBlock, addProductJobIntent, removeOfferContentBlock, removeProductJobIntent, reorderOfferContentBlocks, setOfferContentExternalCopyUrl, setOfferCurrentContentSource, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateOfferContentBlock, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, changeOfferProduct, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, movePlacement, offerContentSourceState, offerContentWholeText, updateEntity, updateOfferContent, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct, planTouchpointIntentPathChange, commitTouchpointIntentPathPlan, commitTouchpointParent, planTouchpointStructuralChange } from './index';
 
@@ -1652,5 +1653,116 @@ describe('Touchpoint structural subtree planning', () => {
     expect(before).toEqual(snapshot);
     expect(before.relationships.flatMap(relation => relation.kind === 'touchpoint_contains_touchpoint' && ['moved', 'sibling'].includes(relation.childTouchpointId) ? [relation.parentTouchpointId] : [])).toEqual(['old-parent', 'old-parent']);
     expect(before.offerFinancialIntents.some(intent => intent.offerId === 'orphan-offer')).toBe(false);
+  });
+});
+
+describe('canonical Product Client intent commands', () => {
+  function fixture(downstream = false) {
+    let d = offerDocument();
+    d = addEntity(d, { ...place, entityId: 'job', title: 'Job', kind: 'core_functional_job' });
+    for (const id of ['a', 'b']) d = addEntity(d, { ...place, entityId: id, title: id, kind: 'desired_outcome', parentEntityId: 'job', relationshipId: `owns-${id}` });
+    if (downstream) {
+      d = addProductJobIntent(d, { id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['a', 'b'] });
+      d = setOfferJobSelections(d, { offerId: 'offer', selections: [{ productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['a', 'b'] }], newSelectionIds: ['offer-selection'] });
+      d = touchpoint(d);
+      d = setTouchpointIntentSelections(d, { touchpointId: 'touch', selections: [{ id: 'touch-selection', kind: 'job', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['a', 'b'] }] });
+      d = addEntity(d, { ...place, entityId: 'rep', title: 'Friction', kind: 'repulsor', resistedTargetIds: ['job'], relationshipIds: ['resists'] });
+      d = setTouchpointMitigations(d, { touchpointId: 'touch', repulsorIds: ['rep'], newRelationshipIds: ['mitigates'] });
+    }
+    return d;
+  }
+  const run = (d: MapDocument, command: ProductClientIntentCommand, confirmedImpact = false) => applyProductClientIntentCommand(d, { productId: 'product', command, confirmedImpact });
+  function done(d: MapDocument, command: ProductClientIntentCommand, confirmedImpact = false) { const r = run(d, command, confirmedImpact); if (r.status !== 'complete') throw new Error('Expected completion'); return r.document; }
+  function freeze(v: unknown) { if (v && typeof v === 'object') { Object.values(v).forEach(freeze); Object.freeze(v); } }
+  it('selects existing Job/DO, creates missing membership once and normalizes no-ops', () => {
+    const original = fixture();
+    let d = done(original, { kind: 'select-job', jobId: 'job', newIntentId: 'intent' });
+    expect(d.productJobIntents).toEqual([{ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: [] }]);
+    expect(done(d, { kind: 'select-job', jobId: 'job' })).toBe(d);
+    d = done(d, { kind: 'select-desired-outcome', jobId: 'job', desiredOutcomeId: 'a' });
+    expect(done(d, { kind: 'select-desired-outcome', jobId: 'job', desiredOutcomeId: 'a' })).toBe(d);
+    expect(done(original, { kind: 'select-desired-outcome', jobId: 'job', desiredOutcomeId: 'a', newIntentId: 'fresh' }).productJobIntents[0]).toMatchObject({ id: 'fresh', addressedDesiredOutcomeIds: ['a'] });
+    expect(d.offerJobSelections).toEqual(original.offerJobSelections);
+  });
+  it('removes last DO without removing membership and completes no-impact removals', () => {
+    const original = fixture();
+    expect(done(original, { kind: 'remove-job', jobId: 'job' })).toBe(original);
+    let d = done(original, { kind: 'select-desired-outcome', jobId: 'job', desiredOutcomeId: 'a', newIntentId: 'intent' });
+    expect(done(d, { kind: 'remove-desired-outcome', jobId: 'job', desiredOutcomeId: 'b' })).toBe(d);
+    d = done(d, { kind: 'remove-desired-outcome', jobId: 'job', desiredOutcomeId: 'a' });
+    expect(d.productJobIntents[0]!.addressedDesiredOutcomeIds).toEqual([]);
+    expect(done(d, { kind: 'remove-job', jobId: 'job' }).productJobIntents).toEqual([]);
+  });
+  it.each(['remove-job', 'remove-desired-outcome'] as const)('plans exact %s impact without mutation and confirms atomic pruning', kind => {
+    const d = fixture(true); const before = structuredClone(d); freeze(d);
+    const command: ProductClientIntentCommand = kind === 'remove-job' ? { kind, jobId: 'job' } : { kind, jobId: 'job', desiredOutcomeId: 'b' };
+    const r = run(d, command); expect(r.status).toBe('confirmation-required'); expect(d).toEqual(before);
+    if (r.status !== 'confirmation-required') throw new Error('Expected review');
+    expect(r).not.toHaveProperty('document');
+    expect(r.impact).toEqual(kind === 'remove-job' ? { offerJobSelectionIds: ['offer-selection'], touchpointJobSelectionIds: ['touch-selection'], narrowedOfferSelections: [], narrowedTouchpointSelections: [], mitigationRelationshipIds: ['mitigates'] } : { offerJobSelectionIds: [], touchpointJobSelectionIds: [], narrowedOfferSelections: [{ offerJobSelectionId: 'offer-selection', removedDesiredOutcomeIds: ['b'] }], narrowedTouchpointSelections: [{ touchpointJobSelectionId: 'touch-selection', removedDesiredOutcomeIds: ['b'] }], mitigationRelationshipIds: [] });
+    const next = done(d, command, true);
+    expect(next.entities).toEqual(d.entities); expect(next.placements).toEqual(d.placements);
+    expect(next.offerFinancialIntents).toEqual(d.offerFinancialIntents); expect(next.epistemicAnnotations).toEqual(d.epistemicAnnotations);
+    if (kind === 'remove-job') { expect(next.offerJobSelections).toEqual([]); expect(next.touchpointJobSelections).toEqual([]); expect(next.relationships.map(r => r.id)).not.toContain('mitigates'); }
+    else { expect(next.offerJobSelections[0]!.addressedDesiredOutcomeIds).toEqual(['a']); expect(next.touchpointJobSelections[0]!.addressedDesiredOutcomeIds).toEqual(['a']); }
+  });
+  it('replays confirmed operation against fresh state without replacing sibling scope', () => {
+    const d = fixture(true); const command = { kind: 'remove-desired-outcome', jobId: 'job', desiredOutcomeId: 'b' } as const;
+    expect(run(d, command).status).toBe('confirmation-required');
+    const fresh = addProductJobIntent(addEntity(d, { ...place, entityId: 'social', title: 'Social', kind: 'social_job' }), { id: 'sibling', productId: 'product', jobId: 'social', addressedDesiredOutcomeIds: [] });
+    expect(done(fresh, command, true).productJobIntents.find(i => i.id === 'sibling')).toEqual(fresh.productJobIntents.find(i => i.id === 'sibling'));
+  });
+  it.each(['core_functional_job', 'consumption_chain_job', 'emotional_job', 'social_job'] as const)('atomically creates %s and membership', kind => {
+    const d = fixture(); const next = done(d, { kind: 'create-job', creation: { ...place, kind, entityId: 'new-job', title: '  New Job  ' }, newIntentId: 'new-intent' });
+    expect(next.entities.find(e => e.id === 'new-job')).toMatchObject({ kind, title: 'New Job' });
+    expect(next.productJobIntents).toEqual([{ id: 'new-intent', productId: 'product', jobId: 'new-job', addressedDesiredOutcomeIds: [] }]);
+    expect(next.placements).toHaveLength(d.placements.length + 1);
+  });
+  it('creates contextual RJ without Product intent to CFJ', () => {
+    const next = done(fixture(), { kind: 'create-related-job', creation: { ...place, entityId: 'rj', title: 'Related', parentEntityId: 'job', relationshipId: 'context' }, newIntentId: 'rj-intent' });
+    expect(next.productJobIntents.map(i => i.jobId)).toEqual(['rj']);
+    expect(next.relationships).toContainEqual({ id: 'context', kind: 'core_functional_job_has_related_job', coreFunctionalJobId: 'job', relatedJobId: 'rj' });
+  });
+  it.each([false, true])('creates DO, owner relationship and extends/creates Product membership (existing: %s)', existing => {
+    let d = fixture(); if (existing) d = done(d, { kind: 'select-desired-outcome', jobId: 'job', desiredOutcomeId: 'a', newIntentId: 'intent' });
+    const next = done(d, { kind: 'create-desired-outcome', creation: { ...place, entityId: 'new-do', title: 'New DO', parentEntityId: 'job', relationshipId: 'owns-new' }, newIntentId: 'intent' });
+    expect(next.productJobIntents[0]!.addressedDesiredOutcomeIds).toEqual(existing ? ['a', 'new-do'] : ['new-do']);
+    expect(next.relationships).toContainEqual({ id: 'owns-new', kind: 'job_has_desired_outcome', jobId: 'job', desiredOutcomeId: 'new-do' });
+    expect(next.offerJobSelections).toEqual(d.offerJobSelections);
+  });
+  it('rejects stale/wrong endpoints, contexts, ownership and missing stable IDs without mutation', () => {
+    const d = fixture(); const before = structuredClone(d); freeze(d);
+    const commands: ProductClientIntentCommand[] = [
+      { kind: 'select-job', jobId: 'missing' }, { kind: 'select-job', jobId: 'a' }, { kind: 'select-job', jobId: 'job' },
+      { kind: 'select-desired-outcome', jobId: 'job', desiredOutcomeId: 'missing' }, { kind: 'select-desired-outcome', jobId: 'job', desiredOutcomeId: 'offer' },
+      { kind: 'create-related-job', creation: { ...place, entityId: 'rj', title: 'RJ', parentEntityId: 'a', relationshipId: 'context' }, newIntentId: 'rj-intent' },
+      { kind: 'create-desired-outcome', creation: { ...place, entityId: 'new-do', title: 'DO', parentEntityId: 'offer', relationshipId: 'new-owns' } },
+    ];
+    commands.forEach(c => expect(() => run(d, c)).toThrow()); expect(d).toEqual(before);
+  });
+  it('rejects duplicate memberships and duplicate record IDs instead of guessing', () => {
+    const base = done(fixture(), { kind: 'select-job', jobId: 'job', newIntentId: 'intent' });
+    for (const record of [{ ...base.productJobIntents[0]!, id: 'duplicate' }, { ...base.productJobIntents[0]!, productId: 'other' }]) {
+      const d = { ...base, productJobIntents: [...base.productJobIntents, record] };
+      expect(() => run(d, { kind: 'remove-job', jobId: 'job' })).toThrow(/unambiguous/);
+    }
+  });
+  it('rejects creation that would silently repair stale Product membership', () => {
+    const d = fixture(); d.productJobIntents.push({ id: 'stale', productId: 'product', jobId: 'new-job', addressedDesiredOutcomeIds: [] });
+    const before = structuredClone(d); freeze(d);
+    expect(() => run(d, { kind: 'create-job', creation: { ...place, entityId: 'new-job', title: 'New', kind: 'social_job' }, newIntentId: 'fresh' })).toThrow(/cannot repair/);
+    expect(d).toEqual(before);
+  });
+  it('leaves no partial creation after entity/relationship/intent collisions and later validation failure', () => {
+    const d = done(fixture(), { kind: 'select-job', jobId: 'job', newIntentId: 'intent' }); const before = structuredClone(d); freeze(d);
+    const commands: ProductClientIntentCommand[] = [
+      { kind: 'create-job', creation: { ...place, entityId: 'job', title: 'Duplicate', kind: 'social_job' }, newIntentId: 'new-intent' },
+      { kind: 'create-job', creation: { ...place, entityId: 'new', title: 'New', kind: 'social_job' }, newIntentId: 'intent' },
+      { kind: 'create-job', creation: { ...place, entityId: 'new', title: ' ', kind: 'social_job' }, newIntentId: 'new-intent' },
+      { kind: 'create-desired-outcome', creation: { ...place, entityId: 'new', title: 'New', parentEntityId: 'job', relationshipId: 'owns-a' } },
+    ];
+    commands.forEach(c => expect(() => run(d, c)).toThrow()); expect(d).toEqual(before);
+    const absent = fixture(); expect(() => run(absent, { kind: 'create-desired-outcome', creation: { ...place, entityId: 'new', title: 'New', parentEntityId: 'job', relationshipId: 'owns-new' } })).toThrow(/stable ID/);
+    expect(absent.entities.some(e => e.id === 'new')).toBe(false);
   });
 });
