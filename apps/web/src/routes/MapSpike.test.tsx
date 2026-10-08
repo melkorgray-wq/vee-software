@@ -5,6 +5,8 @@ import { StrictMode, useEffect, useState, type MouseEvent, type ReactNode } from
 import { isRenderedTitleTruncated, MapNode, MapSpike, RELATION_EDITOR_SEARCH_THRESHOLD } from './MapSpike';
 import { applyTouchpointIntentDraft, type Entity, type MapDocument } from '@vee/domain';
 import * as domain from '@vee/domain';
+import * as mapPlacement from '../map-placement';
+import * as productIntentProjection from '../product-client-intent';
 import { parentTouchpointOptions } from '../map-interaction';
 
 // Checkpoint 3 has no rendered Product intent draft controls. Inject only an
@@ -8135,14 +8137,15 @@ describe('Product Client intent integration', () => {
     await user.click(inspector.getByRole('button', { name: 'Edit title, Orbit' }));
     expect(inspector.queryByRole('searchbox')).not.toBeInTheDocument(); expect(inspector.getByRole('textbox', { name: 'Edit title, Orbit' })).toHaveFocus();
   });
-  it('browses a matching kind and restores query results without creation controls', async () => {
+  it('browses a matching kind and restores query results without generic Add controls', async () => {
     const user = userEvent.setup(); const inspector = renderProductInspector(fixture());
     await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
     const editor = within(inspector.getByRole('region', { name: 'Client intent' }));
     await user.type(editor.getByRole('searchbox'), 'emotional'); await user.click(editor.getByRole('button', { name: 'Browse Emotional Job' }));
     expect(editor.getByRole('checkbox', { name: 'Feel calm' })).toBeInTheDocument(); expect(editor.queryByRole('checkbox', { name: 'Make progress' })).not.toBeInTheDocument();
     await user.click(editor.getByRole('button', { name: 'Back to results for “emotional”' })); expect(editor.getByRole('searchbox')).toHaveValue('emotional');
-    expect(editor.queryByRole('button', { name: /Create|Add Client|Add Desired/ })).not.toBeInTheDocument();
+    expect(editor.queryByRole('button', { name: /Add Client|Add Desired/ })).not.toBeInTheDocument();
+    expect(editor.getByRole('button', { name: 'Create "emotional" as…' })).toBeInTheDocument();
   });
   it('isolates Product disclosure and keeps navigation/history separate from read controls', async () => {
     const user = userEvent.setup(); const d = fixture();
@@ -8203,5 +8206,154 @@ describe('Product Client intent integration', () => {
     await waitFor(() => expect(checkbox).toHaveFocus());
     expect(window.__VEE_DEV__!.dump().productJobIntents).toEqual([]); expect(window.__VEE_DEV__!.dump().relationships.map(r => r.id)).not.toContain('mitigates');
     expect(inspector.getByRole('region', { name: 'Client intent' })).toBeInTheDocument();
+  });
+});
+
+describe('Product Client intent create continuation', () => {
+  function fixture(count = 1) {
+    const d = touchpointInspectorDocument();
+    if (!count) { d.entities = d.entities.filter(entity => entity.id !== 'job' && !['do-a', 'do-b'].includes(entity.id)); d.relationships = d.relationships.filter(relation => relation.kind !== 'job_has_desired_outcome'); d.placements = d.placements.filter(place => d.entities.some(entity => entity.id === place.entityId)); }
+    if (count > 1) { d.entities.push({ id: 'job-b', kind: 'core_functional_job', title: 'Second context' }); d.placements.push({ viewId: 'spike-view', entityId: 'job-b', x: 1100, y: 240 }); }
+    return d;
+  }
+  const dump = () => window.__VEE_DEV__!.dump();
+  async function open(user: ReturnType<typeof userEvent.setup>, d = fixture(), query = 'New entity') {
+    const inspector = renderProductInspector(d);
+    await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
+    const intent = within(inspector.getByRole('region', { name: 'Client intent' }));
+    await waitFor(() => expect(intent.getByRole('searchbox')).toHaveFocus());
+    if (query) await user.type(intent.getByRole('searchbox'), query);
+    return { inspector, intent };
+  }
+  async function start(user: ReturnType<typeof userEvent.setup>, intent: ReturnType<typeof within>) {
+    await user.click(intent.getByRole('button', { name: /^Create "/ }));
+    return within(intent.getByRole('region', { name: 'Create Client intent' }));
+  }
+  it('offers continuation after existing results, excludes blank/FDO/generic Add, and never submits Search', async () => {
+    const user = userEvent.setup(); const { inspector, intent } = await open(user, fixture(), '');
+    const before = structuredClone(dump());
+    await user.type(intent.getByRole('searchbox'), '  {Enter}');
+    expect(intent.queryByRole('button', { name: /^Create "/ })).not.toBeInTheDocument(); expect(dump()).toEqual(before);
+    await user.clear(intent.getByRole('searchbox')); await user.type(intent.getByRole('searchbox'), 'Make progress');
+    const candidate = intent.getByRole('checkbox', { name: 'Make progress' }); const continuation = intent.getByRole('button', { name: 'Create "Make progress" as…' });
+    expect(candidate.compareDocumentPosition(continuation) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await user.click(candidate); expect(dump().productJobIntents).toHaveLength(1);
+    const step = await start(user, intent);
+    expect(step.queryByRole('button', { name: 'Financial Desired Outcome' })).not.toBeInTheDocument(); expect(intent.queryByText('+ Add Client Job')).not.toBeInTheDocument(); expect(intent.queryByText('+ Add Desired Outcome')).not.toBeInTheDocument();
+    await user.click(step.getByRole('button', { name: 'Back' })); expect(intent.getByRole('button', { name: 'Create "Make progress" as…' })).toHaveFocus();
+    expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+  });
+  it.each(['Core Functional Job', 'Consumption Chain Job', 'Emotional Job', 'Social Job'])('creates %s with membership/free placement once and retains Product/search/focus', async label => {
+    const user = userEvent.setup(); const d = fixture(0); const { inspector, intent } = await open(user, d, '  New Job  '); const step = await start(user, intent);
+    const command = vi.spyOn(domain, 'applyProductClientIntentCommand'); const free = vi.spyOn(mapPlacement, 'findFreePlacement');
+    try {
+      await user.click(step.getByRole('button', { name: label }));
+      expect(command).toHaveBeenCalledTimes(1); expect(free).toHaveBeenCalledTimes(1);
+      const entity = dump().entities.find(entity => entity.title === 'New Job')!;
+      expect(dump().productJobIntents).toEqual([{ id: expect.any(String), productId: 'product', jobId: entity.id, addressedDesiredOutcomeIds: [] }]);
+      expect(dump().relationships).toEqual(d.relationships); expect(dump().placements).toHaveLength(d.placements.length + 1);
+      expect(dump().placements.find(place => place.entityId === 'product')).toEqual(d.placements.find(place => place.entityId === 'product'));
+      expect(inspector.getByRole('heading', { name: 'Orbit' })).toBeInTheDocument(); expect(inspector.getByRole('button', { name: 'Inspector Back' })).toBeDisabled();
+      expect(intent.getByRole('searchbox')).toHaveValue('  New Job  '); expect(intent.getByRole('checkbox', { name: 'New Job' })).toBeChecked(); expect(intent.getByRole('checkbox', { name: 'New Job' })).toHaveFocus();
+      expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled(); expect(intent.queryByRole('region', { name: 'Create Client intent' })).not.toBeInTheDocument();
+      await user.click(intent.getByRole('button', { name: 'Close Client intent editor' }));
+      const panel = intent.getByRole('button', { name: `${label}, 1` }); if (panel.getAttribute('aria-expanded') !== 'true') await user.click(panel);
+      expect(intent.getByRole('button', { name: 'New Job' })).toBeInTheDocument();
+    } finally { command.mockRestore(); free.mockRestore(); }
+  });
+  it.each([0, 1, 2])('resolves RJ creation with %s CFJ contexts without selecting its parent', async count => {
+    const user = userEvent.setup(); const { intent } = await open(user, fixture(count)); const step = await start(user, intent); const before = structuredClone(dump());
+    if (!count) { expect(step.queryByRole('button', { name: 'Related Job' })).not.toBeInTheDocument(); return; }
+    const related = vi.spyOn(mapPlacement, 'findRelatedPlacement');
+    try {
+      await user.click(step.getByRole('button', { name: 'Related Job' }));
+      const ownerId = count === 1 ? 'job' : 'job-b';
+      if (count > 1) { expect(dump()).toEqual(before); expect(step.getByRole('group', { name: 'Choose contextual Core Functional Job' })).toBeInTheDocument(); await user.click(step.getByRole('radio', { name: /Second context/ })); }
+      const created = dump().entities.find(entity => entity.title === 'New entity')!;
+      expect(dump().relationships.filter(relation => relation.kind === 'core_functional_job_has_related_job')).toEqual([{ id: expect.any(String), kind: 'core_functional_job_has_related_job', coreFunctionalJobId: ownerId, relatedJobId: created.id }]);
+      expect(dump().productJobIntents.map(intent => intent.jobId)).toEqual([created.id]); expect(related).toHaveBeenCalledWith(expect.anything(), 'spike-view', expect.anything(), [ownerId], [{ sourceId: ownerId, targetId: created.id }]);
+      expect(intent.getByRole('checkbox', { name: 'New entity' })).toHaveFocus();
+    } finally { related.mockRestore(); }
+  });
+  it.each([0, 1, 2])('resolves DO creation with %s owners and creates missing Product membership', async count => {
+    const user = userEvent.setup(); const d = fixture(count); const { intent } = await open(user, d); const step = await start(user, intent); const before = structuredClone(dump());
+    if (!count) { expect(step.queryByRole('button', { name: 'Desired Outcome' })).not.toBeInTheDocument(); return; }
+    const related = vi.spyOn(mapPlacement, 'findRelatedPlacement');
+    try {
+      await user.click(step.getByRole('button', { name: 'Desired Outcome' })); const ownerId = count === 1 ? 'job' : 'job-b';
+      if (count > 1) { expect(dump()).toEqual(before); await user.click(step.getByRole('radio', { name: /Second context/ })); }
+      const created = dump().entities.find(entity => entity.title === 'New entity')!;
+      expect(created.kind).toBe('desired_outcome'); expect(dump().relationships).toContainEqual({ id: expect.any(String), kind: 'job_has_desired_outcome', jobId: ownerId, desiredOutcomeId: created.id });
+      expect(dump().productJobIntents).toEqual([{ id: expect.any(String), productId: 'product', jobId: ownerId, addressedDesiredOutcomeIds: [created.id] }]);
+      expect(related).toHaveBeenCalledWith(expect.anything(), 'spike-view', expect.anything(), [ownerId], [{ sourceId: ownerId, targetId: created.id }]);
+      expect(intent.getByRole('checkbox', { name: 'New entity' })).toBeChecked(); expect(intent.getByRole('checkbox', { name: 'New entity' })).toHaveFocus();
+    } finally { related.mockRestore(); }
+  });
+  it('extends existing membership and clears only an incompatible browse-kind to reveal the created DO', async () => {
+    const user = userEvent.setup(); const d = fixture(); d.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] });
+    const { intent } = await open(user, d, 'core'); await user.click(intent.getByRole('button', { name: 'Browse Core Functional Job' }));
+    const step = await start(user, intent); await user.click(step.getByRole('button', { name: 'Desired Outcome' }));
+    const created = dump().entities.find(entity => entity.title === 'core')!;
+    expect(dump().productJobIntents).toEqual([{ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a', created.id] }]);
+    expect(intent.getByRole('searchbox')).toHaveValue('core'); expect(intent.getByRole('checkbox', { name: 'core' })).toBeChecked(); expect(intent.getByRole('checkbox', { name: 'core' })).toHaveFocus();
+    expect(intent.queryByRole('button', { name: 'Back to results for “core”' })).not.toBeInTheDocument();
+  });
+  it('progresses owner → kind → results → closed with Escape, preserving query and restoring each focus target', async () => {
+    const user = userEvent.setup(); const { inspector, intent } = await open(user, fixture(2)); const step = await start(user, intent); const before = structuredClone(dump());
+    await user.click(step.getByRole('button', { name: 'Related Job' })); expect(step.getAllByRole('radio')[0]).toHaveFocus();
+    await user.keyboard('{Escape}'); expect(step.getByRole('button', { name: 'Related Job' })).toHaveFocus(); expect(dump()).toEqual(before);
+    await user.keyboard('{Escape}'); expect(intent.getByRole('button', { name: 'Create "New entity" as…' })).toHaveFocus(); expect(intent.getByRole('searchbox')).toHaveValue('New entity');
+    await user.keyboard('{Escape}'); await waitFor(() => expect(inspector.getByRole('button', { name: 'Edit Client intent' })).toHaveFocus()); expect(dump()).toEqual(before);
+  });
+  it.each(['Back', 'Cancel', 'Close', 'switch', 'outside', 'query'])('abandons or backs out of unresolved creation via %s without mutation', async action => {
+    const user = userEvent.setup(); const { inspector, intent } = await open(user, fixture(2)); const step = await start(user, intent); await user.click(step.getByRole('button', { name: 'Desired Outcome' })); const before = structuredClone(dump());
+    if (action === 'Back' || action === 'Cancel') await user.click(step.getByRole('button', { name: action }));
+    else if (action === 'Close') await user.click(intent.getByRole('button', { name: 'Close Client intent editor' }));
+    else if (action === 'switch') { const affordance = inspector.getByRole('button', { name: 'Add Definition' }); fireEvent.pointerDown(affordance); expect(inspector.getByRole('region', { name: 'Create Client intent' })).toBeInTheDocument(); await user.click(affordance); }
+    else if (action === 'outside') await user.click(inspector.getByRole('button', { name: 'Edit title, Orbit' }));
+    else await user.type(intent.getByRole('searchbox'), ' edited');
+    expect(dump()).toEqual(before); expect(inspector.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
+    if (action === 'Back') expect(step.getByRole('button', { name: 'Desired Outcome' })).toHaveFocus();
+    if (action === 'Cancel') { expect(intent.queryByRole('region', { name: 'Create Client intent' })).not.toBeInTheDocument(); expect(intent.getByRole('searchbox')).toHaveValue('New entity'); }
+    if (action === 'switch') await waitFor(() => expect(inspector.getByLabelText('Product document URL')).toHaveFocus());
+    if (action === 'outside') expect(inspector.getByRole('textbox', { name: 'Edit title, Orbit' })).toHaveFocus();
+  });
+  it('keeps failed creation recoverable and publishes no partial entities/relations/intents/placements', async () => {
+    const user = userEvent.setup(); const { intent } = await open(user, fixture(2)); const step = await start(user, intent); await user.click(step.getByRole('button', { name: 'Desired Outcome' })); const before = structuredClone(dump());
+    const command = vi.spyOn(domain, 'applyProductClientIntentCommand'); command.mockImplementationOnce(() => { throw new Error('Creation failed'); });
+    try {
+      await user.click(step.getByRole('radio', { name: /Second context/ })); expect(intent.getByRole('alert')).toHaveTextContent('Creation failed'); expect(dump()).toEqual(before); expect(intent.getByRole('searchbox')).toHaveValue('New entity');
+      command.mockClear(); await user.click(step.getByRole('radio', { name: /Second context/ })); expect(command).toHaveBeenCalledTimes(1); expect(intent.getByRole('checkbox', { name: 'New entity' })).toBeChecked();
+    } finally { command.mockRestore(); }
+  });
+  it('rechecks discovery before completion and rejects a stale owner without fallback', async () => {
+    const user = userEvent.setup(); const { intent } = await open(user, fixture(2)); const step = await start(user, intent); await user.click(step.getByRole('button', { name: 'Desired Outcome' }));
+    const before = structuredClone(dump()); const fresh = productIntentProjection.productClientIntentDiscovery(before, 'product', { query: 'New entity' });
+    const choices = fresh.createChoices.map(choice => choice.kind === 'desired_outcome' ? { ...choice, resolution: { status: 'resolved' as const, owner: choice.resolution.status === 'resolved' ? choice.resolution.owner : choice.resolution.candidates.find(owner => owner.id === 'job')! } } : choice);
+    const discovery = vi.spyOn(productIntentProjection, 'productClientIntentDiscovery').mockReturnValueOnce({ ...fresh, createChoices: choices });
+    const command = vi.spyOn(domain, 'applyProductClientIntentCommand');
+    try {
+      await user.click(step.getByRole('radio', { name: /Second context/ }));
+      expect(command).not.toHaveBeenCalled(); expect(dump()).toEqual(before); expect(intent.getByRole('alert')).toHaveTextContent('This context is no longer available');
+      await user.click(step.getByRole('radio', { name: /Second context/ })); expect(command).toHaveBeenCalledTimes(1);
+      const created = dump().entities.find(entity => entity.title === 'New entity')!; expect(dump().productJobIntents[0]).toMatchObject({ jobId: 'job-b', addressedDesiredOutcomeIds: [created.id] });
+    } finally { discovery.mockRestore(); command.mockRestore(); }
+  });
+  it.each(['owner', 'document'])('clears incomplete create state on %s reset', async reset => {
+    const user = userEvent.setup(); const d = fixture(2); const { intent } = await open(user, d); const step = await start(user, intent); await user.click(step.getByRole('button', { name: 'Related Job' }));
+    if (reset === 'document') act(() => window.__VEE_DEV__!.load(structuredClone(d)));
+    else fireEvent.click(globalThis.document.querySelector<HTMLElement>('[data-node-id="offer-a"]')!);
+    fireEvent.click(globalThis.document.querySelector<HTMLElement>('[data-node-id="product"]')!);
+    const inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' })); await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
+    const section = within(inspector.getByRole('region', { name: 'Client intent' })); expect(section.queryByRole('region', { name: 'Create Client intent' })).not.toBeInTheDocument(); expect(section.getByRole('searchbox')).toHaveValue(''); expect(dump().entities).toEqual(d.entities); expect(dump().productJobIntents).toEqual([]);
+  });
+  it.each(['Apply', 'Discard'])('preserves create-and-link through unrelated legacy %s', async action => {
+    const user = userEvent.setup(); const { inspector, intent } = await open(user); stageLegacyProductTitle(); const before = structuredClone(dump());
+    await user.keyboard('{Enter}'); expect(dump()).toEqual(before);
+    const step = await start(user, intent); await user.click(step.getByRole('button', { name: 'Social Job' })); const intentBefore = structuredClone(dump().productJobIntents);
+    await user.click(intent.getByRole('button', { name: 'Close Client intent editor' }));
+    if (action === 'Apply') await user.click(inspector.getByRole('button', { name: 'Apply changes' }));
+    else { fireEvent.click(globalThis.document.querySelector<HTMLElement>('[data-node-id="offer-a"]')!); await user.click(within(screen.getByRole('dialog', { name: 'Unsaved Product changes' })).getByRole('button', { name: 'Discard' })); }
+    expect(dump().productJobIntents).toEqual(intentBefore); expect(dump().entities.some(entity => entity.title === 'New entity')).toBe(true);
   });
 });
