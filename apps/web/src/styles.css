@@ -202,6 +202,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .touchpoint-client-scope { display: grid; gap: .65rem; min-width: 0; margin: .25rem 0 0; padding: 1rem 0 0; border: 0; border-top: 1px solid var(--border-subtle); background: transparent; }
 .touchpoint-client-scope-heading { display: flex; align-items: center; justify-content: flex-start; gap: .3rem; padding-bottom: .35rem; border-bottom: 1px solid var(--border-subtle); }
 .touchpoint-client-scope.is-editing .touchpoint-client-scope-heading { justify-content: space-between; }
+.embedded-editor-heading-actions > strong { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .embedded-editor-heading-actions { display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; width: fit-content; max-width: 100%; min-width: 0; gap: .3rem; }
 .touchpoint-client-scope-heading > h4 { margin: 0; color: rgba(255,255,255,.72); font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; }
 .touchpoint-client-scope-heading > .inspector-secondary-action { flex: 0 0 auto; padding: .1rem .25rem; }
@@ -215,7 +216,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .inspector-property-heading-hint { top: calc(100% + .3rem); left: 0; color: var(--color-foreground); white-space: nowrap; }
 .inspector-property-heading-action:not(:disabled):hover > .inspector-property-heading-hint,
 .inspector-property-heading-action:not(:disabled):focus-visible > .inspector-property-heading-hint { visibility: visible; opacity: 1; }
-.inspector-secondary-action { border: 1px solid var(--border-soft); border-radius: .25rem; background: rgba(255,255,255,.06); color: rgba(255,255,255,.9); font-size: .75rem; line-height: 1.2; }
+.inspector-secondary-action { max-width: 100%; overflow-wrap: anywhere; border: 1px solid var(--border-soft); border-radius: .25rem; background: rgba(255,255,255,.06); color: rgba(255,255,255,.9); font-size: .75rem; line-height: 1.2; }
 .inspector-secondary-action:hover { background: rgba(255,255,255,.12); }
 .inspector-secondary-action:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .touchpoint-client-scope-content { display: grid; gap: .75rem; min-width: 0; }

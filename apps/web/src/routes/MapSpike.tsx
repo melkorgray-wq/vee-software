@@ -20,7 +20,7 @@ import { commitSemanticOperation, semanticCommitState } from './semantic-commit-
 import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets } from '../touchpoint-business-structure';
 import { deriveOfferBusinessStructure, projectConnectedTouchpointCandidates } from '../offer-business-structure';
 import { deriveProductBusinessStructure, projectProductOfferMoveCandidates } from '../product-business-structure';
-import { productClientIntent, productClientIntentDiscovery } from '../product-client-intent';
+import { productClientIntent, productClientIntentDiscovery, type ProductCreateChoice } from '../product-client-intent';
 import { offerClientIntent, offerClientIntentDiscovery, type OfferClientIntentGroup, type OfferClientIntentJobGroup, type OfferIntentDiscoveryJob } from '../offer-client-intent';
 import type { ClientIntentDiscoveryKind } from '../client-intent-discovery';
 import { initialCompactOverviewExpandedGroupIds } from '../compact-overview-presentation';
@@ -307,6 +307,11 @@ function AuthoredReadDocument({ css, viewportId, text, source, read, copyLabel, 
   </>;
 }
 
+type ProductIntentCreateBase = { productId: string; query: string; title: string; returnFocusId: string };
+type ProductIntentCreate = ProductIntentCreateBase & (
+  | { step: 'kind' }
+  | { step: 'owner'; kind: 'related_job' | 'desired_outcome'; kindFocusId: string }
+);
 type ProductOffersEditorState =
   | { productId: string; mode: 'root'; query: string; error?: string }
   | { productId: string; mode: 'create'; title: string; error?: string }
@@ -1009,6 +1014,9 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const productIntentEditorIdRef = useRef(productIntentEditorId);
   productIntentEditorIdRef.current = productIntentEditorId;
   const [productIntentSearch, setProductIntentSearch] = useState<{ query: string; kind?: Exclude<ClientIntentDiscoveryKind, 'financial_desired_outcome'> }>({ query: '' });
+  const [productIntentCreate, setProductIntentCreate] = useState<ProductIntentCreate | null>(null);
+  const productIntentCreateRef = useRef<ProductIntentCreate | null>(null);
+  const productIntentCreateCompletingRef = useRef(false);
   const [productIntentError, setProductIntentError] = useState<string | null>(null);
   const [expandedProductIntentPanels, setExpandedProductIntentPanels] = useState<Record<string, Record<string, boolean>>>({});
   const productIntentEditorRef = useRef<HTMLElement>(null);
@@ -1027,6 +1035,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setExpandedProductIntentPanels({});
     setSelectedId(null);
     selectedRef.current = null;
+    setCurrentProductIntentCreate(null);
+    productIntentCreateCompletingRef.current = false;
     setEditDraft(null);
     setInspectorTitleEdit(null);
     setCurrentProductDefinitionDraft(null);
@@ -3434,6 +3444,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     if (productConfirmation?.mode === 'impact' && productConfirmation.owner === 'product-client-intent') return;
     const ownerId = productIntentEditorIdRef.current;
     if (!ownerId) return;
+    setCurrentProductIntentCreate(null);
     productIntentEditorIdRef.current = null;
     setProductIntentEditorId(null);
     setProductIntentSearch({ query: '' });
@@ -3459,6 +3470,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const dismiss = (event: PointerEvent) => {
       const target = event.target;
       if (productConfirmation || !(target instanceof globalThis.Node) || productIntentEditorRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest('[data-authored-editor-affordance], [data-touchpoint-editor-affordance]')) return;
       closeProductIntentEditor('pointer');
     };
     globalThis.document.addEventListener('pointerdown', dismiss);
@@ -3483,6 +3495,82 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       return false;
     }
   }
+  function setCurrentProductIntentCreate(next: ProductIntentCreate | null) {
+    productIntentCreateRef.current = next;
+    setProductIntentCreate(next);
+  }
+  function productIntentCandidateId(productId: string, jobId: string, outcomeId?: string) {
+    return `product-intent-candidate-${encodeURIComponent(productId)}-${encodeURIComponent(jobId)}${outcomeId ? `-${encodeURIComponent(outcomeId)}` : ''}`;
+  }
+  function productIntentCreateId(productId: string) { return `product-intent-create-${encodeURIComponent(productId)}`; }
+  function productIntentKindId(productId: string, kind: ProductCreateChoice['kind']) { return `${productIntentCreateId(productId)}-kind-${kind}`; }
+  function productIntentOwnerId(productId: string, ownerId: string) { return `${productIntentCreateId(productId)}-owner-${encodeURIComponent(ownerId)}`; }
+  function beginProductIntentCreate(productId: string) {
+    const discovery = productClientIntentDiscovery(documentRef.current, productId, productIntentSearch);
+    if (!discovery.createChoices.length || productIntentEditorIdRef.current !== productId) return;
+    setProductIntentError(null);
+    pendingLocalFocusIdsRef.current = [productIntentKindId(productId, discovery.createChoices[0]!.kind)];
+    setCurrentProductIntentCreate({ step: 'kind', productId, query: productIntentSearch.query, title: discovery.title, returnFocusId: productIntentCreateId(productId) });
+  }
+  function backProductIntentCreate(cancel = false) {
+    const flow = productIntentCreateRef.current;
+    if (!flow) return;
+    setProductIntentError(null);
+    if (flow.step === 'owner' && !cancel) {
+      pendingLocalFocusIdsRef.current = [flow.kindFocusId, `product-intent-search-${encodeURIComponent(flow.productId)}`];
+      setCurrentProductIntentCreate({ step: 'kind', productId: flow.productId, query: flow.query, title: flow.title, returnFocusId: flow.returnFocusId });
+    } else {
+      pendingLocalFocusIdsRef.current = [flow.returnFocusId, `product-intent-search-${encodeURIComponent(flow.productId)}`];
+      setCurrentProductIntentCreate(null);
+    }
+  }
+  function completeProductIntentCreation(kind: ProductCreateChoice['kind'], chosenOwnerId?: string) {
+    const flow = productIntentCreateRef.current;
+    if (!flow || productIntentCreateCompletingRef.current || productIntentEditorIdRef.current !== flow.productId || selectedRef.current !== flow.productId) return;
+    const source = documentRef.current;
+    const fresh = productClientIntentDiscovery(source, flow.productId, { query: flow.query });
+    const choice = fresh.createChoices.find(candidate => candidate.kind === kind);
+    if (!choice || (flow.step === 'owner' && flow.kind !== kind)) {
+      setProductIntentError('This creation choice is no longer available. Return to results and try again.');
+      return;
+    }
+    let owner: Entity | undefined;
+    if ('resolution' in choice) {
+      const owners = choice.resolution.status === 'resolved' ? [choice.resolution.owner] : choice.resolution.candidates;
+      if (chosenOwnerId !== undefined) {
+        owner = owners.find(candidate => candidate.id === chosenOwnerId);
+        if (!owner) { setProductIntentError('This context is no longer available. Choose another context or return to results.'); return; }
+      } else if (choice.resolution.status === 'requires-choice') {
+        setProductIntentError(null);
+        pendingLocalFocusIdsRef.current = [productIntentOwnerId(flow.productId, owners[0]!.id)];
+        setCurrentProductIntentCreate({ ...flow, step: 'owner', kind: choice.kind, kindFocusId: productIntentKindId(flow.productId, choice.kind) });
+        return;
+      } else owner = choice.resolution.owner;
+    }
+    productIntentCreateCompletingRef.current = true;
+    try {
+      const entityId = crypto.randomUUID();
+      const layout = layoutForEntity({ kind, title: flow.title });
+      const placement = owner
+        ? findRelatedPlacement(source, VIEW_ID, layout, [owner.id], [{ sourceId: owner.id, targetId: entityId }])
+        : findFreePlacement(source, VIEW_ID, layout);
+      const creation = { entityId, title: flow.title, viewId: VIEW_ID, ...placement };
+      const command: ProductClientIntentCommand = kind === 'related_job'
+        ? { kind: 'create-related-job', creation: { ...creation, parentEntityId: owner!.id, relationshipId: crypto.randomUUID() }, newIntentId: crypto.randomUUID() }
+        : kind === 'desired_outcome'
+          ? { kind: 'create-desired-outcome', creation: { ...creation, parentEntityId: owner!.id, relationshipId: crypto.randomUUID() }, ...(!source.productJobIntents.some(intent => intent.productId === flow.productId && intent.jobId === owner!.id) ? { newIntentId: crypto.randomUUID() } : {}) }
+          : { kind: 'create-job', creation: { ...creation, kind }, newIntentId: crypto.randomUUID() };
+      const focusId = kind === 'desired_outcome' ? productIntentCandidateId(flow.productId, owner!.id, entityId) : productIntentCandidateId(flow.productId, entityId);
+      if (!requestProductIntentCommit(flow.productId, command, focusId)) return;
+      const refreshed = productClientIntentDiscovery(documentRef.current, flow.productId, productIntentSearch);
+      const visible = refreshed.jobGroups.some(group => kind === 'desired_outcome' ? group.desiredOutcomes?.some(outcome => outcome.id === entityId) : group.showJobCandidate && group.job.id === entityId);
+      if (!visible) setProductIntentSearch({ query: flow.query });
+      pendingLocalFocusIdsRef.current = [focusId, `product-intent-search-${encodeURIComponent(flow.productId)}`];
+      setCurrentProductIntentCreate(null);
+    } catch (error) {
+      setProductIntentError(error instanceof Error ? error.message : 'Product intent could not be created.');
+    } finally { productIntentCreateCompletingRef.current = false; }
+  }
   function productClientIntentSection() {
     if (selected?.kind !== 'product') return null;
     const productId = selected.id;
@@ -3496,10 +3584,16 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const expanded = (panel: typeof panels[number]) => stored?.[panel.group.kind] ?? (stored ? false : initial.has(panel.id));
     const ordered = [...panels].sort((a, b) => Number(expanded(b)) - Number(expanded(a)));
     const discovery = editing ? productClientIntentDiscovery(document, productId, productIntentSearch) : undefined;
-    const candidateId = (jobId: string, outcomeId?: string) => `product-intent-candidate-${encodeURIComponent(productId)}-${encodeURIComponent(jobId)}${outcomeId ? `-${encodeURIComponent(outcomeId)}` : ''}`;
+    const candidateId = (jobId: string, outcomeId?: string) => productIntentCandidateId(productId, jobId, outcomeId);
+    const create = productIntentCreate?.productId === productId ? productIntentCreate : null;
+    const createDiscovery = create ? productClientIntentDiscovery(document, productId, { query: create.query }) : undefined;
+    const ownerChoice = create?.step === 'owner' ? createDiscovery?.createChoices.find(choice => choice.kind === create.kind) : undefined;
+    const owners = ownerChoice && 'resolution' in ownerChoice ? ownerChoice.resolution.status === 'resolved' ? [ownerChoice.resolution.owner] : ownerChoice.resolution.candidates : [];
     return <section ref={editing ? productIntentEditorRef : undefined} className={`touchpoint-client-scope${editing ? ' is-editing' : ''}`} aria-labelledby="product-client-intent-heading" aria-label={editing ? 'Client intent editor' : undefined} onKeyDown={editing ? event => {
       if (event.key !== 'Escape' || event.defaultPrevented || productConfirmation) return;
-      event.preventDefault(); event.stopPropagation(); closeProductIntentEditor('escape');
+      event.preventDefault(); event.stopPropagation();
+      if (productIntentCreateRef.current) backProductIntentCreate();
+      else closeProductIntentEditor('escape');
     } : undefined}>
       <div className={`touchpoint-client-scope-heading${editing ? ' embedded-editor-heading-actions' : ''}`}>
         {editing ? <><h4 id="product-client-intent-heading">Client intent</h4><button type="button" className="inspector-secondary-action" aria-label="Close Client intent editor" onClick={() => closeProductIntentEditor('explicit')}>Close</button></> : <h4 id="product-client-intent-heading" aria-label="Client intent"><button ref={productIntentHeadingRef} type="button" className="inspector-property-heading-action" aria-label="Edit Client intent" onClick={() => openProductIntentEditor(productId)}>Client intent<span className="inspector-property-heading-hint" aria-hidden="true">Click to edit</span></button></h4>}
@@ -3514,15 +3608,23 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         </div>)}</div>}
       </section>)}</ClientScopePackedGroups>}
       {editing && discovery && <div className="touchpoint-client-scope-content inline-intent-editor">
-        <section className="global-intent-discovery" aria-label="Find Client intent"><label>Search Client intent<input type="search" value={productIntentSearch.query} onChange={event => setProductIntentSearch({ query: event.target.value })} /></label>
-          {productIntentSearch.kind ? <div className="kind-shortcut-heading"><button type="button" className="text-action" onClick={() => setProductIntentSearch({ query: productIntentSearch.query })}>Back to results for “{productIntentSearch.query}”</button><strong>{KIND_LABELS[productIntentSearch.kind]}</strong></div> : productIntentSearch.query && <div className="kind-shortcut-results" aria-label="Kind shortcuts">{discovery.kindShortcutMatches.map(shortcut => <button type="button" key={shortcut.kind} onClick={() => setProductIntentSearch({ query: productIntentSearch.query, kind: shortcut.kind })}>Browse {shortcut.label}</button>)}</div>}
+        <section className="global-intent-discovery" aria-label="Find Client intent"><label>Search Client intent<input id={`product-intent-search-${encodeURIComponent(productId)}`} type="search" value={productIntentSearch.query} onKeyDown={event => { if (event.key === 'Enter') event.preventDefault(); }} onChange={event => { setCurrentProductIntentCreate(null); setProductIntentError(null); setProductIntentSearch({ query: event.target.value }); }} /></label>
+          {!create && (productIntentSearch.kind ? <div className="kind-shortcut-heading"><button type="button" className="text-action" onClick={() => setProductIntentSearch({ query: productIntentSearch.query })}>Back to results for “{productIntentSearch.query}”</button><strong>{KIND_LABELS[productIntentSearch.kind]}</strong></div> : productIntentSearch.query && <div className="kind-shortcut-results" aria-label="Kind shortcuts">{discovery.kindShortcutMatches.map(shortcut => <button type="button" key={shortcut.kind} onClick={() => setProductIntentSearch({ query: productIntentSearch.query, kind: shortcut.kind })}>Browse {shortcut.label}</button>)}</div>)}
         </section>
+        {!create && <>
         {discovery.jobGroups.map(group => <ClientIntentJobGroup key={group.id} group={{ id: group.id, kindLabel: KIND_LABELS[group.job.kind], ...(group.showJobCandidate ? { membership: { id: candidateId(group.job.id), title: group.job.title, checked: group.checked } } : { membershipContextTitle: group.job.title }), outcomes: (group.desiredOutcomes ?? []).map(outcome => ({ id: candidateId(group.job.id, outcome.id), title: outcome.entity.title, checked: outcome.checked })) }} onCheckedChange={(id, checked) => {
           const outcome = group.desiredOutcomes?.find(candidate => candidateId(group.job.id, candidate.id) === id);
           const newIntent = checked && !group.checked ? { newIntentId: crypto.randomUUID() } : {};
           requestProductIntentCommit(productId, outcome ? { kind: checked ? 'select-desired-outcome' : 'remove-desired-outcome', jobId: group.job.id, desiredOutcomeId: outcome.id, ...newIntent } : { kind: checked ? 'select-job' : 'remove-job', jobId: group.job.id, ...newIntent }, id);
         }} />)}
         {!discovery.jobGroups.length && <p role="status" className="touchpoint-client-scope-empty">No eligible Client intent matches this discovery view.</p>}
+        {!!discovery.createChoices.length && <button id={productIntentCreateId(productId)} type="button" className="inspector-secondary-action" onClick={() => beginProductIntentCreate(productId)}>Create "{discovery.title}" as…</button>}
+        </>}
+        {create && <section className="inspector-relation-editor" aria-label="Create Client intent">
+          <div className="embedded-editor-heading-actions"><strong>Create "{create.title}" as…</strong><button type="button" className="inspector-secondary-action" onClick={() => backProductIntentCreate()}>Back</button><button type="button" className="inspector-secondary-action" onClick={() => backProductIntentCreate(true)}>Cancel</button></div>
+          {create.step === 'kind' ? <div className="kind-shortcut-results" aria-label="Create kind">{createDiscovery?.createChoices.map(choice => <button id={productIntentKindId(productId, choice.kind)} type="button" key={choice.kind} onClick={() => completeProductIntentCreation(choice.kind)}>{KIND_LABELS[choice.kind]}</button>)}</div>
+            : <fieldset><legend>{create.kind === 'related_job' ? 'Choose contextual Core Functional Job' : 'Choose owning Job'}</legend>{owners.map(owner => <label className="inspector-relation-row inspector-relation-row-radio" key={owner.id}><input id={productIntentOwnerId(productId, owner.id)} type="radio" name={`product-intent-create-owner-${productId}`} checked={false} onChange={() => completeProductIntentCreation(create.kind, owner.id)} /><span className="inspector-relation-indicator" aria-hidden="true"/><span>{owner.title}<small>{KIND_LABELS[owner.kind]}</small></span></label>)}{!owners.length && <p role="status">Creation context is no longer available. Return to results.</p>}</fieldset>}
+        </section>}
         {productIntentError && <p role="alert">{productIntentError}</p>}
       </div>}
     </section>;
@@ -3986,6 +4088,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const matchesDocument = Boolean(externalCopyUrl && documentUrl && externalCopyUrl === documentUrl);
     const openExternalCopyEditor = () => {
       if (!closeProductOffersEditor('switch-editor') || !closeAuthoredPropertyEditors('switch-editor')) return;
+      closeProductIntentEditor('switch-editor');
       closeConnectedTouchpointsEditor('switch-editor');
       closeRelationEditor('switch-editor');
       closeChildrenEditor('switch-editor');
@@ -4068,6 +4171,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const currentControl = (source: ProductCurrentDefinitionSource, label: string) => <AuthoredCurrentControl eligible={source === 'free_form' ? sourceState.freeFormEligible : sourceState.structuredEligible} peerEligible={source === 'free_form' ? sourceState.structuredEligible : sourceState.freeFormEligible} current={current} source={source} markerId={currentId(source)} label={label} onMakeCurrent={() => requestCurrent(source)} />;
     const openEditor = () => {
       if (!closeProductOffersEditor('switch-editor') || !closeAuthoredPropertyEditors('switch-editor')) return;
+      closeProductIntentEditor('switch-editor');
       closeConnectedTouchpointsEditor('switch-editor');
       closeRelationEditor('switch-editor');
       closeChildrenEditor('switch-editor');
