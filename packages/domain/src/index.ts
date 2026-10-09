@@ -132,11 +132,11 @@ export function updateProductJobIntent(document: MapDocument, input: ProductJobI
     const upstream = offerScope.get(`${selection.offerId}\u0000${selection.productJobIntentId}`) ?? allowed;
     return { ...selection, addressedDesiredOutcomeIds: selection.addressedDesiredOutcomeIds.filter(id => upstream.has(id)) };
   });
-  return pruneIrrelevantTouchpointMitigations({ ...document, offerJobSelections, touchpointJobSelections, productJobIntents: document.productJobIntents.map(intent => intent.id === input.id ? { ...input, addressedDesiredOutcomeIds: [...input.addressedDesiredOutcomeIds] } : intent) });
+  return pruneIrrelevantTouchpointMitigations({ ...document, offerJobSelections, touchpointJobSelections, productJobIntents: document.productJobIntents.map(intent => intent.id === input.id ? { ...input, addressedDesiredOutcomeIds: [...input.addressedDesiredOutcomeIds] } : intent) }, document);
 }
 export function removeProductJobIntent(document: MapDocument, intentId: string): MapDocument {
   if (!document.productJobIntents.some(intent => intent.id === intentId)) throw new DomainError('unknown_product_job_intent', 'Product Job Intent does not exist.');
-  return pruneIrrelevantTouchpointMitigations({ ...document, productJobIntents: document.productJobIntents.filter(intent => intent.id !== intentId), offerJobSelections: document.offerJobSelections.filter(selection => selection.productJobIntentId !== intentId), touchpointJobSelections: document.touchpointJobSelections.filter(selection => selection.productJobIntentId !== intentId) });
+  return pruneIrrelevantTouchpointMitigations({ ...document, productJobIntents: document.productJobIntents.filter(intent => intent.id !== intentId), offerJobSelections: document.offerJobSelections.filter(selection => selection.productJobIntentId !== intentId), touchpointJobSelections: document.touchpointJobSelections.filter(selection => selection.productJobIntentId !== intentId) }, document);
 }
 export type OfferJobSelectionInput = { productJobIntentId: string; addressedDesiredOutcomeIds: string[] };
 export function setOfferJobSelections(document: MapDocument, input: { offerId: string; selections?: OfferJobSelectionInput[]; productJobIntentIds?: string[]; newSelectionIds: string[] }): MapDocument {
@@ -161,7 +161,7 @@ export function setOfferJobSelections(document: MapDocument, input: { offerId: s
   const retainedIntentIds = new Set(replacement.map(selection => selection.productJobIntentId));
   const scopes = new Map(replacement.map(selection => [selection.productJobIntentId, new Set(selection.addressedDesiredOutcomeIds)]));
   const touchpointJobSelections = document.touchpointJobSelections.flatMap(selection => selection.offerId !== input.offerId ? [selection] : retainedIntentIds.has(selection.productJobIntentId) ? [{ ...selection, addressedDesiredOutcomeIds: selection.addressedDesiredOutcomeIds.filter(id => scopes.get(selection.productJobIntentId)!.has(id)) }] : []);
-  return pruneIrrelevantTouchpointMitigations({ ...document, offerJobSelections: [...document.offerJobSelections.filter(selection => selection.offerId !== input.offerId), ...replacement], touchpointJobSelections });
+  return pruneIrrelevantTouchpointMitigations({ ...document, offerJobSelections: [...document.offerJobSelections.filter(selection => selection.offerId !== input.offerId), ...replacement], touchpointJobSelections }, document);
 }
 
 export function setOfferFinancialIntents(document: MapDocument, input: { offerId: string; financialDesiredOutcomeIds: string[]; newIntentIds: string[] }): MapDocument {
@@ -176,7 +176,7 @@ export function setOfferFinancialIntents(document: MapDocument, input: { offerId
   if (input.newIntentIds.some(id => document.offerFinancialIntents.some(intent => intent.id === id))) throw new DomainError('duplicate_offer_financial_intent_id', 'Offer Financial Intent ID already exists.');
   const replacement = input.financialDesiredOutcomeIds.map(id => retained.get(id) ?? { id: input.newIntentIds[additions.indexOf(id)]!, offerId: input.offerId, financialDesiredOutcomeId: id });
   const retainedIds = new Set(replacement.map(intent => intent.id));
-  return pruneIrrelevantTouchpointMitigations({ ...document, offerFinancialIntents: [...document.offerFinancialIntents.filter(intent => intent.offerId !== input.offerId), ...replacement], touchpointFinancialSelections: document.touchpointFinancialSelections.filter(selection => selection.offerId !== input.offerId || retainedIds.has(selection.offerFinancialIntentId)) });
+  return pruneIrrelevantTouchpointMitigations({ ...document, offerFinancialIntents: [...document.offerFinancialIntents.filter(intent => intent.offerId !== input.offerId), ...replacement], touchpointFinancialSelections: document.touchpointFinancialSelections.filter(selection => selection.offerId !== input.offerId || retainedIds.has(selection.offerFinancialIntentId)) }, document);
 }
 
 /** Atomically replaces one independently authored Definition property owned by a Product. */
@@ -555,7 +555,7 @@ export function setTouchpointIntentSelections(document: MapDocument, input: { to
       financial.push({ id: selection.id, touchpointId: input.touchpointId, offerId: selection.offerId, offerFinancialIntentId: intent.id, financialDesiredOutcomeId: intent.financialDesiredOutcomeId });
     }
   }
-  return pruneIrrelevantTouchpointMitigations({ ...document, touchpointJobSelections: [...document.touchpointJobSelections.filter(selection => selection.touchpointId !== input.touchpointId), ...jobs], touchpointFinancialSelections: [...document.touchpointFinancialSelections.filter(selection => selection.touchpointId !== input.touchpointId), ...financial] });
+  return pruneIrrelevantTouchpointMitigations({ ...document, touchpointJobSelections: [...document.touchpointJobSelections.filter(selection => selection.touchpointId !== input.touchpointId), ...jobs], touchpointFinancialSelections: [...document.touchpointFinancialSelections.filter(selection => selection.touchpointId !== input.touchpointId), ...financial] }, document);
 }
 
 /** Atomically completes upstream intent required by a full Touchpoint-local draft. */
@@ -712,7 +712,7 @@ export function authorTouchpointIntentBottomUp(document: MapDocument, input: Bot
     assertFreshRecordIds(document, [...offerIds, ...pathIds]);
     missingOffers.forEach((offerId, index) => { next = { ...next, offerFinancialIntents: [...next.offerFinancialIntents, { id: offerIds[index]!, offerId, financialDesiredOutcomeId: outcomeId }] }; });
     const additions = missingPaths.map((path, index): TouchpointFinancialSelection => { const intent = next.offerFinancialIntents.find(item => item.offerId === path.offerId && item.financialDesiredOutcomeId === outcomeId)!; return { id: pathIds[index]!, ...path, offerFinancialIntentId: intent.id, financialDesiredOutcomeId: outcomeId }; });
-    return { status: 'complete', document: pruneIrrelevantTouchpointMitigations({ ...next, touchpointFinancialSelections: [...next.touchpointFinancialSelections, ...additions] }) };
+    return { status: 'complete', document: pruneIrrelevantTouchpointMitigations({ ...next, touchpointFinancialSelections: [...next.touchpointFinancialSelections, ...additions] }, document) };
   }
 
   const outcomes = input.addressedDesiredOutcomeIds ?? []; const job = document.entities.find(entity => entity.id === input.jobId);
@@ -736,7 +736,7 @@ export function authorTouchpointIntentBottomUp(document: MapDocument, input: Bot
   }) };
   const additions = missingPaths.map((path, index): TouchpointJobSelection => { const intent = next.productJobIntents.find(item => item.productId === productForOffer(next, path.offerId) && item.jobId === input.jobId)!; return { id: pathIds[index]!, ...path, productJobIntentId: intent.id, addressedDesiredOutcomeIds: [...outcomes] }; });
   const expanded = next.touchpointJobSelections.map(selection => paths.some(path => path.touchpointId === selection.touchpointId && path.offerId === selection.offerId) && next.productJobIntents.find(intent => intent.id === selection.productJobIntentId)?.jobId === input.jobId ? { ...selection, addressedDesiredOutcomeIds: [...new Set([...selection.addressedDesiredOutcomeIds, ...outcomes])] } : selection);
-  return { status: 'complete', document: pruneIrrelevantTouchpointMitigations({ ...next, touchpointJobSelections: [...expanded, ...additions] }) };
+  return { status: 'complete', document: pruneIrrelevantTouchpointMitigations({ ...next, touchpointJobSelections: [...expanded, ...additions] }, document) };
 }
 
 export const narrowTouchpointIntentScope = setTouchpointIntentSelections;
@@ -819,7 +819,7 @@ export function distributeOfferJobIntent(document: MapDocument, input: { offerId
   const missing = input.touchpointIds.filter(touchpointId => !document.touchpointJobSelections.some(selection => selection.touchpointId === touchpointId && selection.offerId === input.offerId && selection.productJobIntentId === intent.id));
   if (missing.length !== input.newTouchpointSelectionIds.length) throw new DomainError('invalid_selection_ids', 'Each newly distributed Touchpoint path requires a fresh ID.');
   assertFreshRecordIds(document, input.newTouchpointSelectionIds);
-  return pruneIrrelevantTouchpointMitigations({ ...document, touchpointJobSelections: [...document.touchpointJobSelections, ...missing.map((touchpointId, index) => ({ id: input.newTouchpointSelectionIds[index]!, touchpointId, offerId: input.offerId, productJobIntentId: intent.id, addressedDesiredOutcomeIds: [...input.addressedDesiredOutcomeIds] }))] });
+  return pruneIrrelevantTouchpointMitigations({ ...document, touchpointJobSelections: [...document.touchpointJobSelections, ...missing.map((touchpointId, index) => ({ id: input.newTouchpointSelectionIds[index]!, touchpointId, offerId: input.offerId, productJobIntentId: intent.id, addressedDesiredOutcomeIds: [...input.addressedDesiredOutcomeIds] }))] }, document);
 }
 
 /** Additively distributes one Offer-owned FDO intent to explicitly chosen linked Touchpoints. */
@@ -954,7 +954,7 @@ export function changeOfferProduct(document: MapDocument, input: { offerId: stri
         return removed ? { ...selection, addressedDesiredOutcomeIds: selection.addressedDesiredOutcomeIds.filter(id => !removed.has(id)) } : selection;
       }),
     touchpointFinancialSelections: document.touchpointFinancialSelections.filter(selection => !removedTouchpointFinancialIds.has(selection.id)),
-  });
+  }, document);
 }
 
 /** Calculates the durable downstream records affected by replacing one Product's Job intent. */
@@ -988,7 +988,7 @@ export function getIntentRemovalImpact(document: MapDocument, input: { offerJobS
 }
 export function removeOfferIntentConfirmed(document: MapDocument, input: { offerJobSelectionId?: string; offerFinancialIntentId?: string }): MapDocument {
   const impact = getIntentRemovalImpact(document, input); const jobIds = new Set(impact.touchpointJobSelectionIds); const financialIds = new Set(impact.touchpointFinancialSelectionIds);
-  return pruneIrrelevantTouchpointMitigations({ ...document, offerJobSelections: document.offerJobSelections.filter(selection => !impact.offerJobSelectionIds.includes(selection.id)), offerFinancialIntents: document.offerFinancialIntents.filter(intent => !impact.offerFinancialIntentIds.includes(intent.id)), touchpointJobSelections: document.touchpointJobSelections.filter(selection => !jobIds.has(selection.id)), touchpointFinancialSelections: document.touchpointFinancialSelections.filter(selection => !financialIds.has(selection.id)) });
+  return pruneIrrelevantTouchpointMitigations({ ...document, offerJobSelections: document.offerJobSelections.filter(selection => !impact.offerJobSelectionIds.includes(selection.id)), offerFinancialIntents: document.offerFinancialIntents.filter(intent => !impact.offerFinancialIntentIds.includes(intent.id)), touchpointJobSelections: document.touchpointJobSelections.filter(selection => !jobIds.has(selection.id)), touchpointFinancialSelections: document.touchpointFinancialSelections.filter(selection => !financialIds.has(selection.id)) }, document);
 }
 
 export function setContextualCoreFunctionalJobs(document: MapDocument, input: { contextualJobId: string; coreFunctionalJobIds: string[]; newRelationshipIds: string[] }): MapDocument {
@@ -1149,14 +1149,39 @@ export function setTouchpointMitigations(document: MapDocument, input: { touchpo
   return { ...document, relationships: [...document.relationships.filter(relation => !(relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === input.touchpointId)), ...replacement] };
 }
 
-function pruneIrrelevantTouchpointMitigations(document: MapDocument): MapDocument {
+function pruneIrrelevantTouchpointMitigations(document: MapDocument, previous: MapDocument): MapDocument {
+  // Preserve already-inactive legacy EJ/SJ authored mitigation only while its
+  // exact Job-only attributed scope survives unchanged. This is not relevance.
+  function legacySupports(source: MapDocument, touchpointId: string, repulsorId: string): string[] {
+    return source.touchpointJobSelections.flatMap(selection => {
+      if (selection.touchpointId !== touchpointId || selection.addressedDesiredOutcomeIds.length) return [];
+      const intent = source.productJobIntents.find(item => item.id === selection.productJobIntentId);
+      const job = source.entities.find(item => item.id === intent?.jobId);
+      const offerSelection = source.offerJobSelections.find(item => item.offerId === selection.offerId && item.productJobIntentId === intent?.id);
+      if (!intent || !offerSelection || !job || (job.kind !== 'emotional_job' && job.kind !== 'social_job') || intent.addressedDesiredOutcomeIds.length || (offerSelection.addressedDesiredOutcomeIds?.length ?? 0)) return [];
+      if (effectiveTouchpointOutcomes(source, selection) === undefined) return [];
+      const ownership = source.relationships.filter(item => item.kind === 'product_packaged_as_offer' && item.offerId === selection.offerId);
+      if (ownership.length !== 1 || ownership[0]?.kind !== 'product_packaged_as_offer' || ownership[0].productId !== intent.productId) return [];
+      if (!source.entities.some(item => item.id === intent.productId && item.kind === 'product') || !source.entities.some(item => item.id === selection.offerId && item.kind === 'offer')) return [];
+      if (!source.entities.some(item => item.id === touchpointId && item.kind === 'touchpoint') || !source.entities.some(item => item.id === repulsorId && item.kind === 'repulsor')) return [];
+      const resistance = source.relationships.filter(item => item.kind === 'repulsor_resists' && item.repulsorId === repulsorId && item.targetEntityId === job.id);
+      return resistance.map(relation => JSON.stringify([selection, intent, offerSelection, ownership[0], relation]));
+    });
+  }
   const touchpointJobSelections = document.touchpointJobSelections.flatMap(selection => {
     const outcomes = effectiveTouchpointOutcomes(document, selection);
     return outcomes === undefined ? [] : [{ ...selection, addressedDesiredOutcomeIds: outcomes }];
   });
   const normalized = { ...document, touchpointJobSelections };
   const relevantByTouchpoint = new Map(normalized.entities.filter(entity => entity.kind === 'touchpoint').map(entity => [entity.id, new Set(relevantRepulsorsForTouchpoint(normalized, entity.id).map(repulsor => repulsor.id))]));
-  return { ...normalized, relationships: normalized.relationships.filter(relation => relation.kind !== 'touchpoint_mitigates_repulsor' || relevantByTouchpoint.get(relation.touchpointId)?.has(relation.repulsorId)) };
+  return { ...normalized, relationships: normalized.relationships.filter(relation => {
+    if (relation.kind !== 'touchpoint_mitigates_repulsor' || relevantByTouchpoint.get(relation.touchpointId)?.has(relation.repulsorId)) return true;
+    if (!previous.relationships.some(item => item.id === relation.id && item.kind === 'touchpoint_mitigates_repulsor' && item.touchpointId === relation.touchpointId && item.repulsorId === relation.repulsorId)) return false;
+    if (!previous.entities.some(item => item.id === relation.touchpointId && item.kind === 'touchpoint')) return false;
+    if (relevantRepulsorsForTouchpoint(previous, relation.touchpointId).some(item => item.id === relation.repulsorId)) return false;
+    const before = new Set(legacySupports(previous, relation.touchpointId, relation.repulsorId));
+    return legacySupports(normalized, relation.touchpointId, relation.repulsorId).some(support => before.has(support));
+  }) };
 }
 
 /** Returns the normalized local outcome subset, or undefined when the attributed path is not effective. */
@@ -1380,7 +1405,7 @@ export function updateEntity(document: MapDocument, input: UpdateEntityInput): M
     if (semantic.length !== 1) throw new DomainError('invalid_semantic_parent_count', 'A contextual Client entity must have exactly one semantic parent.');
     relationships = relationships.map(r => r.id !== semantic[0]!.id ? r : r.kind === 'core_functional_job_has_related_job' ? { ...r, coreFunctionalJobId: input.parentEntityId! } : { ...r, jobId: input.parentEntityId! });
   }
-  return pruneIrrelevantTouchpointMitigations({ ...document, entities: document.entities.map(e => e.id === entity.id ? updated : e), relationships });
+  return pruneIrrelevantTouchpointMitigations({ ...document, entities: document.entities.map(e => e.id === entity.id ? updated : e), relationships }, document);
 }
 
 export function updateRepulsorTargets(document: MapDocument, input: { repulsorId: string; targetEntityIds: string[]; newRelationshipIds: string[] }): MapDocument {

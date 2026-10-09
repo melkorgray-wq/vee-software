@@ -932,6 +932,40 @@ describe('Touchpoint mitigation', () => {
     d = addEntity(d, { ...place, entityId: 'repulsor', title: 'Fear', kind: 'repulsor', resistedTargetIds: ['job-a', 'job-b'], relationshipIds: ['resists-a', 'resists-b'] });
     return d;
   }
+  it.each(['emotional_job', 'social_job'] as const)('preserves inactive legacy %s mitigation during an unrelated edit and prunes on scope removal', async kind => {
+    const { relevantRepulsorsForTouchpoint } = await import('./index');
+    let d = offerDocument();
+    d = addEntity(d, { ...place, entityId: 'legacy-job', title: 'Legacy Job', kind });
+    d = addProductJobIntent(d, { id: 'legacy-intent', productId: 'product', jobId: 'legacy-job', addressedDesiredOutcomeIds: [] });
+    d = setOfferJobSelections(d, { offerId: 'offer', productJobIntentIds: ['legacy-intent'], newSelectionIds: ['legacy-offer-selection'] });
+    d = touchpoint(d);
+    d = selectAllLinkedOfferIntentsForTouchpoint(d, { touchpointId: 'touch', jobSelectionIds: ['legacy-touch-selection'], financialSelectionIds: [] });
+    d = addEntity(d, { ...place, entityId: 'legacy-repulsor', title: 'Legacy resistance', kind: 'repulsor', resistedTargetIds: ['legacy-job'], relationshipIds: ['legacy-resists'] });
+    d = addEntity(d, { ...place, entityId: 'other-product', title: 'Other Product', kind: 'product' });
+    d = addEntity(d, { ...place, entityId: 'other-job', title: 'Other Job', kind: 'core_functional_job' });
+    d = addProductJobIntent(d, { id: 'other-intent', productId: 'other-product', jobId: 'other-job', addressedDesiredOutcomeIds: [] });
+    // Loaded legacy authored state; the current authoring API rejects inactive mitigation.
+    const mitigation = { id: 'legacy-mitigation', kind: 'touchpoint_mitigates_repulsor' as const, touchpointId: 'touch', repulsorId: 'legacy-repulsor' };
+    d = { ...d, relationships: [...d.relationships, mitigation] };
+    const before = structuredClone(d);
+    function freeze(value: unknown) { if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); } }
+    freeze(d);
+    expect(relevantRepulsorsForTouchpoint(d, 'touch')).toEqual([]);
+    expect(resistanceImpactForOffer(d, 'offer')).toEqual([]);
+    expect(() => setTouchpointMitigations(d, { touchpointId: 'touch', repulsorIds: ['legacy-repulsor'], newRelationshipIds: [] })).toThrowError(expect.objectContaining({ code: 'irrelevant_touchpoint_mitigation' }));
+    const next = removeProductJobIntent(d, 'other-intent');
+    expect(next.relationships).toEqual(before.relationships);
+    expect(removeProductJobIntent(next, 'legacy-intent').relationships).not.toContainEqual(mitigation);
+    expect(setOfferJobSelections(next, { offerId: 'offer', productJobIntentIds: [], newSelectionIds: [] }).relationships).not.toContainEqual(mitigation);
+    expect(setTouchpointIntentSelections(next, { touchpointId: 'touch', selections: [] }).relationships).not.toContainEqual(mitigation);
+    expect(relevantRepulsorsForTouchpoint(next, 'touch')).toEqual([]);
+    expect(resistanceImpactForOffer(next, 'offer')).toEqual([]);
+    expect(next.productJobIntents).toEqual(before.productJobIntents.filter(intent => intent.id !== 'other-intent'));
+    expect(next.offerJobSelections).toEqual(before.offerJobSelections);
+    expect(next.touchpointJobSelections).toEqual(before.touchpointJobSelections);
+    expect(next.entities).toEqual(before.entities);
+    expect(d).toEqual(before);
+  });
   it('derives and deduplicates relevant Repulsors through inherited Offer Job selections', async () => {
     const { relevantRepulsorsForTouchpoint } = await import('./index');
     let d = mitigationDocument();

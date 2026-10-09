@@ -75,8 +75,10 @@ Its contextual, normally non-root entities are **Related Job**, **Desired Outcom
 The canonical contextual Child grammar is:
 
 - Core Functional Job → Related Job, Desired Outcome;
-- Related Job → Desired Outcome; and
-- Consumption Chain Job → Desired Outcome.
+- Related Job → Desired Outcome;
+- Consumption Chain Job → Desired Outcome;
+- Emotional Job → Desired Outcome; and
+- Social Job → Desired Outcome.
 
 Core Functional Job, Related Job, Consumption Chain Job, Emotional Job, and Social Job are **DO-bearing Jobs**. An ordinary Desired Outcome is the outcome/measurement layer through which one of these Jobs is concretized for Business intent at an encounter. A DO-bearing Job may be recorded before its Desired Outcomes are understood, but that state is incomplete knowledge: it must not create a direct cross-side Job → Touchpoint route. Emotional Job and Social Job reuse the same ordinary `desired_outcome` entity and `job_has_desired_outcome` ownership, without new outcome kinds or direct encounter fallback. Financial Desired Outcome is a separate root-like outcome-level Client entity for the Purchase Decision Maker; it is not a Job and not an ordinary Desired Outcome child of another Job.
 
@@ -249,7 +251,7 @@ In the default map, a satellite primarily communicates semantic reach that is no
 
 The visible authored Job → Desired Outcome and Repulsor → resisted-target edges need no duplicate satellite at their targets. Likewise, the derived Financial Desired Outcome → Touchpoint and relevant Repulsor → Touchpoint routes need no duplicate Touchpoint satellite. The Offer satellite remains because it communicates Offer-owned Financial Desired Outcome reach without adding a long physical edge. Desired Outcome ownership is never flattened from its Job. Financial Desired Outcome is never projected to Product. Repulsor aggregation on Product or Offer remains an Inspector-level read-only impact view and does not create a satellite effect without a separate accepted rule. Missing or stale endpoints and contributor records produce no satellite, and no generic or transitive relationship is inferred.
 
-Separately, an author may state optional Business intent with `Touchpoint ──mitigates──→ Repulsor` only while that Repulsor is relevant. This relation says that the Touchpoint is intended to reduce or compensate for the Repulsor; it does not claim that mitigation succeeds. Mitigation is not a prerequisite for the derived Repulsor resistance projection, and Product and Offer have no direct mitigation relation in this slice.
+Separately, an author may state optional Business intent with `Touchpoint ──mitigates──→ Repulsor` only while that Repulsor is relevant. Already-authored legacy EJ/SJ Job-only mitigation is retained during unrelated edits while its exact attributed Job-only scope remains unchanged; it remains inactive and contributes no encounter or derived relevance. Removing or changing that scope retains the existing pruning rule. This relation says that the Touchpoint is intended to reduce or compensate for the Repulsor; it does not claim that mitigation succeeds. Mitigation is not a prerequisite for the derived Repulsor resistance projection, and Product and Offer have no direct mitigation relation in this slice.
 
 Domain topology records what interacts; neither the derived Repulsor → Touchpoint projection nor the authored Touchpoint → Repulsor mitigation direction encodes interaction strength. Future Evidence or Factual Support will describe why and how strongly the model is supported, and future derived-force logic will determine strength and the resulting attraction or repulsion dynamics. Evidence may therefore support or weaken both a Repulsor and a Touchpoint mitigation claim without changing authored intent into proof. These authored intent projections remain hypotheses rather than outcome evidence. Environment / Context entities remain future work and are not introduced by these semantics.
 
