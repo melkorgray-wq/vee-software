@@ -3768,16 +3768,26 @@ describe('Offer Resistance section', () => {
     expect(within(screen.getByRole('tabpanel', { name: 'Entity Inspector' })).getByRole('region', { name: 'Resistance' })).toHaveTextContent('No relevant Repulsors.');
   });
 
-  it('leaves the Product Resistance presentation unchanged', () => {
-    const mapDocument = offerResistanceDocument();
-    render(<MapSpike initialDocument={mapDocument} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Orbit' }));
-    fireEvent.click(screen.getByRole('tab', { name: 'Entity Inspector' }));
-    const productResistance = screen.getByRole('region', { name: 'Resistance affecting this Product' });
-    expect(within(productResistance).getByRole('heading', { name: 'Resistance affecting this Product' })).toBeInTheDocument();
-    expect(productResistance).toHaveTextContent('Long shared resistance title');
-    expect(productResistance).toHaveTextContent('Subscription → Checkout');
-    expect(productResistance.querySelector('.offer-resistance-card')).not.toBeInTheDocument();
+  it('migrates the existing Product Resistance section to canonical selected Job grounds', () => {
+    const inspector = renderProductInspector(offerResistanceDocument());
+    const section = inspector.getByRole('region', { name: 'Resistance' });
+    const resistance = within(section);
+    expect(inspector.queryByRole('region', { name: 'Resistance affecting this Product' })).not.toBeInTheDocument();
+    expect(inspector.getAllByRole('region', { name: 'Resistance' })).toHaveLength(1);
+    expect(resistance.getByText('Derived')).toBeInTheDocument();
+    expect(resistance.queryByText('Stay affordable')).not.toBeInTheDocument();
+    const cards = section.querySelectorAll('.resistance-card');
+    expect(cards).toHaveLength(2);
+    expect(within(cards[1] as HTMLElement).getByText('Make progress')).toBeInTheDocument();
+    expect(within(cards[1] as HTMLElement).getByRole('button', { name: 'Subscription' })).toBeInTheDocument();
+    expect(within(cards[1] as HTMLElement).getByRole('button', { name: 'Checkout' })).toBeInTheDocument();
+    expect(within(cards[1] as HTMLElement).getByText('Mitigation intent')).toBeInTheDocument();
+    expect(within(cards[0] as HTMLElement).queryByText('Mitigation intent')).not.toBeInTheDocument();
+    expect(resistance.queryByRole('button', { name: 'Make progress' })).not.toBeInTheDocument();
+    const sections = Array.from(section.parentElement!.children);
+    expect(sections[sections.indexOf(section) - 1]).toHaveAttribute('aria-labelledby', 'product-client-intent-heading');
+    expect(resistance.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(resistance.queryByRole('button', { name: /Edit|Apply|Save|Done|Mitigated here/i })).not.toBeInTheDocument();
   });
 });
 
@@ -8442,3 +8452,148 @@ it('completes Product External copy once before workspace transfer without an Ap
     expect(screen.getByRole('tab', { name: 'Map' })).not.toHaveFocus();
   }
  });
+
+
+describe('Product Resistance section', () => {
+  afterEach(cleanup);
+  const shared = 'Long shared resistance title';
+  const section = (inspector: ReturnType<typeof within>) => within(inspector.getByRole('region', { name: 'Resistance' }));
+
+  it('keeps the compact empty state permanently after Client intent', () => {
+    const d = offerResistanceDocument(); d.productJobIntents = [];
+    const inspector = renderProductInspector(d);
+    expect(section(inspector).getByText('No relevant Repulsors.')).toBeInTheDocument();
+    expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
+  });
+
+  it('shows selected Job exposure with empty DO scope and no downstream entities, excluding context and FDO', () => {
+    const d = offerResistanceDocument();
+    d.entities = d.entities.filter(entity => entity.kind !== 'offer' && entity.kind !== 'touchpoint');
+    d.entities.push({ id: 'context', kind: 'core_functional_job', title: 'Context only' }, { id: 'context-rep', kind: 'repulsor', title: 'Context resistance' }, { id: 'financial-rep', kind: 'repulsor', title: 'Financial resistance' });
+    d.relationships.push({ id: 'context-rel', kind: 'core_functional_job_contextualizes_job', coreFunctionalJobId: 'context', contextualJobId: 'job' }, { id: 'context-resists', kind: 'repulsor_resists', repulsorId: 'context-rep', targetEntityId: 'context' }, { id: 'financial-resists', kind: 'repulsor_resists', repulsorId: 'financial-rep', targetEntityId: 'fdo' });
+    d.productJobIntents[0]!.addressedDesiredOutcomeIds = [];
+    const inspector = renderProductInspector(d); const r = section(inspector);
+    expect(r.getAllByText('Make progress')).toHaveLength(2);
+    expect(r.queryByText('Context resistance')).not.toBeInTheDocument();
+    expect(r.queryByText('Financial resistance')).not.toBeInTheDocument();
+    expect(r.queryByText('Mitigation intent')).not.toBeInTheDocument();
+    expect(r.queryByRole('list', { name: /Manifestations/ })).not.toBeInTheDocument();
+  });
+
+  it('counts Jobs rather than manifestations and retains unencountered grounds', () => {
+    const d = offerResistanceDocument(true);
+    d.entities.push({ id: 'emotional-extra', kind: 'emotional_job', title: 'Feel reassured' });
+    d.productJobIntents.push({ id: 'extra-intent', productId: 'product', jobId: 'emotional-extra', addressedDesiredOutcomeIds: [] });
+    d.relationships.push({ id: 'extra-resists', kind: 'repulsor_resists', repulsorId: 'repulsor-shared', targetEntityId: 'emotional-extra' });
+    const inspector = renderProductInspector(d); const r = section(inspector);
+    const card = r.getByRole('button', { name: shared }).closest('.resistance-card')!;
+    expect(within(card as HTMLElement).getByRole('button', { name: `Collapse grounds for ${shared}` })).toHaveTextContent('2');
+    expect(within(card as HTMLElement).getByText('Feel reassured').closest('li')!.querySelector('ul')).toBeNull();
+    const paths = within(card as HTMLElement).getByRole('list', { name: 'Manifestations for Make progress' });
+    expect(within(paths).getByRole('button', { name: 'Subscription' })).toBeInTheDocument();
+    expect(within(paths).getByRole('button', { name: 'Consulting' })).toBeInTheDocument();
+    expect(within(paths).getAllByText('Mitigation intent')).toHaveLength(2);
+  });
+
+  it('reuses independent disclosure, stable controls and initial density without committing or adding history', async () => {
+    const user = userEvent.setup(); const d = offerResistanceDocument(); const before = JSON.stringify(d);
+    const inspector = renderProductInspector(d); const r = section(inspector);
+    const disclosure = r.getByRole('button', { name: `Collapse grounds for ${shared}` });
+    const navigation = r.getByRole('button', { name: shared });
+    expect(disclosure.parentElement).toBe(navigation.parentElement);
+    expect(disclosure.querySelector('button, a')).toBeNull();
+    const controlledId = disclosure.getAttribute('aria-controls')!;
+    expect(document.getElementById(controlledId)).toBeVisible();
+    await user.click(disclosure);
+    expect(document.getElementById(controlledId)).toHaveAttribute('hidden');
+    expect(r.getByRole('button', { name: 'Collapse grounds for Job resistance' })).toHaveAttribute('aria-expanded', 'true');
+    expect(inspector.getByRole('button', { name: 'Inspector Back' })).toBeDisabled();
+    expect(JSON.stringify(window.__VEE_DEV__!.dump())).toBe(before);
+  });
+
+  it.each(['Long shared resistance title', 'Subscription', 'Checkout'])('navigates %s through shared history and preserves disclosure on Back', async title => {
+    const user = userEvent.setup(); const d = offerResistanceDocument(); const before = JSON.stringify(d);
+    const inspector = renderProductInspector(d); let r = section(inspector);
+    await user.click(r.getByRole('button', { name: 'Collapse grounds for Job resistance' }));
+    await user.click(r.getByRole('button', { name: title }));
+    expect(inspector.getByRole('heading', { name: title })).toBeInTheDocument();
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    r = section(inspector);
+    expect(r.getByRole('button', { name: 'Expand grounds for Job resistance' })).toHaveAttribute('aria-expanded', 'false');
+    expect(r.getByRole('button', { name: `Collapse grounds for ${shared}` })).toHaveAttribute('aria-expanded', 'true');
+    expect(JSON.stringify(window.__VEE_DEV__!.dump())).toBe(before);
+  });
+
+  it('isolates Product and Offer disclosure and resets snapshots on document replacement', async () => {
+    const user = userEvent.setup(); const d = offerResistanceDocument(); const inspector = renderProductInspector(d);
+    await user.click(section(inspector).getByRole('button', { name: `Collapse grounds for ${shared}` }));
+    await user.click(section(inspector).getByRole('button', { name: 'Subscription' }));
+    expect(section(inspector).getByRole('button', { name: `Collapse grounds for ${shared}` })).toHaveAttribute('aria-expanded', 'true');
+    await user.click(inspector.getByRole('button', { name: 'Inspector Back' }));
+    expect(section(inspector).getByRole('button', { name: `Expand grounds for ${shared}` })).toHaveAttribute('aria-expanded', 'false');
+    act(() => window.__VEE_DEV__!.load(d));
+    await user.click(screen.getByRole('tab', { name: 'Map' }));
+    await user.click(screen.getByRole('button', { name: 'Orbit' }));
+    await user.click(screen.getByRole('tab', { name: 'Entity Inspector' }));
+    expect(section(inspector).getByRole('button', { name: `Collapse grounds for ${shared}` })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('refreshes exposure after immediate Client intent removal without an Apply transaction', async () => {
+    const user = userEvent.setup(); const d = offerResistanceDocument();
+    d.offerJobSelections = []; d.touchpointJobSelections = []; d.touchpointFinancialSelections = []; d.relationships = d.relationships.filter(r => r.kind !== 'touchpoint_mitigates_repulsor');
+    const inspector = renderProductInspector(d);
+    await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
+    await user.click(inspector.getByRole('checkbox', { name: 'Make progress' }));
+    expect(section(inspector).getByText('No relevant Repulsors.')).toBeInTheDocument();
+    expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
+  });
+
+  it('keeps authored URL validation and destructive review as navigation boundaries', async () => {
+    const user = userEvent.setup(); const d = offerResistanceDocument(); const before = JSON.stringify(d);
+    const inspector = renderProductInspector(d);
+    await user.click(inspector.getByRole('button', { name: 'Add Definition' }));
+    await user.type(inspector.getByLabelText('Product document URL'), 'ftp://invalid{Enter}');
+    await user.click(section(inspector).getByRole('button', { name: shared }));
+    expect(inspector.getByRole('heading', { name: 'Orbit' })).toBeInTheDocument();
+    expect(inspector.getByLabelText('Product document URL')).toHaveValue('ftp://invalid');
+    expect(JSON.stringify(window.__VEE_DEV__!.dump())).toBe(before);
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(inspector.getByRole('button', { name: 'Add Definition' })).toHaveFocus());
+    await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
+    await user.click(inspector.getByRole('checkbox', { name: 'Make progress' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    fireEvent.click(section(inspector).getByRole('button', { name: shared }));
+    expect(inspector.getByRole('heading', { name: 'Orbit' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(JSON.stringify(window.__VEE_DEV__!.dump())).toBe(before);
+    await user.click(screen.getByRole('dialog').querySelector('button')!);
+  });
+  it.each([4, 5])('uses the shared initial-density boundary for %s selected Job grounds', count => {
+    const d = offerResistanceDocument();
+    d.relationships = d.relationships.filter(r => r.id !== 'resists-job');
+    for (let i = 1; i < count; i++) {
+      d.entities.push({ id: `extra-${i}`, kind: 'emotional_job', title: `Extra Job ${i}` });
+      d.productJobIntents.push({ id: `extra-intent-${i}`, productId: 'product', jobId: `extra-${i}`, addressedDesiredOutcomeIds: [] });
+      d.relationships.push({ id: `extra-resists-${i}`, kind: 'repulsor_resists', repulsorId: 'repulsor-shared', targetEntityId: `extra-${i}` });
+    }
+    const r = section(renderProductInspector(d));
+    expect(r.getByRole('button', { name: `${count === 4 ? 'Collapse' : 'Expand'} grounds for ${shared}` })).toHaveAttribute('aria-expanded', String(count === 4));
+  });
+
+  it('keeps disclosure independent for two Products and supports native keyboard activation', async () => {
+    const user = userEvent.setup(); const d = offerResistanceDocument();
+    d.entities.push({ id: 'product-b', kind: 'product', title: 'Nebula' });
+    d.productJobIntents.push({ id: 'intent-b', productId: 'product-b', jobId: 'job', addressedDesiredOutcomeIds: [] });
+    d.placements.push({ viewId: 'spike-view', entityId: 'product-b', x: 1800, y: 0 });
+    const inspector = renderProductInspector(d); const disclosure = section(inspector).getByRole('button', { name: `Collapse grounds for ${shared}` });
+    disclosure.focus(); await user.keyboard('{Enter}');
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    await user.keyboard(' '); expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+    await user.keyboard('{Enter}');
+    await user.click(screen.getByRole('tab', { name: 'Map' })); await user.click(screen.getByRole('button', { name: 'Nebula' })); await user.click(screen.getByRole('tab', { name: 'Entity Inspector' }));
+    expect(section(inspector).getByRole('button', { name: `Collapse grounds for ${shared}` })).toHaveAttribute('aria-expanded', 'true');
+    await user.click(screen.getByRole('tab', { name: 'Map' })); await user.click(screen.getByRole('button', { name: 'Orbit' })); await user.click(screen.getByRole('tab', { name: 'Entity Inspector' }));
+    expect(section(inspector).getByRole('button', { name: `Expand grounds for ${shared}` })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+});

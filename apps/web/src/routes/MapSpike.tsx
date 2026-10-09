@@ -2,7 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useReducer, useRef, useState, typ
 import { createPortal } from 'react-dom';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { CLIENT_ROOT_ENTITY_KINDS, DomainError, applyProductClientIntentCommand, type ProductClientIntentCommand, type ProductClientIntentCommandImpact, addEntity, addOfferContentBlock, addProductDefinitionBlock, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, offerContentSourceState, offerContentWholeText, productDefinitionSourceState, productDefinitionWholeText, setProductCurrentDefinitionSource, setProductDefinitionExternalCopyUrl, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, removeOfferContentBlock, removeProductDefinitionBlock, reorderOfferContentBlocks, reorderProductDefinitionBlocks, resistanceImpactForOffer, resistanceImpactForProduct, setContextualCoreFunctionalJobs, setOfferContentExternalCopyUrl, setOfferCurrentContentSource, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateOfferContent, updateOfferContentBlock, updateProductDefinitionBlock, updateProductDefinition, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type OfferCurrentContentSource, type ProductCurrentDefinitionSource, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
+import { CLIENT_ROOT_ENTITY_KINDS, DomainError, applyProductClientIntentCommand, type ProductClientIntentCommand, type ProductClientIntentCommandImpact, addEntity, addOfferContentBlock, addProductDefinitionBlock, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, offerContentSourceState, offerContentWholeText, productDefinitionSourceState, productDefinitionWholeText, setProductCurrentDefinitionSource, setProductDefinitionExternalCopyUrl, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, removeOfferContentBlock, removeProductDefinitionBlock, reorderOfferContentBlocks, reorderProductDefinitionBlocks, resistanceImpactForOffer, resistanceExposureForProduct, setContextualCoreFunctionalJobs, setOfferContentExternalCopyUrl, setOfferCurrentContentSource, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateOfferContent, updateOfferContentBlock, updateProductDefinitionBlock, updateProductDefinition, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type OfferCurrentContentSource, type ProductCurrentDefinitionSource, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, disclosureOverlayPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction, type Point, type WorkspaceShortcutState } from '../map-interaction';
@@ -847,6 +847,37 @@ export function MapNode({ data }: { data: MapNodeData }) {
   );
 }
 
+interface ResistanceCard { repulsor: Entity; count: number; content: ReactNode }
+
+function ResistanceSection({ kind, entityId, cards, expanded: snapshot, onExpansionChange, onNavigate }: {
+  kind: 'offer' | 'product'; entityId: string; cards: ResistanceCard[]; expanded: Record<string, boolean> | undefined;
+  onExpansionChange: (snapshot: Record<string, boolean>) => void; onNavigate: (entityId: string) => void;
+}) {
+  const initial = initialCompactOverviewExpandedGroupIds(cards.map(card => ({ id: card.repulsor.id, count: card.count })));
+  const isExpanded = (id: string) => snapshot?.[id] ?? (snapshot ? false : initial.has(id));
+  const prefix = `${kind}-resistance`;
+  const classes = (part = '') => `resistance${part}${kind === 'offer' ? ` offer-resistance${part}` : ''}`;
+  return <section className={classes()} aria-labelledby={`${prefix}-heading`}>
+    <div className={classes('-heading')}><h4 id={`${prefix}-heading`}>Resistance</h4><small className="inspector-derived-status">Derived</small></div>
+    {cards.length ? <div className={classes('-cards')}>{cards.map(card => {
+      const expanded = isExpanded(card.repulsor.id);
+      const contentId = `${prefix}-${encodeURIComponent(entityId)}-${encodeURIComponent(card.repulsor.id)}`;
+      return <div className={`derived-neighborhood-slice ${classes('-card')}`} key={card.repulsor.id}>
+        <div className={classes('-card-header')}>
+          <button type="button" className="derived-neighborhood-disclosure" aria-label={`${expanded ? 'Collapse' : 'Expand'} grounds for ${card.repulsor.title}`} aria-expanded={expanded} aria-controls={contentId} onClick={() => {
+            const baseline = snapshot ?? Object.fromEntries(cards.map(item => [item.repulsor.id, initial.has(item.repulsor.id)]));
+            onExpansionChange({ ...baseline, [card.repulsor.id]: !isExpanded(card.repulsor.id) });
+          }}>
+            <span className="derived-neighborhood-chevron" aria-hidden="true">{expanded ? '▾' : '▸'}</span><span className="derived-neighborhood-count">{card.count}</span>
+          </button>
+          <button type="button" className="inspector-entity-navigation" onClick={() => onNavigate(card.repulsor.id)}>{card.repulsor.title}</button>
+        </div>
+        <div className="derived-neighborhood-content" id={contentId} hidden={!expanded}>{expanded && card.content}</div>
+      </div>;
+    })}</div> : <p className="touchpoint-resistance-empty">No relevant Repulsors.</p>}
+  </section>;
+}
+
 export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocument?: MapDocument } = {}) {
   const panelRef = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -902,7 +933,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [neighborhoodExpanded, setNeighborhoodExpanded] = useState<Record<string, Record<string, boolean>>>({});
   const [productNeighborhoodExpanded, setProductNeighborhoodExpanded] = useState<Record<string, Record<string, boolean>>>({});
   const [offerNeighborhoodExpanded, setOfferNeighborhoodExpanded] = useState<Record<string, Record<string, boolean>>>({});
-  const [offerResistanceExpanded, setOfferResistanceExpanded] = useState<Record<string, Record<string, boolean>>>({});
+  const [resistanceExpanded, setResistanceExpanded] = useState<Record<string, Record<string, boolean>>>({});
   const [connectionPicker, setConnectionPicker] = useState<ClientScopeEditor | null>(null);
   const [expandedClientSources, setExpandedClientSources] = useState<Record<string, boolean>>({});
   const [expandedClientScopePanels, setExpandedClientScopePanels] = useState<Record<string, Partial<Record<ClientScopePanelKind, boolean>>>>({});
@@ -1062,7 +1093,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setNeighborhoodExpanded({});
     setProductNeighborhoodExpanded({});
     setOfferNeighborhoodExpanded({});
-    setOfferResistanceExpanded({});
+    setResistanceExpanded({});
     pendingInspectorRevealRef.current = null;
     setCopiedId(null);
     copiedRef.current = null;
@@ -2925,73 +2956,40 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       </>
     );
   }
+  function renderResistance(kind: 'offer' | 'product', entityId: string, cards: ResistanceCard[]) {
+    const ownerKey = JSON.stringify([kind, entityId]);
+    return <ResistanceSection kind={kind} entityId={entityId} cards={cards} expanded={resistanceExpanded[ownerKey]}
+      onExpansionChange={snapshot => setResistanceExpanded(current => ({ ...current, [ownerKey]: snapshot }))} onNavigate={navigateInspector} />;
+  }
   function offerResistanceSection() {
     if (selected?.kind !== 'offer') return null;
     const impacts = resistanceImpactForOffer(document, selected.id);
-    const initialExpansion = initialCompactOverviewExpandedGroupIds(impacts.map(impact => ({ id: impact.repulsor.id, count: impact.grounds.length })));
-    const expansionSnapshot = offerResistanceExpanded[selected.id];
-    const isExpanded = (repulsorId: string) => expansionSnapshot?.[repulsorId] ?? (expansionSnapshot ? false : initialExpansion.has(repulsorId));
-    const toggleRepulsor = (repulsorId: string) => setOfferResistanceExpanded(current => {
-      const existing = current[selected.id];
-      const snapshot = existing ?? Object.fromEntries(impacts.map(impact => [impact.repulsor.id, initialExpansion.has(impact.repulsor.id)]));
-      return { ...current, [selected.id]: { ...snapshot, [repulsorId]: !(snapshot[repulsorId] ?? false) } };
-    });
-    return <section className="offer-resistance" aria-labelledby="offer-resistance-heading">
-      <div className="offer-resistance-heading"><h4 id="offer-resistance-heading">Resistance</h4><small className="inspector-derived-status">Derived</small></div>
-      {impacts.length ? <div className="offer-resistance-cards">{impacts.map(impact => {
-        const expanded = isExpanded(impact.repulsor.id);
-        const contentId = `offer-resistance-${encodeURIComponent(selected.id)}-${encodeURIComponent(impact.repulsor.id)}`;
-        return <div className="derived-neighborhood-slice offer-resistance-card" key={impact.repulsor.id}>
-          <div className="offer-resistance-card-header">
-            <button type="button" className="derived-neighborhood-disclosure" aria-label={`${expanded ? 'Collapse' : 'Expand'} grounds for ${impact.repulsor.title}`} aria-expanded={expanded} aria-controls={contentId} onClick={() => toggleRepulsor(impact.repulsor.id)}>
-              <span className="derived-neighborhood-chevron" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
-              <span className="derived-neighborhood-count">{impact.grounds.length}</span>
-            </button>
-            <button type="button" className="inspector-entity-navigation" onClick={() => navigateInspector(impact.repulsor.id)}>{impact.repulsor.title}</button>
-          </div>
-          <div className="derived-neighborhood-content" id={contentId} hidden={!expanded}>
-            {expanded && <ul className="offer-resistance-grounds">{impact.grounds.map(ground => {
-              const touchpointTitle = document.entities.find(entity => entity.id === ground.touchpointId)?.title;
-              const targetTitle = document.entities.find(entity => entity.id === ground.resistedTarget.entityId)?.title;
-              return <li className="offer-resistance-ground" key={`${ground.touchpointId}:${ground.resistedTarget.entityId}`}>
-                <span>via</span>
-                <button type="button" className="inspector-entity-navigation" onClick={() => navigateInspector(ground.touchpointId)}>{touchpointTitle}</button>
-                <span aria-hidden="true">→</span>
-                <span>{targetTitle}</span>
-                {ground.hasMitigationIntent && <small className="inspector-derived-status">Mitigation intent</small>}
-              </li>;
-            })}</ul>}
-          </div>
-        </div>;
-      })}</div> : <p className="touchpoint-resistance-empty">No relevant Repulsors.</p>}
-    </section>;
+    return renderResistance('offer', selected.id, impacts.map(impact => ({
+      repulsor: impact.repulsor, count: impact.grounds.length,
+      content: <ul className="resistance-grounds offer-resistance-grounds">{impact.grounds.map(ground => <li className="resistance-ground offer-resistance-ground" key={`${ground.touchpointId}:${ground.resistedTarget.entityId}`}>
+        <span>via</span><button type="button" className="inspector-entity-navigation" onClick={() => navigateInspector(ground.touchpointId)}>{document.entities.find(entity => entity.id === ground.touchpointId)?.title}</button>
+        <span aria-hidden="true">→</span><span>{document.entities.find(entity => entity.id === ground.resistedTarget.entityId)?.title}</span>
+        {ground.hasMitigationIntent && <small className="inspector-derived-status">Mitigation intent</small>}
+      </li>)}</ul>,
+    })));
   }
-  function resistanceImpactFields(entity: Entity) {
-    if (entity.kind === 'product') {
-      const impacts = resistanceImpactForProduct(document, entity.id);
-      return (
-        <section aria-label="Resistance affecting this Product">
-          <h4>Resistance affecting this Product</h4>
-          {impacts.length ? (
-            impacts.map((impact) => (
-              <div key={impact.repulsor.id}>
-                <strong>{impact.repulsor.title}</strong>
-                <ul>
-                  {impact.paths.map((path) => (
-                    <li key={`${path.offerId}:${path.touchpointId}`}>
-                      {document.entities.find((item) => item.id === path.offerId)?.title} → {document.entities.find((item) => item.id === path.touchpointId)?.title}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))
-          ) : (
-            <p>No derived resistance affects this Product.</p>
-          )}
-        </section>
-      );
-    }
-    return null;
+  function productResistanceSection() {
+    if (selected?.kind !== 'product') return null;
+    const exposures = resistanceExposureForProduct(document, selected.id);
+    return renderResistance('product', selected.id, exposures.map(exposure => ({
+      repulsor: exposure.repulsor, count: exposure.grounds.length,
+      content: <ul className="resistance-grounds">{exposure.grounds.map(ground => {
+        const jobTitle = document.entities.find(entity => entity.id === ground.resistedTarget.entityId)?.title;
+        return <li className="resistance-ground resistance-job-ground" key={ground.resistedTarget.entityId}>
+          <span>{jobTitle}</span>
+          {ground.manifestations.length > 0 && <ul className="resistance-grounds" aria-label={`Manifestations for ${jobTitle}`}>{ground.manifestations.map(manifestation => <li className="resistance-ground" key={JSON.stringify([manifestation.offerId, manifestation.touchpointId])}>
+            <span>via</span><button type="button" className="inspector-entity-navigation" onClick={() => navigateInspector(manifestation.offerId)}>{document.entities.find(entity => entity.id === manifestation.offerId)?.title}</button>
+            <span aria-hidden="true">→</span><button type="button" className="inspector-entity-navigation" onClick={() => navigateInspector(manifestation.touchpointId)}>{document.entities.find(entity => entity.id === manifestation.touchpointId)?.title}</button>
+            {manifestation.hasMitigationIntent && <small className="inspector-derived-status">Mitigation intent</small>}
+          </li>)}</ul>}
+        </li>;
+      })}</ul>,
+    })));
   }
   function repulsorTargetsField(d: EditDraft, setter: (d: EditDraft) => void) {
     if (d.kind !== 'repulsor') return null;
@@ -4840,7 +4838,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               {productDefinitionSection()}
               {productNeighborhoodSection()}
               {productClientIntentSection()}
-              {resistanceImpactFields(selected)}
+              {productResistanceSection()}
             </div>
           ) : selected && editDraft ? (
             <form
@@ -4904,7 +4902,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               {offerNeighborhoodSection()}
               {offerClientIntentSection()}
               {offerResistanceSection()}
-              {resistanceImpactFields(selected)}
               {semanticParentField(editDraft, setEditDraft)}
               {contextualJobFields(editDraft, setEditDraft)}
               {repulsorTargetsField(editDraft, setEditDraft)}
