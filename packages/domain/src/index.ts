@@ -1419,12 +1419,37 @@ export function duplicateEntityRelationshipIdCount(document: MapDocument, source
   throw new DomainError('unsupported_entity_kind', 'Source entity kind cannot be duplicated.');
 }
 
-export function duplicateEntity(document: MapDocument, input: { sourceEntityId: string; entityId: string; viewId: string; x: number; y: number; relationshipIds: string[]; offerContentBlockIds?: string[]; title?: string }): MapDocument {
+export function duplicateEntity(document: MapDocument, input: { sourceEntityId: string; entityId: string; viewId: string; x: number; y: number; relationshipIds: string[]; offerContentBlockIds?: string[]; productDefinitionBlockIds?: string[]; title?: string }): MapDocument {
   const source = document.entities.find(e => e.id === input.sourceEntityId); if (!source) throw new DomainError('unknown_entity', 'Source entity does not exist.');
   const title = input.title ?? source.title;
   if (source.kind === 'product') {
+    const sourceBlocks = source.definitionBlocks ?? [];
+    const suppliedBlockIds = input.productDefinitionBlockIds ?? [];
+    if (suppliedBlockIds.length !== sourceBlocks.length) throw new DomainError('invalid_product_definition_block_ids', 'Each duplicated Definition block requires one fresh ID.');
+    const blockIds = suppliedBlockIds.map(id => required(id, 'Definition block ID'));
+    unique(blockIds, 'duplicate_product_definition_block_id');
+    const occupiedBlockIds = new Set(document.entities.flatMap(entity => entity.kind === 'product' ? (entity.definitionBlocks ?? []).map(block => block.id) : []));
+    if (blockIds.some(id => occupiedBlockIds.has(id))) throw new DomainError('duplicate_product_definition_block_id', 'Definition block ID already exists.');
+    sourceBlocks.forEach(block => required(block.title, 'Definition block title'));
+    const intents = document.productJobIntents.filter(candidate => candidate.productId === source.id);
+    intents.forEach(intent => required(intent.id, 'Product Job Intent ID'));
+    if (intents.some(intent => document.productJobIntents.filter(record => record.id === intent.id).length !== 1)) throw new DomainError('duplicate_product_job_intent_id', 'Source Product Job Intent IDs must be unambiguous.');
+    if (input.relationshipIds.length < intents.length) throw new DomainError('invalid_product_job_intent_ids', 'Each duplicated Product Job Intent requires one fresh ID.');
+    const intentIds = input.relationshipIds.slice(0, intents.length).map(id => required(id, 'Product Job Intent ID'));
+    unique(intentIds, 'duplicate_product_job_intent_id');
+    if (intentIds.some(id => document.productJobIntents.some(intent => intent.id === id))) throw new DomainError('duplicate_product_job_intent_id', 'Product Job Intent ID already exists.');
     let copy = addEntity(document, { entityId: input.entityId, title, kind: source.kind, viewId: input.viewId, x: input.x, y: input.y });
-    for (const [index, intent] of document.productJobIntents.filter(candidate => candidate.productId === source.id).entries()) copy = addProductJobIntent(copy, { ...intent, id: input.relationshipIds[index]!, productId: input.entityId });
+    const createdProduct = entityOfKind(copy, input.entityId, 'product', 'Product') as Extract<Entity, { kind: 'product' }>;
+    copy = replaceProduct(copy, normalizeProductCurrentDefinitionSource({
+      ...createdProduct,
+      ...('definitionUrl' in source ? { definitionUrl: source.definitionUrl } : {}),
+      ...('definitionText' in source ? { definitionText: source.definitionText } : {}),
+      ...('definitionBlocks' in source ? { definitionBlocks: sourceBlocks.map((block, index) => ({ ...block, id: blockIds[index]! })) } : {}),
+      ...('currentDefinitionSource' in source ? { currentDefinitionSource: source.currentDefinitionSource } : {}),
+      ...('freeFormExternalCopyUrl' in source ? { freeFormExternalCopyUrl: source.freeFormExternalCopyUrl } : {}),
+      ...('structuredExternalCopyUrl' in source ? { structuredExternalCopyUrl: source.structuredExternalCopyUrl } : {}),
+    }));
+    for (const [index, intent] of intents.entries()) copy = addProductJobIntent(copy, { ...intent, id: intentIds[index]!, productId: input.entityId });
     return copy;
   }
   if (isClientRootEntityKind(source.kind)) {
