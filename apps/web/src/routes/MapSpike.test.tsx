@@ -3493,7 +3493,7 @@ describe('Offer Content Inspector', () => {
     expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === id)).toMatchObject({ freeFormExternalCopyUrl: 'https://example.test/navigation' });
   });
 
-  it('Product parity validates External copy, blocks editor/navigation transfer, and Escape restores only its action focus', async () => {
+  it.each([false, true])('Product parity validates External copy, blocks editor/navigation transfer, and Escape restores only its action focus (delayed Close focus=%s)', async delayedCloseFocus => {
     const user = userEvent.setup(); const inspector = renderProductInspector(productParityDocument(coexist)); const section = paritySection(inspector);
     await user.click(section.getByRole('button', { name: 'Edit link' }));
     await user.clear(section.getByRole('textbox')); await user.type(section.getByRole('textbox'), 'ftp://example.test/bad{Enter}');
@@ -3507,9 +3507,19 @@ describe('Offer Content Inspector', () => {
     expect(parityProduct()).toMatchObject(coexist);
     expect(section.queryByRole('alert')).not.toBeInTheDocument();
     await user.click(section.getByRole('button', { name: 'Edit Product Definition' }));
-    await user.click(section.getByRole('button', { name: 'Make Structured Definition current' })); await user.click(section.getByRole('button', { name: 'Close' }));
-    await user.click(section.getByRole('button', { name: 'Edit link' }));
-    expect(section.getByLabelText('External copy URL for Structured Definition')).toHaveValue(coexist.structuredExternalCopyUrl);
+    await user.click(section.getByRole('button', { name: 'Make Structured Definition current' }));
+    const pendingFrames: FrameRequestCallback[] = [];
+    const frame = delayedCloseFocus ? vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => { pendingFrames.push(callback); return pendingFrames.length; }) : undefined;
+    try {
+      await user.click(section.getByRole('button', { name: 'Close' }));
+      await user.click(section.getByRole('button', { name: 'Edit link' }));
+      expect(section.getByLabelText('External copy URL for Structured Definition')).toHaveFocus();
+      // A late Close callback must not blur and complete the newly opened copy editor.
+      act(() => { pendingFrames.splice(0).forEach(callback => callback(performance.now())); });
+      expect(section.getByLabelText('External copy URL for Structured Definition')).toHaveValue(coexist.structuredExternalCopyUrl);
+      expect(section.getByLabelText('External copy URL for Structured Definition')).toHaveFocus();
+    } finally { frame?.mockRestore(); }
+
     expect(section.queryByRole('alert')).not.toBeInTheDocument();
   });
 

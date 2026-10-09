@@ -1306,11 +1306,13 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   // Both authored-property editors suppress removal blur and return focus only
   // when explicit dismissal owns it; pointer/switch retain the new owner.
   function dismissAuthoredPropertyEditor(reason: OfferContentEditorCloseReason, dismissing: { current: boolean }, dismiss: () => void, restoreFocus: () => void) {
+    const departingFocus = globalThis.document.activeElement;
     dismissing.current = true;
     dismiss();
     requestAnimationFrame(() => {
       dismissing.current = false;
-      if (reason === 'explicit' || reason === 'escape') restoreFocus();
+      const focus = globalThis.document.activeElement;
+      if ((reason === 'explicit' || reason === 'escape') && (focus === departingFocus || focus === globalThis.document.body)) restoreFocus();
     });
     return true;
   }
