@@ -1023,7 +1023,9 @@ export interface OfferResistanceGround {
   hasMitigationIntent: boolean;
 }
 export interface OfferResistanceImpact { repulsor: Entity; grounds: OfferResistanceGround[] }
+export interface ProductResistanceManifestation { offerId: string; touchpointId: string; hasMitigationIntent: boolean }
 export interface ProductResistanceExposureGround {
+  manifestations: ProductResistanceManifestation[];
   resistedTarget: { entityId: string; kind: typeof PRODUCT_JOB_KINDS[number] };
 }
 export interface ProductResistanceExposure { repulsor: Entity; grounds: ProductResistanceExposureGround[] }
@@ -1039,6 +1041,29 @@ export function resistanceExposureForProduct(document: MapDocument, productId: s
     if (!job || !(PRODUCT_JOB_KINDS as readonly string[]).includes(job.kind)) continue;
     selectedJobs.set(job.id, { entityId: job.id, kind: job.kind as typeof PRODUCT_JOB_KINDS[number] });
   }
+  const pathsByJob = new Map<string, Map<string, { offerId: string; touchpointId: string }>>();
+  for (const selection of document.touchpointJobSelections) {
+    const intents = document.productJobIntents.filter(intent => intent.id === selection.productJobIntentId);
+    if (intents.length !== 1) continue;
+    const intent = intents[0]!;
+    if (intent.productId !== productId || !selectedJobs.has(intent.jobId)) continue;
+    if (entities.get(selection.offerId)?.kind !== 'offer' || entities.get(selection.touchpointId)?.kind !== 'touchpoint') continue;
+    const ownership = document.relationships.filter(relation => relation.kind === 'product_packaged_as_offer' && relation.offerId === selection.offerId);
+    if (ownership.length !== 1 || ownership[0]!.kind !== 'product_packaged_as_offer' || ownership[0]!.productId !== productId) continue;
+    const offerSelections = document.offerJobSelections.filter(candidate => candidate.offerId === selection.offerId && candidate.productJobIntentId === intent.id);
+    if (offerSelections.length !== 1) continue;
+    const offerSelection = offerSelections[0]!;
+    if (document.offerJobSelections.filter(candidate => candidate.id === offerSelection.id).length !== 1 || document.touchpointJobSelections.filter(candidate => candidate.id === selection.id).length !== 1) continue;
+    // Shared normalization is necessary, but Product encounter also requires a valid Product-owned route.
+    const outcomes = effectiveTouchpointOutcomes(document, selection);
+    if (outcomes === undefined) continue;
+    if (isDesiredOutcomeBearingJob(selectedJobs.get(intent.jobId)!.kind)) {
+      if (!outcomes.some(id => intent.addressedDesiredOutcomeIds.includes(id))) continue;
+    } else if (intent.addressedDesiredOutcomeIds.length || effectiveOfferDesiredOutcomeIds(document, offerSelection).length) continue;
+    const paths = pathsByJob.get(intent.jobId) ?? new Map<string, { offerId: string; touchpointId: string }>();
+    paths.set(JSON.stringify([selection.offerId, selection.touchpointId]), { offerId: selection.offerId, touchpointId: selection.touchpointId });
+    pathsByJob.set(intent.jobId, paths);
+  }
   const byRepulsor = new Map<string, { repulsor: Entity; grounds: Map<string, ProductResistanceExposureGround> }>();
   for (const relationship of document.relationships) {
     if (relationship.kind !== 'repulsor_resists') continue;
@@ -1046,13 +1071,22 @@ export function resistanceExposureForProduct(document: MapDocument, productId: s
     const repulsor = entities.get(relationship.repulsorId);
     if (!target || repulsor?.kind !== 'repulsor') continue;
     const exposure = byRepulsor.get(repulsor.id) ?? { repulsor, grounds: new Map<string, ProductResistanceExposureGround>() };
-    exposure.grounds.set(target.entityId, { resistedTarget: target });
+    exposure.grounds.set(target.entityId, {
+      resistedTarget: target,
+      manifestations: [...(pathsByJob.get(target.entityId)?.values() ?? [])].map(path => ({
+        ...path,
+        hasMitigationIntent: document.relationships.some(relation => relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === path.touchpointId && relation.repulsorId === repulsor.id),
+      })),
+    });
     byRepulsor.set(repulsor.id, exposure);
   }
   const compare = (left: Entity, right: Entity) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id);
   return [...byRepulsor.values()].sort((left, right) => compare(left.repulsor, right.repulsor)).map(exposure => ({
     repulsor: exposure.repulsor,
-    grounds: [...exposure.grounds.values()].sort((left, right) => compare(entities.get(left.resistedTarget.entityId)!, entities.get(right.resistedTarget.entityId)!)),
+    grounds: [...exposure.grounds.values()].sort((left, right) => compare(entities.get(left.resistedTarget.entityId)!, entities.get(right.resistedTarget.entityId)!)).map(ground => ({
+      ...ground,
+      manifestations: ground.manifestations.sort((left, right) => compare(entities.get(left.offerId)!, entities.get(right.offerId)!) || compare(entities.get(left.touchpointId)!, entities.get(right.touchpointId)!)),
+    })),
   }));
 }
 
