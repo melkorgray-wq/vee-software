@@ -33,7 +33,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .map-disclosure-layer { position: absolute; z-index: 40; inset: 0; pointer-events: none; }
 .empty-state { position: absolute; z-index: 5; max-width: 25rem; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 1.5rem; text-align: center; background: var(--surface-solid-2); border: 1px solid var(--border-soft); }
 .inspector { min-width: 0; min-height: calc(100vh - 12rem); margin: 0; border: 1px solid var(--border-subtle); background: var(--surface-1); padding: clamp(.75rem, 2vw, 1.5rem); }
-.inspector > form, .inspector > p, .inspector-header, .inspector-empty-state { width: 100%; max-width: 72rem; margin-left: auto; margin-right: auto; }
+.inspector > form, .inspector > .inspector-document-content, .inspector > p, .inspector-header, .inspector-empty-state { width: 100%; max-width: 72rem; margin-left: auto; margin-right: auto; }
 .inspector-empty-state { padding: 3rem 1rem; text-align: center; }
 .inspector-empty-state > .actions { justify-content: center; }
 .visually-hidden { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important; }
@@ -286,7 +286,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .kind-shortcut-heading { display: grid; justify-items: start; gap: .25rem; }
 .intent-discovery-leaf { display: block; width: 100%; padding: .35rem .5rem; text-align: left; }
 .intent-source-block button:focus-visible, .intent-checkbox input:focus-visible, .intent-discovery-leaf:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
-.inspector form { display: grid; gap: 1rem; }
+.inspector form, .inspector-document-content { display: grid; gap: 1rem; }
 .inspector label { display: grid; gap: .4rem; font-weight: 650; }
 .inspector label span { font-weight: 400; color: rgba(255,255,255,.65); }
 .inspector input, .inspector select, .inspector textarea { width: 100%; min-width: 0; border: 1px solid var(--border-subtle); border-radius: .25rem; padding: .65rem; color: var(--color-foreground); background: var(--surface-solid-2); }

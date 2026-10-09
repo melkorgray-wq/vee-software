@@ -2,7 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useReducer, useRef, useState, typ
 import { createPortal } from 'react-dom';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { CLIENT_ROOT_ENTITY_KINDS, DomainError, applyProductClientIntentCommand, type ProductClientIntentCommand, type ProductClientIntentCommandImpact, addEntity, addOfferContentBlock, addProductDefinitionBlock, addProductJobIntent, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, offerContentSourceState, offerContentWholeText, productDefinitionSourceState, productDefinitionWholeText, setProductCurrentDefinitionSource, setProductDefinitionExternalCopyUrl, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, removeOfferContentBlock, removeProductDefinitionBlock, reorderOfferContentBlocks, reorderProductDefinitionBlocks, resistanceImpactForOffer, resistanceImpactForProduct, removeProductJobIntent, setContextualCoreFunctionalJobs, setOfferContentExternalCopyUrl, setOfferCurrentContentSource, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateOfferContent, updateOfferContentBlock, updateProductDefinitionBlock, updateProductDefinition, updateProductJobIntent, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type OfferCurrentContentSource, type ProductCurrentDefinitionSource, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
+import { CLIENT_ROOT_ENTITY_KINDS, DomainError, applyProductClientIntentCommand, type ProductClientIntentCommand, type ProductClientIntentCommandImpact, addEntity, addOfferContentBlock, addProductDefinitionBlock, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, offerContentSourceState, offerContentWholeText, productDefinitionSourceState, productDefinitionWholeText, setProductCurrentDefinitionSource, setProductDefinitionExternalCopyUrl, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, removeOfferContentBlock, removeProductDefinitionBlock, reorderOfferContentBlocks, reorderProductDefinitionBlocks, resistanceImpactForOffer, resistanceImpactForProduct, setContextualCoreFunctionalJobs, setOfferContentExternalCopyUrl, setOfferCurrentContentSource, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateOfferContent, updateOfferContentBlock, updateProductDefinitionBlock, updateProductDefinition, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type OfferCurrentContentSource, type ProductCurrentDefinitionSource, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, disclosureOverlayPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction, type Point, type WorkspaceShortcutState } from '../map-interaction';
@@ -323,8 +323,6 @@ type EditDraft = {
   kind: ProvisionalEntityKind;
   linkedProductId: string;
   linkedOfferIds: string[];
-  productIntentOutcomes: Record<string, string[]>;
-  stagedClientEntities: { id: string; kind: 'core_functional_job' | 'emotional_job' | 'social_job' | 'consumption_chain_job' | 'desired_outcome'; title: string; parentEntityId?: string }[];
   locatedInId: string;
   locatedInQuery: string;
   locationDraft: LocationDraft;
@@ -369,8 +367,6 @@ type EntityContextCommand = { id: EntityContextCommandId; label: string; shortcu
 type EntityContextCommandGroup = { id: string; heading: string; commands: EntityContextCommand[] };
 type ProductConfirmation =
   | { mode: 'impact'; owner: 'product-client-intent'; productId: string; command: ProductClientIntentCommand; immediateCommit: () => boolean; returnFocus: HTMLElement | null; returnFocusId: string; impact: ProductClientIntentCommandImpact }
-  | { mode: 'dirty'; pending: () => void; returnFocus: HTMLElement | null }
-  | { mode: 'impact'; owner: 'product'; pending?: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getProductIntentChangeImpact> }
   | { mode: 'impact'; owner: 'offer-product'; immediateCommit: () => void; returnFocus: HTMLElement | null; returnFocusId?: string; focusAfterCommitId?: string; impact: ReturnType<typeof getOfferIntentChangeImpact> }
   | { mode: 'impact'; owner: 'offer-financial'; immediateCommit: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getOfferIntentChangeImpact> }
   | { mode: 'impact'; owner: 'offer-job'; immediateCommit: () => void; returnFocus: HTMLElement | null; impact: ReturnType<typeof getOfferIntentChangeImpact> }
@@ -416,8 +412,6 @@ const draft = (kind: ProvisionalEntityKind = 'product'): EditDraft => ({
   kind,
   linkedProductId: '',
   linkedOfferIds: [],
-  productIntentOutcomes: {},
-  stagedClientEntities: [],
   locatedInId: '',
   locatedInQuery: '',
   locationDraft: { kind: 'none' },
@@ -905,7 +899,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const connectedTouchpointsButtonRef = useRef<HTMLButtonElement>(null);
   const connectedTouchpointsEditorRef = useRef<HTMLDivElement>(null);
   const [businessInlineEdit, setBusinessInlineEdit] = useState<{ property: 'url'; value: string; error?: string } | { property: 'located-in'; query: string; error?: string } | null>(null);
-  const [productExpanded, setProductExpanded] = useState<Record<string, boolean>>({});
   const [neighborhoodExpanded, setNeighborhoodExpanded] = useState<Record<string, Record<string, boolean>>>({});
   const [productNeighborhoodExpanded, setProductNeighborhoodExpanded] = useState<Record<string, Record<string, boolean>>>({});
   const [offerNeighborhoodExpanded, setOfferNeighborhoodExpanded] = useState<Record<string, Record<string, boolean>>>({});
@@ -926,16 +919,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const pendingLocalFocusIdsRef = useRef<string[]>([]);
   const connectionPickerButtonRef = useRef<HTMLButtonElement>(null);
   const clientScopeEditorRef = useRef<HTMLElement>(null);
-  const [productIntentSectionIds, setProductIntentSectionIds] = useState<string[]>([]);
-  const [rememberedProductOutcomes, setRememberedProductOutcomes] = useState<Record<string, string[]>>({});
-  const rememberedProductOutcomesRef = useRef<Record<string, string[]>>({});
   const [productConfirmation, setProductConfirmation] = useState<ProductConfirmation | null>(null);
   const confirmationRef = useRef<HTMLDivElement>(null);
-  const productApplyBypassRef = useRef(false);
-  const pendingAfterApplyRef = useRef<(() => void) | null>(null);
-  const [productAddingKind, setProductAddingKind] = useState(false);
-  const [productInline, setProductInline] = useState<{ kind: 'job'; entityKind: 'core_functional_job' | 'emotional_job' | 'social_job' | 'consumption_chain_job' } | { kind: 'outcome'; jobId: string } | null>(null);
-  const [productInlineTitle, setProductInlineTitle] = useState('');
   const [menu, setMenu] = useState<Menu | null>(null);
   const [inlineEdit, setInlineEdit] = useState<{ entityId: string; title: string } | null>(null);
   const [inspectorTitleEdit, setInspectorTitleEdit] = useState<{ entityId: string; title: string } | null>(null);
@@ -1021,10 +1006,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   const [expandedProductIntentPanels, setExpandedProductIntentPanels] = useState<Record<string, Record<string, boolean>>>({});
   const productIntentEditorRef = useRef<HTMLElement>(null);
   const productIntentHeadingRef = useRef<HTMLButtonElement>(null);
-  const inspectorDirty = Boolean(selected && selected.kind !== 'offer' && editDraft && (() => {
+  const inspectorDirty = Boolean(selected && selected.kind !== 'offer' && selected.kind !== 'product' && editDraft && (() => {
     const baseline = draftFor(selected);
-    const comparableDraft = { ...editDraft, touchpointIntent: undefined, ...(selected.kind === 'product' ? { productIntentOutcomes: undefined, stagedClientEntities: undefined } : {}) };
-    const comparableBaseline = { ...baseline, touchpointIntent: undefined, ...(selected.kind === 'product' ? { productIntentOutcomes: undefined, stagedClientEntities: undefined } : {}) };
+    const comparableDraft = { ...editDraft, touchpointIntent: undefined };
+    const comparableBaseline = { ...baseline, touchpointIntent: undefined };
     return JSON.stringify(comparableDraft) !== JSON.stringify(comparableBaseline) || Boolean(editDraft.touchpointIntent && baseline.touchpointIntent && !equalTouchpointIntentDraft(editDraft.touchpointIntent, baseline.touchpointIntent));
   })());
 
@@ -1074,20 +1059,11 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setMoveMode(neutralMoveMode);
     moveModeRef.current = neutralMoveMode;
     setProductConfirmation(null);
-    setProductAddingKind(false);
-    setProductInline(null);
-    setProductInlineTitle('');
-    setProductExpanded({});
     setNeighborhoodExpanded({});
     setProductNeighborhoodExpanded({});
     setOfferNeighborhoodExpanded({});
     setOfferResistanceExpanded({});
-    setProductIntentSectionIds([]);
-    setRememberedProductOutcomes({});
-    rememberedProductOutcomesRef.current = {};
     pendingInspectorRevealRef.current = null;
-    pendingAfterApplyRef.current = null;
-    productApplyBypassRef.current = false;
     setCopiedId(null);
     copiedRef.current = null;
     setMessage(null);
@@ -1330,11 +1306,13 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   // Both authored-property editors suppress removal blur and return focus only
   // when explicit dismissal owns it; pointer/switch retain the new owner.
   function dismissAuthoredPropertyEditor(reason: OfferContentEditorCloseReason, dismissing: { current: boolean }, dismiss: () => void, restoreFocus: () => void) {
+    const departingFocus = globalThis.document.activeElement;
     dismissing.current = true;
     dismiss();
     requestAnimationFrame(() => {
       dismissing.current = false;
-      if (reason === 'explicit' || reason === 'escape') restoreFocus();
+      const focus = globalThis.document.activeElement;
+      if ((reason === 'explicit' || reason === 'escape') && (focus === departingFocus || focus === globalThis.document.body)) restoreFocus();
     });
     return true;
   }
@@ -1872,7 +1850,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   function draftFor(entity: Entity, source = document): EditDraft {
     const result = draft(entity.kind);
     result.title = entity.title;
-    if (entity.kind === 'product') for (const intent of source.productJobIntents.filter((candidate) => candidate.productId === entity.id)) result.productIntentOutcomes[intent.jobId] = [...intent.addressedDesiredOutcomeIds];
     if (entity.kind === 'offer') {
       result.financialOutcomeIds = source.offerFinancialIntents.filter((intent) => intent.offerId === entity.id).map((intent) => intent.financialDesiredOutcomeId);
       result.linkedProductId = source.relationships.find((r): r is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => r.kind === 'product_packaged_as_offer' && r.offerId === entity.id)?.productId ?? '';
@@ -2271,26 +2248,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     closeRelationEditor('commit');
     publishSuccess('Parent Touchpoint updated.');
   }
-  function resetProductSession(entity: Entity | undefined, source = document) {
-    setProductExpanded({});
-    rememberedProductOutcomesRef.current = {};
-    setRememberedProductOutcomes({});
-    setProductAddingKind(false);
-    setProductInline(null);
-    setProductInlineTitle('');
-    setProductIntentSectionIds(entity?.kind === 'product' ? source.productJobIntents.filter(intent => intent.productId === entity.id).map(intent => intent.jobId) : []);
-  }
-  function guardsDirtySession(entity: Entity | undefined): boolean {
-    return Boolean(entity?.kind === 'product' && inspectorDirty);
-  }
-  function discardDirtySession(pending: () => void) {
-    const durable = documentRef.current;
-    const entity = durable.entities.find(candidate => candidate.id === selectedRef.current);
-    setProductConfirmation(null);
-    setEditDraft(entity ? draftFor(entity, durable) : null);
-    resetProductSession(entity, durable);
-    pending();
-  }
   function performSelect(id: string | null) {
     if (!closeAuthoredPropertyEditors('switch-editor')) return false;
     closeProductIntentEditor('switch-editor');
@@ -2313,8 +2270,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const entity = documentRef.current.entities.find((e) => e.id === id);
     authoredRead.snapshotRef.current = null;
     authoredRead.setExpandedKey(null);
-    setEditDraft(entity ? draftFor(entity, documentRef.current) : null);
-    resetProductSession(entity, documentRef.current);
+    setEditDraft(entity && entity.kind !== 'product' ? draftFor(entity, documentRef.current) : null);
     return true;
   }
   function selectFromMap(id: string | null, continuation?: () => void) {
@@ -2331,10 +2287,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       dispatchInspectorHistory({ type: 'start', entityId: id });
       continuation?.();
     };
-    if (guardsDirtySession(selected)) {
-      setProductConfirmation({ mode: 'dirty', pending, returnFocus: globalThis.document.activeElement as HTMLElement | null });
-      return;
-    }
     pending();
   }
   function performInspectorNavigation(id: string, history = inspectorHistory, push = true) {
@@ -2349,10 +2301,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     if (id === selectedRef.current) return;
     if (!closeProductDefinitionEditor('switch-editor')) return;
     const pending = () => performInspectorNavigation(id);
-    if (guardsDirtySession(selected)) {
-      setProductConfirmation({ mode: 'dirty', pending, returnFocus: globalThis.document.activeElement as HTMLElement | null });
-      return;
-    }
     pending();
   }
   function traverseInspector(direction: 'back' | 'forward') {
@@ -2362,10 +2310,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     if (!result) return;
     if (!closeProductDefinitionEditor('switch-editor')) return;
     const pending = () => performInspectorNavigation(result.targetId, result.history, false);
-    if (guardsDirtySession(selected)) {
-      setProductConfirmation({ mode: 'dirty', pending, returnFocus: globalThis.document.activeElement as HTMLElement | null });
-      return;
-    }
     pending();
   }
   function focusEntity(id: string) {
@@ -2388,7 +2332,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       try {
         const next = updateDurableEntityTitle(documentRef.current, entity.id, commitTitle);
         setDocument(next);
-        setEditDraft(draftFor(next.entities.find((candidate) => candidate.id === entity.id)!, next));
+        setEditDraft(entity.kind === 'product' ? null : draftFor(next.entities.find((candidate) => candidate.id === entity.id)!, next));
         publishSuccess('Title updated.');
       } catch (error) {
         publishError(error instanceof Error ? error.message : 'Title could not be updated.');
@@ -2587,27 +2531,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setMenu({ type: 'node', invocation: 'keyboard', entityId, client, overlay: { x: 0, y: 0 }, positioned: false });
     clearMessage();
   }
-  // Legacy owner retained until checkpoint 5; the migrated Client intent surface never calls it.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  function applyProductIntentDraft(current: MapDocument, productId: string, values: Record<string, string[]>) {
-    let next = current;
-    for (const intent of current.productJobIntents.filter((candidate) => candidate.productId === productId)) if (!(intent.jobId in values)) next = removeProductJobIntent(next, intent.id);
-    for (const [jobId, addressedDesiredOutcomeIds] of Object.entries(values)) {
-      const existing = next.productJobIntents.find((intent) => intent.productId === productId && intent.jobId === jobId);
-      next = existing
-        ? updateProductJobIntent(next, {
-            ...existing,
-            addressedDesiredOutcomeIds,
-          })
-        : addProductJobIntent(next, {
-            id: crypto.randomUUID(),
-            productId,
-            jobId,
-            addressedDesiredOutcomeIds,
-          });
-    }
-    return next;
-  }
   function createFrom(d: EditDraft, x: number, y: number): [MapDocument, string] {
     const current = document;
     const entityId = crypto.randomUUID();
@@ -2661,7 +2584,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       selectedRef.current = id;
       dispatchInspectorHistory({ type: 'start', entityId: id });
       const created = next.entities.find((e) => e.id === id)!;
-      setEditDraft(draftFor(created, next));
+      setEditDraft(created.kind === 'product' ? null : draftFor(created, next));
       setQuick(null);
       setMode('idle');
       activateWorkspaceView(continuation, id);
@@ -2725,7 +2648,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       setSelectedId(targetId);
       selectedRef.current = targetId;
       dispatchInspectorHistory({ type: 'start', entityId: targetId });
-      setEditDraft(draftFor(next.entities.find((entity) => entity.id === targetId)!, next));
+      const inspected = next.entities.find((entity) => entity.id === targetId)!;
+      setEditDraft(inspected.kind === 'product' ? null : draftFor(inspected, next));
       setMode('idle');
       activateWorkspaceView('inspector', targetId);
       revealIds.push(targetId);
@@ -2777,15 +2701,11 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     }
   }
   function duplicate(id: string) {
+    if (productConfirmation?.owner === 'product-client-intent') return;
     if (!closeAuthoredPropertyEditors('switch-editor')) return;
     closeProductIntentEditor('switch-editor');
     closeOfferIntentEditor('switch-editor');
     const pending = () => commitDuplicate(id);
-    const selectedEntity = documentRef.current.entities.find(entity => entity.id === selectedRef.current);
-    if (guardsDirtySession(selectedEntity)) {
-      setProductConfirmation({ mode: 'dirty', pending, returnFocus: globalThis.document.activeElement as HTMLElement | null });
-      return;
-    }
     pending();
   }
 
@@ -2826,24 +2746,22 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         }
         const shortcutState: WorkspaceShortcutState = productConfirmation?.mode === 'impact'
           ? 'impact-confirmation'
-          : quick || inlineEdit || productInline || productAddingKind ? 'inline-edit'
+          : quick || inlineEdit || productIntentCreateRef.current ? 'inline-edit'
             : mode === 'create' ? 'create-draft'
-              : guardsDirtySession(selected) ? 'dirty-inspector'
-                : menu ? 'dismissible-menu' : 'node';
+              : menu ? 'dismissible-menu' : 'node';
         const action = workspaceShortcutAction(shortcutState, isEditableControl(event.target));
-        if (action === 'ignore') return;
+        if (action === 'ignore') {
+          if (productIntentCreateRef.current) event.preventDefault();
+          return;
+        }
         event.preventDefault();
         const destination = activeWorkspaceViewRef.current === 'map' ? 'inspector' : 'map';
         const switchWorkspace = () => {
-          activateWorkspaceView(destination);
+          if (!activateWorkspaceView(destination)) return;
           requestAnimationFrame(() => globalThis.document.getElementById(`${destination}-workspace-tab`)?.focus());
         };
         if (action === 'dismiss-and-switch') setMenu(null);
-        if (action === 'confirm') {
-          setProductConfirmation({ mode: 'dirty', pending: switchWorkspace, returnFocus: globalThis.document.activeElement as HTMLElement | null });
-        } else {
-          switchWorkspace();
-        }
+        switchWorkspace();
         return;
       }
       if (isEditableControl(event.target) || isKeyboardOwnedControl(event.target)) return;
@@ -2932,15 +2850,14 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       requestAnimationFrame(() => revealEntities(documentRef.current, ids));
     }
   }
-  function activateWorkspaceView(view: WorkspaceView, inspectorRootId: string | null = selectedRef.current) {
-    if (view === activeWorkspaceViewRef.current) return;
-    if (!closeProductDefinitionEditor('switch-editor')) return;
+  function activateWorkspaceView(view: WorkspaceView, inspectorRootId: string | null = selectedRef.current): boolean {
+    if (productConfirmation?.owner === 'product-client-intent') return false;
+    if (view === activeWorkspaceViewRef.current) return false;
+    if (!(selected?.kind === 'product' ? closeAuthoredPropertyEditors('switch-editor') : closeProductDefinitionEditor('switch-editor'))) return false;
+    if (selected?.kind === 'product') closeProductIntentEditor('switch-editor');
     const pending = () => performWorkspaceTransition(view, inspectorRootId);
-    if (activeWorkspaceViewRef.current === 'inspector' && view === 'map' && guardsDirtySession(selected)) {
-      setProductConfirmation({ mode: 'dirty', pending, returnFocus: globalThis.document.activeElement as HTMLElement | null });
-      return;
-    }
     pending();
+    return true;
   }
   function performRootCreation() {
     if (!closeAuthoredPropertyEditors('switch-editor')) return;
@@ -2953,23 +2870,19 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     setConnectedTouchpointsEditor(null);
     setConnectionPicker(null);
     setCreateDraft(draft());
-    resetProductSession(undefined);
     // Creation is an Inspector-owned empty draft, not an entity-history session.
     dispatchInspectorHistory({ type: 'start', entityId: null });
     performWorkspaceTransition('inspector', null);
   }
   function startRootCreation() {
-    if (guardsDirtySession(selected)) {
-      setProductConfirmation({ mode: 'dirty', pending: performRootCreation, returnFocus: globalThis.document.activeElement as HTMLElement | null });
-      return;
-    }
+    if (productConfirmation?.owner === 'product-client-intent') return;
     performRootCreation();
   }
   function handleTabKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
     const view: WorkspaceView = event.key === 'ArrowLeft' || event.key === 'Home' ? 'map' : 'inspector';
-    activateWorkspaceView(view);
+    if (!activateWorkspaceView(view)) return;
     globalThis.document.getElementById(`${view}-workspace-tab`)?.focus();
   }
   function containerChange(setter: (d: EditDraft) => void, d: EditDraft, selection: LocationDraft, query: string) {
@@ -3339,72 +3252,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       </fieldset>
     );
   }
-  // Legacy owner retained until checkpoint 5; the migrated Client intent surface never calls it.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  function productIntentFields(d: EditDraft, setter: (d: EditDraft) => void) {
-    if (d.kind !== 'product') return null;
-    const expanded = productExpanded, setExpanded = setProductExpanded;
-    const addingKind = productAddingKind, setAddingKind = setProductAddingKind;
-    const inline = productInline, setInline = setProductInline;
-    const inlineTitle = productInlineTitle, setInlineTitle = setProductInlineTitle;
-    const staged = d.stagedClientEntities;
-    const jobs = [...document.entities, ...staged].filter((entity) => ['core_functional_job', 'related_job', 'emotional_job', 'social_job', 'consumption_chain_job'].includes(entity.kind));
-    const update = (values: Record<string, string[]>, stagedClientEntities = staged) => setter({ ...d, productIntentOutcomes: values, stagedClientEntities });
-    const toggleJob = (jobId: string, checked: boolean) => {
-      const values = { ...d.productIntentOutcomes };
-      const isStaged = staged.some(entity => entity.id === jobId);
-      if (checked) values[jobId] = isStaged ? (values[jobId] ?? []) : (rememberedProductOutcomesRef.current[jobId] ?? rememberedProductOutcomes[jobId] ?? values[jobId] ?? []);
-      else {
-        if (!isStaged) {
-          const remembered = [...(values[jobId] ?? [])];
-          rememberedProductOutcomesRef.current = { ...rememberedProductOutcomesRef.current, [jobId]: remembered };
-          setRememberedProductOutcomes(current => ({ ...current, [jobId]: remembered }));
-        }
-        delete values[jobId];
-      }
-      update(values, checked ? staged : staged.filter(entity => entity.id !== jobId && entity.parentEntityId !== jobId));
-    };
-    const toggleOutcome = (jobId: string, outcomeId: string, checked: boolean) => {
-      const values = { ...d.productIntentOutcomes };
-      const current = values[jobId] ?? [];
-      values[jobId] = checked ? [...new Set([...current, outcomeId])] : current.filter(id => id !== outcomeId);
-      update(values, checked ? staged : staged.filter(entity => entity.id !== outcomeId));
-    };
-    const finishInline = () => {
-      const title = inlineTitle.trim();
-      if (!inline || !title) return;
-      const id = crypto.randomUUID();
-      if (inline.kind === 'job') update({ ...d.productIntentOutcomes, [id]: [] }, [...staged, { id, kind: inline.entityKind, title }]);
-      else update({ ...d.productIntentOutcomes, [inline.jobId]: [...new Set([...(d.productIntentOutcomes[inline.jobId] ?? []), id])] }, [...staged, { id, kind: 'desired_outcome', title, parentEntityId: inline.jobId }]);
-      setExpanded(current => inline.kind === 'outcome' ? { ...current, [inline.jobId]: true } : current);
-      setInline(null); setInlineTitle(''); setAddingKind(false);
-    };
-    const renderJob = (job: (typeof jobs)[number]) => {
-      const selected = job.id in d.productIntentOutcomes;
-      const bearsOutcomes = job.kind === 'core_functional_job' || job.kind === 'related_job' || job.kind === 'consumption_chain_job';
-      const outcomes = bearsOutcomes ? [...document.relationships.flatMap(relation => relation.kind === 'job_has_desired_outcome' && relation.jobId === job.id ? document.entities.filter(entity => entity.id === relation.desiredOutcomeId) : []), ...staged.filter(entity => entity.kind === 'desired_outcome' && entity.parentEntityId === job.id)] : [];
-      const relatedParent = job.kind === 'related_job' ? document.relationships.find((relation): relation is Extract<Relationship, { kind: 'core_functional_job_has_related_job' }> => relation.kind === 'core_functional_job_has_related_job' && relation.relatedJobId === job.id) : undefined;
-      const relatedParentTitle = document.entities.find(entity => entity.id === relatedParent?.coreFunctionalJobId)?.title;
-      return <div className={`intent-job ${selected ? 'selected' : ''}`} key={job.id}>
-        <div className="intent-job-heading">
-          {bearsOutcomes ? <button type="button" className="disclosure" aria-label={`${expanded[job.id] ? 'Collapse' : 'Expand'} ${job.title}`} aria-expanded={Boolean(expanded[job.id])} onClick={() => setExpanded(current => ({ ...current, [job.id]: !current[job.id] }))}>{expanded[job.id] ? '▾' : '▸'}</button> : <span className="disclosure-placeholder" />}
-          <label className="intent-selection"><input type="checkbox" checked={selected} onChange={event => toggleJob(job.id, event.target.checked)} /><span><strong>{job.title}</strong><small>{KIND_LABELS[job.kind]}</small>{relatedParentTitle && <small className="related-context">Related to: {relatedParentTitle}</small>}</span></label>
-        </div>
-        {bearsOutcomes && expanded[job.id] && <div className="intent-branches">
-          {outcomes.map(outcome => <label className="checkbox intent-outcome" key={outcome.id}><input type="checkbox" checked={(d.productIntentOutcomes[job.id] ?? []).includes(outcome.id)} onChange={event => toggleOutcome(job.id, outcome.id, event.target.checked)} />{outcome.title}</label>)}
-          {selected && !(d.productIntentOutcomes[job.id]?.length) && <span className="unfinished-branch">Desired Outcome not described yet</span>}
-          {inline?.kind === 'outcome' && inline.jobId === job.id ? <input autoFocus aria-label="New Desired Outcome title" value={inlineTitle} onChange={event => setInlineTitle(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); finishInline(); } if (event.key === 'Escape') { event.preventDefault(); setInline(null); setInlineTitle(''); } }} /> : <button type="button" className="text-action" onClick={() => { setInline({ kind: 'outcome', jobId: job.id }); setInlineTitle(''); }}>+ Add Desired Outcome</button>}
-        </div>}
-      </div>;
-    };
-    const selectedJobs = jobs.filter(job => productIntentSectionIds.includes(job.id) || staged.some(entity => entity.id === job.id));
-    const availableJobs = jobs.filter(job => !productIntentSectionIds.includes(job.id) && !staged.some(entity => entity.id === job.id));
-    return <fieldset className="client-intent"><legend>Client intent</legend>
-      <h4>Product intent</h4>{selectedJobs.length ? selectedJobs.map(renderJob) : <p className="immutable-note">No Client Jobs selected.</p>}
-      <h4>Other Client Jobs</h4>{availableJobs.map(renderJob)}
-      {inline?.kind === 'job' ? <input autoFocus aria-label="New Client Job title" value={inlineTitle} onChange={event => setInlineTitle(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); finishInline(); } if (event.key === 'Escape') { event.preventDefault(); setInline(null); setInlineTitle(''); } }} /> : addingKind ? <div className="choice-row" role="group" aria-label="Client Job kind">{(['core_functional_job','emotional_job','social_job','consumption_chain_job'] as const).map(kind => <button type="button" key={kind} onClick={() => { setInline({ kind: 'job', entityKind: kind }); setInlineTitle(''); }}>{KIND_LABELS[kind]}</button>)}<button type="button" onClick={() => setAddingKind(false)}>Cancel</button></div> : <button type="button" className="text-action" onClick={() => setAddingKind(true)}>+ Add Client Job</button>}
-    </fieldset>;
-  }
   function offerIntentFields(d: EditDraft) {
     if (d.kind !== 'offer' || !selected || selected.kind !== 'offer') return null;
     const state = offerIntentDiscoveryState[selected.id] ?? { query: '' };
@@ -3486,8 +3333,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       }
       documentRef.current = result.document;
       setDocument(result.document);
-      const mirror = Object.fromEntries(result.document.productJobIntents.filter(intent => intent.productId === productId).map(intent => [intent.jobId, [...intent.addressedDesiredOutcomeIds]]));
-      setEditDraft(current => current?.kind === 'product' && selectedRef.current === productId ? { ...current, productIntentOutcomes: mirror } : current);
       setProductIntentError(null);
       return true;
     } catch (error) {
@@ -4896,12 +4741,12 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         <section id="inspector-workspace-panel" role="tabpanel" aria-labelledby="inspector-workspace-tab" className="inspector" hidden={activeWorkspaceView !== 'inspector'}>
           <header className="inspector-header">
             <h2 id="inspector-title" className="visually-hidden">Entity Inspector</h2>
-            {mode !== 'create' && selected && editDraft && <div className="inspector-identity">
+            {mode !== 'create' && selected && <div className="inspector-identity">
               <h3 aria-label={selected.title}>{inspectorTitleEdit?.entityId === selected.id
                 ? <InlineTitleEditor title={inspectorTitleEdit.title} onCommit={title => finishInspectorTitleEdit(title)} onCancel={() => finishInspectorTitleEdit(false)} className="inline-inspector-title" accessibleLabel={`Edit title, ${inspectorTitleEdit.title}`} stopPointerEvents={false} autoSize />
                 : <button ref={inspectorTitleButtonRef} type="button" className="inspector-title-button" aria-label={`Edit title, ${selected.title}`} onClick={startInspectorTitleEdit}>{selected.title}</button>}
               </h3>
-              <p>{KIND_LABELS[selected.kind]} · {editDraft.side === 'business' ? 'Business side' : 'Client side'} <span className="immutable-note">(type and side cannot be changed)</span></p>
+              <p>{KIND_LABELS[selected.kind]} · {draft(selected.kind).side === 'business' ? 'Business side' : 'Client side'} <span className="immutable-note">(type and side cannot be changed)</span></p>
               {selected.kind === 'touchpoint' && touchpointBusinessStructure?.ancestryBranches.length ? <ul className="inspector-business-lineage" aria-label="Business lineage">
                 {touchpointBusinessStructure.ancestryBranches.map(branch => <li aria-label={`${branch.product.title} to ${branch.offer.title}`} key={`${branch.product.id}:${branch.offer.id}`}>
                   <button type="button" onClick={() => navigateInspector(branch.product.id)}>{branch.product.title}</button>
@@ -4989,6 +4834,14 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                 </button>
               </div>
             </form>
+          ) : selected?.kind === 'product' ? (
+            <div className="inspector-document-content">
+              {productBusinessStructureSection()}
+              {productDefinitionSection()}
+              {productNeighborhoodSection()}
+              {productClientIntentSection()}
+              {resistanceImpactFields(selected)}
+            </div>
           ) : selected && editDraft ? (
             <form
               onSubmit={(e: FormEvent) => {
@@ -5037,26 +4890,18 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
                   setDocument(next);
                   const appliedEntity = next.entities.find(entity => entity.id === selected.id)!;
                   setEditDraft(draftFor(appliedEntity, next));
-                  resetProductSession(appliedEntity, next);
                   publishSuccess('Changes applied.');
-                  const pending = pendingAfterApplyRef.current;
-                  pendingAfterApplyRef.current = null;
-                  pending?.();
                 } catch (error) {
                   publishError(error instanceof Error ? error.message : 'Changes could not be applied.');
                 }
               }}
             >
-              {productBusinessStructureSection()}
-              {productDefinitionSection()}
-              {productNeighborhoodSection()}
               {touchpointBusinessStructureSection()}
               {touchpointClientScopeSection()}
               {touchpointResistanceSection()}
               {offerBusinessStructureSection()}
               {offerContentSection()}
               {offerNeighborhoodSection()}
-              {productClientIntentSection()}
               {offerClientIntentSection()}
               {offerResistanceSection()}
               {resistanceImpactFields(selected)}
@@ -5097,11 +4942,11 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             }
             if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeProductConfirmation(); }
           }}>
-            <h2 id="product-confirmation-title">{productConfirmation.mode === 'dirty' ? 'Unsaved Product changes' : productConfirmation.owner === 'touchpoint-replacement' || productConfirmation.owner === 'touchpoint-created-replacement' ? 'Replace this Touchpoint Offer?' : 'This change affects downstream intent'}</h2>
+            <h2 id="product-confirmation-title">{productConfirmation.owner === 'touchpoint-replacement' || productConfirmation.owner === 'touchpoint-created-replacement' ? 'Replace this Touchpoint Offer?' : 'This change affects downstream intent'}</h2>
             {productConfirmation.mode === 'impact' && productConfirmation.owner === 'product-client-intent' && productIntentError && <p role="alert">{productIntentError}</p>}
             {productConfirmation.mode === 'impact' && productConfirmation.owner === 'touchpoint-replacement' && <p>Replace <strong>{entityTitle(document, productConfirmation.departingOfferId)}</strong> with <strong>{entityTitle(document, productConfirmation.replacementOfferId)}</strong> at <strong>{entityTitle(document, productConfirmation.touchpointId)}</strong>?</p>}
             {productConfirmation.mode === 'impact' && productConfirmation.owner === 'touchpoint-created-replacement' && <p>{productConfirmation.operationKind === 'sibling' ? 'Create' : 'Duplicate as'} <strong>{productConfirmation.plannedOfferTitle}</strong> and replace <strong>{entityTitle(document, productConfirmation.departingOfferId)}</strong> at <strong>{entityTitle(document, productConfirmation.touchpointId)}</strong>?</p>}
-            {productConfirmation.mode === 'impact' && (productConfirmation.owner === 'product' || productConfirmation.owner === 'product-client-intent') && (
+            {productConfirmation.mode === 'impact' && productConfirmation.owner === 'product-client-intent' && (
               <div className="impact-list">
                 {productConfirmation.impact.offerJobSelectionIds.map(id => { const selection = document.offerJobSelections.find(item => item.id === id); const offer = document.entities.find(entity => entity.id === selection?.offerId); const intent = document.productJobIntents.find(item => item.id === selection?.productJobIntentId); const job = document.entities.find(entity => entity.id === intent?.jobId); return <p key={id}><strong>{offer?.title}</strong><span>loses {job?.title}</span></p>; })}
                 {productConfirmation.impact.narrowedOfferSelections.map(item => { const selection = document.offerJobSelections.find(candidate => candidate.id === item.offerJobSelectionId); const offer = document.entities.find(entity => entity.id === selection?.offerId); return <p key={item.offerJobSelectionId}><strong>{offer?.title}</strong><span>loses {item.removedDesiredOutcomeIds.map(id => document.entities.find(entity => entity.id === id)?.title).join(', ')}</span></p>; })}
@@ -5123,14 +4968,8 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
               </div>
             )}
             <div className="actions">
-              {productConfirmation.mode === 'dirty' ? <>
-                <button type="button" className="primary" onClick={() => { const pending = productConfirmation.pending; setProductConfirmation(null); pendingAfterApplyRef.current = pending; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); }}>Apply</button>
-                <button type="button" onClick={() => discardDirtySession(productConfirmation.pending)}>Discard</button>
-                <button type="button" onClick={closeProductConfirmation}>Keep editing</button>
-              </> : <>
                 <button type="button" onClick={closeProductConfirmation}>Cancel</button>
-                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; if (confirmation.owner === 'product-client-intent') { if (confirmation.immediateCommit()) { setProductConfirmation(null); pendingLocalFocusIdsRef.current = [confirmation.returnFocusId]; } return; } setProductConfirmation(null); if (confirmation.owner === 'touchpoint' || confirmation.owner === 'touchpoint-replacement' || confirmation.owner === 'touchpoint-created-replacement' || confirmation.owner === 'offer-product' || confirmation.owner === 'offer-financial' || confirmation.owner === 'offer-job') { confirmation.immediateCommit(); if (confirmation.owner !== 'touchpoint-created-replacement') requestAnimationFrame(() => (confirmation.owner === 'offer-product' && confirmation.focusAfterCommitId ? globalThis.document.getElementById(confirmation.focusAfterCommitId) : (confirmation.owner === 'touchpoint' || confirmation.owner === 'touchpoint-replacement') && confirmation.returnFocusId ? globalThis.document.getElementById(confirmation.returnFocusId) : confirmation.returnFocus)?.focus()); } else { productApplyBypassRef.current = true; globalThis.document.querySelector<HTMLFormElement>('.inspector > form')?.requestSubmit(); } }}>{productConfirmation.owner === 'touchpoint-created-replacement' ? 'Confirm' : productConfirmation.owner === 'touchpoint-replacement' ? 'Replace Offer' : productConfirmation.owner === 'touchpoint' || productConfirmation.owner === 'offer-product' || productConfirmation.owner === 'offer-financial' || productConfirmation.owner === 'offer-job' || productConfirmation.owner === 'product-client-intent' ? 'Confirm removal' : 'Apply changes'}</button>
-              </>}
+                <button type="button" className="primary" onClick={() => { const confirmation = productConfirmation; if (confirmation.owner === 'product-client-intent') { if (confirmation.immediateCommit()) { setProductConfirmation(null); pendingLocalFocusIdsRef.current = [confirmation.returnFocusId]; } return; } setProductConfirmation(null); if (confirmation.owner === 'touchpoint' || confirmation.owner === 'touchpoint-replacement' || confirmation.owner === 'touchpoint-created-replacement' || confirmation.owner === 'offer-product' || confirmation.owner === 'offer-financial' || confirmation.owner === 'offer-job') { confirmation.immediateCommit(); if (confirmation.owner !== 'touchpoint-created-replacement') requestAnimationFrame(() => (confirmation.owner === 'offer-product' && confirmation.focusAfterCommitId ? globalThis.document.getElementById(confirmation.focusAfterCommitId) : (confirmation.owner === 'touchpoint' || confirmation.owner === 'touchpoint-replacement') && confirmation.returnFocusId ? globalThis.document.getElementById(confirmation.returnFocusId) : confirmation.returnFocus)?.focus()); } }}>{productConfirmation.owner === 'touchpoint-created-replacement' ? 'Confirm' : productConfirmation.owner === 'touchpoint-replacement' ? 'Replace Offer' : 'Confirm removal'}</button>
             </div>
           </div>
         </div>
