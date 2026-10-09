@@ -1023,6 +1023,39 @@ export interface OfferResistanceGround {
   hasMitigationIntent: boolean;
 }
 export interface OfferResistanceImpact { repulsor: Entity; grounds: OfferResistanceGround[] }
+export interface ProductResistanceExposureGround {
+  resistedTarget: { entityId: string; kind: typeof PRODUCT_JOB_KINDS[number] };
+}
+export interface ProductResistanceExposure { repulsor: Entity; grounds: ProductResistanceExposureGround[] }
+
+/** Product exposure follows explicit Job membership, independently of downstream encounters. */
+export function resistanceExposureForProduct(document: MapDocument, productId: string): ProductResistanceExposure[] {
+  entityOfKind(document, productId, 'product', 'Product');
+  const entities = new Map(document.entities.map(entity => [entity.id, entity]));
+  const selectedJobs = new Map<string, ProductResistanceExposureGround['resistedTarget']>();
+  for (const intent of document.productJobIntents) {
+    if (intent.productId !== productId) continue;
+    const job = entities.get(intent.jobId);
+    if (!job || !(PRODUCT_JOB_KINDS as readonly string[]).includes(job.kind)) continue;
+    selectedJobs.set(job.id, { entityId: job.id, kind: job.kind as typeof PRODUCT_JOB_KINDS[number] });
+  }
+  const byRepulsor = new Map<string, { repulsor: Entity; grounds: Map<string, ProductResistanceExposureGround> }>();
+  for (const relationship of document.relationships) {
+    if (relationship.kind !== 'repulsor_resists') continue;
+    const target = selectedJobs.get(relationship.targetEntityId);
+    const repulsor = entities.get(relationship.repulsorId);
+    if (!target || repulsor?.kind !== 'repulsor') continue;
+    const exposure = byRepulsor.get(repulsor.id) ?? { repulsor, grounds: new Map<string, ProductResistanceExposureGround>() };
+    exposure.grounds.set(target.entityId, { resistedTarget: target });
+    byRepulsor.set(repulsor.id, exposure);
+  }
+  const compare = (left: Entity, right: Entity) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id);
+  return [...byRepulsor.values()].sort((left, right) => compare(left.repulsor, right.repulsor)).map(exposure => ({
+    repulsor: exposure.repulsor,
+    grounds: [...exposure.grounds.values()].sort((left, right) => compare(entities.get(left.resistedTarget.entityId)!, entities.get(right.resistedTarget.entityId)!)),
+  }));
+}
+
 export interface ProductResistancePath { offerId: string; touchpointId: string }
 export interface ProductResistanceImpact { repulsor: Entity; paths: ProductResistancePath[] }
 

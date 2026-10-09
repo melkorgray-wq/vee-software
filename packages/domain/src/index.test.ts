@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyProductClientIntentCommand, type MapDocument, type ProductClientIntentCommand } from './index';
 import { addProductDefinitionBlock, productDefinitionSourceState, productDefinitionWholeText, removeProductDefinitionBlock, reorderProductDefinitionBlocks, setProductCurrentDefinitionSource, setProductDefinitionExternalCopyUrl, updateProductDefinition, updateProductDefinitionBlock } from './index';
-import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addOfferContentBlock, addProductJobIntent, removeOfferContentBlock, removeProductJobIntent, reorderOfferContentBlocks, setOfferContentExternalCopyUrl, setOfferCurrentContentSource, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateOfferContentBlock, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, changeOfferProduct, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, movePlacement, offerContentSourceState, offerContentWholeText, updateEntity, updateOfferContent, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct, planTouchpointIntentPathChange, commitTouchpointIntentPathPlan, commitTouchpointParent, planTouchpointStructuralChange } from './index';
+import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addOfferContentBlock, addProductJobIntent, removeOfferContentBlock, removeProductJobIntent, reorderOfferContentBlocks, setOfferContentExternalCopyUrl, setOfferCurrentContentSource, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateOfferContentBlock, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, changeOfferProduct, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, movePlacement, offerContentSourceState, offerContentWholeText, updateEntity, updateOfferContent, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct, resistanceExposureForProduct, planTouchpointIntentPathChange, commitTouchpointIntentPathPlan, commitTouchpointParent, planTouchpointStructuralChange } from './index';
 
 function completed(result: ReturnType<typeof authorTouchpointIntentBottomUp>) { if (result.status !== 'complete') throw new Error(`Expected complete, got ${result.status}`); return result.document; }
 
@@ -1764,5 +1764,113 @@ describe('canonical Product Client intent commands', () => {
     commands.forEach(c => expect(() => run(d, c)).toThrow()); expect(d).toEqual(before);
     const absent = fixture(); expect(() => run(absent, { kind: 'create-desired-outcome', creation: { ...place, entityId: 'new', title: 'New', parentEntityId: 'job', relationshipId: 'owns-new' } })).toThrow(/stable ID/);
     expect(absent.entities.some(e => e.id === 'new')).toBe(false);
+  });
+});
+
+
+describe('Product resistance exposure', () => {
+  const kinds = ['core_functional_job', 'related_job', 'consumption_chain_job', 'emotional_job', 'social_job'] as const;
+  function fixture(): MapDocument {
+    const d = createEmptyMapDocument({ mapId: 'exposure', title: 'Exposure', viewId: 'view', viewTitle: 'View' });
+    d.entities = [{ id: 'product', kind: 'product', title: 'Product' }, { id: 'other-product', kind: 'product', title: 'Other' }, { id: 'rep', kind: 'repulsor', title: 'Friction' }, ...kinds.map((kind, i) => ({ id: `job-${i}`, kind, title: `Job ${i}` }))];
+    d.productJobIntents = kinds.map((_, i) => ({ id: `intent-${i}`, productId: 'product', jobId: `job-${i}`, addressedDesiredOutcomeIds: [] }));
+    d.relationships = kinds.map((_, i) => ({ id: `resists-${i}`, kind: 'repulsor_resists', repulsorId: 'rep', targetEntityId: `job-${i}` }));
+    return d;
+  }
+  const targets = (d: MapDocument) => resistanceExposureForProduct(d, 'product').map(exposure => ({ repulsorId: exposure.repulsor.id, targets: exposure.grounds.map(ground => ground.resistedTarget) }));
+
+  it('exposes all five explicitly selected Jobs without Offers, Touchpoints or described outcomes', () => {
+    const d = fixture();
+    expect(targets(d)).toEqual([{ repulsorId: 'rep', targets: kinds.map((kind, i) => ({ entityId: `job-${i}`, kind })) }]);
+    expect(resistanceImpactForProduct(d, 'product')).toEqual([]);
+  });
+
+  it('retains Job exposure independently of ordinary DO subset contents', () => {
+    const d = fixture(); const before = targets(d);
+    d.entities.push({ id: 'outcome', kind: 'desired_outcome', title: 'Outcome' });
+    d.relationships.push({ id: 'job-outcome', kind: 'job_has_desired_outcome', jobId: 'job-0', desiredOutcomeId: 'outcome' });
+    d.productJobIntents[0]!.addressedDesiredOutcomeIds = ['outcome'];
+    expect(targets(d)).toEqual(before);
+    d.productJobIntents[0]!.addressedDesiredOutcomeIds = ['missing-outcome'];
+    expect(targets(d)).toEqual(before);
+  });
+
+  it('deduplicates Repulsors and all resisted Job grounds despite duplicate records', () => {
+    const d = fixture();
+    d.productJobIntents.push({ ...d.productJobIntents[0]!, id: 'duplicate-intent' });
+    d.relationships.push({ ...d.relationships[0]!, id: 'duplicate-resistance' });
+    d.entities.push({ id: 'second-rep', kind: 'repulsor', title: 'Second friction' });
+    d.relationships.push({ id: 'second-resistance', kind: 'repulsor_resists', repulsorId: 'second-rep', targetEntityId: 'job-0' });
+    expect(targets(d)).toEqual([
+      { repulsorId: 'rep', targets: kinds.map((kind, i) => ({ entityId: `job-${i}`, kind })) },
+      { repulsorId: 'second-rep', targets: [{ entityId: 'job-0', kind: 'core_functional_job' }] },
+    ]);
+  });
+
+  it('never inherits contextual CFJ membership and isolates another Product intent', () => {
+    const d = fixture();
+    d.relationships.push({ id: 'context', kind: 'core_functional_job_contextualizes_job', coreFunctionalJobId: 'job-0', contextualJobId: 'job-1' });
+    d.productJobIntents = [{ id: 'related', productId: 'product', jobId: 'job-1', addressedDesiredOutcomeIds: [] }, { id: 'other', productId: 'other-product', jobId: 'job-0', addressedDesiredOutcomeIds: [] }];
+    expect(targets(d)).toEqual([{ repulsorId: 'rep', targets: [{ entityId: 'job-1', kind: 'related_job' }] }]);
+    expect(resistanceExposureForProduct(d, 'other-product')[0]?.grounds).toEqual([{ resistedTarget: { entityId: 'job-0', kind: 'core_functional_job' } }]);
+    d.productJobIntents = [];
+    expect(resistanceExposureForProduct(d, 'product')).toEqual([]);
+  });
+
+  it('ignores stale and wrong-kind Job and Repulsor endpoints', () => {
+    const d = fixture(); const before = targets(d);
+    d.productJobIntents.push({ id: 'stale', productId: 'product', jobId: 'missing-job', addressedDesiredOutcomeIds: [] }, { id: 'wrong-kind', productId: 'product', jobId: 'other-product', addressedDesiredOutcomeIds: [] });
+    d.relationships.push(
+      { id: 'stale-target', kind: 'repulsor_resists', repulsorId: 'rep', targetEntityId: 'missing-job' },
+      { id: 'wrong-target', kind: 'repulsor_resists', repulsorId: 'rep', targetEntityId: 'other-product' },
+      { id: 'stale-rep', kind: 'repulsor_resists', repulsorId: 'missing-rep', targetEntityId: 'job-0' },
+      { id: 'wrong-rep', kind: 'repulsor_resists', repulsorId: 'other-product', targetEntityId: 'job-0' },
+    );
+    expect(targets(d)).toEqual(before);
+  });
+
+  it('excludes FDO and independent ordinary DO even when downstream Offer resistance exists', () => {
+    let d = fixture();
+    const place = { viewId: 'view', x: 0, y: 0 };
+    d = addEntity(d, { ...place, entityId: 'offer', title: 'Offer', kind: 'offer', linkedProductId: 'product', relationshipId: 'owns' });
+    d = addEntity(d, { ...place, entityId: 'touch', title: 'Touchpoint', kind: 'touchpoint', linkedOfferIds: ['offer'], relationshipIds: ['presented'] });
+    d = addEntity(d, { ...place, entityId: 'fdo', title: 'Affordable', kind: 'financial_desired_outcome' });
+    d = addEntity(d, { ...place, entityId: 'financial-rep', title: 'Financial friction', kind: 'repulsor', resistedTargetIds: ['fdo'], relationshipIds: ['financial-resistance'] });
+    d = completed(authorTouchpointIntentBottomUp(d, { touchpointId: 'touch', contributingOfferIds: ['offer'], financialDesiredOutcomeId: 'fdo', offerFinancialIntentIds: ['financial-intent'], touchpointSelectionIds: ['financial-selection'] }));
+    const legacy = resistanceImpactForProduct(d, 'product'); const offer = resistanceImpactForOffer(d, 'offer');
+    expect(legacy).toEqual([{ repulsor: expect.objectContaining({ id: 'financial-rep' }), paths: [{ offerId: 'offer', touchpointId: 'touch' }] }]);
+    expect(offer[0]?.grounds[0]?.resistedTarget).toEqual({ entityId: 'fdo', kind: 'financial_desired_outcome' });
+    d.entities.push({ id: 'outcome', kind: 'desired_outcome', title: 'Outcome' });
+    d.productJobIntents.push({ id: 'malformed-fdo', productId: 'product', jobId: 'fdo', addressedDesiredOutcomeIds: [] }, { id: 'malformed-do', productId: 'product', jobId: 'outcome', addressedDesiredOutcomeIds: [] });
+    d.relationships.push({ id: 'resists-outcome', kind: 'repulsor_resists', repulsorId: 'financial-rep', targetEntityId: 'outcome' });
+    expect(targets(d)).toEqual([{ repulsorId: 'rep', targets: kinds.map((kind, i) => ({ entityId: `job-${i}`, kind })) }]);
+    expect(resistanceImpactForProduct(d, 'product')).toEqual(legacy);
+    expect(resistanceImpactForOffer(d, 'offer')).toEqual(offer);
+  });
+
+  it('orders by title then ID independently of entity, intent and relationship order', () => {
+    const d = fixture();
+    d.entities.find(e => e.id === 'job-0')!.title = 'Same';
+    d.entities.find(e => e.id === 'job-1')!.title = 'Same';
+    d.entities.push({ id: 'rep-a', kind: 'repulsor', title: 'Friction' });
+    d.relationships.push({ id: 'other-rep', kind: 'repulsor_resists', repulsorId: 'rep-a', targetEntityId: 'job-0' });
+    const expected = targets(d);
+    expect(expected.map(exposure => exposure.repulsorId)).toEqual(['rep', 'rep-a']);
+    expect(expected[0]?.targets.map(target => target.entityId)).toEqual(['job-2', 'job-3', 'job-4', 'job-0', 'job-1']);
+    expect(targets({ ...d, entities: [...d.entities].reverse(), productJobIntents: [...d.productJobIntents].reverse(), relationships: [...d.relationships].reverse() })).toEqual(expected);
+  });
+
+  it('is read-only on a deeply frozen document and does not create relationships', () => {
+    const d = fixture(); const before = structuredClone(d);
+    function freeze(value: unknown) { if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); } }
+    freeze(d);
+    expect(resistanceExposureForProduct(d, 'product')).toHaveLength(1);
+    expect(d).toEqual(before);
+  });
+
+  it('validates the inspected Product using the existing domain error codes', () => {
+    const d = fixture();
+    expect(() => resistanceExposureForProduct(d, 'missing')).toThrow(expect.objectContaining({ code: 'invalid_relationship_reference' }));
+    expect(() => resistanceExposureForProduct(d, 'rep')).toThrow(expect.objectContaining({ code: 'invalid_relationship_endpoint' }));
   });
 });
