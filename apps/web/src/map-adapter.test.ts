@@ -139,7 +139,7 @@ it('projects each authored Desired Outcome route once and invents no unresolved 
   const edges = deriveMapEdges(d);
   expect(edges.filter(edge => edge.source === 'outcome' && edge.target === 't')).toHaveLength(1);
   expect(edges).toContainEqual(expect.objectContaining({ id: 'job-outcome', source: 'job', target: 'outcome' }));
-  expect(edges).toContainEqual(expect.objectContaining({ id: 'intent-route:emotional->t', source: 'emotional', target: 't' }));
+  expect(edges.some(edge => edge.id === 'intent-route:emotional->t')).toBe(false);
   expect(edges.some(edge => edge.source === 'job' && edge.target === 't' && edge.id.startsWith('intent-route:'))).toBe(false);
 });
 
@@ -147,9 +147,10 @@ it('projects each authored Desired Outcome route once and invents no unresolved 
 it('renders one unlabeled authored Touchpoint to Repulsor mitigation edge', () => {
   let d = chain();
   d = addEntity(d, { entityId: 'job', title: 'Job', kind: 'emotional_job', viewId: 'v', x: 0, y: 100 });
-  d = addProductJobIntent(d, { id: 'intent', productId: 'p', jobId: 'job', addressedDesiredOutcomeIds: [] });
+  d = addEntity(d, { entityId: 'job-do', title: 'Outcome', kind: 'desired_outcome', parentEntityId: 'job', relationshipId: 'job-owns-do', viewId: 'v', x: 0, y: 300 });
+  d = addProductJobIntent(d, { id: 'intent', productId: 'p', jobId: 'job', addressedDesiredOutcomeIds: ['job-do'] });
   d = setOfferJobSelections(d, { offerId: 'o', productJobIntentIds: ['intent'], newSelectionIds: ['selection'] });
-  d = setTouchpointIntentSelections(d, { touchpointId: 't', selections: [{ id: 'touch-selection', kind: 'job', offerId: 'o', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] }] });
+  d = setTouchpointIntentSelections(d, { touchpointId: 't', selections: [{ id: 'touch-selection', kind: 'job', offerId: 'o', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['job-do'] }] });
   d = addEntity(d, { entityId: 'repulsor', title: 'Fear', kind: 'repulsor', resistedTargetIds: ['job'], relationshipIds: ['resists'], viewId: 'v', x: 300, y: 100 });
   d = setTouchpointMitigations(d, { touchpointId: 't', repulsorIds: ['repulsor'], newRelationshipIds: ['mitigates'] });
   const edge = deriveMapEdges(d).filter(candidate => candidate.source === 't' && candidate.target === 'repulsor');
@@ -161,16 +162,18 @@ function repulsorProjectionDocument() {
   let d = chain();
   d = addEntity(d, { entityId: 'job-a', title: 'Job A', kind: 'social_job', viewId: 'v', x: 0, y: 100 });
   d = addEntity(d, { entityId: 'job-b', title: 'Job B', kind: 'emotional_job', viewId: 'v', x: 0, y: 200 });
-  d = addProductJobIntent(d, { id: 'intent-a', productId: 'p', jobId: 'job-a', addressedDesiredOutcomeIds: [] });
-  d = addProductJobIntent(d, { id: 'intent-b', productId: 'p', jobId: 'job-b', addressedDesiredOutcomeIds: [] });
+  d = addEntity(d, { entityId: 'job-a-do', title: 'Outcome', kind: 'desired_outcome', parentEntityId: 'job-a', relationshipId: 'job-a-owns-do', viewId: 'v', x: 0, y: 300 });
+  d = addProductJobIntent(d, { id: 'intent-a', productId: 'p', jobId: 'job-a', addressedDesiredOutcomeIds: ['job-a-do'] });
+  d = addEntity(d, { entityId: 'job-b-do', title: 'Outcome', kind: 'desired_outcome', parentEntityId: 'job-b', relationshipId: 'job-b-owns-do', viewId: 'v', x: 0, y: 300 });
+  d = addProductJobIntent(d, { id: 'intent-b', productId: 'p', jobId: 'job-b', addressedDesiredOutcomeIds: ['job-b-do'] });
   d = setOfferJobSelections(d, { offerId: 'o', productJobIntentIds: ['intent-a', 'intent-b'], newSelectionIds: ['selection-a', 'selection-b'] });
   d = addEntity(d, { entityId: 'o2', title: 'Offer 2', kind: 'offer', linkedProductId: 'p', relationshipId: 'po2', viewId: 'v', x: 100, y: 200 });
   d = setOfferJobSelections(d, { offerId: 'o2', productJobIntentIds: ['intent-a'], newSelectionIds: ['selection-a-again'] });
   d = updateEntity(d, { entityId: 't', title: 'Touch', locatedInId: 'site', linkedOfferIds: ['o', 'o2'], relationshipIds: ['ot', 'o2t'] });
   d = setTouchpointIntentSelections(d, { touchpointId: 't', selections: [
-    { id: 'touch-a-via-o', kind: 'job', offerId: 'o', productJobIntentId: 'intent-a', addressedDesiredOutcomeIds: [] },
-    { id: 'touch-b-via-o', kind: 'job', offerId: 'o', productJobIntentId: 'intent-b', addressedDesiredOutcomeIds: [] },
-    { id: 'touch-a-via-o2', kind: 'job', offerId: 'o2', productJobIntentId: 'intent-a', addressedDesiredOutcomeIds: [] },
+    { id: 'touch-a-via-o', kind: 'job', offerId: 'o', productJobIntentId: 'intent-a', addressedDesiredOutcomeIds: ['job-a-do'] },
+    { id: 'touch-b-via-o', kind: 'job', offerId: 'o', productJobIntentId: 'intent-b', addressedDesiredOutcomeIds: ['job-b-do'] },
+    { id: 'touch-a-via-o2', kind: 'job', offerId: 'o2', productJobIntentId: 'intent-a', addressedDesiredOutcomeIds: ['job-a-do'] },
   ] });
   d = addEntity(d, { entityId: 'relevant', title: 'Relevant', kind: 'repulsor', resistedTargetIds: ['job-a', 'job-b'], relationshipIds: ['resists-a', 'resists-b'], viewId: 'v', x: 300, y: 100 });
   return addEntity(d, { entityId: 'irrelevant', title: 'Irrelevant', kind: 'repulsor', resistedTargetIds: ['job-a'], relationshipIds: ['irrelevant-resists'], viewId: 'v', x: 300, y: 200 });

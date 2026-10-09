@@ -1,4 +1,4 @@
-import {
+import { isDesiredOutcomeBearingJob,
   effectiveOfferDesiredOutcomeIds,
   type Entity,
   type MapDocument,
@@ -106,11 +106,6 @@ const JOB_KINDS = new Set<OfferClientIntentJobKind>([
   'emotional_job',
   'social_job',
 ]);
-const DO_BEARING_JOB_KINDS = new Set<OfferClientIntentJobKind>([
-  'core_functional_job',
-  'related_job',
-  'consumption_chain_job',
-]);
 
 const byTitleThenId = <T extends { title: string; id: string }>(left: T, right: T) =>
   left.title.localeCompare(right.title) || left.id.localeCompare(right.id);
@@ -122,7 +117,7 @@ function desiredOutcomesFor(
   job: JobEntity,
   entitiesById: Map<string, Entity>,
 ): DesiredOutcomeEntity[] {
-  if (!DO_BEARING_JOB_KINDS.has(job.kind)) return [];
+  if (!isDesiredOutcomeBearingJob(job.kind)) return [];
 
   const productOutcomeIds = new Set(intent.addressedDesiredOutcomeIds);
   const linkedIds = new Set(document.relationships.flatMap((relationship) =>
@@ -254,7 +249,7 @@ export function offerClientIntentDiscovery(
     const selection = selections.get(intent.id);
     const checkedOutcomeIds = new Set(selection ? effectiveOfferDesiredOutcomeIds(document, selection) : []);
     const seenOutcomes = new Set<string>();
-    const desiredOutcomes = DO_BEARING_JOB_KINDS.has(job.kind) ? intent.addressedDesiredOutcomeIds.flatMap(id => {
+    const desiredOutcomes = isDesiredOutcomeBearingJob(job.kind) ? intent.addressedDesiredOutcomeIds.flatMap(id => {
       if (seenOutcomes.has(id) || !relationshipOutcomes.get(job.id)?.has(id)) return [];
       seenOutcomes.add(id);
       const outcome = entities.get(id);

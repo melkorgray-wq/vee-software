@@ -225,14 +225,15 @@ describe('Product Job Neighborhood', () => {
     });
   });
 
-  it.each(['emotional_job', 'social_job'])('exposes no ordinary DO or Offer provenance for %s', (kind) => {
+  it.each(['emotional_job', 'social_job'])('compares ordinary DO without Offer provenance for %s', (kind) => {
     const document = jobFixture();
     document.relationships.push({ id: 'malformed', kind: 'job_has_desired_outcome', jobId: kind, desiredOutcomeId: 'do-a' });
     intent(document, 'p', kind, ['do-a']);
     intent(document, 'q', kind, ['do-a', 'missing']);
     expect(jobs(document)).toEqual([{
       id: `client-intent:${kind}:${kind}`, basisKind: 'job', basisId: kind, jobKind: kind, count: 1,
-      neighbors: [{ productId: 'q' }],
+      inspectedDesiredOutcomeIds: ['do-a'],
+      neighbors: [{ productId: 'q', desiredOutcomeIds: ['do-a'], commonDesiredOutcomeIds: ['do-a'], inspectedOnlyDesiredOutcomeIds: [], neighborOnlyDesiredOutcomeIds: [] }],
     }]);
   });
 

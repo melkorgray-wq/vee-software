@@ -92,3 +92,16 @@ it('trace edge set contains only IDs actually rendered by deriveMapEdges', () =>
   const document = fixture(); const rendered = new Set(deriveMapEdges(document).map(edge => edge.id));
   expect(deriveRelationLensTrace(document, 'offer', 'repulsor')!.edgeIds.every(id => rendered.has(id))).toBe(true);
 });
+
+it.each(['emotional_job', 'social_job'] as const)('%s uses only effective DO encounter edges and preserves Job-only intent', kind => {
+  const document = fixture(); document.entities.find(entity => entity.id === 'job')!.kind = kind;
+  expect(deriveRelationLensTrace(document, 'product', 'job')!.edgeIds).toContain('intent-route:a->touch');
+  expect(deriveMapEdges(document).some(edge => edge.source === 'job' && edge.target === 'touch')).toBe(false);
+  const before = structuredClone(document);
+  document.touchpointJobSelections[0]!.addressedDesiredOutcomeIds = [];
+  expect(deriveRelationLensTrace(document, 'product', 'job')!.entityIds).not.toContain('touch');
+  expect(deriveMapEdges(document).some(edge => edge.id.startsWith('intent-route:'))).toBe(false);
+  expect(document.productJobIntents).toEqual(before.productJobIntents);
+  expect(document.offerJobSelections).toEqual(before.offerJobSelections);
+  expect(document.touchpointJobSelections).toEqual([{ ...before.touchpointJobSelections[0]!, addressedDesiredOutcomeIds: [] }]);
+});

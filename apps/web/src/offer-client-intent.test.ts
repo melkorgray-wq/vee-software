@@ -272,3 +272,14 @@ describe('Offer Client-intent discovery projection', () => {
     expect(offerClientIntentDiscovery(document, 'offer', { query: '' })).toMatchObject({ status: 'unavailable', offerId: 'offer', financialCandidates: [] });
   });
 });
+
+describe('EJ/SJ ordinary outcome projection', () => {
+  it.each(['emotional_job', 'social_job'] as const)('reads and discovers valid owned %s outcomes', kind => {
+    const document = fixture(); const jobId = kind === 'emotional_job' ? 'ej' : 'sj';
+    document.relationships.push({ id: 'ej-sj-owns', kind: 'job_has_desired_outcome', jobId, desiredOutcomeId: 'do-z' });
+    document.offerJobSelections.push(selection('ej-sj-selection', 'offer', `intent-${jobId}`, ['do-z', 'do-other', 'missing']));
+    const group = offerClientIntent(document, 'offer')!.groups.find(group => group.kind === kind)!;
+    expect(group.items[0]).toMatchObject({ desiredOutcomeIds: ['do-z'], desiredOutcomes: [{ id: 'do-z' }] });
+    expect(JSON.stringify(offerClientIntentDiscovery(document, 'offer', { query: 'Zulu outcome' }))).toContain('do-z');
+  });
+});

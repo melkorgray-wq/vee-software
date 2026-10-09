@@ -21,11 +21,10 @@ describe('Product Client intent projection', () => {
     expect(productClientIntent(d, 'do')).toBeUndefined();
     expect(productClientIntent(d, 'p')).toEqual({ productId: 'p', groups: [] });
   });
-  it('projects five kinds, incomplete outcome knowledge and no EJ/SJ outcome branch', () => {
+  it('projects five kinds with incomplete ordinary outcome knowledge', () => {
     const groups = productClientIntent(fixture(), 'p')!.groups;
     expect(groups.map(g => g.kind)).toEqual(PRODUCT_CLIENT_INTENT_KINDS);
-    for (const g of groups.slice(0, 3)) expect(g.items[0]).toMatchObject({ outcomeKnowledge: 'empty', desiredOutcomes: [] });
-    for (const g of groups.slice(3)) expect(g.items[0]).not.toHaveProperty('desiredOutcomes');
+    for (const g of groups) expect(g.items[0]).toMatchObject({ outcomeKnowledge: 'empty', desiredOutcomes: [] });
   });
   it('merges duplicate intent scope and filters invalid, foreign and wrong-kind outcomes', () => {
     const d = fixture();
@@ -36,7 +35,7 @@ describe('Product Client intent projection', () => {
     expect(groups[0]!.items[0]).toMatchObject({ desiredOutcomes: [{ id: 'do' }], outcomeKnowledge: 'selected', productJobIntentIds: ['duplicate', 'intent:core_functional_job'] });
     expect(groups[1]!.items[0]).toMatchObject({ desiredOutcomes: [], outcomeKnowledge: 'empty' });
   });
-  it.each(['core_functional_job', 'related_job', 'consumption_chain_job'] as const)('projects nonempty selected scope for %s', kind => {
+  it.each(PRODUCT_CLIENT_INTENT_KINDS)('projects nonempty selected scope for %s', kind => {
     const d = fixture(); d.relationships = [{ id: 'owns', kind: 'job_has_desired_outcome', jobId: kind, desiredOutcomeId: 'do' }];
     d.productJobIntents.find(i => i.jobId === kind)!.addressedDesiredOutcomeIds = ['do'];
     expect(productClientIntent(d, 'p')!.groups.find(g => g.kind === kind)!.items[0]).toMatchObject({ outcomeKnowledge: 'selected', desiredOutcomes: [{ id: 'do' }] });
@@ -62,7 +61,7 @@ describe('Product Client intent discovery', () => {
   it('derives checked state only from Product records and valid ownership', () => {
     const d = fixture(); d.productJobIntents[0]!.addressedDesiredOutcomeIds = ['do'];
     expect(discovery(d, 'Faster').jobGroups[0]).toMatchObject({ checked: true, desiredOutcomes: [{ checked: true }] });
-    expect(discovery(d, 'social').jobGroups[0]).not.toHaveProperty('desiredOutcomes');
+    expect(discovery(d, 'social').jobGroups[0]).toHaveProperty('desiredOutcomes', []);
     d.relationships = [];
     expect(discovery(d, 'Faster').jobGroups).toEqual([]);
   });
@@ -84,7 +83,7 @@ describe('Product Client intent discovery', () => {
   it('fixes a valid branch owner and never falls back from invalid context', () => {
     const d = fixture();
     expect(discovery(d, 'New', { jobId: 'related_job' }).createChoices.find(c => c.kind === 'desired_outcome')).toMatchObject({ resolution: { status: 'resolved', owner: { id: 'related_job' } } });
-    for (const jobId of ['missing', 'do', 'social_job']) expect(discovery(d, 'New', { jobId })).toMatchObject({ status: 'unavailable', jobGroups: [], createChoices: [] });
+    for (const jobId of ['missing', 'do']) expect(discovery(d, 'New', { jobId })).toMatchObject({ status: 'unavailable', jobGroups: [], createChoices: [] });
     expect(productClientIntentDiscovery(d, 'missing', { query: 'New' }).status).toBe('unavailable');
   });
   it('is deterministic and does not mutate frozen input', () => {

@@ -112,7 +112,7 @@ describe('Touchpoint Client-intent Neighborhood projection', () => {
     });
   });
 
-  it('does not turn upstream availability into scope and accepts EJ/SJ direct paths without ordinary DOs', () => {
+  it('does not turn upstream availability or EJ/SJ Job-only membership into encounters', () => {
     const document = fixture();
     expect(jobs(document)).toEqual([]);
     document.touchpointJobSelections.push(
@@ -121,9 +121,7 @@ describe('Touchpoint Client-intent Neighborhood projection', () => {
       localJob('z-sj', 'touch-z', 'offer-b', 'a-sj', []),
       localJob('a-sj', 'touch-a', 'offer-a', 'a-sj', ['wrong']),
     );
-    expect(jobs(document).map((ground) => [ground.jobKind, ground.inspectedDesiredOutcomes])).toEqual([
-      ['emotional_job', []], ['social_job', []],
-    ]);
+    expect(jobs(document)).toEqual([]);
   });
 
   it('derives FDO only from valid local selections and keeps contributor provenance', () => {
@@ -144,9 +142,13 @@ describe('Touchpoint Client-intent Neighborhood projection', () => {
 
   it('does not inherit Parent scope and lets one neighbor occur in independent grounds', () => {
     const document = fixture();
+    document.entities.push({ id: 'ej-do', kind: 'desired_outcome', title: 'Feel assured' });
+    document.relationships.push({ id: 'ej-owns', kind: 'job_has_desired_outcome', jobId: 'ej', desiredOutcomeId: 'ej-do' });
+    document.productJobIntents.find(i => i.id === 'a-ej')!.addressedDesiredOutcomeIds = ['ej-do'];
+    for (const selection of document.offerJobSelections.filter(s => s.productJobIntentId === 'a-ej')) selection.addressedDesiredOutcomeIds = ['ej-do'];
     document.touchpointJobSelections.push(
       localJob('z-cfj', 'touch-z', 'offer-z', 'a-cfj', ['do-a']), localJob('a-cfj', 'touch-a', 'offer-a', 'b-cfj', ['do-a']),
-      localJob('z-ej', 'touch-z', 'offer-b', 'a-ej', []), localJob('a-ej', 'touch-a', 'offer-a', 'a-ej', []),
+      localJob('z-ej', 'touch-z', 'offer-b', 'a-ej', ['ej-do']), localJob('a-ej', 'touch-a', 'offer-a', 'a-ej', ['ej-do']),
     );
     expect(jobs(document).map((ground) => [ground.jobId, ground.neighborTouchpointIds])).toEqual([
       ['cfj', ['touch-a']], ['ej', ['touch-a']],
@@ -179,9 +181,13 @@ describe('Touchpoint Client-intent Neighborhood projection', () => {
 
   it('uses canonical/title ordering, stable IDs, and is input-order independent without mutation', () => {
     const document = fixture();
+    document.entities.push({ id: 'ej-do', kind: 'desired_outcome', title: 'Feel assured' });
+    document.relationships.push({ id: 'ej-owns', kind: 'job_has_desired_outcome', jobId: 'ej', desiredOutcomeId: 'ej-do' });
+    document.productJobIntents.find(i => i.id === 'a-ej')!.addressedDesiredOutcomeIds = ['ej-do'];
+    for (const selection of document.offerJobSelections.filter(s => s.productJobIntentId === 'a-ej')) selection.addressedDesiredOutcomeIds = ['ej-do'];
     document.touchpointJobSelections.push(
-      localJob('z-ej', 'touch-z', 'offer-b', 'a-ej', []), localJob('b-ej', 'touch-b', 'offer-a', 'a-ej', []),
-      localJob('a-ej', 'touch-a', 'offer-a', 'a-ej', []),
+      localJob('z-ej', 'touch-z', 'offer-b', 'a-ej', ['ej-do']), localJob('b-ej', 'touch-b', 'offer-a', 'a-ej', ['ej-do']),
+      localJob('a-ej', 'touch-a', 'offer-a', 'a-ej', ['ej-do']),
       localJob('z-cfj', 'touch-z', 'offer-z', 'a-cfj', ['do-z', 'do-a']), localJob('a-cfj', 'touch-a', 'offer-a', 'b-cfj', ['do-a']),
     );
     const before = structuredClone(document);
@@ -200,4 +206,16 @@ describe('Touchpoint Client-intent Neighborhood projection', () => {
     reversed.touchpointJobSelections.reverse(); reversed.touchpointFinancialSelections.reverse();
     expect(deriveTouchpointClientIntentNeighborhood(reversed, 'touch-z')).toEqual(expected);
   });
+});
+
+it.each(['emotional_job', 'social_job'] as const)('%s compares only effective owned outcomes and never falls back to Job-only encounters', kind => {
+  const document = fixture(); document.entities.find(entity => entity.id === 'cfj')!.kind = kind;
+  document.touchpointJobSelections.push(localJob('z', 'touch-z', 'offer-z', 'a-cfj', ['do-a']), localJob('a', 'touch-a', 'offer-a', 'b-cfj', ['do-a', 'do-b']));
+  expect(jobs(document)[0]).toMatchObject({ jobKind: kind, neighborComparisons: [{ commonDesiredOutcomeIds: ['do-a'], inspectedOnlyDesiredOutcomeIds: [], neighborOnlyDesiredOutcomeIds: ['do-b'] }] });
+  const before = structuredClone(document);
+  document.touchpointJobSelections[0]!.addressedDesiredOutcomeIds = [];
+  expect(jobs(document)).toEqual([]);
+  expect(document.productJobIntents).toEqual(before.productJobIntents);
+  expect(document.offerJobSelections).toEqual(before.offerJobSelections);
+  expect(document.touchpointJobSelections).toHaveLength(2);
 });

@@ -2,7 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useReducer, useRef, useState, typ
 import { createPortal } from 'react-dom';
 import { Background, Controls, Handle, Position, ReactFlow, type Node, type ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { CLIENT_ROOT_ENTITY_KINDS, DomainError, applyProductClientIntentCommand, type ProductClientIntentCommand, type ProductClientIntentCommandImpact, addEntity, addOfferContentBlock, addProductDefinitionBlock, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, offerContentSourceState, offerContentWholeText, productDefinitionSourceState, productDefinitionWholeText, setProductCurrentDefinitionSource, setProductDefinitionExternalCopyUrl, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, removeOfferContentBlock, removeProductDefinitionBlock, reorderOfferContentBlocks, reorderProductDefinitionBlocks, resistanceImpactForOffer, resistanceExposureForProduct, setContextualCoreFunctionalJobs, setOfferContentExternalCopyUrl, setOfferCurrentContentSource, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateOfferContent, updateOfferContentBlock, updateProductDefinitionBlock, updateProductDefinition, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type OfferCurrentContentSource, type ProductCurrentDefinitionSource, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
+import { CLIENT_ROOT_ENTITY_KINDS, isDesiredOutcomeBearingJob, DomainError, applyProductClientIntentCommand, type ProductClientIntentCommand, type ProductClientIntentCommandImpact, addEntity, addOfferContentBlock, addProductDefinitionBlock, addTouchpointContainer, authorTouchpointIntentBottomUp, changeOfferProduct, commitTouchpointIntentPathPlan, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getOfferIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, isClientRootEntityKind, isContextualClientEntityKind, isRepulsorTargetKind, movePlacement, offerContentSourceState, offerContentWholeText, productDefinitionSourceState, productDefinitionWholeText, setProductCurrentDefinitionSource, setProductDefinitionExternalCopyUrl, planTouchpointIntentPathChange, planTouchpointStructuralChange, relevantRepulsorsForTouchpoint, removeOfferContentBlock, removeProductDefinitionBlock, reorderOfferContentBlocks, reorderProductDefinitionBlocks, resistanceImpactForOffer, resistanceExposureForProduct, setContextualCoreFunctionalJobs, setOfferContentExternalCopyUrl, setOfferCurrentContentSource, setOfferFinancialIntents, setOfferJobSelections, updateEntity, updateOfferContent, updateOfferContentBlock, updateProductDefinitionBlock, updateProductDefinition, updateRepulsorTargets, type BottomUpTouchpointResult, type ContextualClientEntityKind, type Entity, type MapDocument, type OfferCurrentContentSource, type ProductCurrentDefinitionSource, type ProvisionalEntityKind, type Relationship, type TouchpointIntentPathPlan, type TouchpointStructuralCommand } from '@vee/domain';
 import { deriveMapEdges, deriveMapNodes, KIND_LABELS, layoutForEntity, MAP_EDGE_TYPE, type MapNodeData } from '../map-adapter';
 import { MapEdge } from '../map-edge';
 import { contextMenuPoint, disclosureOverlayPoint, linkedOfferIds, matchesWorkspaceShortcut, overlayPoint, parentTouchpointOptions, revealViewport, siblingDraft, siblingPlacement, workspaceShortcutAction, type Point, type WorkspaceShortcutState } from '../map-interaction';
@@ -3218,7 +3218,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
   }
   function semanticParentField(d: EditDraft, setter: (d: EditDraft) => void) {
     if (!isContextualClientEntityKind(d.kind)) return null;
-    const validKinds = d.kind === 'related_job' ? ['core_functional_job'] : ['core_functional_job', 'related_job', 'consumption_chain_job'];
+    const validKinds = d.kind === 'related_job' ? ['core_functional_job'] : document.entities.filter(entity => isDesiredOutcomeBearingJob(entity.kind)).map(entity => entity.kind);
     return (
       <label>
         Semantic parent
@@ -3593,7 +3593,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     const touchpointJobModel = (ground: TouchpointClientIntentJobGround): NeighborhoodSemanticViewModel => {
       const basisEntity = resolveSemanticEntity(ground.basisId);
       if (basisEntity.kind !== ground.jobKind) throw new Error(`Touchpoint Client-intent Neighborhood basis ${ground.basisId} is not a ${ground.jobKind} Job`);
-      const comparesOutcomes = ['core_functional_job', 'related_job', 'consumption_chain_job'].includes(ground.jobKind);
+      const comparesOutcomes = isDesiredOutcomeBearingJob(ground.jobKind);
       const outcomeModel = (id: string, provenance: NeighborhoodSemanticContributorGroup[]): NeighborhoodSemanticOutcome => ({ entity: outcome(id), provenance });
       const comparisonModel = (comparison: TouchpointClientIntentJobComparison): NeighborhoodSemanticNeighborBlock => {
         const neighbor = touchpoint(comparison.touchpointId);
@@ -4333,10 +4333,6 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
           contributorGroups: [{ label: `Offers for ${resolve(neighbor.productId).title}`, offers: neighbor.contributorOfferIds.map(resolve) }],
         })),
       };
-      if (!('inspectedDesiredOutcomeIds' in ground)) return {
-        basisLabel: 'Job basis', basisEntity: resolve(ground.basisId),
-        neighbors: ground.neighbors.map(neighbor => ({ entity: resolve(neighbor.productId) })),
-      };
       return {
         basisLabel: 'Job basis', basisEntity: resolve(ground.basisId),
         explanation: 'This ground exists because these Products intend to address the same Job. Outcome rows compare only their local Product subsets.',
@@ -4447,7 +4443,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
           ],
         };
       };
-      const comparesOutcomes = ['core_functional_job', 'related_job', 'consumption_chain_job'].includes(ground.jobKind);
+      const comparesOutcomes = isDesiredOutcomeBearingJob(ground.jobKind);
       return {
         basisLabel: 'Job basis',
         basisEntity,

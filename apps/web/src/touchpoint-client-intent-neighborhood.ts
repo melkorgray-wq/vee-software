@@ -1,4 +1,4 @@
-import {
+import { isDesiredOutcomeBearingJob,
   effectiveOfferDesiredOutcomeIds,
   type Entity,
   type MapDocument,
@@ -82,9 +82,6 @@ type FinancialScope = { outcome: FinancialDesiredOutcome; contributorOfferIds: S
 const JOB_KINDS = new Set<TouchpointClientIntentJobKind>([
   'core_functional_job', 'related_job', 'consumption_chain_job', 'emotional_job', 'social_job',
 ]);
-const DO_BEARING_JOB_KINDS = new Set<TouchpointClientIntentJobKind>([
-  'core_functional_job', 'related_job', 'consumption_chain_job',
-]);
 const TYPE_ORDER = new Map(TOUCHPOINT_CLIENT_INTENT_GROUND_TYPE_IDS.map((kind, index) => [kind, index]));
 const byTitleThenId = <T extends { title: string; id: string }>(left: T, right: T) =>
   left.title.localeCompare(right.title) || left.id.localeCompare(right.id);
@@ -131,7 +128,7 @@ export function deriveTouchpointClientIntentNeighborhood(
 
     const job = jobEntity as Job;
     const validOutcomeIds = new Set<string>();
-    if (DO_BEARING_JOB_KINDS.has(job.kind)) {
+    if (isDesiredOutcomeBearingJob(job.kind)) {
       const offerOutcomeIds = new Set(offerSelections.flatMap((offerSelection) =>
         effectiveOfferDesiredOutcomeIds(document, offerSelection),
       ));

@@ -1,4 +1,4 @@
-import { isDesiredOutcomeBearingJob, type MapDocument } from '@vee/domain';
+import { effectiveTouchpointOutcomes, isDesiredOutcomeBearingJob, type MapDocument } from '@vee/domain';
 import { deriveMapEdges, deriveVisibleAuthoredRelationships } from './map-adapter';
 import { relationGroupsForEntity } from './map-relation-projection';
 
@@ -48,9 +48,8 @@ export function deriveRelationLensTrace(document: MapDocument, sourceId: string,
       if (!topology || topology.productId !== intent.productId || entities.get(offerId)?.kind !== 'offer') continue;
       addEntity(offerId); addEdge(topology.id);
       for (const selection of document.touchpointJobSelections.filter(item => item.offerId === offerId && item.productJobIntentId === intent.id)) {
-        const routeSources = isDesiredOutcomeBearingJob(job.kind)
-          ? outcomeIds.filter(id => selection.addressedDesiredOutcomeIds.includes(id))
-          : (selection.addressedDesiredOutcomeIds.length === 0 && (job.kind === 'emotional_job' || job.kind === 'social_job') ? [job.id] : []);
+        const effectiveOutcomes = effectiveTouchpointOutcomes(document, selection) ?? [];
+        const routeSources = outcomeIds.filter(id => effectiveOutcomes.includes(id));
         if (!routeSources.length) continue;
         addTouchpointTopology(offerId, selection.touchpointId);
         for (const routeSource of routeSources) addEdge(`intent-route:${routeSource}->${selection.touchpointId}`);

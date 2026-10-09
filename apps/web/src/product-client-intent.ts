@@ -3,7 +3,7 @@ import { clientIntentKindShortcutMatches, clientIntentTitleMatches, normalizeCli
 
 export const PRODUCT_CLIENT_INTENT_KINDS = ['core_functional_job', 'related_job', 'consumption_chain_job', 'emotional_job', 'social_job'] as const;
 export type ProductClientIntentKind = typeof PRODUCT_CLIENT_INTENT_KINDS[number];
-type OutcomeJobKind = Extract<ProductClientIntentKind, 'core_functional_job' | 'related_job' | 'consumption_chain_job'>;
+type OutcomeJobKind = ProductClientIntentKind;
 type DiscoveryKind = ProductClientIntentKind | 'desired_outcome';
 type Job = Entity & { kind: ProductClientIntentKind };
 type Outcome = Entity & { kind: 'desired_outcome' };
@@ -15,7 +15,6 @@ interface JobBase {
 }
 export type ProductClientIntentItem = JobBase & (
   | { kind: OutcomeJobKind; desiredOutcomes: Outcome[]; outcomeKnowledge: 'empty' | 'selected' }
-  | { kind: 'emotional_job' | 'social_job' }
 );
 export interface ProductClientIntent { productId: string; groups: { kind: ProductClientIntentKind; items: ProductClientIntentItem[] }[] }
 export interface ProductDiscoveryJob extends JobBase {
@@ -68,7 +67,6 @@ export function productClientIntent(document: MapDocument, productId: string): P
     const items: ProductClientIntentItem[] = source.jobs.filter(job => job.kind === kind).flatMap<ProductClientIntentItem>(job => {
       const { checked, outcomes, ...base } = source.state(job);
       if (!checked) return [];
-      if (job.kind === 'emotional_job' || job.kind === 'social_job') return [{ ...base, kind: job.kind }];
       const desiredOutcomes = outcomes.filter(outcome => outcome.checked).map(outcome => outcome.entity);
       return [{ ...base, kind: job.kind as OutcomeJobKind, desiredOutcomes, outcomeKnowledge: desiredOutcomes.length ? 'selected' : 'empty' }];
     });

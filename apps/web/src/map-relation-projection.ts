@@ -1,4 +1,4 @@
-import { effectiveOfferDesiredOutcomeIds, type MapDocument } from '@vee/domain';
+import { isDesiredOutcomeBearingJob, effectiveOfferDesiredOutcomeIds, type MapDocument } from '@vee/domain';
 
 export type SatelliteKind =
   | 'core_functional_job'
@@ -39,18 +39,13 @@ export interface FocusedDesiredOutcomeChild {
   title: string;
 }
 
-const DESIRED_OUTCOME_BEARING_JOB_KINDS = new Set<SatelliteKind>([
-  'core_functional_job',
-  'related_job',
-  'consumption_chain_job',
-]);
 
 /** Resolves the exact Product-intent outcome subset behind a focused Business-side Job satellite. */
 export function focusedDesiredOutcomeChildren(document: MapDocument, sourceId: string, focusedJobId: string): FocusedDesiredOutcomeChild[] {
   const entities = new Map(document.entities.map(entity => [entity.id, entity]));
   const source = entities.get(sourceId);
   const job = entities.get(focusedJobId);
-  if (!source || !job || !DESIRED_OUTCOME_BEARING_JOB_KINDS.has(job.kind as SatelliteKind)) return [];
+  if (!source || !job || !isDesiredOutcomeBearingJob(job.kind)) return [];
 
   let intent = source.kind === 'product'
     ? document.productJobIntents.find(candidate => candidate.productId === source.id && candidate.jobId === job.id)

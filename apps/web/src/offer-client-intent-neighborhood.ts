@@ -1,4 +1,4 @@
-import {
+import { isDesiredOutcomeBearingJob,
   effectiveOfferDesiredOutcomeIds,
   type Entity,
   type MapDocument,
@@ -67,11 +67,6 @@ const JOB_KINDS = new Set<OfferClientIntentJobKind>([
   'emotional_job',
   'social_job',
 ]);
-const DO_BEARING_JOB_KINDS = new Set<OfferClientIntentJobKind>([
-  'core_functional_job',
-  'related_job',
-  'consumption_chain_job',
-]);
 const TYPE_ORDER = new Map(OFFER_CLIENT_INTENT_GROUND_TYPE_IDS.map((kind, index) => [kind, index]));
 
 const byTitleThenId = <T extends { title: string; id: string }>(left: T, right: T) =>
@@ -83,7 +78,7 @@ function validDesiredOutcomeIds(
   job: Job,
   entitiesById: Map<string, Entity>,
 ): string[] {
-  if (!DO_BEARING_JOB_KINDS.has(job.kind)) return [];
+  if (!isDesiredOutcomeBearingJob(job.kind)) return [];
 
   const ownedIds = new Set(document.relationships.flatMap((relationship) =>
     relationship.kind === 'job_has_desired_outcome' && relationship.jobId === job.id
