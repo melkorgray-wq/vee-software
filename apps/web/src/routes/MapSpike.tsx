@@ -15,7 +15,7 @@ import { findFreePlacement, findPlacementNearPoint, findRelatedPlacement, recons
 import { nearestSpatialCandidate, spatialDirectionForKey } from '../map-spatial-navigation';
 import { enterMoveMode, inactiveMoveMode, moveInMode, moveVectorForKey, type MoveMode } from '../map-move-mode';
 import { Link } from '../router';
-import { collisionSafeOfferTitle, collisionSafeTouchpointTitle, commitOfferConnectedTouchpoint, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, createSiblingOfferAndReplace, createTouchpointIntentDraft, duplicateOfferAndReplace, entityTitle, equalTouchpointIntentDraft, globalIntentDiscovery, planFutureTouchpointOfferReplacement, replaceTouchpointLinkedOffer, touchpointClientScope, touchpointUpstreamSources, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft, type UpstreamLeaf } from './touchpoint-edit';
+import { collisionSafeOfferTitle, collisionSafeProductTitle, collisionSafeTouchpointTitle, commitOfferConnectedTouchpoint, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, createSiblingOfferAndReplace, createTouchpointIntentDraft, duplicateOfferAndReplace, entityTitle, equalTouchpointIntentDraft, globalIntentDiscovery, planFutureTouchpointOfferReplacement, replaceTouchpointLinkedOffer, touchpointClientScope, touchpointUpstreamSources, validateTouchpointIntentDraft, type ConnectionPickerKind, type TouchpointIntentDraft, type UpstreamLeaf } from './touchpoint-edit';
 import { commitSemanticOperation, semanticCommitState } from './semantic-commit-policy';
 import { deriveTouchpointBusinessStructure, deriveTouchpointChildrenCandidates, deriveTouchpointReassignTargets } from '../touchpoint-business-structure';
 import { deriveOfferBusinessStructure, projectConnectedTouchpointCandidates } from '../offer-business-structure';
@@ -2710,12 +2710,17 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         viewId: VIEW_ID,
         x: placement.x + 40,
         y: placement.y + 40,
-        relationshipIds: Array.from({ length: source.relationships.length + 2 }, () => crypto.randomUUID()),
-        ...(sourceEntity.kind === 'offer'
-          ? { title: collisionSafeOfferTitle(source, sourceEntity.title) }
-          : sourceEntity.kind === 'touchpoint'
-            ? { title: collisionSafeTouchpointTitle(source, sourceEntity.title) }
-            : {}),
+        relationshipIds: Array.from({ length: duplicateEntityRelationshipIdCount(source, id) }, () => crypto.randomUUID()),
+        ...(sourceEntity.kind === 'product'
+          ? { title: collisionSafeProductTitle(source, sourceEntity.title) }
+          : sourceEntity.kind === 'offer'
+            ? { title: collisionSafeOfferTitle(source, sourceEntity.title) }
+            : sourceEntity.kind === 'touchpoint'
+              ? { title: collisionSafeTouchpointTitle(source, sourceEntity.title) }
+              : {}),
+        ...(sourceEntity.kind === 'product'
+          ? { productDefinitionBlockIds: (sourceEntity.definitionBlocks ?? []).map(() => crypto.randomUUID()) }
+          : {}),
         ...(sourceEntity.kind === 'offer' && sourceEntity.contentBlocks
           ? { offerContentBlockIds: sourceEntity.contentBlocks.map(() => crypto.randomUUID()) }
           : {}),
@@ -2726,6 +2731,10 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       dispatchInspectorHistory({ type: 'append-copy-path', sourceEntityId: id, copiedEntityId: entityId });
       setActiveWorkspaceView('inspector');
       activeWorkspaceViewRef.current = 'inspector';
+      requestAnimationFrame(() => {
+        const titleButton = inspectorTitleButtonRef.current;
+        if (selectedRef.current === entityId && activeWorkspaceViewRef.current === 'inspector' && titleButton && !titleButton.closest('.inspector')?.contains(globalThis.document.activeElement)) titleButton.focus();
+      });
       publishSuccess('Element duplicated.');
     } catch (error) {
       publishError(error instanceof Error ? error.message : 'Element could not be duplicated.');
@@ -4756,7 +4765,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
             <nav className="inspector-history" aria-label="Inspector history">
               <button type="button" aria-label="Inspector Back" disabled={!traverseInspectorHistory(inspectorHistory, 'back', id => document.entities.some(entity => entity.id === id))} onClick={() => traverseInspector('back')}>Back</button>
               <button type="button" aria-label="Inspector Forward" disabled={!traverseInspectorHistory(inspectorHistory, 'forward', id => document.entities.some(entity => entity.id === id))} onClick={() => traverseInspector('forward')}>Forward</button>
-              {mode !== 'create' && (selected?.kind === 'offer' || selected?.kind === 'touchpoint') && <button type="button" aria-label={`Duplicate ${selected.kind === 'offer' ? 'Offer' : 'Touchpoint'}`} onClick={() => duplicate(selected.id)}>Duplicate</button>}
+              {mode !== 'create' && (selected?.kind === 'product' || selected?.kind === 'offer' || selected?.kind === 'touchpoint') && <button type="button" aria-label={`Duplicate ${selected.kind === 'product' ? 'Product' : selected.kind === 'offer' ? 'Offer' : 'Touchpoint'}`} onClick={() => duplicate(selected.id)}>Duplicate</button>}
             </nav>
           </header>
           {message && !quick && (
