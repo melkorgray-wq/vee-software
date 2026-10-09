@@ -6216,6 +6216,69 @@ describe('map-first authoring interactions', () => {
     await openMap(user); fireEvent.keyDown(window, { key: 'Enter' }); expect(contextualEditor('Add Repulsor').getByText('Resists: Belong')).toBeInTheDocument(); await user.click(contextualEditor('Add Repulsor').getByRole('button', { name: 'Cancel' }));
     const reverseTab = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, cancelable: true }); fireEvent(window, reverseTab); expect(reverseTab.defaultPrevented).toBe(false); fireEvent.contextMenu(screen.getByRole('button', { name: 'Fear delay' })); expect(screen.queryByRole('menuitem', { name: 'Add' })).not.toBeInTheDocument(); expect(screen.queryByRole('menuitem', { name: 'Repulsor' })).not.toBeInTheDocument(); await user.click(screen.getByRole('menuitem', { name: 'Duplicate' })); await openMap(user); expect(screen.getAllByRole('button', { name: 'Fear delay' })).toHaveLength(2);
   });
+  it.each([
+    ['emotional_job', 'pointer'], ['emotional_job', 'keyboard'],
+    ['social_job', 'pointer'], ['social_job', 'keyboard'],
+  ] as const)('creates an ordinary DO from the %s %s Child menu without selecting intent', async (kind, invocation) => {
+    const user = userEvent.setup();
+    const initial = touchpointInspectorDocument();
+    initial.entities = [{ id: 'job', kind, title: 'Selected Job' }];
+    initial.relationships = [];
+    initial.placements = [{ viewId: 'spike-view', entityId: 'job', x: 100, y: 100 }];
+    render(<MapSpike initialDocument={initial} />);
+    const before = structuredClone(window.__VEE_DEV__!.dump());
+    const source = screen.getByRole('button', { name: 'Selected Job' });
+    async function openChild() {
+      if (invocation === 'pointer') fireEvent.contextMenu(source, { clientX: 200, clientY: 200 });
+      else { await user.click(source); fireEvent.keyDown(window, { key: 'Tab' }); }
+      const menu = screen.getByRole('menu', { name: 'Entity context menu' });
+      expect(menu).toHaveAttribute('data-invocation', invocation);
+      const command = within(menu).getByRole('menuitem', { name: 'Desired Outcome' });
+      expect(command).toHaveFocus();
+      expect(within(menu).queryByRole('menuitem', { name: 'Related Job' })).not.toBeInTheDocument();
+      if (invocation === 'pointer') await user.click(command);
+      else await user.keyboard('{Enter}');
+      const editor = contextualEditor('Add Desired Outcome');
+      await waitFor(() => expect(editor.getByLabelText('Title')).toHaveFocus());
+      return editor;
+    }
+    let editor = await openChild();
+    await user.type(editor.getByLabelText('Title'), 'Cancelled outcome');
+    if (invocation === 'pointer') await user.click(editor.getByRole('button', { name: 'Cancel' }));
+    else await user.keyboard('{Escape}');
+    expect(screen.queryByRole('heading', { name: 'Add Desired Outcome' })).not.toBeInTheDocument();
+    expect(window.__VEE_DEV__!.dump()).toEqual(before);
+    editor = await openChild();
+    await user.type(editor.getByLabelText('Title'), 'Created outcome');
+    await user.click(editor.getByRole('button', { name: 'Create & open Inspector' }));
+    const committed = window.__VEE_DEV__!.dump();
+    const outcome = committed.entities.find(entity => entity.title === 'Created outcome')!;
+    expect(outcome.kind).toBe('desired_outcome');
+    expect(committed.relationships).toEqual([{ id: expect.any(String), kind: 'job_has_desired_outcome', jobId: 'job', desiredOutcomeId: outcome.id }]);
+    expect(committed.entities.find(entity => entity.id === 'job')).toEqual(initial.entities[0]);
+    for (const field of ['productJobIntents', 'offerJobSelections', 'touchpointJobSelections', 'offerFinancialIntents', 'touchpointFinancialSelections'] as const) expect(committed[field]).toEqual(before[field]);
+    const placement = committed.placements.find(item => item.entityId === outcome.id)!;
+    expect(placement).toMatchObject({ viewId: 'spike-view', x: expect.any(Number), y: expect.any(Number) });
+    expect(nodesOverlap(initial.placements[0]!, 96, placement, 72)).toBe(false);
+    const inspector = within(screen.getByRole('tabpanel', { name: 'Entity Inspector' }));
+    const editTitle = inspector.getByRole('button', { name: 'Edit title, Created outcome' });
+    await user.click(editTitle);
+    const title = inspector.getByRole('textbox', { name: 'Edit title, Created outcome' });
+    await waitFor(() => expect(title).toHaveFocus());
+    await user.clear(title); await user.type(title, 'Edited outcome{Enter}');
+    expect(window.__VEE_DEV__!.dump().entities.find(entity => entity.id === outcome.id)?.title).toBe('Edited outcome');
+    await openMap(user);
+    expect(screen.getByRole('button', { name: 'Edited outcome' })).toHaveAttribute('data-selected', 'true');
+  });
+  it.each(['related_job', 'consumption_chain_job'] as const)('preserves the existing %s Desired Outcome Child command', async kind => {
+    const user = userEvent.setup(); const initial = touchpointInspectorDocument();
+    initial.entities = [{ id: 'job', kind, title: 'Existing Job' }]; initial.relationships = [];
+    initial.placements = [{ viewId: 'spike-view', entityId: 'job', x: 100, y: 100 }];
+    render(<MapSpike initialDocument={initial} />);
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Existing Job' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Desired Outcome' }));
+    expect(contextualEditor('Add Desired Outcome').getByLabelText('Title')).toHaveFocus();
+  });
   it('uses one canonical grouped Core Functional Job menu for Tab and right click', async () => {
     const user = userEvent.setup(); render(<MapSpike />);
     await user.click(screen.getByRole('button', { name: 'Add element' })); await user.click(screen.getByRole('button', { name: 'Client side' })); await user.type(screen.getByLabelText('Title'), 'Make progress'); await user.click(screen.getByRole('button', { name: 'Create' })); await openMap(user);
