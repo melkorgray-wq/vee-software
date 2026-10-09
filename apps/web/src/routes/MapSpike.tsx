@@ -429,7 +429,7 @@ const draft = (kind: ProvisionalEntityKind = 'product'): EditDraft => ({
 });
 const isEditableControl = (target: EventTarget | null) => target instanceof HTMLElement && (target.contentEditable === 'true' || Boolean(target.closest('input, textarea, select, [role="textbox"], [role="combobox"], [contenteditable]')));
 const isKeyboardOwnedControl = (target: EventTarget | null) => target instanceof HTMLElement && !target.closest('[data-node-id], .react-flow__node[data-id]') && Boolean(target.closest('button, form, [role="dialog"], [role="menu"], [role="listbox"], [popover], .contextual-editor'));
-const hasCanonicalChild = (entity: Entity) => entity.kind === 'product' || entity.kind === 'offer' || entity.kind === 'touchpoint' || entity.kind === 'core_functional_job' || entity.kind === 'consumption_chain_job' || entity.kind === 'related_job';
+const hasCanonicalChild = (entity: Entity) => entity.kind === 'product' || entity.kind === 'offer' || entity.kind === 'touchpoint' || isDesiredOutcomeBearingJob(entity.kind);
 const safeUrl = (url?: string) => (url && !/^\s*(javascript|data):/i.test(url) ? url : undefined);
 const normalizeTitleLineBreaks = (value: string) => value.replace(/[\r\n\u2028\u2029]+/g, ' ');
 function resizeAutoGrowingField(field: HTMLTextAreaElement) {
@@ -2406,7 +2406,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       d.parentEntityId = entity.id;
       return d;
     }
-    if (entity.kind === 'consumption_chain_job' || entity.kind === 'related_job') {
+    if (isDesiredOutcomeBearingJob(entity.kind)) {
       const d = draft('desired_outcome');
       d.parentEntityId = entity.id;
       return d;
