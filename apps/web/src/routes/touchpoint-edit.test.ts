@@ -421,7 +421,7 @@ describe('Touchpoint edit intent draft', () => {
   it('connection picker filters by exact entity kind and partial title', () => {
     const candidates = connectionPickerCatalogue(fixture(), 'touchpoint');
     expect(filterConnectionCandidates(candidates, { kind: 'core_functional_job', query: '' }).map(candidate => candidate.semanticLeafId)).toEqual(['do-a', 'do-b']);
-    expect(filterConnectionCandidates(candidates, { query: 'safe' }).map(candidate => candidate.semanticLeafId)).toEqual(['emotional']);
+    expect(filterConnectionCandidates(candidates, { query: 'safe' }).map(candidate => candidate.semanticLeafId)).toEqual([]);
     expect(filterConnectionCandidates(candidates, { query: 'do b' }).map(candidate => candidate.semanticLeafId)).toEqual(['do-b']);
   });
 
@@ -478,7 +478,7 @@ describe('Touchpoint edit intent draft', () => {
     const document = fixture();
     document.entities.push({ id: 'outcome-emotion', kind: 'emotional_job', title: 'Outcome confidence' });
     const outcome = globalIntentDiscovery(document, { query: 'Outcome' });
-    expect(outcome.titleMatches.directLeaves.map(leaf => leaf.entity.id)).toContain('outcome-emotion');
+    expect(outcome.titleMatches.jobGroups.map(group => group.job.id)).toContain('outcome-emotion');
     expect(outcome.kindShortcutMatches.map(match => match.kind)).toEqual(expect.arrayContaining(['desired_outcome', 'financial_desired_outcome']));
     expect(globalIntentDiscovery(document, { query: 'Desired' }).kindShortcutMatches.map(match => match.kind)).toEqual(expect.arrayContaining(['desired_outcome', 'financial_desired_outcome']));
   });
@@ -497,7 +497,7 @@ describe('Touchpoint edit intent draft', () => {
     const desired = globalIntentDiscovery(document, { query: 'desired', kind: 'desired_outcome' });
     expect(desired.jobGroups.flatMap(group => group.leaves.filter(leaf => leaf.kind === 'desired-outcome').map(leaf => leaf.entity.id))).toEqual(['do-a', 'do-b', 'related-do', 'chain-do']);
     expect(desired.directLeaves).toEqual([]);
-    expect(globalIntentDiscovery(document, { query: 'social', kind: 'social_job' }).directLeaves.map(leaf => leaf.entity.id)).toEqual(['social']);
+    expect(globalIntentDiscovery(document, { query: 'social', kind: 'social_job' }).jobGroups.map(group => group.job.id)).toEqual(['social']);
     expect(globalIntentDiscovery(document, { query: 'financial', kind: 'financial_desired_outcome' }).directLeaves.map(leaf => leaf.entity.id)).toEqual(['fdo']);
     expect(JSON.stringify(desired)).not.toContain('product-nope');
   });

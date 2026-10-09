@@ -1,4 +1,4 @@
-import { isDesiredOutcomeBearingJob, relevantRepulsorsForTouchpoint, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship } from '@vee/domain';
+import { effectiveTouchpointOutcomes, isDesiredOutcomeBearingJob, relevantRepulsorsForTouchpoint, type Entity, type MapDocument, type ProvisionalEntityKind, type Relationship } from '@vee/domain';
 import { MarkerType, type BuiltInEdge, type Edge, type Node } from '@xyflow/react';
 import { focusedDesiredOutcomeChildren, projectMapRelationSatellites, type SatelliteKind } from './map-relation-projection';
 import { placeSatelliteChildFan, placeSatelliteGroups } from './map-satellite-geometry';
@@ -110,8 +110,7 @@ export function deriveMapEdges(document: MapDocument): MapEdge[] {
       const intent = document.productJobIntents.find(candidate => candidate.id === selection.productJobIntentId); if (!intent) continue;
       const job = document.entities.find(candidate => candidate.id === intent.jobId); if (!job) continue;
       const outcomes = byJob.get(intent.jobId) ?? new Set<string>();
-      if (isDesiredOutcomeBearingJob(job.kind)) selection.addressedDesiredOutcomeIds.filter(outcomeId => intent.addressedDesiredOutcomeIds.includes(outcomeId) && document.relationships.some(relation => relation.kind === 'job_has_desired_outcome' && relation.jobId === job.id && relation.desiredOutcomeId === outcomeId)).forEach(id => outcomes.add(id));
-      else if ((job.kind === 'emotional_job' || job.kind === 'social_job') && selection.addressedDesiredOutcomeIds.length === 0) outcomes.add(job.id);
+      if (isDesiredOutcomeBearingJob(job.kind)) (effectiveTouchpointOutcomes(document, selection) ?? []).filter(outcomeId => intent.addressedDesiredOutcomeIds.includes(outcomeId) && document.relationships.some(relation => relation.kind === 'job_has_desired_outcome' && relation.jobId === job.id && relation.desiredOutcomeId === outcomeId)).forEach(id => outcomes.add(id));
       byJob.set(intent.jobId, outcomes);
     }
     for (const outcomes of byJob.values()) {

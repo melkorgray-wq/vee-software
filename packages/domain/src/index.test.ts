@@ -684,7 +684,7 @@ describe('map authoring domain', () => {
     d = addEntity(d, { ...place, entityId: 'related-parent', title: 'Related', kind: 'related_job', parentEntityId: 'core', relationshipId: 'cr' });
     expect(() => addEntity(d, { ...place, entityId: 'orphan', title: 'Orphan', kind: 'related_job' } as Parameters<typeof addEntity>[1])).toThrow();
     for (const parentEntityId of ['emotional_job', 'offer-parent']) expect(() => addEntity(d, { ...place, entityId: `related-${parentEntityId}`, title: 'Invalid', kind: 'related_job', parentEntityId, relationshipId: `r-${parentEntityId}` })).toThrow('core functional');
-    for (const parentEntityId of ['social_job', 'financial_desired_outcome', 'product-parent']) expect(() => addEntity(d, { ...place, entityId: `outcome-${parentEntityId}`, title: 'Invalid', kind: 'desired_outcome', parentEntityId, relationshipId: `o-${parentEntityId}` })).toThrow('functional Job');
+    for (const parentEntityId of ['financial_desired_outcome', 'product-parent']) expect(() => addEntity(d, { ...place, entityId: `outcome-${parentEntityId}`, title: 'Invalid', kind: 'desired_outcome', parentEntityId, relationshipId: `o-${parentEntityId}` })).toThrow('Desired Outcome-bearing Job');
   });
   it('reparents contextual Client entities only to valid parents and preserves exactly one relation', () => {
     let d = addEntity(empty(), { ...place, entityId: 'core-a', title: 'A', kind: 'core_functional_job' });
@@ -826,7 +826,7 @@ describe('map authoring domain', () => {
       expect(() => addProductJobIntent(d, { id: 'duplicate', productId: 'product', jobId: 'core', addressedDesiredOutcomeIds: [] })).toThrow('only once');
       expect(() => addProductJobIntent(intentDocument(), { id: 'wrong-owner', productId: 'product', jobId: 'core', addressedDesiredOutcomeIds: ['other-outcome'] })).toThrow('belong');
       expect(() => addProductJobIntent(intentDocument(), { id: 'invalid-kind', productId: 'product', jobId: 'outcome', addressedDesiredOutcomeIds: [] })).toThrow('eligible Client Job');
-      expect(() => addProductJobIntent(intentDocument(), { id: 'invalid-subset', productId: 'product', jobId: 'emotional', addressedDesiredOutcomeIds: ['outcome'] })).toThrow('cannot select');
+      expect(() => addProductJobIntent(intentDocument(), { id: 'invalid-subset', productId: 'product', jobId: 'emotional', addressedDesiredOutcomeIds: ['outcome'] })).toThrow('belong to the selected Job');
     });
     it('restricts Offer selections, prunes them on intent removal and Product change, and preserves Client entities', () => {
       let d = addProductJobIntent(intentDocument(), { id: 'intent', productId: 'product', jobId: 'core', addressedDesiredOutcomeIds: ['outcome'] });
@@ -924,7 +924,8 @@ describe('Touchpoint mitigation', () => {
     d = addEntity(d, { ...place, entityId: 'outcome-a', title: 'Outcome A', kind: 'desired_outcome', parentEntityId: 'job-a', relationshipId: 'owns-outcome-a' });
     d = addEntity(d, { ...place, entityId: 'job-b', title: 'Job B', kind: 'emotional_job' });
     d = addProductJobIntent(d, { id: 'intent-a', productId: 'product', jobId: 'job-a', addressedDesiredOutcomeIds: ['outcome-a'] });
-    d = addProductJobIntent(d, { id: 'intent-b', productId: 'product', jobId: 'job-b', addressedDesiredOutcomeIds: [] });
+    d = addEntity(d, { ...place, entityId: 'outcome-b', title: 'Outcome B', kind: 'desired_outcome', parentEntityId: 'job-b', relationshipId: 'owns-outcome-b' });
+    d = addProductJobIntent(d, { id: 'intent-b', productId: 'product', jobId: 'job-b', addressedDesiredOutcomeIds: ['outcome-b'] });
     d = setOfferJobSelections(d, { offerId: 'offer', productJobIntentIds: ['intent-a', 'intent-b'], newSelectionIds: ['selection-a', 'selection-b'] });
     d = touchpoint(d);
     d = selectAllLinkedOfferIntentsForTouchpoint(d, { touchpointId: 'touch', jobSelectionIds: ['touch-a', 'touch-b'], financialSelectionIds: [] });
@@ -1165,7 +1166,7 @@ describe('Touchpoint intent scope', () => {
       expect(second).toEqual(first);
     });
 
-    it('Emotional and Social paths never receive an ordinary DO subset', () => {
+    it('Emotional and Social Job-only memberships retain empty ordinary DO subsets', () => {
       let d = scoped();
       d = addEntity(d, { ...place, entityId: 'emotional', title: 'Feel confident', kind: 'emotional_job' });
       d = addEntity(d, { ...place, entityId: 'social', title: 'Be respected', kind: 'social_job' });
@@ -1883,8 +1884,8 @@ describe('Product resistance manifestations', () => {
     d.entities = [{ id: 'product', kind: 'product', title: 'Product' }, { id: 'other', kind: 'product', title: 'Other Product' }, { id: 'offer', kind: 'offer', title: 'Offer', currentContentSource: null }, { id: 'touch', kind: 'touchpoint', title: 'Touchpoint' }, { id: 'rep', kind: 'repulsor', title: 'Friction' }, ...kinds.map((kind, i) => ({ id: `job-${i}`, kind, title: `Job ${i}` }))];
     d.relationships = [{ id: 'owns', kind: 'product_packaged_as_offer', productId: 'product', offerId: 'offer' }, { id: 'presents', kind: 'offer_presented_at_touchpoint', offerId: 'offer', touchpointId: 'touch' }];
     kinds.forEach((_, i) => {
-      const scope = i < 3 ? [`do-${i}`] : [];
-      if (i < 3) {
+      const scope = [`do-${i}`];
+      {
         d.entities.push({ id: `do-${i}`, kind: 'desired_outcome', title: `Outcome ${i}` });
         d.relationships.push({ id: `has-do-${i}`, kind: 'job_has_desired_outcome', jobId: `job-${i}`, desiredOutcomeId: `do-${i}` });
       }
@@ -2135,5 +2136,61 @@ describe('canonical Product duplication', () => {
       expect(() => duplicateEntity(d, { ...input, relationshipIds: ['a', 'b', 'c', 'd', 'e', 'f'] })).toThrow();
       expect(d).toEqual(before);
     }
+  });
+});
+
+describe('ordinary Desired Outcomes for all five Jobs', () => {
+  const kinds = ['core_functional_job', 'related_job', 'consumption_chain_job', 'emotional_job', 'social_job'] as const;
+  function fixture(kind: typeof kinds[number]) {
+    let d = offerDocument();
+    d = addEntity(d, { ...place, entityId: 'core-context', title: 'Context', kind: 'core_functional_job' });
+    d = kind === 'related_job'
+      ? addEntity(d, { ...place, entityId: 'selected-job', title: 'Job', kind, parentEntityId: 'core-context', relationshipId: 'context-job' })
+      : addEntity(d, { ...place, entityId: 'selected-job', title: 'Job', kind });
+    for (const id of ['first-do', 'second-do']) d = addEntity(d, { ...place, entityId: id, title: id, kind: 'desired_outcome', parentEntityId: 'selected-job', relationshipId: `owns-${id}` });
+    d = addProductJobIntent(d, { id: 'selected-intent', productId: 'product', jobId: 'selected-job', addressedDesiredOutcomeIds: ['first-do', 'second-do'] });
+    d = setOfferJobSelections(d, { offerId: 'offer', selections: [{ productJobIntentId: 'selected-intent', addressedDesiredOutcomeIds: ['first-do'] }], newSelectionIds: ['selected-offer'] });
+    d = touchpoint(d);
+    d = setTouchpointIntentSelections(d, { touchpointId: 'touch', selections: [{ id: 'selected-touch', kind: 'job', offerId: 'offer', productJobIntentId: 'selected-intent', addressedDesiredOutcomeIds: ['first-do'] }] });
+    return addEntity(d, { ...place, entityId: 'job-repulsor', title: 'Friction', kind: 'repulsor', resistedTargetIds: ['selected-job'], relationshipIds: ['job-resisted'] });
+  }
+  it.each(kinds)('%s uses owned ordinary DO and independent narrowed subsets', kind => {
+    const d = fixture(kind); const before = structuredClone(d);
+    expect(d.relationships).toContainEqual({ id: 'owns-first-do', kind: 'job_has_desired_outcome', jobId: 'selected-job', desiredOutcomeId: 'first-do' });
+    expect(d.productJobIntents[0]!.addressedDesiredOutcomeIds).toEqual(['first-do', 'second-do']);
+    expect(d.offerJobSelections[0]!.addressedDesiredOutcomeIds).toEqual(['first-do']);
+    expect(resistanceExposureForProduct(d, 'product')[0]!.grounds[0]!.manifestations).toHaveLength(1);
+    expect(() => setTouchpointIntentSelections(d, { touchpointId: 'touch', selections: [{ id: 'selected-touch', kind: 'job', offerId: 'offer', productJobIntentId: 'selected-intent', addressedDesiredOutcomeIds: ['second-do'] }] })).toThrow('immediate Offer scope');
+    expect(() => addProductJobIntent(d, { id: 'foreign-scope', productId: 'product', jobId: 'core-context', addressedDesiredOutcomeIds: ['first-do'] })).toThrow('belong');
+    expect(d).toEqual(before);
+  });
+  it.each(kinds)('%s retains every authored membership when its last DO is removed', kind => {
+    const d = fixture(kind); const before = structuredClone(d);
+    function freeze(value: unknown) { if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); } }
+    freeze(d);
+    const next = updateProductJobIntent(d, { ...d.productJobIntents[0]!, addressedDesiredOutcomeIds: [] });
+    expect(next.productJobIntents).toEqual([{ ...d.productJobIntents[0]!, addressedDesiredOutcomeIds: [] }]);
+    expect(next.offerJobSelections).toEqual([{ ...d.offerJobSelections[0]!, addressedDesiredOutcomeIds: [] }]);
+    expect(next.touchpointJobSelections).toEqual([{ ...d.touchpointJobSelections[0]!, addressedDesiredOutcomeIds: [] }]);
+    expect(resistanceExposureForProduct(next, 'product')[0]!.grounds).toEqual([{ resistedTarget: { entityId: 'selected-job', kind }, manifestations: [] }]);
+    expect(resistanceImpactForOffer(next, 'offer')).toEqual([]);
+    expect(next.entities).toEqual(d.entities);
+    expect(next.relationships).toEqual(d.relationships);
+    expect(d).toEqual(before);
+  });
+  it.each(['emotional_job', 'social_job'] as const)('%s create-and-link, bottom-up and duplicate preserve ordinary DO identity', kind => {
+    const d = fixture(kind);
+    const result = applyProductClientIntentCommand(d, { productId: 'product', command: { kind: 'create-desired-outcome', creation: { ...place, entityId: 'new-do', title: 'New outcome', parentEntityId: 'selected-job', relationshipId: 'owns-new-do' } } });
+    expect(result.status).toBe('complete');
+    if (result.status !== 'complete') throw new Error('Unexpected review');
+    expect(result.document.productJobIntents[0]!.addressedDesiredOutcomeIds).toEqual(['first-do', 'second-do', 'new-do']);
+    const copy = duplicateEntity(result.document, { sourceEntityId: 'product', entityId: 'copy', title: 'Copy', ...place, relationshipIds: ['copied-intent'] });
+    expect(copy.productJobIntents.find(i => i.productId === 'copy')).toEqual({ ...result.document.productJobIntents[0]!, id: 'copied-intent', productId: 'copy' });
+    expect(copy.productJobIntents.find(i => i.productId === 'copy')!.addressedDesiredOutcomeIds).not.toBe(copy.productJobIntents[0]!.addressedDesiredOutcomeIds);
+    const withoutIntent = { ...d, productJobIntents: [], offerJobSelections: [], touchpointJobSelections: [] };
+    const bottomUp = completed(authorTouchpointIntentBottomUp(withoutIntent, { touchpointId: 'touch', contributingOfferIds: ['offer'], jobId: 'selected-job', addressedDesiredOutcomeIds: ['first-do'], productJobIntentIds: ['bottom-intent'], offerJobSelectionIds: ['bottom-offer'], touchpointSelectionIds: ['bottom-touch'] }));
+    expect(bottomUp.productJobIntents).toEqual([{ id: 'bottom-intent', productId: 'product', jobId: 'selected-job', addressedDesiredOutcomeIds: ['first-do'] }]);
+    expect(bottomUp.touchpointJobSelections[0]!.addressedDesiredOutcomeIds).toEqual(['first-do']);
+    expect(bottomUp.productJobIntents.some(i => i.jobId === 'core-context')).toBe(false);
   });
 });

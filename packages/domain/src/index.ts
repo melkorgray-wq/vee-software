@@ -95,7 +95,7 @@ export function createEmptyMapDocument(input: { mapId: string; title: string; vi
 }
 
 const PRODUCT_JOB_KINDS = ['core_functional_job', 'related_job', 'emotional_job', 'social_job', 'consumption_chain_job'] as const;
-export const DO_BEARING_JOB_KINDS = ['core_functional_job', 'related_job', 'consumption_chain_job'] as const;
+export const DO_BEARING_JOB_KINDS = ['core_functional_job', 'related_job', 'consumption_chain_job', 'emotional_job', 'social_job'] as const;
 export function isDesiredOutcomeBearingJob(kind: ProvisionalEntityKind): boolean { return (DO_BEARING_JOB_KINDS as readonly string[]).includes(kind); }
 /** Temporary compatibility for unversioned in-memory/dev snapshots. Remove when persistence has a versioned migration. */
 export function effectiveOfferDesiredOutcomeIds(document: MapDocument, selection: OfferJobSelection): string[] {
@@ -150,7 +150,7 @@ export function setOfferJobSelections(document: MapDocument, input: { offerId: s
     unique(selection.addressedDesiredOutcomeIds, 'duplicate_addressed_desired_outcome');
     if (selection.addressedDesiredOutcomeIds.some(id => !intent.addressedDesiredOutcomeIds.includes(id))) throw new DomainError('offer_outcome_outside_product_scope', 'An Offer outcome must be present in Product intent scope.');
     const job = document.entities.find(entity => entity.id === intent.jobId)!;
-    if (!isDesiredOutcomeBearingJob(job.kind) && selection.addressedDesiredOutcomeIds.length) throw new DomainError('desired_outcome_not_allowed', 'Emotional and Social Jobs cannot have a Desired Outcome subset.');
+    if (!isDesiredOutcomeBearingJob(job.kind) && selection.addressedDesiredOutcomeIds.length) throw new DomainError('desired_outcome_not_allowed', 'This Job kind cannot select Desired Outcomes.');
   }
   const existing = document.offerJobSelections.filter(selection => selection.offerId === input.offerId); const retained = new Map(existing.map(selection => [selection.productJobIntentId, selection]));
   const additions = intentIds.filter(id => !retained.has(id));
@@ -480,7 +480,7 @@ function productForOffer(document: MapDocument, offerId: string): string {
 function validateTouchpointOutcomeScope(document: MapDocument, intent: ProductJobIntent, outcomeIds: string[], offerSelection?: OfferJobSelection): void {
   unique(outcomeIds, 'duplicate_touchpoint_desired_outcome');
   const job = document.entities.find(entity => entity.id === intent.jobId)!;
-  if (!isDesiredOutcomeBearingJob(job.kind) && outcomeIds.length) throw new DomainError('desired_outcome_not_allowed', 'Emotional and Social Jobs cannot have a Desired Outcome subset.');
+  if (!isDesiredOutcomeBearingJob(job.kind) && outcomeIds.length) throw new DomainError('desired_outcome_not_allowed', 'This Job kind cannot select Desired Outcomes.');
   const upstream = new Set(offerSelection ? effectiveOfferDesiredOutcomeIds(document, offerSelection) : intent.addressedDesiredOutcomeIds);
   for (const outcomeId of outcomeIds) {
     entityOfKind(document, outcomeId, 'desired_outcome', 'Touchpoint Desired Outcome');
@@ -581,7 +581,7 @@ export function applyTouchpointIntentDraft(document: MapDocument, input: { touch
         entityOfKind(document, leaf.desiredOutcomeId, 'desired_outcome', 'Touchpoint Desired Outcome');
         if (!document.relationships.some(relation => relation.kind === 'job_has_desired_outcome' && relation.jobId === leaf.jobId && relation.desiredOutcomeId === leaf.desiredOutcomeId)) throw new DomainError('desired_outcome_not_owned_by_job', 'Every selected Desired Outcome must belong to its Job.');
       } else if (leaf.desiredOutcomeId) throw new DomainError('desired_outcome_not_owned_by_job', 'A Job membership leaf cannot identify a Desired Outcome.');
-    } else if (leaf.desiredOutcomeId || leaf.semanticLeafId !== leaf.jobId) throw new DomainError('desired_outcome_not_allowed', 'Emotional and Social Jobs use a direct path without a Desired Outcome subset.');
+    } else if (leaf.desiredOutcomeId || leaf.semanticLeafId !== leaf.jobId) throw new DomainError('desired_outcome_not_allowed', 'This Job kind cannot select Desired Outcomes.');
     for (const offerId of leaf.contributorOfferIds) {
       if (!linked.has(offerId)) throw new DomainError('contributing_offer_not_linked', 'A contributing Offer must be linked to the Touchpoint.');
       productForOffer(document, offerId);
@@ -764,13 +764,10 @@ export function planTouchpointIntentPathChange(document: MapDocument, input: { t
     }
     const intent = document.productJobIntents.find(item => item.id === selection.productJobIntentId);
     if (!intent) throw new DomainError('invalid_touchpoint_intent_path', 'The local Job path has no durable Product intent.');
-    const job = document.entities.find(entity => entity.id === intent.jobId);
-    const directPath = Boolean(job && !isDesiredOutcomeBearingJob(job.kind));
-    if (directPath && target.semanticLeafId !== intent.jobId) throw new DomainError('invalid_touchpoint_intent_path', 'The semantic leaf does not identify the direct Job path.');
-    const outcomes = directPath ? [] : selection.addressedDesiredOutcomeIds.filter(id => id !== target.semanticLeafId);
+    const outcomes = selection.addressedDesiredOutcomeIds.filter(id => id !== target.semanticLeafId);
     const targetsJob = target.semanticLeafId === intent.jobId;
     if (!input.checked && targetsJob) continue;
-    selections.push({ ...selection, kind: 'job', addressedDesiredOutcomeIds: input.checked && !directPath && !targetsJob ? [...new Set([...selection.addressedDesiredOutcomeIds, target.semanticLeafId])] : outcomes });
+    selections.push({ ...selection, kind: 'job', addressedDesiredOutcomeIds: input.checked && !targetsJob ? [...new Set([...selection.addressedDesiredOutcomeIds, target.semanticLeafId])] : outcomes });
   }
   for (const selection of document.touchpointFinancialSelections.filter(item => item.touchpointId === target.touchpointId)) {
     if (!(target.kind === 'financial' && selection.offerId === target.offerId && selection.offerFinancialIntentId === target.offerFinancialIntentId)) selections.push({ id: selection.id, kind: 'financial', offerId: selection.offerId, offerFinancialIntentId: selection.offerFinancialIntentId });
@@ -1010,7 +1007,7 @@ export function setContextualCoreFunctionalJobs(document: MapDocument, input: { 
 
 export function relevantRepulsorsForTouchpoint(document: MapDocument, touchpointId: string): Entity[] {
   entityOfKind(document, touchpointId, 'touchpoint', 'Touchpoint');
-  const intentIds = new Set(document.touchpointJobSelections.flatMap(selection => selection.touchpointId === touchpointId && effectiveTouchpointOutcomes(document, selection) !== undefined ? [selection.productJobIntentId] : []));
+  const intentIds = new Set(document.touchpointJobSelections.flatMap(selection => selection.touchpointId === touchpointId && (effectiveTouchpointOutcomes(document, selection)?.length ?? 0) > 0 ? [selection.productJobIntentId] : []));
   const relevantTargetIds = new Set(document.productJobIntents.flatMap(intent => intentIds.has(intent.id) ? [intent.jobId] : []));
   for (const selection of document.touchpointFinancialSelections) if (selection.touchpointId === touchpointId && effectiveFinancialSelection(document, selection)) relevantTargetIds.add(selection.financialDesiredOutcomeId);
   const repulsorIds = new Set(document.relationships.flatMap(relation => relation.kind === 'repulsor_resists' && relevantTargetIds.has(relation.targetEntityId) ? [relation.repulsorId] : []));
@@ -1102,7 +1099,7 @@ export function resistanceImpactForOffer(document: MapDocument, offerId: string)
   for (const touchpointId of touchpointIds) {
     const targets = new Set<string>();
     for (const selection of document.touchpointJobSelections) {
-      if (selection.touchpointId !== touchpointId || selection.offerId !== offerId || effectiveTouchpointOutcomes(document, selection) === undefined) continue;
+      if (selection.touchpointId !== touchpointId || selection.offerId !== offerId || !(effectiveTouchpointOutcomes(document, selection)?.length)) continue;
       const intent = document.productJobIntents.find(candidate => candidate.id === selection.productJobIntentId);
       if (intent) targets.add(intent.jobId);
     }
@@ -1163,14 +1160,14 @@ function pruneIrrelevantTouchpointMitigations(document: MapDocument): MapDocumen
 }
 
 /** Returns the normalized local outcome subset, or undefined when the attributed path is not effective. */
-function effectiveTouchpointOutcomes(document: MapDocument, selection: TouchpointJobSelection): string[] | undefined {
+export function effectiveTouchpointOutcomes(document: MapDocument, selection: TouchpointJobSelection): string[] | undefined {
   const intent = document.productJobIntents.find(candidate => candidate.id === selection.productJobIntentId);
   const job = document.entities.find(candidate => candidate.id === intent?.jobId);
   if (!intent || !job) return undefined;
   const offerSelection = document.offerJobSelections.find(candidate => candidate.offerId === selection.offerId && candidate.productJobIntentId === intent.id);
   if (!offerSelection) return undefined;
   if (!document.relationships.some(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.offerId === selection.offerId && relation.touchpointId === selection.touchpointId)) return undefined;
-  if (!isDesiredOutcomeBearingJob(job.kind)) return selection.addressedDesiredOutcomeIds.length ? undefined : [];
+  if (!isDesiredOutcomeBearingJob(job.kind)) return undefined;
   const upstream = new Set(effectiveOfferDesiredOutcomeIds(document, offerSelection));
   const outcomes = selection.addressedDesiredOutcomeIds.filter(outcomeId => upstream.has(outcomeId) && document.entities.some(entity => entity.id === outcomeId && entity.kind === 'desired_outcome') && document.relationships.some(relation => relation.kind === 'job_has_desired_outcome' && relation.jobId === intent.jobId && relation.desiredOutcomeId === outcomeId));
   return [...new Set(outcomes)];
@@ -1224,7 +1221,7 @@ export function addEntity(document: MapDocument, input: AddEntityInput): MapDocu
   } else if (input.kind === 'desired_outcome') {
     const parent = document.entities.find(candidate => candidate.id === input.parentEntityId);
     if (!parent) throw new DomainError('invalid_relationship_reference', 'Desired Outcome parent does not reference an existing entity.');
-    if (!['core_functional_job', 'related_job', 'consumption_chain_job'].includes(parent.kind)) throw new DomainError('invalid_relationship_endpoint', 'Desired Outcome parent must reference a functional Job.');
+    if (!isDesiredOutcomeBearingJob(parent.kind)) throw new DomainError('invalid_relationship_endpoint', 'Desired Outcome parent must reference an ordinary Desired Outcome-bearing Job.');
     added = [{ id: input.relationshipId, kind: 'job_has_desired_outcome', jobId: input.parentEntityId, desiredOutcomeId: input.entityId }];
     entity = { id: input.entityId, title, kind: input.kind };
   } else if (input.kind === 'repulsor') {
@@ -1377,7 +1374,7 @@ export function updateEntity(document: MapDocument, input: UpdateEntityInput): M
   } else if (entity.kind === 'related_job' || entity.kind === 'desired_outcome') {
     if (!input.parentEntityId) throw new DomainError('missing_semantic_parent', `${entity.kind === 'related_job' ? 'Related Job' : 'Desired Outcome'} must have a semantic parent.`);
     const parentKind = document.entities.find(candidate => candidate.id === input.parentEntityId)?.kind;
-    const valid = entity.kind === 'related_job' ? parentKind === 'core_functional_job' : parentKind === 'core_functional_job' || parentKind === 'related_job' || parentKind === 'consumption_chain_job';
+    const valid = entity.kind === 'related_job' ? parentKind === 'core_functional_job' : Boolean(parentKind && isDesiredOutcomeBearingJob(parentKind));
     if (!valid) throw new DomainError(parentKind ? 'invalid_relationship_endpoint' : 'invalid_relationship_reference', `Invalid semantic parent for ${entity.kind === 'related_job' ? 'Related Job' : 'Desired Outcome'}.`);
     const semantic = relationships.filter(r => entity.kind === 'related_job' ? r.kind === 'core_functional_job_has_related_job' && r.relatedJobId === entity.id : r.kind === 'job_has_desired_outcome' && r.desiredOutcomeId === entity.id);
     if (semantic.length !== 1) throw new DomainError('invalid_semantic_parent_count', 'A contextual Client entity must have exactly one semantic parent.');

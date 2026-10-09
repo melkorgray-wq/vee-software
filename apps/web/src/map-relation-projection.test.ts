@@ -39,9 +39,10 @@ it('Touchpoint FDO direct route suppresses FDO satellite', () => {
 
 it('Touchpoint relevant Repulsor route suppresses Repulsor satellite', () => {
   let document = addEntity(base(), { entityId: 'job', title: 'Job', kind: 'social_job', viewId: 'view', x: 0, y: 100 });
-  document = addProductJobIntent(document, { id: 'product-intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: [] });
+  document = addEntity(document, { entityId: 'job-do', title: 'Outcome', kind: 'desired_outcome', parentEntityId: 'job', relationshipId: 'job-owns-do', viewId: 'view', x: 0, y: 200 });
+  document = addProductJobIntent(document, { id: 'product-intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['job-do'] });
   document = setOfferJobSelections(document, { offerId: 'offer', productJobIntentIds: ['product-intent'], newSelectionIds: ['offer-selection'] });
-  document = setTouchpointIntentSelections(document, { touchpointId: 'touchpoint', selections: [{ id: 'touch-selection', kind: 'job', offerId: 'offer', productJobIntentId: 'product-intent', addressedDesiredOutcomeIds: [] }] });
+  document = setTouchpointIntentSelections(document, { touchpointId: 'touchpoint', selections: [{ id: 'touch-selection', kind: 'job', offerId: 'offer', productJobIntentId: 'product-intent', addressedDesiredOutcomeIds: ['job-do'] }] });
   document = addEntity(document, { entityId: 'repulsor', title: 'Fear', kind: 'repulsor', resistedTargetIds: ['job'], relationshipIds: ['resistance'], viewId: 'view', x: 100, y: 100 });
   expect(deriveMapEdges(document)).toContainEqual(expect.objectContaining({ id: 'repulsor-route:repulsor->touchpoint', source: 'repulsor', target: 'touchpoint' }));
   expect(relationGroupsForEntity(document, 'touchpoint')).toEqual([]);
@@ -224,7 +225,7 @@ function outcomeIntent(kind: 'core_functional_job' | 'related_job' | 'consumptio
     document = addEntity(document, { entityId: 'parent', title: 'Parent', kind: 'core_functional_job', viewId: 'view', x: 0, y: 100 });
     document = addEntity(document, { entityId: 'job', title: 'Job', kind, parentEntityId: 'parent', relationshipId: 'parent-job', viewId: 'view', x: 0, y: 200 });
   } else document = addEntity(document, { entityId: 'job', title: 'Job', kind, viewId: 'view', x: 0, y: 100 });
-  if (kind !== 'emotional_job' && kind !== 'social_job') {
+  {
     for (const id of ['do-a', 'do-b', 'do-c']) document = addEntity(document, { entityId: id, title: id.toUpperCase(), kind: 'desired_outcome', parentEntityId: 'job', relationshipId: `owns-${id}`, viewId: 'view', x: 100, y: 100 });
   }
   return document;
@@ -243,10 +244,10 @@ it.each(['related_job', 'consumption_chain_job'] as const)('focused Product %s s
   expect(focusedDesiredOutcomeChildren(document, 'product', 'job').map(child => child.entityId)).toEqual(['do-b']);
 });
 
-it.each(['emotional_job', 'social_job'] as const)('%s never reveals ordinary Desired Outcome children', kind => {
+it.each(['emotional_job', 'social_job'] as const)('%s reveals only selected owned ordinary Desired Outcome children', kind => {
   const document = outcomeIntent(kind);
   const stale = { ...document, productJobIntents: [{ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] }] };
-  expect(focusedDesiredOutcomeChildren(stale, 'product', 'job')).toEqual([]);
+  expect(focusedDesiredOutcomeChildren(stale, 'product', 'job')).toEqual([{ entityId: 'do-a', title: 'DO-A' }]);
 });
 
 it('focused Offer Job uses the selected Product intent as a whole', () => {
@@ -401,7 +402,8 @@ it('Repulsor reverse-projects Product from Product intent', () => {
 function selectedSubsetExposure(): MapDocument {
   let document = addEntity(base(), { entityId: 'job-a', title: 'A', kind: 'social_job', viewId: 'view', x: 0, y: 100 });
   document = addEntity(document, { entityId: 'job-b', title: 'B', kind: 'social_job', viewId: 'view', x: 0, y: 200 });
-  document = addProductJobIntent(document, { id: 'intent-a', productId: 'product', jobId: 'job-a', addressedDesiredOutcomeIds: [] });
+  document = addEntity(document, { entityId: 'job-a-do', title: 'Outcome', kind: 'desired_outcome', parentEntityId: 'job-a', relationshipId: 'job-a-owns-do', viewId: 'view', x: 0, y: 300 });
+  document = addProductJobIntent(document, { id: 'intent-a', productId: 'product', jobId: 'job-a', addressedDesiredOutcomeIds: ['job-a-do'] });
   document = addProductJobIntent(document, { id: 'intent-b', productId: 'product', jobId: 'job-b', addressedDesiredOutcomeIds: [] });
   document = setOfferJobSelections(document, { offerId: 'offer', productJobIntentIds: ['intent-a'], newSelectionIds: ['selection-a'] });
   document = addEntity(document, { entityId: 'repulsor-a', title: 'RA', kind: 'repulsor', resistedTargetIds: ['job-a'], relationshipIds: ['resistance-a'], viewId: 'view', x: 100, y: 100 });
@@ -443,7 +445,7 @@ it('FDO-targeted Repulsor never exposes Product', () => {
 
 it('mitigation does not erase Product or Offer exposure', () => {
   let document = selectedSubsetExposure();
-  document = setTouchpointIntentSelections(document, { touchpointId: 'touchpoint', selections: [{ id: 'touch-selection', kind: 'job', offerId: 'offer', productJobIntentId: 'intent-a', addressedDesiredOutcomeIds: [] }] });
+  document = setTouchpointIntentSelections(document, { touchpointId: 'touchpoint', selections: [{ id: 'touch-selection', kind: 'job', offerId: 'offer', productJobIntentId: 'intent-a', addressedDesiredOutcomeIds: ['job-a-do'] }] });
   document = setTouchpointMitigations(document, { touchpointId: 'touchpoint', repulsorIds: ['repulsor-a'], newRelationshipIds: ['mitigation'] });
   expect(repulsorTarget(document, 'product', 'repulsor')?.targets.map(target => target.entityId)).toEqual(['repulsor-a', 'repulsor-b']);
   expect(repulsorTarget(document, 'offer', 'repulsor')?.targets.map(target => target.entityId)).toEqual(['repulsor-a']);
@@ -494,7 +496,7 @@ it('relevant physical edge lookup may resolve only real resisted-target edges', 
 
 it('Touchpoint receives no Repulsor satellite', () => {
   let document = selectedSubsetExposure();
-  document = setTouchpointIntentSelections(document, { touchpointId: 'touchpoint', selections: [{ id: 'touch-selection', kind: 'job', offerId: 'offer', productJobIntentId: 'intent-a', addressedDesiredOutcomeIds: [] }] });
+  document = setTouchpointIntentSelections(document, { touchpointId: 'touchpoint', selections: [{ id: 'touch-selection', kind: 'job', offerId: 'offer', productJobIntentId: 'intent-a', addressedDesiredOutcomeIds: ['job-a-do'] }] });
   expect(repulsorTarget(document, 'touchpoint', 'repulsor')).toBeUndefined();
   expect(deriveMapEdges(document)).toContainEqual(expect.objectContaining({ id: 'repulsor-route:repulsor-a->touchpoint', source: 'repulsor-a', target: 'touchpoint' }));
 });

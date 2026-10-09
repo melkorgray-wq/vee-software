@@ -18,7 +18,7 @@ export const PRODUCT_JOB_GROUND_KINDS = [
   'core_functional_job', 'related_job', 'consumption_chain_job', 'emotional_job', 'social_job',
 ] as const;
 export type ProductJobGroundKind = typeof PRODUCT_JOB_GROUND_KINDS[number];
-type OutcomeBearingJobKind = Extract<ProductJobGroundKind, 'core_functional_job' | 'related_job' | 'consumption_chain_job'>;
+type OutcomeBearingJobKind = ProductJobGroundKind;
 
 export interface ProductJobNeighborhoodNeighbor {
   productId: string;
@@ -40,7 +40,6 @@ interface ProductJobGroundBase {
 
 export type ProductJobNeighborhoodGround = ProductJobGroundBase & (
   | { jobKind: OutcomeBearingJobKind; inspectedDesiredOutcomeIds: string[]; neighbors: ProductJobDesiredOutcomeComparison[] }
-  | { jobKind: Exclude<ProductJobGroundKind, OutcomeBearingJobKind>; neighbors: ProductJobNeighborhoodNeighbor[] }
 );
 
 export type ProductNeighborhoodGround = ProductTouchpointNeighborhoodGround | ProductJobNeighborhoodGround;
@@ -139,10 +138,7 @@ export function deriveProductNeighborhood(
     const base: ProductJobGroundBase = {
       id: `client-intent:${jobKind}:${jobId}`, basisKind: 'job', basisId: jobId, count: neighborIds.length,
     };
-    if (jobKind === 'emotional_job' || jobKind === 'social_job') {
-      jobGrounds.push({ ...base, jobKind, neighbors: neighborIds.map((id) => ({ productId: id })) });
-    } else {
-      jobGrounds.push({
+    jobGrounds.push({
         ...base, jobKind, inspectedDesiredOutcomeIds: sortIds(inspectedOutcomes),
         neighbors: neighborIds.map((id) => {
           const neighborOutcomes = products.get(id)!;
@@ -154,8 +150,7 @@ export function deriveProductNeighborhood(
             neighborOnlyDesiredOutcomeIds: sortIds([...neighborOutcomes].filter((outcomeId) => !inspectedOutcomes.has(outcomeId))),
           };
         }),
-      });
-    }
+    });
   }
   jobGrounds.sort((left, right) => PRODUCT_JOB_GROUND_KINDS.indexOf(left.jobKind) - PRODUCT_JOB_GROUND_KINDS.indexOf(right.jobKind)
     || byTitleThenId(entities.get(left.basisId)!, entities.get(right.basisId)!));

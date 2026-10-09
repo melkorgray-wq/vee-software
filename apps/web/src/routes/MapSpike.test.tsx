@@ -186,18 +186,26 @@ function semanticTouchpointNeighborhoodDocument(): MapDocument {
     ['cfj', 'cfj-intent-a', 'offer-a', ['do-common', 'do-inspected']],
     ['rj', 'rj-intent-a', 'offer-a', ['do-a']],
     ['ccj', 'ccj-intent-a', 'offer-a', ['do-a']],
-    ['ej', 'ej-intent-a', 'offer-a', []],
-    ['sj', 'sj-intent-a', 'offer-a', []],
+    ['ej', 'ej-intent-a', 'offer-a', ['ej-do']],
+    ['sj', 'sj-intent-a', 'offer-a', ['sj-do']],
   ] as const;
   const neighborSelections = [
     ['cfj', 'cfj-intent-b', ['do-common', 'do-neighbor']],
     ['rj', 'rj-intent-b', ['do-a']],
     ['ccj', 'ccj-intent-b', ['do-a']],
-    ['ej', 'ej-intent-b', []],
-    ['sj', 'sj-intent-b', []],
+    ['ej', 'ej-intent-b', ['ej-do']],
+    ['sj', 'sj-intent-b', ['sj-do']],
   ] as const;
   for (const selection of document.offerJobSelections) {
     if (selection.id === 'ccj-a' || selection.id === 'ccj-b') selection.addressedDesiredOutcomeIds = ['do-a'];
+  }
+  for (const jobId of ['ej', 'sj']) {
+    document.entities.push({ id: `${jobId}-do`, kind: 'desired_outcome', title: `${jobId} outcome` });
+    document.relationships.push({ id: `${jobId}-owns-do`, kind: 'job_has_desired_outcome', jobId, desiredOutcomeId: `${jobId}-do` });
+    for (const intent of document.productJobIntents.filter(i => i.jobId === jobId)) {
+      intent.addressedDesiredOutcomeIds = [`${jobId}-do`];
+      for (const selection of document.offerJobSelections.filter(s => s.productJobIntentId === intent.id)) selection.addressedDesiredOutcomeIds = [`${jobId}-do`];
+    }
   }
   document.touchpointJobSelections.push(
     ...localSelections.map(([id, productJobIntentId, offerId, addressedDesiredOutcomeIds]) => ({ id: `local-${id}`, touchpointId: 'touch', offerId, productJobIntentId, addressedDesiredOutcomeIds: [...addressedDesiredOutcomeIds] })),
@@ -3613,7 +3621,7 @@ function resistanceDocument(): MapDocument {
   document.productJobIntents = [{ id: 'intent', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['do-a'] }];
   document.offerJobSelections = [{ id: 'offer-job', offerId: 'offer-a', productJobIntentId: 'intent' }];
   document.offerFinancialIntents = [{ id: 'offer-financial', offerId: 'offer-a', financialDesiredOutcomeId: 'fdo' }];
-  document.touchpointJobSelections = [{ id: 'touch-job', touchpointId: 'touch', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] }];
+  document.touchpointJobSelections = [{ id: 'touch-job', touchpointId: 'touch', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['do-a'] }];
   document.touchpointFinancialSelections = [{ id: 'touch-financial', touchpointId: 'touch', offerId: 'offer-a', offerFinancialIntentId: 'offer-financial', financialDesiredOutcomeId: 'fdo' }];
   document.placements.push(
     { viewId: 'spike-view', entityId: 'repulsor-job', x: 1000, y: 0 },
@@ -4946,8 +4954,13 @@ describe('Touchpoint Business structure Inspector', () => {
     for (const id of ['client-intent:emotional_job:ej', 'client-intent:social_job:sj', 'client-intent:financial_desired_outcome:fdo']) {
       const panel = region.querySelector<HTMLElement>(`[data-packed-panel-id="${id}"]`)!;
       await user.click(within(panel).getByRole('button', { name: /Touchpoints$/ }));
-      expect(panel.querySelector('.semantic-neighborhood-job-outcome-branch')).not.toBeInTheDocument();
-      expect(within(panel).getByText('Here via').parentElement).toHaveTextContent('Subscription');
+      if (id === 'client-intent:financial_desired_outcome:fdo') {
+        expect(panel.querySelector('.semantic-neighborhood-job-outcome-branch')).not.toBeInTheDocument();
+        expect(within(panel).getByText('Here via').parentElement).toHaveTextContent('Subscription');
+      } else {
+        expect(panel.querySelector('.semantic-neighborhood-job-outcome-branch')).toBeInTheDocument();
+        expect(within(panel).getByText('Shared selected outcomes').parentElement).toHaveTextContent('outcome');
+      }
     }
     await user.click(within(types).getByRole('checkbox', { name: 'Offer' }));
     await user.click(within(types).getByRole('checkbox', { name: 'Core Functional Job' }));
@@ -5207,7 +5220,7 @@ describe('Offer Inspector derived neighborhood', () => {
     expect(document).toEqual(snapshot);
   });
 
-  it('renders projection-owned per-neighbor outcome comparisons and keeps non-DO semantic kinds distinct', async () => {
+  it('renders projection-owned per-neighbor outcome comparisons and keeps Financial intent distinct', async () => {
     const user = userEvent.setup();
     const document = semanticOfferNeighborhoodDocument();
     const snapshot = structuredClone(document);
@@ -5240,8 +5253,13 @@ describe('Offer Inspector derived neighborhood', () => {
     for (const id of ['client-intent:emotional_job:ej', 'client-intent:social_job:sj', 'client-intent:financial_desired_outcome:fdo']) {
       const current = panel(id);
       await user.click(within(current).getByRole('button', { name: /Offers$/ }));
-      expect(current.querySelector('.semantic-neighborhood-job-outcome-branch')).not.toBeInTheDocument();
-      expect(within(current).queryByText('Shared selected outcomes')).not.toBeInTheDocument();
+      if (id === 'client-intent:financial_desired_outcome:fdo') {
+        expect(current.querySelector('.semantic-neighborhood-job-outcome-branch')).not.toBeInTheDocument();
+        expect(within(current).queryByText('Shared selected outcomes')).not.toBeInTheDocument();
+      } else {
+        expect(current.querySelector('.semantic-neighborhood-job-outcome-branch')).toBeInTheDocument();
+        expect(within(current).getAllByText('None')).toHaveLength(3);
+      }
     }
     expect(within(panel('client-intent:financial_desired_outcome:fdo')).getByText('Financial Desired Outcome')).toBeInTheDocument();
     expect(document).toEqual(snapshot);
@@ -7054,6 +7072,7 @@ describe('searchable Touchpoint connection picker', () => {
     const document = touchpointInspectorDocument(true);
     document.entities.push(
       { id: 'direct-job', kind: 'emotional_job', title: 'Feel confident' },
+      { id: 'emotional-outcome', kind: 'desired_outcome', title: 'Feel assured' },
       { id: 'repulsor', kind: 'repulsor', title: 'Delay concern' },
     );
     document.placements.push(
@@ -7061,17 +7080,18 @@ describe('searchable Touchpoint connection picker', () => {
       { viewId: 'spike-view', entityId: 'repulsor', x: 1120, y: 0 },
     );
     document.relationships.push(
+      { id: 'emotional-owns', kind: 'job_has_desired_outcome', jobId: 'direct-job', desiredOutcomeId: 'emotional-outcome' },
       { id: 'resists-job', kind: 'repulsor_resists', repulsorId: 'repulsor', targetEntityId: 'direct-job' },
       { id: 'mitigates-delay', kind: 'touchpoint_mitigates_repulsor', touchpointId: 'touch', repulsorId: 'repulsor' },
     );
-    document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'direct-job', addressedDesiredOutcomeIds: [] });
+    document.productJobIntents.push({ id: 'intent', productId: 'product', jobId: 'direct-job', addressedDesiredOutcomeIds: ['emotional-outcome'] });
     document.offerJobSelections.push(
       { id: 'offer-selection-a', offerId: 'offer-a', productJobIntentId: 'intent' },
       { id: 'offer-selection-b', offerId: 'offer-b', productJobIntentId: 'intent' },
     );
     document.touchpointJobSelections.push(
-      { id: 'touch-selection-a', touchpointId: 'touch', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] },
-      { id: 'touch-selection-b', touchpointId: 'touch', offerId: 'offer-b', productJobIntentId: 'intent', addressedDesiredOutcomeIds: [] },
+      { id: 'touch-selection-a', touchpointId: 'touch', offerId: 'offer-a', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['emotional-outcome'] },
+      { id: 'touch-selection-b', touchpointId: 'touch', offerId: 'offer-b', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['emotional-outcome'] },
     );
     const user = userEvent.setup(); const inspector = renderTouchpointInspector(document);
     await user.click(inspector.getByRole('button', { name: 'Edit Client scope' }));
@@ -7927,8 +7947,8 @@ describe('Product Neighborhood Inspector', () => {
     }
     for (const title of ['Feel assured', 'Signal expertise']) {
       const card = await expandProductGround(user, region, title);
-      expect(card.queryByText('Shared selected outcomes')).not.toBeInTheDocument();
-      expect(card.queryByText('None')).not.toBeInTheDocument();
+      expect(card.getByText('Shared selected outcomes')).toBeInTheDocument();
+      expect(card.getAllByText('None')).toHaveLength(3);
       expect(card.getByRole('button', { name: 'Other Product' })).toBeInTheDocument();
     }
   });
@@ -8067,7 +8087,7 @@ describe('Product Client intent integration', () => {
     await user.click(editor.getByRole('button', { name: 'Close Client intent editor' }));
     expect(inspector.getByText('Desired Outcome not described yet')).toBeInTheDocument();
   });
-  it('renders five shared panels, no direct Job outcomes, and navigable Related Job context', async () => {
+  it('renders five shared panels, empty ordinary outcome knowledge, and navigable Related Job context', async () => {
     const user = userEvent.setup(); const d = fixture();
     for (const jobId of ['job', 'rj', 'ccj', 'ej', 'sj']) d.productJobIntents.push({ id: `intent-${jobId}`, productId: 'product', jobId, addressedDesiredOutcomeIds: jobId === 'job' ? ['do-a'] : [] });
     const inspector = renderProductInspector(d); const section = within(inspector.getByRole('region', { name: 'Client intent' }));
@@ -8732,5 +8752,45 @@ describe('Product Duplicate integration', () => {
     expect(inspector.getByRole('button', { name: 'Inspector Back', hidden: true })).toBeDisabled();
     expect(globalThis.document.querySelector('[data-selected="true"]')).toHaveAttribute('data-node-id', 'product');
     expect(screen.getByRole('tab', { name: entry === 'Header' ? 'Entity Inspector' : 'Map' })).toHaveAttribute('aria-selected', 'true');
+  });
+});
+
+describe('EJ/SJ ordinary DO Inspector compatibility', () => {
+  function fixture(kind: 'emotional_job' | 'social_job') {
+    const d = touchpointInspectorDocument();
+    d.entities.push({ id: 'ordinary-job', kind, title: 'Selected ordinary Job' }, { id: 'ordinary-do', kind: 'desired_outcome', title: 'Selected ordinary outcome' });
+    d.relationships.push({ id: 'ordinary-owns', kind: 'job_has_desired_outcome', jobId: 'ordinary-job', desiredOutcomeId: 'ordinary-do' });
+    return d;
+  }
+  it.each(['emotional_job', 'social_job'] as const)('Product %s selects/removes its last DO through the existing shared editor', async kind => {
+    const user = userEvent.setup(); const inspector = renderProductInspector(fixture(kind));
+    await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
+    const section = within(inspector.getByRole('region', { name: 'Client intent' }));
+    const search = section.getByRole('searchbox'); await user.type(search, 'Selected ordinary outcome');
+    const outcome = section.getByRole('checkbox', { name: 'Selected ordinary outcome' });
+    await user.click(outcome);
+    expect(outcome).toBeChecked();
+    expect(search).toHaveValue('Selected ordinary outcome');
+    expect(window.__VEE_DEV__!.dump().productJobIntents).toMatchObject([{ jobId: 'ordinary-job', addressedDesiredOutcomeIds: ['ordinary-do'] }]);
+    await user.click(outcome);
+    expect(window.__VEE_DEV__!.dump().productJobIntents).toMatchObject([{ jobId: 'ordinary-job', addressedDesiredOutcomeIds: [] }]);
+    await user.click(section.getByRole('button', { name: 'Close Client intent editor' }));
+    await waitFor(() => expect(inspector.getByRole('button', { name: 'Edit Client intent' })).toHaveFocus());
+    expect(section.getByText('Desired Outcome not described yet')).toBeInTheDocument();
+    expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
+  });
+  it.each(['emotional_job', 'social_job'] as const)('Offer %s selects an ordinary DO independently from Product scope', async kind => {
+    const user = userEvent.setup(); const d = fixture(kind);
+    d.productJobIntents.push({ id: 'ordinary-intent', productId: 'product', jobId: 'ordinary-job', addressedDesiredOutcomeIds: ['ordinary-do'] });
+    const inspector = renderOfferInspector(d);
+    await user.click(inspector.getByRole('button', { name: 'Edit Client intent' }));
+    const section = within(inspector.getByRole('region', { name: 'Client intent' }));
+    const outcome = section.getByRole('checkbox', { name: 'Selected ordinary outcome' });
+    await user.click(outcome);
+    expect(outcome).toBeChecked();
+    expect(window.__VEE_DEV__!.dump().offerJobSelections).toMatchObject([{ productJobIntentId: 'ordinary-intent', addressedDesiredOutcomeIds: ['ordinary-do'] }]);
+    await user.click(outcome);
+    expect(window.__VEE_DEV__!.dump().offerJobSelections).toMatchObject([{ productJobIntentId: 'ordinary-intent', addressedDesiredOutcomeIds: [] }]);
+    expect(window.__VEE_DEV__!.dump().productJobIntents[0]!.addressedDesiredOutcomeIds).toEqual(['ordinary-do']);
   });
 });
