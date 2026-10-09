@@ -405,6 +405,11 @@ export function collisionSafeOfferTitle(document: MapDocument, sourceTitle: stri
   return collisionSafeEntityTitle(document, sourceTitle, 'offer');
 }
 
+/** Names an independent Product copy within the Product title namespace. */
+export function collisionSafeProductTitle(document: MapDocument, sourceTitle: string): string {
+  return collisionSafeEntityTitle(document, sourceTitle, 'product');
+}
+
 /** Names an independent Touchpoint copy within the Touchpoint title namespace. */
 export function collisionSafeTouchpointTitle(document: MapDocument, sourceTitle: string): string {
   return collisionSafeEntityTitle(document, sourceTitle, 'touchpoint');

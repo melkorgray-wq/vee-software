@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyMapDocument, relevantRepulsorsForTouchpoint, type MapDocument } from '@vee/domain';
-import { applyTouchpointEditDraft, collisionSafeOfferTitle, collisionSafeTouchpointTitle, commitOfferConnectedTouchpoint, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, connectionPickerCatalogue, createSiblingOfferAndReplace, createTouchpointIntentDraft, duplicateOfferAndReplace, equalTouchpointIntentDraft, filterConnectionCandidates, globalIntentDiscovery, planFutureTouchpointOfferReplacement, replaceTouchpointLinkedOffer, selectCurrentOfferIntent, touchpointClientScope, touchpointIntentCatalogue, touchpointUpstreamSources, validateTouchpointIntentDraft } from './touchpoint-edit';
+import { applyTouchpointEditDraft, collisionSafeOfferTitle, collisionSafeProductTitle, collisionSafeTouchpointTitle, commitOfferConnectedTouchpoint, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, connectionPickerCatalogue, createSiblingOfferAndReplace, createTouchpointIntentDraft, duplicateOfferAndReplace, equalTouchpointIntentDraft, filterConnectionCandidates, globalIntentDiscovery, planFutureTouchpointOfferReplacement, replaceTouchpointLinkedOffer, selectCurrentOfferIntent, touchpointClientScope, touchpointIntentCatalogue, touchpointUpstreamSources, validateTouchpointIntentDraft } from './touchpoint-edit';
 
 function fixture(): MapDocument {
   return {
@@ -651,5 +651,20 @@ describe('Touchpoint edit intent draft', () => {
       title: 'Not applied', linkedOfferIds: ['offer-a'], parentTouchpointId: '', locatedInId: '', locatedInQuery: '', locationDraft: { kind: 'none' }, url: '', mitigatedRepulsorIds: [], touchpointIntent: intent,
     } })).toThrow(/contributing Offer/);
     expect(document).toEqual(snapshot);
+  });
+});
+
+
+describe('collision-safe Product titles', () => {
+  it('uses the first free Product-kind suffix without stripping the literal source title', () => {
+    const document = fixture();
+    document.entities.push({ id: 'offer-collision', kind: 'offer', title: 'Product 2', currentContentSource: null });
+    expect(collisionSafeProductTitle(document, 'Product')).toBe('Product 2');
+    document.entities.push({ id: 'product-4', kind: 'product', title: 'Product 4' }, { id: 'product-2', kind: 'product', title: 'Product 2' });
+    expect(collisionSafeProductTitle(document, 'Product')).toBe('Product 3');
+    document.entities.push({ id: 'product-3', kind: 'product', title: 'Product 3' });
+    expect(collisionSafeProductTitle(document, 'Product')).toBe('Product 5');
+    expect(collisionSafeProductTitle(document, 'Product 2')).toBe('Product 2 2');
+    expect(collisionSafeProductTitle({ ...document, entities: [...document.entities].reverse() }, 'Product')).toBe('Product 5');
   });
 });
