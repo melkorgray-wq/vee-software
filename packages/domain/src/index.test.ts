@@ -2044,3 +2044,96 @@ describe('Product resistance manifestations', () => {
     expect(d).toEqual(before);
   });
 });
+
+describe('canonical Product duplication', () => {
+  const product = (d: MapDocument, id = 'product') => d.entities.find((e): e is Extract<MapDocument['entities'][number], { kind: 'product' }> => e.id === id && e.kind === 'product')!;
+  function fixture() {
+    let d = touchpoint();
+    d = addEntity(d, { ...place, entityId: 'core', title: 'Core', kind: 'core_functional_job' });
+    d = addEntity(d, { ...place, entityId: 'related', title: 'Related', kind: 'related_job', parentEntityId: 'core', relationshipId: 'core-related' });
+    for (const kind of ['consumption_chain_job', 'emotional_job', 'social_job'] as const) d = addEntity(d, { ...place, entityId: kind, title: kind, kind });
+    d = addEntity(d, { ...place, entityId: 'outcome', title: 'Outcome', kind: 'desired_outcome', parentEntityId: 'core', relationshipId: 'core-outcome' });
+    for (const jobId of ['core', 'related', 'consumption_chain_job', 'emotional_job', 'social_job']) d = addProductJobIntent(d, { id: `intent-${jobId}`, productId: 'product', jobId, addressedDesiredOutcomeIds: jobId === 'core' ? ['outcome'] : [] });
+    d = setOfferJobSelections(d, { offerId: 'offer', selections: [{ productJobIntentId: 'intent-core', addressedDesiredOutcomeIds: ['outcome'] }], newSelectionIds: ['selection'] });
+    d = setTouchpointIntentSelections(d, { touchpointId: 'touch', selections: [{ id: 'encounter', kind: 'job', offerId: 'offer', productJobIntentId: 'intent-core', addressedDesiredOutcomeIds: ['outcome'] }] });
+    d = addEntity(d, { ...place, entityId: 'repulsor', title: 'Fear', kind: 'repulsor', resistedTargetIds: ['core'], relationshipIds: ['resists-core'] });
+    d = setTouchpointMitigations(d, { touchpointId: 'touch', repulsorIds: ['repulsor'], newRelationshipIds: ['mitigation'] });
+    d = { ...d, epistemicAnnotations: [{ id: 'annotation', subjectEntityId: 'product', status: 'hypothesis' }] };
+    d = updateProductDefinition(d, { productId: 'product', field: 'definitionUrl', value: 'https://example.com/document' });
+    d = updateProductDefinition(d, { productId: 'product', field: 'definitionText', value: 'Free\nform' });
+    for (const [blockId, text] of [['first', undefined], ['second', ''], ['third', '  '], ['last', 'Structured\nbody']] as const) d = addProductDefinitionBlock(d, { productId: 'product', blockId, title: blockId, ...(text !== undefined ? { text } : {}) });
+    d = setProductCurrentDefinitionSource(d, { productId: 'product', source: 'structured' });
+    for (const source of ['free_form', 'structured'] as const) d = setProductDefinitionExternalCopyUrl(d, { productId: 'product', source, value: `https://example.com/${source}` });
+    return d;
+  }
+  const input = { sourceEntityId: 'product', entityId: 'copy', title: 'Orbit 2', ...place, relationshipIds: ['new-core', 'new-related', 'new-chain', 'new-emotional', 'new-social', 'unused'], productDefinitionBlockIds: ['new-first', 'new-second', 'new-third', 'new-last'] };
+  function freeze(v: unknown) { if (v && typeof v === 'object') { Object.values(v).forEach(freeze); Object.freeze(v); } }
+  it('copies complete authored state with fresh identities and no downstream or source changes', () => {
+    const source = fixture(); const before = structuredClone(source); freeze(source);
+    const copy = duplicateEntity(source, input);
+    expect(duplicateEntityRelationshipIdCount(source, 'product')).toBe(5);
+    expect(product(copy, 'copy')).toEqual({ ...product(source), id: 'copy', title: 'Orbit 2', definitionBlocks: product(source).definitionBlocks!.map((b, i) => ({ ...b, id: input.productDefinitionBlockIds[i] })) });
+    expect(product(copy, 'copy').definitionBlocks).not.toBe(product(source).definitionBlocks);
+    product(copy, 'copy').definitionBlocks!.forEach((b, i) => expect(b).not.toBe(product(source).definitionBlocks![i]));
+    expect(copy.productJobIntents.filter(i => i.productId === 'copy')).toEqual(source.productJobIntents.map((i, n) => ({ ...i, id: input.relationshipIds[n], productId: 'copy' })));
+    expect(copy.productJobIntents[5]!.addressedDesiredOutcomeIds).not.toBe(source.productJobIntents[0]!.addressedDesiredOutcomeIds);
+    for (const key of ['relationships', 'offerJobSelections', 'touchpointJobSelections', 'offerFinancialIntents', 'touchpointFinancialSelections', 'epistemicAnnotations'] as const) expect(copy[key]).toEqual(source[key]);
+    expect(copy.entities.filter(e => e.id !== 'copy')).toEqual(source.entities);
+    expect(copy.placements).toEqual([...source.placements, { entityId: 'copy', ...place }]);
+    expect(source).toEqual(before);
+    let edited = updateProductDefinitionBlock(copy, { productId: 'copy', blockId: 'new-last', field: 'text', value: 'Changed' });
+    edited = updateProductJobIntent(edited, { ...edited.productJobIntents[5]!, addressedDesiredOutcomeIds: [] });
+    edited = updateProductDefinition(edited, { productId: 'copy', field: 'definitionText', value: 'Changed free-form' });
+    edited = setProductDefinitionExternalCopyUrl(edited, { productId: 'copy', source: 'structured', value: 'https://example.com/changed' });
+    expect(product(edited)).toEqual(product(source));
+    expect(edited.productJobIntents.slice(0, 5)).toEqual(source.productJobIntents);
+    expect(edited.offerJobSelections).toEqual(source.offerJobSelections);
+    expect(edited.touchpointJobSelections).toEqual(source.touchpointJobSelections);
+  });
+  it.each([
+    [undefined, undefined, undefined, null], ['Body', undefined, undefined, 'free_form'],
+    [undefined, 'Body', undefined, 'structured'], ['Body', 'Body', 'structured', 'structured'],
+    ['Body', 'Body', 'free_form', 'free_form'], ['Body', undefined, 'structured', 'free_form'],
+    [undefined, 'Body', 'free_form', 'structured'], [' ', ' ', 'structured', null],
+    ['Body', 'Body', undefined, 'free_form'],
+  ] as const)('normalizes copied Current for free-form %s / structured %s / source %s', (text, body, current, expected) => {
+    const base = offerDocument();
+    const d: MapDocument = { ...base, entities: base.entities.map(e => e.kind === 'product' ? { ...e, ...(text !== undefined ? { definitionText: text } : {}), ...(body !== undefined ? { definitionBlocks: [{ id: 'block', title: 'Title', text: body }] } : {}), ...(current !== undefined ? { currentDefinitionSource: current } : {}) } : e) };
+    const before = structuredClone(d);
+    const copy = duplicateEntity(d, { ...input, relationshipIds: [], productDefinitionBlockIds: body !== undefined ? ['fresh-block'] : [] });
+    expect(productDefinitionSourceState(copy, 'copy').currentDefinitionSource).toBe(expected);
+    expect(product(copy, 'copy').definitionText).toBe(text);
+    expect(d).toEqual(before);
+  });
+  it('supports absent Definition, explicit titles and URL-only authored state before eligibility', () => {
+    const source = offerDocument();
+    const copy = duplicateEntity(source, { ...input, relationshipIds: [], productDefinitionBlockIds: [] });
+    expect(product(copy, 'copy')).toEqual({ id: 'copy', kind: 'product', title: 'Orbit 2', currentDefinitionSource: null });
+    let urls = updateProductDefinition(source, { productId: 'product', field: 'definitionUrl', value: 'https://example.com/document' });
+    urls = setProductDefinitionExternalCopyUrl(urls, { productId: 'product', source: 'structured', value: 'https://example.com/copy' });
+    expect(product(duplicateEntity(urls, { ...input, relationshipIds: [], productDefinitionBlockIds: [] }), 'copy')).toEqual({ ...product(urls), id: 'copy', title: 'Orbit 2', currentDefinitionSource: null });
+  });
+  it('rejects invalid block and intent ID pools atomically while accepting unused tail IDs', () => {
+    const d = fixture(); const before = structuredClone(d); freeze(d);
+    const { productDefinitionBlockIds: omittedBlockIds, ...withoutBlockIds } = input;
+    expect(omittedBlockIds).toHaveLength(4);
+    expect(() => duplicateEntity(d, withoutBlockIds)).toThrowError(expect.objectContaining({ code: 'invalid_product_definition_block_ids' }));
+    for (const productDefinitionBlockIds of [ [], ['one'], ['a', 'a', 'c', 'd'], ['a', ' ', 'c', 'd'], ['first', 'b', 'c', 'd'], [' first ', 'b', 'c', 'd']]) expect(() => duplicateEntity(d, { ...input, ...(productDefinitionBlockIds === undefined ? { productDefinitionBlockIds: [] } : { productDefinitionBlockIds }) })).toThrow();
+    for (const relationshipIds of [[], ['one'], ['a', 'a', 'c', 'd', 'e'], ['a', ' ', 'c', 'd', 'e'], ['intent-core', 'b', 'c', 'd', 'e']]) expect(() => duplicateEntity(d, { ...input, relationshipIds })).toThrow();
+    let occupied = addEntity(d, { ...place, entityId: 'other-product', title: 'Other', kind: 'product' });
+    occupied = addProductDefinitionBlock(occupied, { productId: 'other-product', blockId: 'other-block', title: 'Other' });
+    expect(() => duplicateEntity(occupied, { ...input, productDefinitionBlockIds: ['other-block', 'b', 'c', 'd'] })).toThrowError(expect.objectContaining({ code: 'duplicate_product_definition_block_id' }));
+    expect(() => duplicateEntity(d, { ...input, entityId: 'product' })).toThrow();
+    expect(() => duplicateEntity(d, { ...input, sourceEntityId: 'missing' })).toThrow();
+    expect(() => duplicateEntity(d, input)).not.toThrow();
+    expect(d).toEqual(before);
+  });
+  it('rejects malformed source intents without merging or partially publishing a copy', () => {
+    const base = fixture();
+    for (const intent of [{ ...base.productJobIntents[0]!, id: 'duplicate' }, { ...base.productJobIntents[1]!, id: 'intent-core', productId: 'another-product' }, { id: 'stale', productId: 'product', jobId: 'missing', addressedDesiredOutcomeIds: [] }, { id: 'wrong-kind', productId: 'product', jobId: 'outcome', addressedDesiredOutcomeIds: [] }, { id: 'wrong-outcome', productId: 'product', jobId: 'core', addressedDesiredOutcomeIds: ['missing'] }]) {
+      const d = { ...base, productJobIntents: [...base.productJobIntents, intent] }; const before = structuredClone(d); freeze(d);
+      expect(() => duplicateEntity(d, { ...input, relationshipIds: ['a', 'b', 'c', 'd', 'e', 'f'] })).toThrow();
+      expect(d).toEqual(before);
+    }
+  });
+});
