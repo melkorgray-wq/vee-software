@@ -2755,7 +2755,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
         event.preventDefault();
         const destination = activeWorkspaceViewRef.current === 'map' ? 'inspector' : 'map';
         const switchWorkspace = () => {
-          activateWorkspaceView(destination);
+          if (!activateWorkspaceView(destination)) return;
           requestAnimationFrame(() => globalThis.document.getElementById(`${destination}-workspace-tab`)?.focus());
         };
         if (action === 'dismiss-and-switch') setMenu(null);
@@ -2848,13 +2848,14 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
       requestAnimationFrame(() => revealEntities(documentRef.current, ids));
     }
   }
-  function activateWorkspaceView(view: WorkspaceView, inspectorRootId: string | null = selectedRef.current) {
-    if (productConfirmation?.owner === 'product-client-intent') return;
-    if (view === activeWorkspaceViewRef.current) return;
-    if (!(selected?.kind === 'product' ? closeAuthoredPropertyEditors('switch-editor') : closeProductDefinitionEditor('switch-editor'))) return;
+  function activateWorkspaceView(view: WorkspaceView, inspectorRootId: string | null = selectedRef.current): boolean {
+    if (productConfirmation?.owner === 'product-client-intent') return false;
+    if (view === activeWorkspaceViewRef.current) return false;
+    if (!(selected?.kind === 'product' ? closeAuthoredPropertyEditors('switch-editor') : closeProductDefinitionEditor('switch-editor'))) return false;
     if (selected?.kind === 'product') closeProductIntentEditor('switch-editor');
     const pending = () => performWorkspaceTransition(view, inspectorRootId);
     pending();
+    return true;
   }
   function performRootCreation() {
     if (!closeAuthoredPropertyEditors('switch-editor')) return;
@@ -2879,7 +2880,7 @@ export function MapSpike({ initialDocument = INITIAL_DOCUMENT }: { initialDocume
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
     const view: WorkspaceView = event.key === 'ArrowLeft' || event.key === 'Home' ? 'map' : 'inspector';
-    activateWorkspaceView(view);
+    if (!activateWorkspaceView(view)) return;
     globalThis.document.getElementById(`${view}-workspace-tab`)?.focus();
   }
   function containerChange(setter: (d: EditDraft) => void, d: EditDraft, selection: LocationDraft, query: string) {

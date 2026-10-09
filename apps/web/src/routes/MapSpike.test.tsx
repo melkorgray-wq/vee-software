@@ -8407,3 +8407,28 @@ it('completes Product External copy once before workspace transfer without an Ap
     expect(inspector.queryByRole('button', { name: 'Apply changes' })).not.toBeInTheDocument();
   } finally { mutation.mockRestore(); }
 });
+
+ it.each([false, true])('workspace shortcut focuses destination only after accepted Product transfer (valid=%s)', async valid => {
+  const user = userEvent.setup(); const d = productBusinessStructureDocument();
+  Object.assign(d.entities.find(entity => entity.id === 'product')!, { definitionText: 'Description', currentDefinitionSource: 'free_form' });
+  const inspector = renderProductInspector(d);
+  await user.click(inspector.getByRole('button', { name: 'Add link' }));
+  const input = inspector.getByLabelText('External copy URL for Free-form Definition');
+  const value = valid ? 'https://example.com/copy' : 'not a URL';
+  await user.type(input, value);
+  // The workspace tab owns the shortcut; the pending authored field still owns validation.
+  screen.getByRole('tab', { name: 'Entity Inspector' }).focus();
+  fireEvent.keyDown(window, { code: 'Space', key: ' ', ctrlKey: true, shiftKey: true });
+  if (valid) {
+    expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Map' })).toHaveFocus());
+  } else {
+    expect(screen.getByRole('tab', { name: 'Entity Inspector' })).toHaveAttribute('aria-selected', 'true');
+    await waitFor(() => expect(input).toHaveFocus());
+    // Flush the destination-focus frame as well as validation focus restoration.
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    expect(input).toHaveFocus();
+    expect(input).toHaveValue(value);
+    expect(screen.getByRole('tab', { name: 'Map' })).not.toHaveFocus();
+  }
+ });
