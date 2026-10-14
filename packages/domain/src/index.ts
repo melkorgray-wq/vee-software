@@ -1598,3 +1598,204 @@ export function applyProductClientIntentCommand(document: MapDocument, input: { 
   if (Object.values(impact).some(items => items.length > 0) && !input.confirmedImpact) return { status: 'confirmation-required', productId: input.productId, command, impact };
   return { status: 'complete', document: candidate };
 }
+
+
+type CanonicalizedEntityKind<K> = K extends 'core_functional_job' | 'related_job' ? 'functional_job' : K;
+type CanonicalizedEntity<E> = E extends Entity ? Omit<E, 'kind'> & { kind: CanonicalizedEntityKind<E['kind']> } : never;
+/** Transitional normalization output; existing mutation APIs still own legacy MapDocument. */
+export type CanonicalEntity = CanonicalizedEntity<Entity>;
+export type CanonicalRelationship =
+  | Exclude<Relationship, { kind: 'core_functional_job_has_related_job' | 'core_functional_job_contextualizes_job' }>
+  | { id: string; kind: 'job_contextualizes_job'; sourceJobId: string; targetJobId: string };
+export interface CanonicalMapDocument extends Omit<MapDocument, 'entities' | 'relationships'> {
+  entities: CanonicalEntity[];
+  relationships: CanonicalRelationship[];
+}
+export interface LegacyJobNormalizationInput extends Omit<MapDocument, 'entities' | 'relationships'> {
+  entities: (Entity | CanonicalEntity)[];
+  relationships: (Relationship | CanonicalRelationship)[];
+}
+
+/** Opt-in conversion only: never loads UI state, repairs scopes, prunes records or authors edges. */
+export function normalizeLegacyJobs(document: LegacyJobNormalizationInput): CanonicalMapDocument {
+  const invalid = (message: string): never => { throw new DomainError('invalid_legacy_job_document', message); };
+  const ambiguous = (message: string): never => { throw new DomainError('ambiguous_legacy_job_document', message); };
+  const object = (value: unknown): Record<string, unknown> => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return invalid('Expected a document record.');
+    return value as Record<string, unknown>;
+  };
+  const text = (value: unknown): string => {
+    if (typeof value !== 'string' || !value.trim()) return invalid('Expected a nonblank string.');
+    return value;
+  };
+  const ids = (value: unknown): string[] => {
+    if (!Array.isArray(value)) return invalid('Expected an ID array.');
+    const result = value.map(text);
+    if (new Set(result).size !== result.length) return ambiguous('Duplicate IDs in authored scope.');
+    return result;
+  };
+  const root = object(document);
+  text(root.id); text(root.title);
+  const fields = ['entities', 'relationships', 'productJobIntents', 'offerJobSelections', 'offerFinancialIntents', 'touchpointJobSelections', 'touchpointFinancialSelections', 'touchpointContainers', 'epistemicAnnotations', 'views', 'placements'] as const;
+  for (const field of fields) if (!Array.isArray(root[field])) invalid('Missing document array: ' + field);
+  const records = (field: typeof fields[number]) => (root[field] as unknown[]).map(object);
+  const index = (field: typeof fields[number]) => {
+    const result = new Map<string, Record<string, unknown>>();
+    for (const record of records(field)) {
+      const id = text(record.id);
+      if (result.has(id)) ambiguous('Duplicate record ID in ' + field + ': ' + id);
+      result.set(id, record);
+    }
+    return result;
+  };
+  const entities = index('entities');
+  const relationships = index('relationships');
+  const entityKinds = new Set<string>([...PROVISIONAL_ENTITY_KINDS, 'functional_job']);
+  const jobs = new Set(['functional_job', 'core_functional_job', 'related_job', 'emotional_job', 'social_job', 'consumption_chain_job']);
+  const endpoint = (id: unknown, kinds: readonly string[]) => {
+    const entity = entities.get(text(id));
+    if (!entity || !kinds.includes(entity.kind as string)) return invalid('Missing or wrong-kind relationship endpoint: ' + String(id));
+    return entity;
+  };
+  for (const entity of entities.values()) {
+    text(entity.title);
+    if (!entityKinds.has(text(entity.kind))) invalid('Unknown entity kind.');
+  }
+  const contexts: [string, string][] = [];
+  const doOwners = new Map<string, string>();
+  const offerOwners = new Map<string, string>();
+  const presentations = new Set<string>();
+  const pair = (a: unknown, b: unknown) => JSON.stringify([text(a), text(b)]);
+  for (const relation of relationships.values()) {
+    switch (relation.kind) {
+      case 'core_functional_job_has_related_job':
+        endpoint(relation.coreFunctionalJobId, ['core_functional_job', 'functional_job']);
+        endpoint(relation.relatedJobId, ['related_job', 'functional_job']);
+        contexts.push([text(relation.coreFunctionalJobId), text(relation.relatedJobId)]); break;
+      case 'core_functional_job_contextualizes_job':
+        endpoint(relation.coreFunctionalJobId, ['core_functional_job', 'functional_job']);
+        endpoint(relation.contextualJobId, ['emotional_job', 'social_job']);
+        contexts.push([text(relation.coreFunctionalJobId), text(relation.contextualJobId)]); break;
+      case 'job_contextualizes_job':
+        endpoint(relation.sourceJobId, [...jobs]); endpoint(relation.targetJobId, [...jobs]);
+        contexts.push([text(relation.sourceJobId), text(relation.targetJobId)]); break;
+      case 'job_has_desired_outcome': {
+        endpoint(relation.jobId, [...jobs]); endpoint(relation.desiredOutcomeId, ['desired_outcome']);
+        const outcomeId = text(relation.desiredOutcomeId);
+        if (doOwners.has(outcomeId)) ambiguous('An ordinary Desired Outcome must have exactly one owner.');
+        doOwners.set(outcomeId, text(relation.jobId)); break;
+      }
+      case 'product_packaged_as_offer': {
+        endpoint(relation.productId, ['product']); endpoint(relation.offerId, ['offer']);
+        const offerId = text(relation.offerId);
+        if (offerOwners.has(offerId)) ambiguous('An Offer has ambiguous Product ownership.');
+        offerOwners.set(offerId, text(relation.productId)); break;
+      }
+      case 'offer_presented_at_touchpoint':
+        endpoint(relation.offerId, ['offer']); endpoint(relation.touchpointId, ['touchpoint']);
+        presentations.add(pair(relation.offerId, relation.touchpointId)); break;
+      case 'touchpoint_contains_touchpoint':
+        endpoint(relation.parentTouchpointId, ['touchpoint']); endpoint(relation.childTouchpointId, ['touchpoint']); break;
+      case 'repulsor_resists':
+        endpoint(relation.repulsorId, ['repulsor']); endpoint(relation.targetEntityId, [...jobs, 'financial_desired_outcome']); break;
+      case 'touchpoint_mitigates_repulsor':
+        endpoint(relation.touchpointId, ['touchpoint']); endpoint(relation.repulsorId, ['repulsor']); break;
+      default: invalid('Unknown relationship kind.');
+    }
+  }
+  const adjacency = new Map<string, string[]>();
+  const edges = new Set<string>();
+  for (const [source, target] of contexts) {
+    const key = pair(source, target);
+    if (source === target || edges.has(key)) ambiguous('Self-link or duplicate contextual edge.');
+    edges.add(key);
+    adjacency.set(source, [...(adjacency.get(source) ?? []), target]);
+  }
+  // Validate the imported graph; general DAG mutation commands belong to CP2.
+  const visiting = new Set<string>(); const visited = new Set<string>();
+  const visit = (id: string) => {
+    if (visiting.has(id)) ambiguous('Cyclic contextual Job graph.');
+    if (visited.has(id)) return;
+    visiting.add(id);
+    for (const child of adjacency.get(id) ?? []) visit(child);
+    visiting.delete(id); visited.add(id);
+  };
+  for (const id of adjacency.keys()) visit(id);
+  for (const entity of entities.values()) {
+    if (entity.kind === 'desired_outcome' && !doOwners.has(text(entity.id))) invalid('An ordinary Desired Outcome has no owner.');
+    if (entity.kind === 'related_job' && contexts.filter(([, target]) => target === entity.id).length !== 1) ambiguous('Legacy Related Job requires exactly one context.');
+  }
+  const productIntents = index('productJobIntents');
+  const offerSelections = index('offerJobSelections');
+  const financialIntents = index('offerFinancialIntents');
+  index('touchpointJobSelections'); index('touchpointFinancialSelections');
+  const memberships = new Set<string>();
+  for (const intent of productIntents.values()) {
+    endpoint(intent.productId, ['product']); endpoint(intent.jobId, [...jobs]);
+    const key = pair(intent.productId, intent.jobId);
+    if (memberships.has(key)) ambiguous('Ambiguous Product Job Intent membership.');
+    memberships.add(key);
+    for (const id of ids(intent.addressedDesiredOutcomeIds)) if (doOwners.get(id) !== intent.jobId) invalid('Product scope contains an outcome owned by another Job.');
+  }
+  const offerScopes = new Map<string, string[]>();
+  for (const selection of offerSelections.values()) {
+    endpoint(selection.offerId, ['offer']);
+    const intent = productIntents.get(text(selection.productJobIntentId));
+    if (!intent || offerOwners.get(text(selection.offerId)) !== intent.productId) invalid('Invalid Offer intent attribution.');
+    const key = pair(selection.offerId, selection.productJobIntentId);
+    if (offerScopes.has(key)) ambiguous('Ambiguous Offer Job selection.');
+    // Missing optional Offer subset is valid legacy data; preserve absence in output.
+    const scope = ids(selection.addressedDesiredOutcomeIds ?? intent!.addressedDesiredOutcomeIds);
+    const upstream = ids(intent!.addressedDesiredOutcomeIds);
+    if (scope.some(id => !upstream.includes(id))) invalid('Offer scope exceeds Product scope.');
+    offerScopes.set(key, scope);
+  }
+  const localPaths = new Set<string>();
+  for (const selection of records('touchpointJobSelections')) {
+    endpoint(selection.touchpointId, ['touchpoint']); endpoint(selection.offerId, ['offer']);
+    const upstream = offerScopes.get(pair(selection.offerId, selection.productJobIntentId));
+    const key = pair(selection.touchpointId, pair(selection.offerId, selection.productJobIntentId));
+    if (localPaths.has(key)) ambiguous('Ambiguous Touchpoint Job selection.');
+    localPaths.add(key);
+    if (!upstream || !presentations.has(pair(selection.offerId, selection.touchpointId))) invalid('Invalid Touchpoint Job attribution.');
+    if (ids(selection.addressedDesiredOutcomeIds).some(id => !upstream!.includes(id))) invalid('Touchpoint scope exceeds Offer scope.');
+  }
+  for (const intent of financialIntents.values()) {
+    endpoint(intent.offerId, ['offer']); endpoint(intent.financialDesiredOutcomeId, ['financial_desired_outcome']);
+  }
+  for (const selection of records('touchpointFinancialSelections')) {
+    endpoint(selection.touchpointId, ['touchpoint']); endpoint(selection.offerId, ['offer']);
+    const intent = financialIntents.get(text(selection.offerFinancialIntentId));
+    if (!intent || intent.offerId !== selection.offerId || intent.financialDesiredOutcomeId !== selection.financialDesiredOutcomeId || !presentations.has(pair(selection.offerId, selection.touchpointId))) invalid('Invalid Financial selection attribution.');
+  }
+  const views = index('views'); const containers = index('touchpointContainers'); index('epistemicAnnotations');
+  for (const view of views.values()) text(view.title);
+  for (const container of containers.values()) text(container.title);
+  for (const entity of entities.values()) if (entity.kind === 'touchpoint' && entity.locatedInId !== undefined && !containers.has(text(entity.locatedInId))) invalid('Invalid Located in reference.');
+  for (const placement of records('placements')) {
+    if (!entities.has(text(placement.entityId)) || !views.has(text(placement.viewId)) || typeof placement.x !== 'number' || typeof placement.y !== 'number' || !Number.isFinite(placement.x) || !Number.isFinite(placement.y)) invalid('Invalid placement.');
+  }
+  for (const annotation of records('epistemicAnnotations')) {
+    if (!entities.has(text(annotation.subjectEntityId)) || !(EPISTEMIC_STATUSES as readonly unknown[]).includes(annotation.status)) invalid('Invalid epistemic annotation.');
+  }
+  // Clone once after validation: optional fields and authored order survive,
+  // and editing the returned records cannot mutate the source snapshot.
+  let clone: LegacyJobNormalizationInput;
+  try { clone = structuredClone(document); } catch { return invalid('Document contains non-cloneable authored data.'); }
+  return {
+    ...clone,
+    entities: clone.entities.map(entity => entity.kind === 'core_functional_job' || entity.kind === 'related_job'
+      ? { ...entity, kind: 'functional_job' as const } : entity as CanonicalEntity),
+    relationships: clone.relationships.map(relation => {
+      if (relation.kind === 'core_functional_job_has_related_job') {
+        const { coreFunctionalJobId, relatedJobId, ...rest } = relation;
+        return { ...rest, kind: 'job_contextualizes_job' as const, sourceJobId: coreFunctionalJobId, targetJobId: relatedJobId };
+      }
+      if (relation.kind === 'core_functional_job_contextualizes_job') {
+        const { coreFunctionalJobId, contextualJobId, ...rest } = relation;
+        return { ...rest, kind: 'job_contextualizes_job' as const, sourceJobId: coreFunctionalJobId, targetJobId: contextualJobId };
+      }
+      return relation as CanonicalRelationship;
+    }),
+  };
+}

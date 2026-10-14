@@ -49,6 +49,13 @@ export function registerDevMapBridge(
         console.error('[VEE DEV map bridge] Refused to load an invalid MapDocument snapshot.');
         return;
       }
+      // Canonical normalization is opt-in until the existing consumers migrate.
+      const hasCanonicalRecords = snapshot.entities.some(entity => (entity?.kind as string) === 'functional_job')
+        || snapshot.relationships.some(relation => (relation?.kind as string) === 'job_contextualizes_job');
+      if (hasCanonicalRecords) {
+        console.error('[VEE DEV map bridge] Canonical Job snapshots are not supported by the current legacy runtime; current document was not changed.');
+        return;
+      }
       let clone: MapDocument;
       try {
         clone = structuredClone(snapshot);
