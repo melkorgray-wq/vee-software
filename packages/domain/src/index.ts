@@ -1891,13 +1891,13 @@ export function setJobContextualParents(
   const { identifier, job, relationshipIds, contexts, invalidGraph } = canonicalContextRecords(document);
   job(input.targetJobId);
   if (!Array.isArray(input.parentJobIds) || !Array.isArray(input.newRelationshipIds)) throw new DomainError('invalid_relationship_ids', 'Parent and relationship IDs must be arrays.');
-  input.parentJobIds.forEach(job);
+  for (const id of input.parentJobIds) job(id);
   unique(input.parentJobIds, 'duplicate_contextual_relationship');
   const existing = contexts.filter(relation => relation.targetJobId === input.targetJobId);
   const retained = new Map(existing.map(relation => [relation.sourceJobId, relation]));
   const additions = input.parentJobIds.filter(id => !retained.has(id));
   if (input.newRelationshipIds.length !== additions.length) throw new DomainError('invalid_relationship_ids', 'Each new direct context requires exactly one fresh relationship ID.');
-  input.newRelationshipIds.forEach(identifier);
+  for (const id of input.newRelationshipIds) identifier(id);
   unique(input.newRelationshipIds);
   if (input.newRelationshipIds.some(id => relationshipIds.has(id))) throw new DomainError('duplicate_relationship_id', 'New context IDs must be fresh, including IDs of removed connections.');
   const parents = new Set(input.parentJobIds);

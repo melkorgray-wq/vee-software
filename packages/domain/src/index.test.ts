@@ -2495,6 +2495,16 @@ describe('canonical contextual Job authoring', () => {
     expect(() => setJobContextualParents(source, { targetJobId: 'c', parentJobIds: [], newRelationshipIds: [] })).toThrow(DomainError);
     expect(source).toEqual(before);
   });
+  it.each(['parentJobIds', 'newRelationshipIds'] as const)('rejects sparse %s before altering existing parents', field => {
+    const d = setJobContextualParents(fixture(), { targetJobId: 'c', parentJobIds: ['a', 'b'], newRelationshipIds: ['a-c', 'b-c'] });
+    const before = structuredClone(d); freeze(d);
+    const input = field === 'parentJobIds'
+      ? { targetJobId: 'c', parentJobIds: Array<string>(1), newRelationshipIds: [] }
+      : { targetJobId: 'c', parentJobIds: ['d'], newRelationshipIds: Array<string>(1) };
+    expect(() => setJobContextualParents(d, input)).toThrow(DomainError);
+    expect(edges(d).map(relation => relation.id)).toEqual(['a-c', 'b-c']);
+    expect(d).toEqual(before);
+  });
   it('validates very deep graphs iteratively in both authoring and normalization', () => {
     const source = normalizeLegacyJobs(empty()); const count = 12000;
     source.entities = Array.from({ length: count }, (_, index) => ({ id: 'j' + index, kind: 'functional_job' as const, title: 'Job ' + index }));
