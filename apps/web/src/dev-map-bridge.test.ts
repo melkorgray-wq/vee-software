@@ -90,3 +90,30 @@ describe('registerDevMapBridge', () => {
     expect(window.__VEE_DEV__).toBeUndefined();
   });
 });
+
+describe('legacy runtime snapshot compatibility', () => {
+  afterEach(() => { delete window.__VEE_DEV__; vi.restoreAllMocks(); });
+  it('keeps valid legacy Job snapshots unchanged', () => {
+    const source = createEmptyMapDocument({ mapId: 'legacy', title: 'Legacy', viewId: 'v', viewTitle: 'View' });
+    source.entities.push({ id: 'core', kind: 'core_functional_job', title: 'Core' }, { id: 'related', kind: 'related_job', title: 'Related' });
+    source.relationships.push({ id: 'context', kind: 'core_functional_job_has_related_job', coreFunctionalJobId: 'core', relatedJobId: 'related' });
+    let accepted = mapDocument();
+    registerDevMapBridge(true, () => accepted, document => { accepted = document; });
+    window.__VEE_DEV__!.load(source);
+    expect(accepted).toEqual(source);
+    expect(window.__VEE_DEV__!.dump()).toEqual(source);
+  });
+  it.each(['canonical', 'mixed', 'canonical-relationship-only'] as const)('refuses a %s snapshot without replacing current state', format => {
+    const source = mapDocument(); const current = mapDocument('Current');
+    const snapshot = structuredClone(source) as unknown as { entities: unknown[]; relationships: unknown[] };
+    if (format !== 'canonical-relationship-only') snapshot.entities.push({ id: 'fj', kind: 'functional_job', title: 'Functional' });
+    if (format === 'mixed') snapshot.entities.push({ id: 'legacy', kind: 'core_functional_job', title: 'Legacy' });
+    snapshot.relationships.push({ id: 'context', kind: 'job_contextualizes_job', sourceJobId: 'fj', targetJobId: 'fj-2' });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined); const load = vi.fn();
+    registerDevMapBridge(true, () => current, load);
+    window.__VEE_DEV__!.load(snapshot);
+    expect(load).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('Canonical Job snapshots are not supported'));
+    expect(window.__VEE_DEV__!.dump()).toEqual(current);
+  });
+});
