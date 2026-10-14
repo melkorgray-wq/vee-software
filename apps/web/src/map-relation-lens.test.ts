@@ -1,3 +1,5 @@
+import { normalizeLegacyJobs } from '@vee/domain';
+import { canonicalMapReadFixture, freezeMapReadFixture, legacyMapReadFixture } from './map-read-test-fixture';
 import { expect, it } from 'vitest';
 import type { MapDocument } from '@vee/domain';
 import { deriveMapEdges } from './map-adapter';
@@ -104,4 +106,43 @@ it.each(['emotional_job', 'social_job'] as const)('%s uses only effective DO enc
   expect(document.productJobIntents).toEqual(before.productJobIntents);
   expect(document.offerJobSelections).toEqual(before.offerJobSelections);
   expect(document.touchpointJobSelections).toEqual([{ ...before.touchpointJobSelections[0]!, addressedDesiredOutcomeIds: [] }]);
+});
+
+
+it.each([['p', 'j'], ['o', 'j'], ['j', 'p'], ['a', 'o'], ['b', 'p'], ['rj', 'p'], ['ej', 'p'], ['sj', 'o'], ['ccj', 'p'], ['f', 'o'], ['rep', 'p'], ['rep', 'o'], ['f-rep', 'o']] as const)('canonical %s/%s lens preserves the exact legacy trace without context propagation', (sourceId, targetId) => {
+  const legacy = freezeMapReadFixture(legacyMapReadFixture());
+  const document = freezeMapReadFixture(canonicalMapReadFixture());
+  const before = structuredClone(document);
+  const trace = deriveRelationLensTrace(document, sourceId, targetId);
+  expect(trace).toBeDefined();
+  expect(trace).toEqual(deriveRelationLensTrace(normalizeLegacyJobs(legacy), sourceId, targetId));
+  expect(trace).toEqual(deriveRelationLensTrace(legacy, sourceId, targetId));
+  const rendered = new Set(deriveMapEdges(document).map(edge => edge.id));
+  expect(trace!.edgeIds.every(id => rendered.has(id))).toBe(true);
+  expect(trace!.entityIds).not.toContain('unselected-f');
+  for (const id of ['j-ej', 'e-s', 'j-s', 's-c', 'j-f']) expect(trace!.edgeIds).not.toContain(id);
+  expect(document).toEqual(before);
+});
+
+it('canonical financial lens terminates at Offer/Touchpoint, independent of Job contexts', () => {
+  const document = canonicalMapReadFixture();
+  const trace = deriveRelationLensTrace(document, 'f', 'o')!;
+  expect(trace).toEqual({ entityIds: ['child', 'f', 'o', 't'], edgeIds: ['financial-intent-route:f->child', 'ot', 'tc'] });
+  expect(deriveRelationLensTrace(document, 'unselected-f', 'p')).toBeUndefined();
+  expect(deriveRelationLensTrace(document, 'j', 'unselected-f')).toBeUndefined();
+});
+
+it('canonical lens preserves empty membership, and neither context nor Parent supplies an encounter', () => {
+  const document = canonicalMapReadFixture();
+  expect(deriveRelationLensTrace(document, 'p', 'ej')).toEqual({ entityIds: ['ej', 'o', 'p'], edgeIds: ['po'] });
+  document.touchpointJobSelections = document.touchpointJobSelections.filter(selection => selection.touchpointId !== 'child');
+  const trace = deriveRelationLensTrace(document, 'p', 'j')!;
+  expect(trace.entityIds).not.toContain('child');
+  expect(trace.edgeIds).not.toContain('intent-route:a->child');
+});
+
+it('canonical lens ordering is independent of authored collection order', () => {
+  const document = canonicalMapReadFixture();
+  const reordered = { ...document, entities: [...document.entities].reverse(), relationships: [...document.relationships].reverse(), productJobIntents: [...document.productJobIntents].reverse(), offerJobSelections: [...document.offerJobSelections].reverse(), touchpointJobSelections: [...document.touchpointJobSelections].reverse() };
+  expect(deriveRelationLensTrace(reordered, 'rep', 'p')).toEqual(deriveRelationLensTrace(document, 'rep', 'p'));
 });

@@ -1,6 +1,7 @@
-import { isDesiredOutcomeBearingJob, effectiveOfferDesiredOutcomeIds, type MapDocument } from '@vee/domain';
+import { isDesiredOutcomeBearingJob, effectiveOfferDesiredOutcomeIds, type MapReadDocument } from '@vee/domain';
 
 export type SatelliteKind =
+  | 'functional_job'
   | 'core_functional_job'
   | 'related_job'
   | 'consumption_chain_job'
@@ -13,6 +14,7 @@ export type SatelliteKind =
   | 'offer';
 
 const PRODUCT_JOB_SATELLITE_KINDS = new Set<SatelliteKind>([
+  'functional_job',
   'core_functional_job',
   'related_job',
   'consumption_chain_job',
@@ -41,7 +43,7 @@ export interface FocusedDesiredOutcomeChild {
 
 
 /** Resolves the exact Product-intent outcome subset behind a focused Business-side Job satellite. */
-export function focusedDesiredOutcomeChildren(document: MapDocument, sourceId: string, focusedJobId: string): FocusedDesiredOutcomeChild[] {
+export function focusedDesiredOutcomeChildren(document: MapReadDocument, sourceId: string, focusedJobId: string): FocusedDesiredOutcomeChild[] {
   const entities = new Map(document.entities.map(entity => [entity.id, entity]));
   const source = entities.get(sourceId);
   const job = entities.get(focusedJobId);
@@ -72,12 +74,12 @@ export function focusedDesiredOutcomeChildren(document: MapDocument, sourceId: s
   }).sort((left, right) => compare(left.entityId, right.entityId));
 }
 
-export function relationGroupsForEntity(document: MapDocument, entityId: string): SatelliteGroup[] {
+export function relationGroupsForEntity(document: MapReadDocument, entityId: string): SatelliteGroup[] {
   return projectMapRelationSatellites(document).filter(group => group.displayOwnerId === entityId);
 }
 
 /** Resolves projection provenance to physical renderer edges without extending semantic paths. */
-export function relevantPhysicalEdgeIds(document: MapDocument, sourceId: string, targetId: string): string[] {
+export function relevantPhysicalEdgeIds(document: MapReadDocument, sourceId: string, targetId: string): string[] {
   const group = relationGroupsForEntity(document, sourceId).find(candidate => candidate.targets.some(item => item.entityId === targetId));
   if (!document.entities.some(entity => entity.id === targetId) || !group) return [];
   const ids = new Set(group.targets.find(item => item.entityId === targetId)?.paths.flat() ?? []);
@@ -88,7 +90,7 @@ export function relevantPhysicalEdgeIds(document: MapDocument, sourceId: string,
 const compare = (left: string, right: string) => left.localeCompare(right);
 
 /** Pure read-only projection owned by the map adapter boundary, independent of orbit rendering. */
-export function projectMapRelationSatellites(document: MapDocument): SatelliteGroup[] {
+export function projectMapRelationSatellites(document: MapReadDocument): SatelliteGroup[] {
   const entities = new Map(document.entities.map(entity => [entity.id, entity]));
   const groups = new Map<string, Map<string, Set<string>>>();
   const resistanceRelationshipsByTarget = new Map<string, Array<{ id: string; repulsorId: string }>>();

@@ -71,7 +71,9 @@ function safeAbsoluteHttpUrl(value?: string, errorCode = 'invalid_offer_content_
   return normalized;
 }
 function finite(x: number, y: number) { if (!Number.isFinite(x) || !Number.isFinite(y)) throw new DomainError('invalid_coordinates', 'Placement coordinates must be finite.'); }
-function entityOfKind(document: MapDocument, id: string, kind: ProvisionalEntityKind, field: string): Entity {
+function entityOfKind(document: MapDocument, id: string, kind: ProvisionalEntityKind, field: string): Entity;
+function entityOfKind(document: MapReadDocument, id: string, kind: ProvisionalEntityKind, field: string): Entity | CanonicalEntity;
+function entityOfKind(document: MapReadDocument, id: string, kind: ProvisionalEntityKind, field: string): Entity | CanonicalEntity {
   const entity = document.entities.find(candidate => candidate.id === id);
   if (!entity) throw new DomainError('invalid_relationship_reference', `${field} does not reference an existing entity.`);
   if (entity.kind !== kind) throw new DomainError('invalid_relationship_endpoint', `${field} must reference a ${kind.replace('_', ' ')}.`);
@@ -96,9 +98,9 @@ export function createEmptyMapDocument(input: { mapId: string; title: string; vi
 
 const PRODUCT_JOB_KINDS = ['core_functional_job', 'related_job', 'emotional_job', 'social_job', 'consumption_chain_job'] as const;
 export const DO_BEARING_JOB_KINDS = ['core_functional_job', 'related_job', 'consumption_chain_job', 'emotional_job', 'social_job'] as const;
-export function isDesiredOutcomeBearingJob(kind: ProvisionalEntityKind): boolean { return (DO_BEARING_JOB_KINDS as readonly string[]).includes(kind); }
+export function isDesiredOutcomeBearingJob(kind: ProvisionalEntityKind | CanonicalEntity['kind']): boolean { return kind === 'functional_job' || (DO_BEARING_JOB_KINDS as readonly string[]).includes(kind); }
 /** Temporary compatibility for unversioned in-memory/dev snapshots. Remove when persistence has a versioned migration. */
-export function effectiveOfferDesiredOutcomeIds(document: MapDocument, selection: OfferJobSelection): string[] {
+export function effectiveOfferDesiredOutcomeIds(document: Pick<MapDocument, 'productJobIntents'>, selection: OfferJobSelection): string[] {
   return [...(selection.addressedDesiredOutcomeIds ?? document.productJobIntents.find(intent => intent.id === selection.productJobIntentId)?.addressedDesiredOutcomeIds ?? [])];
 }
 function validateProductJobIntent(document: MapDocument, input: { productId: string; jobId: string; addressedDesiredOutcomeIds: string[] }, ignoredId?: string) {
@@ -1005,7 +1007,10 @@ export function setContextualCoreFunctionalJobs(document: MapDocument, input: { 
   return { ...document, relationships: [...document.relationships.filter(relation => !(relation.kind === 'core_functional_job_contextualizes_job' && relation.contextualJobId === input.contextualJobId)), ...replacement] };
 }
 
-export function relevantRepulsorsForTouchpoint(document: MapDocument, touchpointId: string): Entity[] {
+export function relevantRepulsorsForTouchpoint(document: MapDocument, touchpointId: string): Entity[];
+export function relevantRepulsorsForTouchpoint(document: CanonicalMapDocument, touchpointId: string): CanonicalEntity[];
+export function relevantRepulsorsForTouchpoint(document: MapReadDocument, touchpointId: string): (Entity | CanonicalEntity)[];
+export function relevantRepulsorsForTouchpoint(document: MapReadDocument, touchpointId: string): (Entity | CanonicalEntity)[] {
   entityOfKind(document, touchpointId, 'touchpoint', 'Touchpoint');
   const intentIds = new Set(document.touchpointJobSelections.flatMap(selection => selection.touchpointId === touchpointId && (effectiveTouchpointOutcomes(document, selection)?.length ?? 0) > 0 ? [selection.productJobIntentId] : []));
   const relevantTargetIds = new Set(document.productJobIntents.flatMap(intent => intentIds.has(intent.id) ? [intent.jobId] : []));
@@ -1185,7 +1190,7 @@ function pruneIrrelevantTouchpointMitigations(document: MapDocument, previous: M
 }
 
 /** Returns the normalized local outcome subset, or undefined when the attributed path is not effective. */
-export function effectiveTouchpointOutcomes(document: MapDocument, selection: TouchpointJobSelection): string[] | undefined {
+export function effectiveTouchpointOutcomes(document: MapReadDocument, selection: TouchpointJobSelection): string[] | undefined {
   const intent = document.productJobIntents.find(candidate => candidate.id === selection.productJobIntentId);
   const job = document.entities.find(candidate => candidate.id === intent?.jobId);
   if (!intent || !job) return undefined;
@@ -1197,7 +1202,7 @@ export function effectiveTouchpointOutcomes(document: MapDocument, selection: To
   const outcomes = selection.addressedDesiredOutcomeIds.filter(outcomeId => upstream.has(outcomeId) && document.entities.some(entity => entity.id === outcomeId && entity.kind === 'desired_outcome') && document.relationships.some(relation => relation.kind === 'job_has_desired_outcome' && relation.jobId === intent.jobId && relation.desiredOutcomeId === outcomeId));
   return [...new Set(outcomes)];
 }
-function effectiveFinancialSelection(document: MapDocument, selection: TouchpointFinancialSelection): boolean {
+function effectiveFinancialSelection(document: MapReadDocument, selection: TouchpointFinancialSelection): boolean {
   return document.offerFinancialIntents.some(intent => intent.id === selection.offerFinancialIntentId && intent.offerId === selection.offerId && intent.financialDesiredOutcomeId === selection.financialDesiredOutcomeId)
     && document.relationships.some(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.offerId === selection.offerId && relation.touchpointId === selection.touchpointId);
 }
@@ -1612,6 +1617,8 @@ export interface CanonicalMapDocument extends Omit<MapDocument, 'entities' | 're
   entities: CanonicalEntity[];
   relationships: CanonicalRelationship[];
 }
+/** Shared read boundary only; legacy and canonical mutation APIs remain separate. */
+export type MapReadDocument = MapDocument | CanonicalMapDocument;
 export interface LegacyJobNormalizationInput extends Omit<MapDocument, 'entities' | 'relationships'> {
   entities: (Entity | CanonicalEntity)[];
   relationships: (Relationship | CanonicalRelationship)[];

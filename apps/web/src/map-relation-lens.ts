@@ -1,17 +1,17 @@
-import { effectiveTouchpointOutcomes, isDesiredOutcomeBearingJob, type MapDocument } from '@vee/domain';
+import { effectiveTouchpointOutcomes, isDesiredOutcomeBearingJob, type MapReadDocument } from '@vee/domain';
 import { deriveMapEdges, deriveVisibleAuthoredRelationships } from './map-adapter';
 import { relationGroupsForEntity } from './map-relation-projection';
 
 export interface RelationLensTrace { entityIds: string[]; edgeIds: string[] }
 
 const compare = (left: string, right: string) => left.localeCompare(right);
-type RelationshipOfKind<K extends MapDocument['relationships'][number]['kind']> = Extract<MapDocument['relationships'][number], { kind: K }>;
-function relationshipOfKind<K extends MapDocument['relationships'][number]['kind']>(document: MapDocument, kind: K, predicate: (relationship: RelationshipOfKind<K>) => boolean): RelationshipOfKind<K> | undefined {
+type RelationshipOfKind<K extends MapReadDocument['relationships'][number]['kind']> = Extract<MapReadDocument['relationships'][number], { kind: K }>;
+function relationshipOfKind<K extends MapReadDocument['relationships'][number]['kind']>(document: MapReadDocument, kind: K, predicate: (relationship: RelationshipOfKind<K>) => boolean): RelationshipOfKind<K> | undefined {
   return document.relationships.filter((relationship): relationship is RelationshipOfKind<K> => relationship.kind === kind).find(predicate);
 }
 
 /** Pure structural reading projection for one concrete satellite relation. */
-export function deriveRelationLensTrace(document: MapDocument, sourceId: string, targetId: string): RelationLensTrace | undefined {
+export function deriveRelationLensTrace(document: MapReadDocument, sourceId: string, targetId: string): RelationLensTrace | undefined {
   const entities = new Map(document.entities.map(entity => [entity.id, entity]));
   const source = entities.get(sourceId); const target = entities.get(targetId);
   if (!source || !target || !relationGroupsForEntity(document, sourceId).some(group => group.targets.some(item => item.entityId === targetId))) return undefined;
@@ -36,7 +36,7 @@ export function deriveRelationLensTrace(document: MapDocument, sourceId: string,
     if (offerEdge) addEdge(offerEdge.id);
   }
 
-  function addJobIntent(intent: MapDocument['productJobIntents'][number], offerIds: string[], onlyOutcomeId?: string): string[] {
+  function addJobIntent(intent: MapReadDocument['productJobIntents'][number], offerIds: string[], onlyOutcomeId?: string): string[] {
     const job = entities.get(intent.jobId); if (!job) return [];
     addEntity(intent.productId); addEntity(job.id);
     const outcomeIds = isDesiredOutcomeBearingJob(job.kind)
@@ -62,7 +62,7 @@ export function deriveRelationLensTrace(document: MapDocument, sourceId: string,
     return document.offerJobSelections.filter(selection => selection.productJobIntentId === intentId && (!restrictedOfferId || selection.offerId === restrictedOfferId)).map(selection => selection.offerId);
   }
 
-  const job = [source, target].find(entity => ['core_functional_job', 'related_job', 'consumption_chain_job', 'emotional_job', 'social_job'].includes(entity.kind));
+  const job = [source, target].find(entity => isDesiredOutcomeBearingJob(entity.kind));
   const product = [source, target].find(entity => entity.kind === 'product');
   const offer = [source, target].find(entity => entity.kind === 'offer');
   const outcome = [source, target].find(entity => entity.kind === 'desired_outcome');

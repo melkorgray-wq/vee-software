@@ -1,3 +1,5 @@
+import { normalizeLegacyJobs } from '@vee/domain';
+import { canonicalMapReadFixture, freezeMapReadFixture, legacyMapReadFixture } from './map-read-test-fixture';
 import { expect, it } from 'vitest';
 import { addEntity, addProductJobIntent, addTouchpointContainer, setOfferJobSelections, setTouchpointIntentSelections, setTouchpointMitigations, createEmptyMapDocument, movePlacement, updateEntity } from '@vee/domain';
 import { KIND_LABELS, deriveMapEdges, deriveMapNodes, deriveVisibleAuthoredRelationships, layoutForEntity } from './map-adapter';
@@ -246,4 +248,92 @@ it('derives individual focused outcome children with stable IDs only at render t
   expect(children.every(node => node.draggable === false && node.selectable === false && node.focusable === false && node.data.satellite?.child)).toBe(true);
   expect(deriveMapEdges(d).some(edge => edge.source === 'p' && edge.target.startsWith('do-'))).toBe(false);
   expect(d).toEqual(snapshot);
+});
+
+
+it('reads normalized legacy nodes and edges with unchanged authored identities and routes', () => {
+  const legacy = freezeMapReadFixture(legacyMapReadFixture());
+  const canonical = freezeMapReadFixture(normalizeLegacyJobs(legacy));
+  expect(deriveMapEdges(canonical)).toEqual(deriveMapEdges(legacy));
+  const nodes = deriveMapNodes(canonical, 'v', 'rj');
+  const authored = nodes.filter(node => node.className === 'map-node');
+  expect(authored.map(node => node.id)).toEqual(legacy.entities.map(entity => entity.id));
+  expect(authored.map(node => node.position)).toEqual(legacy.placements.map(({ x, y }) => ({ x, y })));
+  for (const id of ['j', 'rj']) {
+    const node = authored.find(candidate => candidate.id === id)!;
+    expect(node.data.kindLabel).toBe('Functional Job');
+    expect(node.data.layout).toEqual(layoutForEntity({ kind: 'core_functional_job', title: node.data.title }));
+    expect(node.selected).toBe(id === 'rj');
+  }
+  expect(layoutForEntity({ kind: 'related_job', title: 'Related' }).diameter).toBe(96);
+  expect(nodes.filter(node => node.id === 'satellite:p:functional_job')).toHaveLength(1);
+  expect(nodes.find(node => node.id === 'satellite:p:functional_job')!.data.satellite?.targetIds).toEqual(['j', 'rj']);
+});
+
+it('renders every canonical context edge in authored order without inferred edges or routes', () => {
+  const document = freezeMapReadFixture(canonicalMapReadFixture());
+  const before = structuredClone(document);
+  const edges = deriveMapEdges(document);
+  const contexts = edges.filter(edge => ['j-rj', 'j-ej', 'e-s', 'j-s', 's-c', 'j-f', 'e-f', 's-f', 'c-f'].includes(edge.id));
+  expect(contexts.map(({ id, source, target, className }) => ({ id, source, target, className }))).toEqual([
+    ['j-rj', 'j', 'rj'], ['j-ej', 'j', 'ej'], ['e-s', 'ej', 'sj'], ['j-s', 'j', 'sj'], ['s-c', 'sj', 'ccj'],
+    ['j-f', 'j', 'unselected-f'], ['e-f', 'ej', 'unselected-f'], ['s-f', 'sj', 'unselected-f'], ['c-f', 'ccj', 'unselected-f'],
+  ].map(([id, source, target]) => ({ id, source, target, className: 'map-edge' })));
+  expect(edges.filter(edge => edge.className === 'map-edge').map(edge => edge.id)).toEqual([
+    'po', 'po2', 'ot', 'o2t', 'tc', 'j-rj', 'j-ej', 'j-a', 'j-b', 'e-owns', 's-owns', 'c-owns', 'resists', 'f-resists', 'mitigates',
+    'e-s', 'j-s', 's-c', 'j-f', 'e-f', 's-f', 'c-f',
+  ]);
+  expect(edges.filter(edge => edge.className === 'map-edge derived-intent-edge').map(edge => edge.id)).toEqual([
+    'intent-route:a->t', 'intent-route:s-do->t', 'intent-route:c-do->t', 'intent-route:a->child', 'financial-intent-route:f->child',
+  ]);
+  expect(edges.some(edge => edge.source === 'ej' && edge.target === 'ccj')).toBe(false);
+  expect(edges.some(edge => edge.source === 'unselected-f' && edge.target === 'child')).toBe(false);
+  expect(deriveMapEdges(document)).toEqual(edges);
+  deriveMapNodes(document, 'v', null);
+  expect(document).toEqual(before);
+});
+
+it('keeps canonical containment, resistance, and authored mitigation distinct', () => {
+  const edges = deriveMapEdges(canonicalMapReadFixture());
+  expect(edges.map(edge => edge.id)).not.toContain('oc');
+  expect(edges).toContainEqual(expect.objectContaining({ id: 'tc', source: 't', target: 'child', className: 'map-edge' }));
+  expect(edges.filter(edge => edge.className === 'map-edge derived-repulsor-edge').map(edge => edge.id)).toEqual([
+    'repulsor-route:rep->t', 'repulsor-route:rep->child', 'repulsor-route:f-rep->child',
+  ]);
+  expect(edges).toContainEqual(expect.objectContaining({ id: 'mitigates', source: 'child', target: 'rep', className: 'map-edge' }));
+});
+
+it('keeps canonical focused DO children narrowed to the selected Business owner', () => {
+  const document = canonicalMapReadFixture();
+  const childIds = (sourceId: string) => deriveMapNodes(document, 'v', null, { sourceId, targetId: 'j' }).filter(node => node.data.satellite?.child).map(node => node.id);
+  expect(childIds('p')).toEqual(['satellite-child:p:j:a', 'satellite-child:p:j:b']);
+  expect(childIds('o')).toEqual(['satellite-child:o:j:a']);
+  expect(deriveMapNodes(document, 'v', null, { sourceId: 'p', targetId: 'rj' }).some(node => node.data.satellite?.child)).toBe(false);
+});
+
+it.each(['legacy', 'canonical'] as const)('%s has no encounter from empty, disjoint or unattributed Job scope', representation => {
+  const document = representation === 'legacy' ? legacyMapReadFixture() : canonicalMapReadFixture();
+  document.offerJobSelections = document.offerJobSelections.map(selection => selection.productJobIntentId === 'pi' ? { ...selection, addressedDesiredOutcomeIds: ['b'] } : selection);
+  document.touchpointJobSelections = document.touchpointJobSelections.filter(selection => selection.productJobIntentId === 'pi' || selection.productJobIntentId === 'pei');
+  freezeMapReadFixture(document);
+  const before = structuredClone(document);
+  expect(deriveMapEdges(document).filter(edge => edge.id.startsWith('intent-route:'))).toEqual([]);
+  expect(deriveMapEdges(document).some(edge => edge.id.startsWith('repulsor-route:rep->'))).toBe(false);
+  expect(deriveMapEdges(document).some(edge => edge.id === 'mitigates')).toBe(true);
+  const unattributed = { ...document, offerJobSelections: [] };
+  expect(deriveMapEdges(unattributed).filter(edge => edge.id.startsWith('intent-route:'))).toEqual([]);
+  expect(document).toEqual(before);
+});
+
+
+it('canonical routes ignore non-owned outcomes, missing selections and missing presentation paths', () => {
+  const document = canonicalMapReadFixture();
+  document.touchpointJobSelections = [{ ...document.touchpointJobSelections[0]!, addressedDesiredOutcomeIds: ['missing', 'f', 's-do', 'b'] }];
+  const before = structuredClone(document); freezeMapReadFixture(document);
+  expect(deriveMapEdges(document).filter(edge => edge.id.startsWith('intent-route:'))).toEqual([]);
+  const missingSelection = { ...document, touchpointJobSelections: [{ ...document.touchpointJobSelections[0]!, productJobIntentId: 'missing', addressedDesiredOutcomeIds: ['a'] }] };
+  expect(deriveMapEdges(missingSelection).filter(edge => edge.id.startsWith('intent-route:'))).toEqual([]);
+  const missingPresentation = { ...document, relationships: document.relationships.filter(relation => relation.id !== 'ot'), touchpointJobSelections: [{ ...document.touchpointJobSelections[0]!, addressedDesiredOutcomeIds: ['a'] }] };
+  expect(deriveMapEdges(missingPresentation).filter(edge => edge.id.startsWith('intent-route:'))).toEqual([]);
+  expect(document).toEqual(before);
 });
