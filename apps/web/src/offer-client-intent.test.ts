@@ -1,3 +1,5 @@
+import { normalizeLegacyJobs, setJobContextualParents, setFinancialDesiredOutcomeJobContexts, type MapReadDocument } from '@vee/domain';
+import { freezeMapReadFixture, legacyOfferReadFixture } from './map-read-test-fixture';
 import { describe, expect, it } from 'vitest';
 import type { MapDocument, OfferJobSelection } from '@vee/domain';
 import {
@@ -281,5 +283,94 @@ describe('EJ/SJ ordinary outcome projection', () => {
     const group = offerClientIntent(document, 'offer')!.groups.find(group => group.kind === kind)!;
     expect(group.items[0]).toMatchObject({ desiredOutcomeIds: ['do-z'], desiredOutcomes: [{ id: 'do-z' }] });
     expect(JSON.stringify(offerClientIntentDiscovery(document, 'offer', { query: 'Zulu outcome' }))).toContain('do-z');
+  });
+});
+
+
+const readOfferJobs = (document: MapReadDocument, offerId = 'o') => offerClientIntent(document, offerId)!.groups.flatMap(group => group.kind === 'financial_desired_outcome' ? [] : group.items);
+
+describe('canonical Offer Client intent read compatibility', () => {
+  it('groups normalized Functional Jobs while retaining every selection and Product intent reference', () => {
+    const legacy = legacyOfferReadFixture(); const document = normalizeLegacyJobs(legacy);
+    const before = structuredClone(document); freezeMapReadFixture(legacy); freezeMapReadFixture(document);
+    expect(offerClientIntent(document, 'o')!.groups.map(group => group.kind)).toEqual(['functional_job', 'consumption_chain_job', 'emotional_job', 'social_job', 'financial_desired_outcome']);
+    expect(readOfferJobs(document).map(item => item.jobId)).toEqual(['j', 'rj', 'ccj', 'ej', 'sj']);
+    const expected = readOfferJobs(legacy).map(item => ({ ...item, kind: item.kind === 'core_functional_job' || item.kind === 'related_job' ? 'functional_job' : item.kind,
+      job: { ...item.job, kind: item.job.kind === 'core_functional_job' || item.job.kind === 'related_job' ? 'functional_job' : item.job.kind } }));
+    expect(readOfferJobs(document)).toEqual(expected);
+    expect(readOfferJobs(document).slice(0, 2).map(({ id, selectionId, productJobIntentId, jobId, desiredOutcomeIds }) => ({ id, selectionId, productJobIntentId, jobId, desiredOutcomeIds }))).toEqual([
+      { id: 'os', selectionId: 'os', productJobIntentId: 'pi', jobId: 'j', desiredOutcomeIds: ['a'] },
+      { id: 'rs', selectionId: 'rs', productJobIntentId: 'pri', jobId: 'rj', desiredOutcomeIds: ['r-do'] },
+    ]);
+    expect(offerClientIntent(document, 'o')!.groups.at(-1)).toEqual(offerClientIntent(legacy, 'o')!.groups.at(-1));
+    expect(document).toEqual(before);
+  });
+
+  it.each(['legacy', 'canonical'] as const)('%s keeps omitted, empty and independent selection records distinct', representation => {
+    const document = representation === 'legacy' ? legacyOfferReadFixture() : normalizeLegacyJobs(legacyOfferReadFixture());
+    document.offerJobSelections.push(
+      { id: 'fallback', offerId: 'o', productJobIntentId: 'pi' },
+      { id: 'empty', offerId: 'o', productJobIntentId: 'pi', addressedDesiredOutcomeIds: [] },
+      { id: 'duplicate-path', offerId: 'o', productJobIntentId: 'pi', addressedDesiredOutcomeIds: ['b'] },
+    );
+    freezeMapReadFixture(document);
+    const items = readOfferJobs(document).filter(item => item.jobId === 'j');
+    expect(items.map(item => item.selectionId)).toEqual(['duplicate-path', 'empty', 'fallback', 'os']);
+    expect(items.map(item => item.desiredOutcomeIds)).toEqual([['b'], [], ['a', 'b'], ['a']]);
+    expect(readOfferJobs(document, 'o2').find(item => item.jobId === 'j')!.desiredOutcomeIds).toEqual(['a', 'b']);
+  });
+
+  it.each(['legacy', 'canonical'] as const)('%s retains Product ownership and intersection checks on malformed scope', representation => {
+    const document = representation === 'legacy' ? legacyOfferReadFixture() : normalizeLegacyJobs(legacyOfferReadFixture());
+    document.offerJobSelections[0]!.addressedDesiredOutcomeIds = ['a', 'a', 'outside', 'r-do', 'f', 'missing'];
+    document.offerJobSelections.push(
+      { id: 'foreign-intent', offerId: 'o', productJobIntentId: 'q-pi', addressedDesiredOutcomeIds: ['b'] },
+      { id: 'stale-intent', offerId: 'o', productJobIntentId: 'missing' },
+      { id: 'bad-job', offerId: 'o', productJobIntentId: 'bad-pi' },
+    );
+    document.productJobIntents.push({ id: 'bad-pi', productId: 'p', jobId: 'f', addressedDesiredOutcomeIds: [] });
+    const before = structuredClone(document); freezeMapReadFixture(document);
+    expect(readOfferJobs(document).filter(item => item.jobId === 'j').map(item => [item.id, item.desiredOutcomeIds])).toEqual([['os', ['a']]]);
+    const orphaned = structuredClone(document);
+    const packagingIndex = orphaned.relationships.findIndex(relation => relation.id === 'po');
+    orphaned.relationships.splice(packagingIndex, 1);
+    expect(offerClientIntent(orphaned, 'o')!.groups.map(group => group.kind)).toEqual(['financial_desired_outcome']);
+    expect(document).toEqual(before);
+  });
+
+  it('ignores multiple Job contexts and Job-to-FDO links without inferred selection or parent metadata', () => {
+    let document = normalizeLegacyJobs(legacyOfferReadFixture()); const expected = offerClientIntent(document, 'o');
+    document = setJobContextualParents(document, { targetJobId: 'rj', parentJobIds: ['j', 'ej', 'u'], newRelationshipIds: ['e-r', 'u-r'] });
+    document = setFinancialDesiredOutcomeJobContexts(document, { financialDesiredOutcomeId: 'unselected-f', jobIds: ['j', 'rj', 'u'], newRelationshipIds: ['j-f', 'r-f', 'u-f'] });
+    const before = structuredClone(document); freezeMapReadFixture(document);
+    expect(offerClientIntent(document, 'o')).toEqual(expected);
+    expect(readOfferJobs(document).map(item => item.jobId)).not.toContain('u');
+    expect(readOfferJobs(document).every(item => !('contextualParentJobs' in item))).toBe(true);
+    expect(offerClientIntent({ ...document, offerJobSelections: [], offerFinancialIntents: [] }, 'o')).toEqual({ offerId: 'o', groups: [] });
+    expect(document).toEqual(before);
+  });
+
+  it('retains each authored FDO record and excludes stale, wrong-kind and other-Offer financial records', () => {
+    const document = normalizeLegacyJobs(legacyOfferReadFixture());
+    document.offerFinancialIntents.push(
+      { id: 'fi-duplicate', offerId: 'o', financialDesiredOutcomeId: 'f' },
+      { id: 'stale-fdo', offerId: 'o', financialDesiredOutcomeId: 'missing' },
+      { id: 'wrong-fdo', offerId: 'o', financialDesiredOutcomeId: 'j' },
+    );
+    freezeMapReadFixture(document);
+    const group = offerClientIntent(document, 'o')!.groups.find(group => group.kind === 'financial_desired_outcome')!;
+    expect(group.items.map(item => [item.id, item.offerFinancialIntentId, item.financialDesiredOutcomeId])).toEqual([['fi', 'fi', 'f'], ['fi-duplicate', 'fi-duplicate', 'f']]);
+  });
+
+  it('keeps exact ordering and empty/absent states without source mutation or discovery migration', () => {
+    const legacy = legacyOfferReadFixture(); const document = normalizeLegacyJobs(legacy);
+    const reversed = { ...document, entities: [...document.entities].reverse(), relationships: [...document.relationships].reverse(), productJobIntents: [...document.productJobIntents].reverse(), offerJobSelections: [...document.offerJobSelections].reverse(), offerFinancialIntents: [...document.offerFinancialIntents].reverse() };
+    const before = structuredClone(document); freezeMapReadFixture(document);
+    expect(offerClientIntent(reversed, 'o')).toEqual(offerClientIntent(document, 'o'));
+    expect(offerClientIntent(document, 'missing')).toBeUndefined(); expect(offerClientIntent(document, 'p')).toBeUndefined();
+    const item = readOfferJobs(document)[0]!; item.desiredOutcomeIds.pop(); item.desiredOutcomes.pop();
+    expect(document).toEqual(before);
+    expect(offerClientIntentDiscovery(legacy, 'o', { query: '' }).source!.jobGroups.map(group => group.job.kind)).toContain('related_job');
+    expect(offerClientIntentDiscovery(legacy, 'o', { query: '' }).source!.jobGroups.map(group => group.job.kind)).not.toContain('functional_job');
   });
 });

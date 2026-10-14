@@ -1,7 +1,8 @@
 import { isDesiredOutcomeBearingJob,
   effectiveOfferDesiredOutcomeIds,
-  type Entity,
+  type CanonicalMapDocument,
   type MapDocument,
+  type MapReadDocument,
   type OfferJobSelection,
 } from '@vee/domain';
 
@@ -17,9 +18,16 @@ export const OFFER_CLIENT_INTENT_GROUND_TYPE_IDS = [
 export type OfferClientIntentGroundTypeId = typeof OFFER_CLIENT_INTENT_GROUND_TYPE_IDS[number];
 export type OfferClientIntentJobKind = Exclude<OfferClientIntentGroundTypeId, 'financial_desired_outcome'>;
 
-interface OfferClientIntentGroundBase {
+export const CANONICAL_OFFER_CLIENT_INTENT_GROUND_TYPE_IDS = ['functional_job', 'consumption_chain_job', 'emotional_job', 'social_job', 'financial_desired_outcome'] as const;
+export type CanonicalOfferClientIntentJobKind = Exclude<typeof CANONICAL_OFFER_CLIENT_INTENT_GROUND_TYPE_IDS[number], 'financial_desired_outcome'>;
+type ReadGroundTypeId = OfferClientIntentGroundTypeId | 'functional_job';
+type ReadJobKind = Exclude<ReadGroundTypeId, 'financial_desired_outcome'>;
+type ReadEntity = MapReadDocument['entities'][number];
+const READ_GROUND_TYPE_IDS = ['functional_job', ...OFFER_CLIENT_INTENT_GROUND_TYPE_IDS] as const;
+
+interface OfferClientIntentGroundBase<K extends ReadGroundTypeId = OfferClientIntentGroundTypeId> {
   id: string;
-  groundTypeId: OfferClientIntentGroundTypeId;
+  groundTypeId: K;
   basisId: string;
   neighborOfferIds: string[];
   count: number;
@@ -33,11 +41,11 @@ export interface OfferClientIntentJobComparison {
   neighborOnlyDesiredOutcomeIds: string[];
 }
 
-export interface OfferClientIntentJobGround extends OfferClientIntentGroundBase {
+export interface OfferClientIntentJobGround<K extends ReadJobKind = OfferClientIntentJobKind> extends OfferClientIntentGroundBase<K> {
   basisKind: 'job';
-  groundTypeId: OfferClientIntentJobKind;
+  groundTypeId: K;
   jobId: string;
-  jobKind: OfferClientIntentJobKind;
+  jobKind: K;
   inspectedDesiredOutcomeIds: string[];
   neighborComparisons: OfferClientIntentJobComparison[];
 }
@@ -48,35 +56,31 @@ export interface OfferClientIntentFinancialDesiredOutcomeGround extends OfferCli
   financialDesiredOutcomeId: string;
 }
 
-export type OfferClientIntentGround =
-  | OfferClientIntentJobGround
+export type OfferClientIntentGround<K extends ReadJobKind = OfferClientIntentJobKind> =
+  | OfferClientIntentJobGround<K>
   | OfferClientIntentFinancialDesiredOutcomeGround;
 
-export interface OfferClientIntentNeighborhood {
+export interface OfferClientIntentNeighborhood<K extends ReadJobKind = OfferClientIntentJobKind> {
   offerId: string;
-  grounds: OfferClientIntentGround[];
+  grounds: OfferClientIntentGround<K>[];
 }
 
-type Offer = Extract<Entity, { kind: 'offer' }>;
-type Job = { id: string; title: string; kind: OfferClientIntentJobKind };
+export type CanonicalOfferClientIntentNeighborhood = OfferClientIntentNeighborhood<CanonicalOfferClientIntentJobKind>;
+export type OfferClientIntentNeighborhoodRead = OfferClientIntentNeighborhood<ReadJobKind>;
+type Offer = Extract<ReadEntity, { kind: 'offer' }>;
+type Job = ReadEntity & { kind: ReadJobKind };
 
-const JOB_KINDS = new Set<OfferClientIntentJobKind>([
-  'core_functional_job',
-  'related_job',
-  'consumption_chain_job',
-  'emotional_job',
-  'social_job',
-]);
-const TYPE_ORDER = new Map(OFFER_CLIENT_INTENT_GROUND_TYPE_IDS.map((kind, index) => [kind, index]));
+const readJob = (entity: ReadEntity): entity is Job => READ_GROUND_TYPE_IDS.some(kind => kind !== 'financial_desired_outcome' && kind === entity.kind);
+const TYPE_ORDER = new Map<ReadGroundTypeId, number>(READ_GROUND_TYPE_IDS.map((kind, index) => [kind, index]));
 
 const byTitleThenId = <T extends { title: string; id: string }>(left: T, right: T) =>
   left.title.localeCompare(right.title) || left.id.localeCompare(right.id);
 
 function validDesiredOutcomeIds(
-  document: MapDocument,
+  document: MapReadDocument,
   selection: OfferJobSelection,
   job: Job,
-  entitiesById: Map<string, Entity>,
+  entitiesById: Map<string, ReadEntity>,
 ): string[] {
   if (!isDesiredOutcomeBearingJob(job.kind)) return [];
 
@@ -95,10 +99,10 @@ function validDesiredOutcomeIds(
 }
 
 /** Derives Offer-owned Client-intent intersections without creating domain relationships. */
-export function deriveOfferClientIntentNeighborhood(
-  document: MapDocument,
-  inspectedOfferId: string,
-): OfferClientIntentNeighborhood | undefined {
+export function deriveOfferClientIntentNeighborhood(document: MapDocument, inspectedOfferId: string): OfferClientIntentNeighborhood | undefined;
+export function deriveOfferClientIntentNeighborhood(document: CanonicalMapDocument, inspectedOfferId: string): CanonicalOfferClientIntentNeighborhood | undefined;
+export function deriveOfferClientIntentNeighborhood(document: MapReadDocument, inspectedOfferId: string): OfferClientIntentNeighborhoodRead | undefined;
+export function deriveOfferClientIntentNeighborhood(document: MapReadDocument, inspectedOfferId: string): OfferClientIntentNeighborhoodRead | undefined {
   const inspectedOffer = document.entities.find(
     (entity): entity is Offer => entity.id === inspectedOfferId && entity.kind === 'offer',
   );
@@ -115,8 +119,8 @@ export function deriveOfferClientIntentNeighborhood(
     const offer = offersById.get(selection.offerId);
     const intent = intentsById.get(selection.productJobIntentId);
     const jobEntity = intent ? entitiesById.get(intent.jobId) : undefined;
-    if (!offer || !jobEntity || !JOB_KINDS.has(jobEntity.kind as OfferClientIntentJobKind)) continue;
-    const job = jobEntity as Job;
+    if (!offer || !jobEntity || !readJob(jobEntity)) continue;
+    const job = jobEntity;
     const offerJobs = jobScopesByOffer.get(offer.id) ?? new Map();
     const scope = offerJobs.get(job.id) ?? { job, desiredOutcomeIds: new Set<string>() };
     for (const outcomeId of validDesiredOutcomeIds(document, selection, job, entitiesById)) {
@@ -136,7 +140,7 @@ export function deriveOfferClientIntentNeighborhood(
     })
     .sort(byTitleThenId)
     .map((outcome) => outcome.id);
-  const grounds: OfferClientIntentGround[] = [];
+  const grounds: OfferClientIntentNeighborhoodRead['grounds'] = [];
 
   for (const inspectedScope of jobScopesByOffer.get(inspectedOffer.id)?.values() ?? []) {
     const comparisons = [...offersById.values()]

@@ -1,7 +1,9 @@
 import { isDesiredOutcomeBearingJob,
   effectiveOfferDesiredOutcomeIds,
   type Entity,
+  type CanonicalMapDocument,
   type MapDocument,
+  type MapReadDocument,
   type OfferJobSelection,
   type ProductJobIntent,
 } from '@vee/domain';
@@ -19,11 +21,16 @@ export const OFFER_CLIENT_INTENT_KINDS = [
 export type OfferClientIntentKind = typeof OFFER_CLIENT_INTENT_KINDS[number];
 export type OfferClientIntentJobKind = Exclude<OfferClientIntentKind, 'financial_desired_outcome'>;
 
-type JobEntity<K extends OfferClientIntentJobKind = OfferClientIntentJobKind> = Entity & { kind: K };
+export const CANONICAL_OFFER_CLIENT_INTENT_KINDS = ['functional_job', 'consumption_chain_job', 'emotional_job', 'social_job', 'financial_desired_outcome'] as const;
+export type CanonicalOfferClientIntentJobKind = Exclude<typeof CANONICAL_OFFER_CLIENT_INTENT_KINDS[number], 'financial_desired_outcome'>;
+type ReadJobKind = OfferClientIntentJobKind | CanonicalOfferClientIntentJobKind;
+type ReadEntity = MapReadDocument['entities'][number];
+const READ_CLIENT_INTENT_KINDS = ['functional_job', ...OFFER_CLIENT_INTENT_KINDS] as const;
+type JobEntity<K extends ReadJobKind = OfferClientIntentJobKind> = ReadEntity & { kind: K };
 type DesiredOutcomeEntity = Entity & { kind: 'desired_outcome' };
 type FinancialDesiredOutcomeEntity = Entity & { kind: 'financial_desired_outcome' };
 
-export interface OfferClientIntentJobItem<K extends OfferClientIntentJobKind = OfferClientIntentJobKind> {
+export interface OfferClientIntentJobItem<K extends ReadJobKind = OfferClientIntentJobKind> {
   id: string;
   kind: K;
   selectionId: string;
@@ -34,7 +41,7 @@ export interface OfferClientIntentJobItem<K extends OfferClientIntentJobKind = O
   desiredOutcomes: DesiredOutcomeEntity[];
 }
 
-export interface OfferClientIntentJobGroup<K extends OfferClientIntentJobKind = OfferClientIntentJobKind> {
+export interface OfferClientIntentJobGroup<K extends ReadJobKind = OfferClientIntentJobKind> {
   kind: K;
   items: OfferClientIntentJobItem<K>[];
 }
@@ -64,6 +71,15 @@ export interface OfferClientIntent {
   offerId: string;
   groups: OfferClientIntentGroup[];
 }
+
+export type CanonicalOfferClientIntentGroup =
+  | OfferClientIntentJobGroup<'functional_job'>
+  | OfferClientIntentJobGroup<'consumption_chain_job'>
+  | OfferClientIntentJobGroup<'emotional_job'>
+  | OfferClientIntentJobGroup<'social_job'>
+  | OfferClientIntentFinancialGroup;
+export interface CanonicalOfferClientIntent { offerId: string; groups: CanonicalOfferClientIntentGroup[] }
+export interface OfferClientIntentRead { offerId: string; groups: (OfferClientIntentJobGroup<ReadJobKind> | OfferClientIntentFinancialGroup)[] }
 
 export interface OfferIntentDiscoveryOutcome {
   id: string;
@@ -110,12 +126,16 @@ const JOB_KINDS = new Set<OfferClientIntentJobKind>([
 const byTitleThenId = <T extends { title: string; id: string }>(left: T, right: T) =>
   left.title.localeCompare(right.title) || left.id.localeCompare(right.id);
 
+const readJob = (entity: ReadEntity): entity is JobEntity<ReadJobKind> => READ_CLIENT_INTENT_KINDS.some(kind => kind !== 'financial_desired_outcome' && kind === entity.kind);
+const ordinaryOutcome = (entity: ReadEntity | undefined): entity is DesiredOutcomeEntity => entity?.kind === 'desired_outcome';
+const financialOutcome = (entity: ReadEntity | undefined): entity is FinancialDesiredOutcomeEntity => entity?.kind === 'financial_desired_outcome';
+
 function desiredOutcomesFor(
-  document: MapDocument,
+  document: MapReadDocument,
   selection: OfferJobSelection,
   intent: ProductJobIntent,
-  job: JobEntity,
-  entitiesById: Map<string, Entity>,
+  job: JobEntity<ReadJobKind>,
+  entitiesById: Map<string, ReadEntity>,
 ): DesiredOutcomeEntity[] {
   if (!isDesiredOutcomeBearingJob(job.kind)) return [];
 
@@ -129,20 +149,20 @@ function desiredOutcomesFor(
   return [...new Set(effectiveOfferDesiredOutcomeIds(document, selection))]
     .flatMap((id) => {
       const entity = entitiesById.get(id);
-      return entity?.kind === 'desired_outcome' && linkedIds.has(id) && productOutcomeIds.has(id)
-        ? [entity as DesiredOutcomeEntity]
+      return ordinaryOutcome(entity) && linkedIds.has(id) && productOutcomeIds.has(id)
+        ? [entity]
         : [];
     })
     .sort(byTitleThenId);
 }
 
 function jobItem(
-  document: MapDocument,
+  document: MapReadDocument,
   selection: OfferJobSelection,
   intent: ProductJobIntent,
-  job: JobEntity,
-  entitiesById: Map<string, Entity>,
-): OfferClientIntentJobItem {
+  job: JobEntity<ReadJobKind>,
+  entitiesById: Map<string, ReadEntity>,
+): OfferClientIntentJobItem<ReadJobKind> {
   const desiredOutcomes = desiredOutcomesFor(document, selection, intent, job, entitiesById);
   return {
     id: selection.id,
@@ -157,7 +177,10 @@ function jobItem(
 }
 
 /** Projects only committed, Offer-owned Client intent without creating domain relationships. */
-export function offerClientIntent(document: MapDocument, offerId: string): OfferClientIntent | undefined {
+export function offerClientIntent(document: MapDocument, offerId: string): OfferClientIntent | undefined;
+export function offerClientIntent(document: CanonicalMapDocument, offerId: string): CanonicalOfferClientIntent | undefined;
+export function offerClientIntent(document: MapReadDocument, offerId: string): OfferClientIntentRead | undefined;
+export function offerClientIntent(document: MapReadDocument, offerId: string): OfferClientIntentRead | undefined {
   const inspectedOffer = document.entities.find((entity) => entity.id === offerId && entity.kind === 'offer');
   if (!inspectedOffer) return undefined;
 
@@ -169,15 +192,15 @@ export function offerClientIntent(document: MapDocument, offerId: string): Offer
     ? packaged.productId
     : undefined;
   const intentsById = new Map(document.productJobIntents.map((intent) => [intent.id, intent]));
-  const jobItems = new Map<OfferClientIntentJobKind, OfferClientIntentJobItem[]>();
+  const jobItems = new Map<ReadJobKind, OfferClientIntentJobItem<ReadJobKind>[]>();
 
   for (const selection of document.offerJobSelections) {
     if (selection.offerId !== inspectedOffer.id) continue;
     const intent = intentsById.get(selection.productJobIntentId);
     const job = intent ? entitiesById.get(intent.jobId) : undefined;
     if (!intent || intent.productId !== productId || !job
-      || !JOB_KINDS.has(job.kind as OfferClientIntentJobKind)) continue;
-    const typedJob = job as JobEntity;
+      || !readJob(job)) continue;
+    const typedJob = job;
     const items = jobItems.get(typedJob.kind) ?? [];
     items.push(jobItem(document, selection, intent, typedJob, entitiesById));
     jobItems.set(typedJob.kind, items);
@@ -186,18 +209,18 @@ export function offerClientIntent(document: MapDocument, offerId: string): Offer
   const financialItems: OfferClientIntentFinancialItem[] = document.offerFinancialIntents.flatMap((intent) => {
     if (intent.offerId !== inspectedOffer.id) return [];
     const outcome = entitiesById.get(intent.financialDesiredOutcomeId);
-    if (outcome?.kind !== 'financial_desired_outcome') return [];
+    if (!financialOutcome(outcome)) return [];
     return [{
       id: intent.id,
       kind: 'financial_desired_outcome' as const,
       offerFinancialIntentId: intent.id,
       financialDesiredOutcomeId: outcome.id,
-      financialDesiredOutcome: outcome as FinancialDesiredOutcomeEntity,
+      financialDesiredOutcome: outcome,
     }];
   });
 
-  const groups: OfferClientIntentGroup[] = [];
-  for (const kind of OFFER_CLIENT_INTENT_KINDS) {
+  const groups: OfferClientIntentRead['groups'] = [];
+  for (const kind of READ_CLIENT_INTENT_KINDS) {
     if (kind === 'financial_desired_outcome') {
       if (financialItems.length) {
         financialItems.sort((left, right) =>
@@ -210,7 +233,7 @@ export function offerClientIntent(document: MapDocument, offerId: string): Offer
     const items = jobItems.get(kind);
     if (!items?.length) continue;
     items.sort((left, right) => byTitleThenId(left.job, right.job) || left.id.localeCompare(right.id));
-    groups.push({ kind, items } as OfferClientIntentGroup);
+    groups.push({ kind, items });
   }
 
   return { offerId: inspectedOffer.id, groups };
