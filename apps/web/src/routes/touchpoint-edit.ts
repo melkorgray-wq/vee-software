@@ -19,8 +19,8 @@ export type TouchpointClientScope<E extends ReadEntity = Entity> = {
 export type CanonicalTouchpointClientScope = TouchpointClientScope<CanonicalEntity>;
 export type TouchpointClientScopeRead = TouchpointClientScope<ReadEntity>;
 
-export type UpstreamLeaf = {
-  kind: 'job' | 'desired-outcome' | 'financial'; entity: Entity; semanticId: string; sourceId: string;
+export type UpstreamLeaf<E extends ReadEntity = Entity> = {
+  kind: 'job' | 'desired-outcome' | 'financial'; entity: E; semanticId: string; sourceId: string;
   contributorOfferId: string; checkboxId: string; checked: boolean; available: boolean;
   productJobIntentId?: string; offerFinancialIntentId?: string;
   provenanceOfferIds?: string[]; childContributorOfferIds?: string[]; checkedContributorOfferIds?: string[];
@@ -30,21 +30,26 @@ export type UpstreamLeaf = {
 export type IntentContributorPath = {
   id: string; offerId: string; productJobIntentId?: string; offerFinancialIntentId?: string;
 };
-export type UpstreamJobGroup = { job: Entity; leaves: UpstreamLeaf[] };
-export type TouchpointUpstreamBlock = { sourceKind: 'offer' | 'parent'; source: Entity; contributorOfferId?: string; jobGroups: UpstreamJobGroup[]; financialLeaves: UpstreamLeaf[] };
+export type UpstreamJobGroup<E extends ReadEntity = Entity> = { job: E; leaves: UpstreamLeaf<E>[] };
+export type TouchpointUpstreamBlock<E extends ReadEntity = Entity> = { sourceKind: 'offer' | 'parent'; source: E; contributorOfferId?: string; jobGroups: UpstreamJobGroup<E>[]; financialLeaves: UpstreamLeaf<E>[] };
+export type CanonicalTouchpointUpstreamBlock = TouchpointUpstreamBlock<CanonicalEntity>;
+export type TouchpointUpstreamBlockRead = TouchpointUpstreamBlock<ReadEntity>;
 
 const pathId = (touchpointId: string, sourceKind: string, sourceId: string, offerId: string, semanticId: string) =>
   [touchpointId, sourceKind, sourceId, offerId, semanticId].map(encodeURIComponent).join(':');
 
 /** Durable, framework-independent projection for the upstream-first Client scope editor. */
-export function touchpointUpstreamSources(document: MapDocument, touchpointId: string): TouchpointUpstreamBlock[] {
+export function touchpointUpstreamSources(document: MapDocument, touchpointId: string): TouchpointUpstreamBlock[];
+export function touchpointUpstreamSources(document: CanonicalMapDocument, touchpointId: string): CanonicalTouchpointUpstreamBlock[];
+export function touchpointUpstreamSources(document: MapReadDocument, touchpointId: string): TouchpointUpstreamBlockRead[];
+export function touchpointUpstreamSources(document: MapReadDocument, touchpointId: string): TouchpointUpstreamBlockRead[] {
   const linked = new Set(document.relationships.flatMap(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === touchpointId ? [relation.offerId] : []));
   const jobSelection = (offerId: string, intentId: string) => document.touchpointJobSelections.find(selection => selection.touchpointId === touchpointId && selection.offerId === offerId && selection.productJobIntentId === intentId);
   const checkedJob = (offerId: string, intentId: string) => Boolean(jobSelection(offerId, intentId));
   const checkedDesiredOutcome = (offerId: string, intentId: string, desiredOutcomeId: string) => Boolean(jobSelection(offerId, intentId)?.addressedDesiredOutcomeIds.includes(desiredOutcomeId));
   const checkedFinancial = (offerId: string, intentId: string) => document.touchpointFinancialSelections.some(selection => selection.touchpointId === touchpointId && selection.offerId === offerId && selection.offerFinancialIntentId === intentId);
-  const block = (sourceKind: 'offer' | 'parent', source: Entity, paths: { offerId: string; productJobIntentId?: string; offerFinancialIntentId?: string }[]): TouchpointUpstreamBlock => {
-    const groups = new Map<string, UpstreamJobGroup>(); const financialLeaves: UpstreamLeaf[] = [];
+  const block = (sourceKind: 'offer' | 'parent', source: ReadEntity, paths: { offerId: string; productJobIntentId?: string; offerFinancialIntentId?: string }[]): TouchpointUpstreamBlockRead => {
+    const groups = new Map<string, UpstreamJobGroup<ReadEntity>>(); const financialLeaves: UpstreamLeaf<ReadEntity>[] = [];
     for (const path of paths) {
       const available = linked.has(path.offerId);
       if (path.productJobIntentId) {
@@ -74,7 +79,7 @@ export function touchpointUpstreamSources(document: MapDocument, touchpointId: s
   const parentId = parentRelation?.parentTouchpointId;
   const parent = document.entities.find(entity => entity.id === parentId && entity.kind === 'touchpoint');
   if (parent) {
-    const childOffers = [...linked]; const groups = new Map<string, UpstreamJobGroup>(); const financialLeaves: UpstreamLeaf[] = [];
+    const childOffers = [...linked]; const groups = new Map<string, UpstreamJobGroup<ReadEntity>>(); const financialLeaves: UpstreamLeaf<ReadEntity>[] = [];
     for (const selection of document.touchpointJobSelections.filter(item => item.touchpointId === parent.id)) {
       const intent = document.productJobIntents.find(item => item.id === selection.productJobIntentId); const job = document.entities.find(item => item.id === intent?.jobId);
       if (!intent || !job || !isDesiredOutcomeBearingJob(job.kind)) continue;

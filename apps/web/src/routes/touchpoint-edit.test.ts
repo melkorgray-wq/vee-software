@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import { createEmptyMapDocument, relevantRepulsorsForTouchpoint, normalizeLegacyJobs, setJobContextualParents, setFinancialDesiredOutcomeJobContexts, applyTouchpointIntentDraft, type CanonicalMapDocument, type MapDocument } from '@vee/domain';
+import { createEmptyMapDocument, relevantRepulsorsForTouchpoint, normalizeLegacyJobs, setJobContextualParents, setFinancialDesiredOutcomeJobContexts, applyTouchpointIntentDraft, type CanonicalMapDocument, type MapDocument, type MapReadDocument } from '@vee/domain';
 import { applyTouchpointEditDraft, collisionSafeOfferTitle, collisionSafeProductTitle, collisionSafeTouchpointTitle, commitOfferConnectedTouchpoint, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, connectionPickerCatalogue, createSiblingOfferAndReplace, createTouchpointIntentDraft, duplicateOfferAndReplace, equalTouchpointIntentDraft, filterConnectionCandidates, globalIntentDiscovery, planFutureTouchpointOfferReplacement, replaceTouchpointLinkedOffer, selectCurrentOfferIntent, touchpointClientScope, touchpointIntentCatalogue, touchpointUpstreamSources, validateTouchpointIntentDraft } from './touchpoint-edit';
-import type { CanonicalTouchpointClientScope, TouchpointClientScope, TouchpointIntentDraft } from './touchpoint-edit';
+import type { CanonicalTouchpointClientScope, CanonicalTouchpointUpstreamBlock, TouchpointClientScope, TouchpointIntentDraft, TouchpointUpstreamBlock } from './touchpoint-edit';
 import { freezeMapReadFixture, legacyOfferReadFixture } from '../map-read-test-fixture';
 import { deriveTouchpointClientIntentNeighborhood } from '../touchpoint-client-intent-neighborhood';
 
@@ -823,6 +823,172 @@ describe('canonical Touchpoint committed Client Scope read compatibility', () =>
     scope.financialLeaves[0]!.contributorOfferIds.length = 0;
     draft.jobLeaves[0]!.contributorOfferIds.push('new-pending-offer');
     expect(createTouchpointIntentDraft(document, 't').jobLeaves[0]!.contributorOfferIds).toEqual(['o2', 'o']);
+    expect(document).toEqual(before);
+  });
+});
+
+
+function legacyUpstreamReadFixture(): MapDocument {
+  const document = legacyClientScopeReadFixture();
+  document.relationships = document.relationships.filter(relation => relation.id !== 'oc');
+  document.relationships.push({ id: 'qo-child', kind: 'offer_presented_at_touchpoint', offerId: 'qo', touchpointId: 'child' });
+  document.touchpointJobSelections = document.touchpointJobSelections.filter(selection => selection.touchpointId !== 'child');
+  document.touchpointJobSelections.push({ id: 'child-q-job', touchpointId: 'child', offerId: 'qo', productJobIntentId: 'q-pi', addressedDesiredOutcomeIds: ['b'] });
+  document.touchpointFinancialSelections = document.touchpointFinancialSelections.filter(selection => selection.touchpointId !== 'child');
+  document.touchpointFinancialSelections.push({ id: 'child-q-financial', touchpointId: 'child', offerId: 'qo', offerFinancialIntentId: 'q-fi', financialDesiredOutcomeId: 'f' });
+  return document;
+}
+
+const upstreamParent = (document: MapReadDocument) => touchpointUpstreamSources(document, 'child').find(block => block.sourceKind === 'parent')!;
+
+describe('canonical Touchpoint Upstream Sources read compatibility', () => {
+  it('preserves legacy source blocks, concrete identities, paths and strict public type defaults after normalization', () => {
+    const legacy = legacyUpstreamReadFixture();
+    const document = normalizeLegacyJobs(legacy);
+    expectTypeOf(touchpointUpstreamSources(legacy, 'child')).toEqualTypeOf<TouchpointUpstreamBlock[]>();
+    expectTypeOf(touchpointUpstreamSources(document, 'child')).toEqualTypeOf<CanonicalTouchpointUpstreamBlock[]>();
+    expectTypeOf<Parameters<typeof globalIntentDiscovery>[0]>().toEqualTypeOf<MapDocument>();
+    expectTypeOf<Parameters<typeof applyTouchpointEditDraft>[0]>().toEqualTypeOf<MapDocument>();
+    const canonicalEntity = (entity: MapDocument['entities'][number]) => ({ ...entity, kind: entity.kind === 'core_functional_job' || entity.kind === 'related_job' ? 'functional_job' : entity.kind });
+    const expected = touchpointUpstreamSources(legacy, 'child').map(block => ({
+      ...block, source: canonicalEntity(block.source),
+      jobGroups: block.jobGroups.map(group => ({ job: canonicalEntity(group.job), leaves: group.leaves.map(leaf => ({ ...leaf, entity: canonicalEntity(leaf.entity) })) })),
+      financialLeaves: block.financialLeaves.map(leaf => ({ ...leaf, entity: canonicalEntity(leaf.entity) })),
+    }));
+    const blocks = touchpointUpstreamSources(document, 'child');
+    expect(blocks).toEqual(expected);
+    expect(blocks.map(block => [block.sourceKind, block.source.id])).toEqual([['offer', 'qo'], ['parent', 't']]);
+    expect(blocks[0]!.jobGroups.map(group => [group.job.id, group.job.kind])).toEqual([
+      ['j', 'functional_job'], ['rj', 'functional_job'], ['ej', 'emotional_job'], ['sj', 'social_job'], ['ccj', 'consumption_chain_job'],
+    ]);
+    expect(blocks[0]!.jobGroups[0]!.leaves).toEqual([
+      { kind: 'job', entity: { id: 'j', title: 'Same activity', kind: 'functional_job' }, semanticId: 'j', sourceId: 'qo', contributorOfferId: 'qo', checkboxId: 'child:offer:qo:qo:j', checked: true, available: true, productJobIntentId: 'q-pi', owningJobId: 'j' },
+      { kind: 'desired-outcome', entity: { id: 'b', title: 'Outcome B', kind: 'desired_outcome' }, semanticId: 'b', sourceId: 'qo', contributorOfferId: 'qo', checkboxId: 'child:offer:qo:qo:b', checked: true, available: true, productJobIntentId: 'q-pi', owningJobId: 'j' },
+    ]);
+    expect(blocks[0]!.jobGroups[1]!.leaves.map(leaf => [leaf.semanticId, leaf.owningJobId, leaf.checked, leaf.productJobIntentId])).toEqual([['rj', 'rj', false, 'q-pri'], ['r-do', 'rj', false, 'q-pri']]);
+    expect(blocks[0]!.financialLeaves[0]).toMatchObject({ semanticId: 'f', sourceId: 'qo', contributorOfferId: 'qo', offerFinancialIntentId: 'q-fi', checked: true, available: true, checkboxId: 'child:offer:qo:qo:f' });
+  });
+
+  it('keeps exact Parent provenance distinct from Child contributor identity and checked state', () => {
+    const document = normalizeLegacyJobs(legacyUpstreamReadFixture());
+    const parent = upstreamParent(document);
+    expect(parent.jobGroups[0]!.leaves).toMatchObject([
+      { semanticId: 'j', contributorOfferId: '', sourceId: 't', provenanceOfferIds: ['o2', 'o'], childContributorOfferIds: ['qo'], checkedContributorOfferIds: ['qo'], checked: true, available: true, checkboxId: 'child:parent:t:child-contributor:j' },
+      { semanticId: 'a', contributorOfferId: '', provenanceOfferIds: ['o2', 'o'], childContributorOfferIds: ['qo'], checkedContributorOfferIds: [], checked: false, available: true, checkboxId: 'child:parent:t:child-contributor:a' },
+      { semanticId: 'b', contributorOfferId: '', provenanceOfferIds: ['o2'], childContributorOfferIds: ['qo'], checkedContributorOfferIds: ['qo'], checked: true, available: true, checkboxId: 'child:parent:t:child-contributor:b' },
+    ]);
+    expect(parent.financialLeaves).toMatchObject([{ semanticId: 'f', contributorOfferId: '', provenanceOfferIds: ['o2', 'o'], childContributorOfferIds: ['qo'], checkedContributorOfferIds: ['qo'], checked: true, available: true, checkboxId: 'child:parent:t:child-contributor:f' }]);
+    // Parent intent references differ from the Child's concrete q-pi / q-fi paths.
+    expect(document.touchpointJobSelections.find(selection => selection.id === 'child-q-job')!.productJobIntentId).toBe('q-pi');
+    expect(touchpointClientScope(document, 'child').jobGroups[0]!.desiredOutcomes.map(leaf => leaf.semanticLeafId)).toEqual(['b']);
+  });
+
+  it.each([
+    { subset: ['b'], membership: true, outcome: true },
+    { subset: [] as string[], membership: true, outcome: false },
+    { subset: null, membership: false, outcome: false },
+  ])('preserves Parent and Offer candidate checked states for local subset $subset', ({ subset, membership, outcome }) => {
+    const document = normalizeLegacyJobs(legacyUpstreamReadFixture());
+    if (subset === null) document.touchpointJobSelections = document.touchpointJobSelections.filter(selection => selection.touchpointId !== 'child');
+    else document.touchpointJobSelections.find(selection => selection.id === 'child-q-job')!.addressedDesiredOutcomeIds = subset;
+    const offer = touchpointUpstreamSources(document, 'child')[0]!;
+    expect(offer.jobGroups[0]!.leaves.map(leaf => [leaf.semanticId, leaf.checked, leaf.available])).toEqual([['j', membership, true], ['b', outcome, true]]);
+    const parent = upstreamParent(document);
+    expect(parent.jobGroups[0]!.leaves.map(leaf => [leaf.semanticId, leaf.checked, leaf.available])).toEqual([['j', membership, true], ['a', false, true], ['b', outcome, true]]);
+    expect(parent.jobGroups[1]!.leaves.every(leaf => !leaf.checked)).toBe(true);
+  });
+
+  it('retains omitted versus explicit empty Offer scopes without turning empty membership into selected outcomes', () => {
+    const document = normalizeLegacyJobs(legacyUpstreamReadFixture());
+    const offerSelection = document.offerJobSelections.find(selection => selection.offerId === 'qo' && selection.productJobIntentId === 'q-pi')!;
+    delete offerSelection.addressedDesiredOutcomeIds;
+    expect(touchpointUpstreamSources(document, 'child')[0]!.jobGroups[0]!.leaves.map(leaf => [leaf.semanticId, leaf.checked])).toEqual([['j', true], ['a', false], ['b', true]]);
+    offerSelection.addressedDesiredOutcomeIds = [];
+    expect(touchpointUpstreamSources(document, 'child')[0]!.jobGroups[0]!.leaves.map(leaf => leaf.semanticId)).toEqual(['j']);
+  });
+
+  it('preserves separate Job and financial Parent availability rules when a Child Offer lacks packaging', () => {
+    const document = normalizeLegacyJobs(legacyUpstreamReadFixture());
+    document.relationships = document.relationships.filter(relation => relation.id !== 'q-packages');
+    const parent = upstreamParent(document);
+    expect(parent.jobGroups.flatMap(group => group.leaves).every(leaf => !leaf.available && !leaf.checked && leaf.childContributorOfferIds!.length === 0)).toBe(true);
+    expect(parent.financialLeaves[0]).toMatchObject({ available: true, checked: true, childContributorOfferIds: ['qo'], checkedContributorOfferIds: ['qo'] });
+    document.relationships = document.relationships.filter(relation => relation.id !== 'qo-child');
+    const disconnected = touchpointUpstreamSources(document, 'child');
+    expect(disconnected.map(block => block.sourceKind)).toEqual(['parent']);
+    expect(disconnected[0]!.jobGroups.flatMap(group => group.leaves).every(leaf => !leaf.available && !leaf.checked)).toBe(true);
+    expect(disconnected[0]!.financialLeaves[0]).toMatchObject({ available: false, checked: false, childContributorOfferIds: [], checkedContributorOfferIds: [], provenanceOfferIds: ['o2', 'o'] });
+  });
+
+  it('ignores multiple Job contexts and Job-to-FDO links without inferring candidates', () => {
+    let document = normalizeLegacyJobs(legacyUpstreamReadFixture());
+    const expected = touchpointUpstreamSources(document, 'child');
+    document = setJobContextualParents(document, { targetJobId: 'rj', parentJobIds: ['j', 'ej', 'sj', 'u'], newRelationshipIds: ['e-r', 's-r', 'u-r'] });
+    document = setFinancialDesiredOutcomeJobContexts(document, { financialDesiredOutcomeId: 'unselected-f', jobIds: ['j', 'ej', 'sj', 'ccj'], newRelationshipIds: ['j-f', 'e-f', 's-f', 'c-f'] });
+    expect(touchpointUpstreamSources(document, 'child')).toEqual(expected);
+    expect(JSON.stringify(expected)).not.toContain('unselected-f');
+    expect(expected.flatMap(block => block.jobGroups).some(group => group.job.id === 'u')).toBe(false);
+    document.touchpointJobSelections = []; document.touchpointFinancialSelections = [];
+    document.offerJobSelections = []; document.offerFinancialIntents = [];
+    expect(touchpointUpstreamSources(document, 'child')).toMatchObject([{ sourceKind: 'offer', jobGroups: [], financialLeaves: [] }]);
+  });
+
+  it('keeps financial candidates independent and checks each authored Offer financial path separately', () => {
+    const document = normalizeLegacyJobs(legacyUpstreamReadFixture());
+    document.productJobIntents = []; document.offerJobSelections = []; document.touchpointJobSelections = [];
+    expect(touchpointUpstreamSources(document, 'child').every(block => block.jobGroups.length === 0)).toBe(true);
+    expect(upstreamParent(document).financialLeaves[0]).toMatchObject({ checked: true, provenanceOfferIds: ['o2', 'o'], checkedContributorOfferIds: ['qo'] });
+    document.offerFinancialIntents.push({ id: 'q-fi-duplicate', offerId: 'qo', financialDesiredOutcomeId: 'f' });
+    const financial = touchpointUpstreamSources(document, 'child')[0]!.financialLeaves;
+    expect(financial.map(leaf => [leaf.offerFinancialIntentId, leaf.checked, leaf.checkboxId])).toEqual([['q-fi', true, 'child:offer:qo:qo:f'], ['q-fi-duplicate', false, 'child:offer:qo:qo:f']]);
+    document.touchpointFinancialSelections = document.touchpointFinancialSelections.filter(selection => selection.touchpointId !== 'child');
+    expect(upstreamParent(document).financialLeaves[0]).toMatchObject({ available: true, checked: false, provenanceOfferIds: ['o2', 'o'], checkedContributorOfferIds: [] });
+  });
+
+  it.each(['legacy', 'canonical'] as const)('%s preserves first-selection, deduplication and stale-reference handling', representation => {
+    const source = legacyUpstreamReadFixture();
+    const document = representation === 'legacy' ? source : normalizeLegacyJobs(source);
+    const expected = touchpointUpstreamSources(document, 'child');
+    document.offerJobSelections.push(
+      { id: 'second-q-path', offerId: 'qo', productJobIntentId: 'q-pi', addressedDesiredOutcomeIds: ['a'] },
+      { id: 'stale-intent', offerId: 'qo', productJobIntentId: 'missing-intent' },
+      { id: 'stale-job', offerId: 'qo', productJobIntentId: 'missing-job-intent' },
+      { id: 'wrong-job', offerId: 'qo', productJobIntentId: 'wrong-job-intent' },
+    );
+    document.productJobIntents.push(
+      { id: 'missing-job-intent', productId: 'q', jobId: 'missing-job', addressedDesiredOutcomeIds: [] },
+      { id: 'wrong-job-intent', productId: 'q', jobId: 'f', addressedDesiredOutcomeIds: [] },
+    );
+    document.offerJobSelections.find(selection => selection.offerId === 'qo' && selection.productJobIntentId === 'q-pi')!.addressedDesiredOutcomeIds = ['b', 'b', 'missing-do', 'f', 'p'];
+    document.touchpointJobSelections.push(
+      { id: 'second-child-path', touchpointId: 'child', offerId: 'qo', productJobIntentId: 'q-pi', addressedDesiredOutcomeIds: ['a'] },
+      { id: 'stale-parent-intent', touchpointId: 't', offerId: 'o', productJobIntentId: 'missing-intent', addressedDesiredOutcomeIds: ['a'] },
+      { id: 'stale-parent-job', touchpointId: 't', offerId: 'o', productJobIntentId: 'missing-job-intent', addressedDesiredOutcomeIds: [] },
+      { id: 'duplicate-parent-path', touchpointId: 't', offerId: 'o2', productJobIntentId: 'pi', addressedDesiredOutcomeIds: ['a', 'b', 'missing-do', 'f'] },
+    );
+    document.offerFinancialIntents.push({ id: 'stale-f', offerId: 'qo', financialDesiredOutcomeId: 'missing-f' }, { id: 'wrong-f', offerId: 'qo', financialDesiredOutcomeId: 'j' });
+    // Offer-source checked lookup keeps the first local selection; Parent membership searches all Child paths.
+    const actual = touchpointUpstreamSources(document, 'child');
+    expect(actual[0]).toEqual(expected[0]);
+    expect(actual[1]!.jobGroups[0]!.leaves.find(leaf => leaf.semanticId === 'a')).toMatchObject({ checked: true, checkedContributorOfferIds: ['qo'] });
+    const withoutSecondChild = structuredClone(document);
+    withoutSecondChild.touchpointJobSelections = withoutSecondChild.touchpointJobSelections.filter(selection => selection.id !== 'second-child-path');
+    expect(touchpointUpstreamSources(withoutSecondChild, 'child')).toEqual(expected);
+  });
+
+  it.each(['legacy', 'canonical'] as const)('%s reads frozen sources repeatedly without mutation or reordered provenance', representation => {
+    const source = legacyUpstreamReadFixture();
+    const document = representation === 'legacy' ? source : normalizeLegacyJobs(source);
+    const before = structuredClone(document); freezeMapReadFixture(document);
+    const expected = touchpointUpstreamSources(document, 'child');
+    expect(touchpointUpstreamSources(document, 'child')).toEqual(expected);
+    const parent = expected.find(block => block.sourceKind === 'parent')!;
+    parent.jobGroups[0]!.leaves[0]!.provenanceOfferIds!.pop();
+    parent.jobGroups[0]!.leaves[0]!.childContributorOfferIds!.length = 0;
+    parent.financialLeaves[0]!.checkedContributorOfferIds!.length = 0;
+    expect(upstreamParent(document).jobGroups[0]!.leaves[0]).toMatchObject({ provenanceOfferIds: ['o2', 'o'], childContributorOfferIds: ['qo'] });
+    expect(touchpointUpstreamSources(document, 'missing')).toEqual([]);
+    expect(touchpointUpstreamSources(document, 'qo')).toEqual([]);
     expect(document).toEqual(before);
   });
 });
