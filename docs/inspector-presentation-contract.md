@@ -167,6 +167,8 @@ This checklist is the Inspector-domain specialization of the repository-wide **C
 
 The Touchpoint read projection comes from `touchpointClientScope()`. It renders nonempty panels for the six canonical kinds: Core Functional Job, Related Job, Consumption Chain Job, Emotional Job, Social Job, and Financial Desired Outcome.
 
+The committed Client Scope read chain also accepts `CanonicalMapDocument` through `MapReadDocument`, with legacy-compatible public type defaults. Canonical former CFJ/RJ entities use `functional_job` while retaining their individual Job/ordinary DO leaf IDs, source contributor order and durable branch snapshot keys. Authored Job-only membership remains visible without a materialized encounter; pending draft leaves, Job contexts, Job-to-FDO links and Parent Touchpoint scope do not add committed selections. This read compatibility does not activate canonical Inspector presentation, discovery, upstream sources or draft validation/write operations.
+
 - Panels use count badges and independent progressive disclosure. All five Jobs show authored Job → Desired Outcome mini-dendrites; empty membership never invents outcomes; Financial Desired Outcome is an independent leaf. Titles are semantic entity navigation links.
 - The same `initialCompactOverviewExpandedGroupIds()` density and expanded-first presentation apply. `ClientScopePackedGroups` calls `useClientScopePackedLayout` with current 18–22rem panels and `.65rem` gap. `.client-scope-view-groups` provides the readable auto-fit Grid fallback.
 - Stable panel IDs, logical DOM/focus order, measured visual placement, explicit container height, and resize recalculation are contractual. Packed visual coordinates must not be mistaken for ontology or persisted order.
