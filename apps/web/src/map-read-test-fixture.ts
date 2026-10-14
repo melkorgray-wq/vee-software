@@ -83,3 +83,31 @@ export function freezeMapReadFixture<T>(value: T): T {
   if (value && typeof value === 'object') { Object.values(value).forEach(freezeMapReadFixture); Object.freeze(value); }
   return value;
 }
+
+/** Valid Offer-owned scopes used before injecting malformed compatibility records in read tests. */
+export function legacyOfferReadFixture(): MapDocument {
+  const document = legacyMapReadFixture();
+  for (const id of ['j', 'rj']) document.entities.find(entity => entity.id === id)!.title = 'Same activity';
+  document.entities.push(
+    { id: 'q', kind: 'product', title: 'Other Product' },
+    { id: 'qo', kind: 'offer', title: 'Alpha Offer', currentContentSource: null },
+    { id: 'r-do', kind: 'desired_outcome', title: 'Related criterion' },
+    { id: 'outside', kind: 'desired_outcome', title: 'Outside Product subset' },
+    { id: 'u', kind: 'core_functional_job', title: 'Same activity' },
+  );
+  document.relationships.push(
+    { id: 'q-packages', kind: 'product_packaged_as_offer', productId: 'q', offerId: 'qo' },
+    { id: 'r-owns', kind: 'job_has_desired_outcome', jobId: 'rj', desiredOutcomeId: 'r-do' },
+    { id: 'j-outside', kind: 'job_has_desired_outcome', jobId: 'j', desiredOutcomeId: 'outside' },
+  );
+  document.productJobIntents.find(intent => intent.id === 'pri')!.addressedDesiredOutcomeIds = ['r-do'];
+  document.productJobIntents.find(intent => intent.id === 'pei')!.addressedDesiredOutcomeIds = ['e-do'];
+  document.offerJobSelections.push({ id: 'rs', offerId: 'o', productJobIntentId: 'pri', addressedDesiredOutcomeIds: ['r-do'] });
+  for (const intent of [...document.productJobIntents]) {
+    if (intent.id !== 'pi') document.offerJobSelections.push({ id: `o2-${intent.id}`, offerId: 'o2', productJobIntentId: intent.id });
+    document.productJobIntents.push({ ...intent, id: `q-${intent.id}`, productId: 'q', addressedDesiredOutcomeIds: [...intent.addressedDesiredOutcomeIds] });
+    document.offerJobSelections.push({ id: `q-selection-${intent.id}`, offerId: 'qo', productJobIntentId: `q-${intent.id}`, addressedDesiredOutcomeIds: intent.id === 'pi' ? ['b'] : [...intent.addressedDesiredOutcomeIds] });
+  }
+  document.offerFinancialIntents.push({ id: 'fi2', offerId: 'o2', financialDesiredOutcomeId: 'f' }, { id: 'q-fi', offerId: 'qo', financialDesiredOutcomeId: 'f' });
+  return document;
+}

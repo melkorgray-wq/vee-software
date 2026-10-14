@@ -1,3 +1,6 @@
+import { normalizeLegacyJobs, setJobContextualParents, setFinancialDesiredOutcomeJobContexts, type MapReadDocument } from '@vee/domain';
+import { freezeMapReadFixture, legacyOfferReadFixture } from './map-read-test-fixture';
+import { offerClientIntent } from './offer-client-intent';
 import { describe, expect, it } from 'vitest';
 import type { MapDocument } from '@vee/domain';
 import {
@@ -210,5 +213,108 @@ describe('Offer Client-intent Neighborhood projection', () => {
     const before = structuredClone(document);
     deriveOfferClientIntentNeighborhood(document, 'offer-z');
     expect(document).toEqual(before);
+  });
+});
+
+
+const readJobGrounds = (document: MapReadDocument) => deriveOfferClientIntentNeighborhood(document, 'o')!.grounds.filter(ground => ground.basisKind === 'job');
+
+describe('canonical Offer Neighborhood read compatibility', () => {
+  it('preserves normalized comparisons and distinct same-title Jobs in canonical type order', () => {
+    const legacy = legacyOfferReadFixture(); const document = normalizeLegacyJobs(legacy);
+    const before = structuredClone(document); freezeMapReadFixture(legacy); freezeMapReadFixture(document);
+    const old = deriveOfferClientIntentNeighborhood(legacy, 'o')!;
+    const expected = old.grounds.map(ground => ground.basisKind === 'financial_desired_outcome' ? ground : {
+      ...ground, id: `client-intent:${ground.jobKind === 'core_functional_job' || ground.jobKind === 'related_job' ? 'functional_job' : ground.jobKind}:${ground.jobId}`,
+      groundTypeId: ground.jobKind === 'core_functional_job' || ground.jobKind === 'related_job' ? 'functional_job' : ground.jobKind,
+      jobKind: ground.jobKind === 'core_functional_job' || ground.jobKind === 'related_job' ? 'functional_job' : ground.jobKind,
+    });
+    const result = deriveOfferClientIntentNeighborhood(document, 'o')!;
+    expect(result.grounds).toEqual(expected);
+    expect(result.grounds.map(ground => [ground.basisId, ground.groundTypeId])).toEqual([
+      ['j', 'functional_job'], ['rj', 'functional_job'], ['ccj', 'consumption_chain_job'], ['ej', 'emotional_job'], ['sj', 'social_job'], ['f', 'financial_desired_outcome'],
+    ]);
+    expect(readJobGrounds(document)[0]).toEqual({ id: 'client-intent:functional_job:j', basisId: 'j', basisKind: 'job', jobId: 'j', jobKind: 'functional_job', groundTypeId: 'functional_job',
+      inspectedDesiredOutcomeIds: ['a'], neighborOfferIds: ['qo', 'o2'], count: 2, neighborComparisons: [
+        { offerId: 'qo', desiredOutcomeIds: ['b'], commonDesiredOutcomeIds: [], inspectedOnlyDesiredOutcomeIds: ['a'], neighborOnlyDesiredOutcomeIds: ['b'] },
+        { offerId: 'o2', desiredOutcomeIds: ['a', 'b'], commonDesiredOutcomeIds: ['a'], inspectedOnlyDesiredOutcomeIds: [], neighborOnlyDesiredOutcomeIds: ['b'] },
+      ] });
+    expect(document).toEqual(before);
+  });
+
+  it.each([
+    { inspected: [], neighbor: [], common: [], onlyI: [], onlyN: [] },
+    { inspected: ['a'], neighbor: ['a'], common: ['a'], onlyI: [], onlyN: [] },
+    { inspected: ['a', 'b'], neighbor: ['b'], common: ['b'], onlyI: ['a'], onlyN: [] },
+    { inspected: ['a'], neighbor: ['b'], common: [], onlyI: ['a'], onlyN: ['b'] },
+  ])('preserves concrete Job matching with selected subsets $inspected / $neighbor', scope => {
+    const document = normalizeLegacyJobs(legacyOfferReadFixture());
+    document.offerJobSelections = [{ id: 'inspected', offerId: 'o', productJobIntentId: 'pi', addressedDesiredOutcomeIds: scope.inspected }, { id: 'neighbor', offerId: 'qo', productJobIntentId: 'q-pi', addressedDesiredOutcomeIds: scope.neighbor }];
+    freezeMapReadFixture(document);
+    expect(readJobGrounds(document)).toEqual([{ id: 'client-intent:functional_job:j', basisId: 'j', basisKind: 'job', jobId: 'j', jobKind: 'functional_job', groundTypeId: 'functional_job', count: 1,
+      neighborOfferIds: ['qo'], inspectedDesiredOutcomeIds: scope.inspected, neighborComparisons: [{ offerId: 'qo', desiredOutcomeIds: scope.neighbor,
+        commonDesiredOutcomeIds: scope.common, inspectedOnlyDesiredOutcomeIds: scope.onlyI, neighborOnlyDesiredOutcomeIds: scope.onlyN }] }]);
+  });
+
+  it.each(['legacy', 'canonical'] as const)('%s preserves the established Neighborhood validation independently of read-state', representation => {
+    const document = representation === 'legacy' ? legacyOfferReadFixture() : normalizeLegacyJobs(legacyOfferReadFixture());
+    document.offerJobSelections[0]!.addressedDesiredOutcomeIds = ['a', 'outside', 'outside', 'r-do', 'f', 'missing'];
+    document.offerJobSelections.push({ id: 'extra-q', offerId: 'qo', productJobIntentId: 'q-pi', addressedDesiredOutcomeIds: ['outside'] });
+    const before = structuredClone(document); freezeMapReadFixture(document);
+    const j = readJobGrounds(document).find(ground => ground.jobId === 'j')!;
+    expect(j.inspectedDesiredOutcomeIds).toEqual(['a', 'outside']);
+    expect(j.neighborComparisons.find(comparison => comparison.offerId === 'qo')).toMatchObject({ desiredOutcomeIds: ['b', 'outside'], commonDesiredOutcomeIds: ['outside'] });
+    const read = offerClientIntent(document, 'o')!.groups.flatMap(group => group.kind === 'financial_desired_outcome' ? [] : group.items).find(item => item.jobId === 'j')!;
+    expect(read.desiredOutcomeIds).toEqual(['a']);
+    // Neighborhood historically resolves selection -> intent -> Job without the read-state Product ownership boundary.
+    const withoutPackaging = structuredClone(document);
+    for (let index = withoutPackaging.relationships.length - 1; index >= 0; index--) {
+      if (withoutPackaging.relationships[index]!.kind === 'product_packaged_as_offer') withoutPackaging.relationships.splice(index, 1);
+    }
+    expect(deriveOfferClientIntentNeighborhood(withoutPackaging, 'o')).toEqual(deriveOfferClientIntentNeighborhood(document, 'o'));
+    expect(offerClientIntent(withoutPackaging, 'o')!.groups.map(group => group.kind)).toEqual(['financial_desired_outcome']);
+    expect(document).toEqual(before);
+  });
+
+  it('deduplicates selected Job and financial paths by Offer while ignoring stale endpoints', () => {
+    const document = normalizeLegacyJobs(legacyOfferReadFixture());
+    document.offerJobSelections.push(
+      { id: 'duplicate', offerId: 'qo', productJobIntentId: 'q-pi', addressedDesiredOutcomeIds: ['a', 'a'] },
+      { id: 'stale-intent', offerId: 'qo', productJobIntentId: 'missing' },
+      { id: 'stale-offer', offerId: 'missing', productJobIntentId: 'pi' },
+      { id: 'stale-job', offerId: 'qo', productJobIntentId: 'bad-pi' },
+    );
+    document.productJobIntents.push({ id: 'bad-pi', productId: 'q', jobId: 'f', addressedDesiredOutcomeIds: [] });
+    document.offerFinancialIntents.push({ id: 'duplicate-f', offerId: 'qo', financialDesiredOutcomeId: 'f' }, { id: 'missing-f', offerId: 'qo', financialDesiredOutcomeId: 'missing' }, { id: 'wrong-f', offerId: 'qo', financialDesiredOutcomeId: 'j' });
+    freezeMapReadFixture(document);
+    const j = readJobGrounds(document).find(ground => ground.jobId === 'j')!;
+    expect(j.neighborOfferIds).toEqual(['qo', 'o2']); expect(j.count).toBe(2);
+    expect(j.neighborComparisons[0]).toMatchObject({ desiredOutcomeIds: ['a', 'b'], commonDesiredOutcomeIds: ['a'] });
+    expect(deriveOfferClientIntentNeighborhood(document, 'o')!.grounds.at(-1)).toEqual({ id: 'client-intent:financial_desired_outcome:f', basisId: 'f', basisKind: 'financial_desired_outcome', financialDesiredOutcomeId: 'f', groundTypeId: 'financial_desired_outcome', neighborOfferIds: ['qo', 'o2'], count: 2 });
+  });
+
+  it('does not match contextual parents, transitive paths or same-title Functional Jobs, nor infer financial intent', () => {
+    let document = normalizeLegacyJobs(legacyOfferReadFixture()); const expected = deriveOfferClientIntentNeighborhood(document, 'o');
+    document = setJobContextualParents(document, { targetJobId: 'rj', parentJobIds: ['j', 'ej', 'u'], newRelationshipIds: ['e-r', 'u-r'] });
+    document = setFinancialDesiredOutcomeJobContexts(document, { financialDesiredOutcomeId: 'unselected-f', jobIds: ['j', 'rj', 'u'], newRelationshipIds: ['j-f', 'r-f', 'u-f'] });
+    expect(deriveOfferClientIntentNeighborhood(document, 'o')).toEqual(expected);
+    document.productJobIntents.push({ id: 'q-u', productId: 'q', jobId: 'u', addressedDesiredOutcomeIds: [] });
+    document.offerJobSelections = [{ id: 'j-selected', offerId: 'o', productJobIntentId: 'pi', addressedDesiredOutcomeIds: [] }, { id: 'different-job', offerId: 'qo', productJobIntentId: 'q-u', addressedDesiredOutcomeIds: [] }];
+    document.offerFinancialIntents = [];
+    const before = structuredClone(document); freezeMapReadFixture(document);
+    expect(deriveOfferClientIntentNeighborhood(document, 'o')).toEqual({ offerId: 'o', grounds: [] });
+    expect(document).toEqual(before);
+  });
+
+  it('keeps ordering, absent/empty results and source immutability across repeated canonical reads', () => {
+    const document = normalizeLegacyJobs(legacyOfferReadFixture());
+    const reversed = { ...document, entities: [...document.entities].reverse(), relationships: [...document.relationships].reverse(), productJobIntents: [...document.productJobIntents].reverse(), offerJobSelections: [...document.offerJobSelections].reverse(), offerFinancialIntents: [...document.offerFinancialIntents].reverse() };
+    const before = structuredClone(document); freezeMapReadFixture(document);
+    const result = deriveOfferClientIntentNeighborhood(document, 'o')!;
+    expect(deriveOfferClientIntentNeighborhood(reversed, 'o')).toEqual(result);
+    expect(deriveOfferClientIntentNeighborhood(document, 'missing')).toBeUndefined(); expect(deriveOfferClientIntentNeighborhood(document, 'p')).toBeUndefined();
+    result.grounds[0]!.neighborOfferIds.pop();
+    expect(document).toEqual(before);
+    expect(deriveOfferClientIntentNeighborhood({ ...document, offerJobSelections: [], offerFinancialIntents: [] }, 'o')).toEqual({ offerId: 'o', grounds: [] });
   });
 });
