@@ -2666,3 +2666,59 @@ describe('canonical Job contexts of Financial Desired Outcomes', () => {
     expect(d).toEqual(before);
   });
 });
+
+describe('legacy and canonical shared read selectors', () => {
+  function fixture(kind: 'core_functional_job' | 'emotional_job' | 'social_job' | 'consumption_chain_job') {
+    let document = offerDocument();
+    document = addEntity(document, { ...place, entityId: 'job', title: 'Job', kind });
+    for (const id of ['a', 'b']) document = addEntity(document, { ...place, entityId: id, title: id, kind: 'desired_outcome', parentEntityId: 'job', relationshipId: `owns-${id}` });
+    document = addProductJobIntent(document, { id: 'pi', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['a', 'b'] });
+    document = setOfferJobSelections(document, { offerId: 'offer', selections: [{ productJobIntentId: 'pi', addressedDesiredOutcomeIds: ['a'] }], newSelectionIds: ['os'] });
+    document = addEntity(document, { ...place, entityId: 'touch', title: 'Touch', kind: 'touchpoint', linkedOfferIds: ['offer'], relationshipIds: ['presents'] });
+    document = setTouchpointIntentSelections(document, { touchpointId: 'touch', selections: [{ id: 'ts', kind: 'job', offerId: 'offer', productJobIntentId: 'pi', addressedDesiredOutcomeIds: ['a'] }] });
+    document = addEntity(document, { ...place, entityId: 'rep', title: 'Concern', kind: 'repulsor', resistedTargetIds: ['job'], relationshipIds: ['resists'] });
+    document = addEntity(document, { ...place, entityId: 'f', title: 'Financial', kind: 'financial_desired_outcome' });
+    document = setOfferFinancialIntents(document, { offerId: 'offer', financialDesiredOutcomeIds: ['f'], newIntentIds: ['fi'] });
+    document = setTouchpointIntentSelections(document, { touchpointId: 'touch', selections: [
+      { id: 'ts', kind: 'job', offerId: 'offer', productJobIntentId: 'pi', addressedDesiredOutcomeIds: ['a'] },
+      { id: 'fs', kind: 'financial', offerId: 'offer', offerFinancialIntentId: 'fi' },
+    ] });
+    document = addEntity(document, { ...place, entityId: 'financial-rep', title: 'Financial concern', kind: 'repulsor', resistedTargetIds: ['f'], relationshipIds: ['f-resists'] });
+    return document;
+  }
+  function freeze(value: unknown): void {
+    if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); }
+  }
+  it.each(['core_functional_job', 'emotional_job', 'social_job', 'consumption_chain_job'] as const)('reads %s scopes identically before and after normalization', async kind => {
+    const { effectiveOfferDesiredOutcomeIds, effectiveTouchpointOutcomes, relevantRepulsorsForTouchpoint, isDesiredOutcomeBearingJob } = await import('./index');
+    const legacy = fixture(kind); const canonical = normalizeLegacyJobs(legacy);
+    const before = structuredClone(canonical); freeze(legacy); freeze(canonical);
+    expect(isDesiredOutcomeBearingJob(canonical.entities.find(entity => entity.id === 'job')!.kind)).toBe(true);
+    expect(effectiveOfferDesiredOutcomeIds(canonical, canonical.offerJobSelections[0]!)).toEqual(['a']);
+    expect(effectiveTouchpointOutcomes(canonical, canonical.touchpointJobSelections[0]!)).toEqual(['a']);
+    expect(relevantRepulsorsForTouchpoint(canonical, 'touch')).toEqual(relevantRepulsorsForTouchpoint(legacy, 'touch'));
+    expect(relevantRepulsorsForTouchpoint(canonical, 'touch').map(entity => entity.id)).toEqual(['rep', 'financial-rep']);
+    expect(canonical).toEqual(before);
+  });
+  it('preserves omitted Offer scope compatibility and returns independent arrays', async () => {
+    const { effectiveOfferDesiredOutcomeIds } = await import('./index');
+    const document = normalizeLegacyJobs(fixture('core_functional_job')); freeze(document);
+    const values = effectiveOfferDesiredOutcomeIds({ productJobIntents: document.productJobIntents }, { id: 'omitted', offerId: 'offer', productJobIntentId: 'pi' });
+    expect(values).toEqual(['a', 'b']); values.pop();
+    expect(document.productJobIntents[0]!.addressedDesiredOutcomeIds).toEqual(['a', 'b']);
+  });
+  it('distinguishes a valid empty scope from unavailable attribution without pruning financial intent', async () => {
+    const { effectiveTouchpointOutcomes, relevantRepulsorsForTouchpoint } = await import('./index');
+    const document = normalizeLegacyJobs(fixture('core_functional_job')); const selection = document.touchpointJobSelections[0]!;
+    freeze(document);
+    expect(effectiveTouchpointOutcomes(document, { ...selection, addressedDesiredOutcomeIds: [] })).toEqual([]);
+    expect(effectiveTouchpointOutcomes(document, { ...selection, addressedDesiredOutcomeIds: ['b', 'missing', 'f'] })).toEqual([]);
+    expect(effectiveTouchpointOutcomes(document, { ...selection, offerId: 'missing' })).toBeUndefined();
+    expect(effectiveTouchpointOutcomes(document, { ...selection, productJobIntentId: 'missing' })).toBeUndefined();
+    const empty = { ...document, touchpointJobSelections: [{ ...selection, addressedDesiredOutcomeIds: [] }] };
+    expect(relevantRepulsorsForTouchpoint(empty, 'touch').map(entity => entity.id)).toEqual(['financial-rep']);
+    expect(relevantRepulsorsForTouchpoint({ ...empty, offerFinancialIntents: [] }, 'touch')).toEqual([]);
+    expect(() => relevantRepulsorsForTouchpoint(document, 'missing')).toThrowError(expect.objectContaining({ code: 'invalid_relationship_reference' }));
+    expect(() => relevantRepulsorsForTouchpoint(document, 'job')).toThrowError(expect.objectContaining({ code: 'invalid_relationship_endpoint' }));
+  });
+});

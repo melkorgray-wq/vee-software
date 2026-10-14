@@ -1,3 +1,5 @@
+import { normalizeLegacyJobs } from '@vee/domain';
+import { canonicalMapReadFixture, freezeMapReadFixture, legacyMapReadFixture } from './map-read-test-fixture';
 import { expect, it } from 'vitest';
 import { addEntity, addProductJobIntent, addTouchpointContainer, createEmptyMapDocument, setOfferFinancialIntents, setOfferJobSelections, setTouchpointIntentSelections, setTouchpointMitigations, type MapDocument } from '@vee/domain';
 import { deriveMapEdges } from './map-adapter';
@@ -513,4 +515,45 @@ it('stale exposure records are ignored without document mutation', () => {
   const snapshot = structuredClone(stale);
   expect(repulsorTarget(stale, 'product', 'repulsor')?.targets).toEqual([{ entityId: 'repulsor', paths: [['product-intent', 'resistance']] }]);
   expect(stale).toEqual(snapshot);
+});
+
+
+it('normalizes only Job satellite kinds while preserving all targets and provenance', () => {
+  const legacy = legacyMapReadFixture();
+  const canonical = normalizeLegacyJobs(legacy);
+  const expected = projectMapRelationSatellites(legacy).reduce<ReturnType<typeof projectMapRelationSatellites>>((groups, group) => {
+    const kind = group.satelliteKind === 'core_functional_job' || group.satelliteKind === 'related_job' ? 'functional_job' : group.satelliteKind;
+    const existing = groups.find(candidate => candidate.displayOwnerId === group.displayOwnerId && candidate.satelliteKind === kind);
+    if (existing) existing.targets.push(...group.targets);
+    else groups.push({ ...group, satelliteKind: kind, targets: [...group.targets] });
+    return groups;
+  }, []);
+  expected.forEach(group => group.targets.sort((a, b) => a.entityId.localeCompare(b.entityId)));
+  expected.sort((a, b) => a.displayOwnerId.localeCompare(b.displayOwnerId) || a.satelliteKind.localeCompare(b.satelliteKind));
+  expect(projectMapRelationSatellites(canonical)).toEqual(expected);
+  expect(relationGroupsForEntity(canonical, 'p').find(group => group.satelliteKind === 'functional_job')!.targets).toEqual([
+    { entityId: 'j', paths: [['pi']] }, { entityId: 'rj', paths: [['pri']] },
+  ]);
+  expect(relevantPhysicalEdgeIds(canonical, 'p', 'rep')).toEqual(['resists']);
+});
+
+it('canonical contexts never propagate Business intent, financial intent or Repulsor exposure', () => {
+  const document = freezeMapReadFixture(canonicalMapReadFixture());
+  const before = structuredClone(document);
+  expect(projectMapRelationSatellites(document)).toEqual(projectMapRelationSatellites(normalizeLegacyJobs(legacyMapReadFixture())));
+  expect(relationGroupsForEntity(document, 'unselected-f')).toEqual([]);
+  expect(relationGroupsForEntity(document, 'f')).toEqual([{ displayOwnerId: 'f', satelliteKind: 'offer', targets: [{ entityId: 'o', paths: [['fi']] }] }]);
+  expect(relevantPhysicalEdgeIds(document, 'j', 'unselected-f')).toEqual([]);
+  expect(document).toEqual(before);
+});
+
+it('canonical satellites and focused DO children are deterministic, narrow and read-only', () => {
+  const document = canonicalMapReadFixture();
+  const reordered = { ...document, entities: [...document.entities].reverse(), relationships: [...document.relationships].reverse(), productJobIntents: [...document.productJobIntents].reverse(), offerJobSelections: [...document.offerJobSelections].reverse() };
+  const before = structuredClone(document); freezeMapReadFixture(document);
+  expect(projectMapRelationSatellites(reordered)).toEqual(projectMapRelationSatellites(document));
+  expect(focusedDesiredOutcomeChildren(document, 'p', 'j')).toEqual([{ entityId: 'a', title: 'Outcome A' }, { entityId: 'b', title: 'Outcome B' }]);
+  expect(focusedDesiredOutcomeChildren(document, 'o', 'j')).toEqual([{ entityId: 'a', title: 'Outcome A' }]);
+  expect(focusedDesiredOutcomeChildren(document, 'p', 'rj')).toEqual([]);
+  expect(document).toEqual(before);
 });
