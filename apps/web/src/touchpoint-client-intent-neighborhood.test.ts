@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest';
-import type { MapDocument } from '@vee/domain';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+import { normalizeLegacyJobs, setJobContextualParents, setFinancialDesiredOutcomeJobContexts, type MapDocument, type MapReadDocument } from '@vee/domain';
+import { freezeMapReadFixture, legacyOfferReadFixture } from './map-read-test-fixture';
 import {
   TOUCHPOINT_CLIENT_INTENT_GROUND_TYPE_IDS,
+  CANONICAL_TOUCHPOINT_CLIENT_INTENT_GROUND_TYPE_IDS,
+  type CanonicalTouchpointClientIntentNeighborhood,
+  type TouchpointClientIntentNeighborhood,
   deriveTouchpointClientIntentNeighborhood,
   type TouchpointClientIntentJobGround,
 } from './touchpoint-client-intent-neighborhood';
@@ -218,4 +222,194 @@ it.each(['emotional_job', 'social_job'] as const)('%s compares only effective ow
   expect(document.productJobIntents).toEqual(before.productJobIntents);
   expect(document.offerJobSelections).toEqual(before.offerJobSelections);
   expect(document.touchpointJobSelections).toHaveLength(2);
+});
+
+
+// Normalize a valid graph first; malformed compatibility records are injected only in read tests.
+function legacyTouchpointReadFixture(): MapDocument {
+  const document = legacyOfferReadFixture();
+  document.entities.push({ id: 'n', kind: 'touchpoint', title: 'Neighbor Touchpoint' });
+  document.relationships.push({ id: 'qo-n', kind: 'offer_presented_at_touchpoint', offerId: 'qo', touchpointId: 'n' });
+  document.offerJobSelections.find(selection => selection.id === 'ers')!.addressedDesiredOutcomeIds = ['e-do'];
+  document.touchpointJobSelections = [
+    localJob('t-j', 't', 'o', 'pi', ['a']),
+    localJob('t-j2', 't', 'o2', 'pi', ['b']),
+    localJob('child-j', 'child', 'o', 'pi', ['a']),
+    localJob('n-j', 'n', 'qo', 'q-pi', ['b']),
+  ];
+  for (const intent of document.productJobIntents.filter(intent => intent.productId === 'p' && intent.id !== 'pi')) {
+    for (const [touchpointId, offerId, intentId] of [['t', 'o', intent.id], ['child', 'o', intent.id], ['n', 'qo', `q-${intent.id}`]] as const) {
+      document.touchpointJobSelections.push(localJob(`${touchpointId}-${intent.id}`, touchpointId, offerId, intentId, [...intent.addressedDesiredOutcomeIds]));
+    }
+  }
+  document.touchpointFinancialSelections.push(
+    { id: 't-f', touchpointId: 't', offerId: 'o', offerFinancialIntentId: 'fi', financialDesiredOutcomeId: 'f' },
+    { id: 'n-f', touchpointId: 'n', offerId: 'qo', offerFinancialIntentId: 'q-fi', financialDesiredOutcomeId: 'f' },
+  );
+  return document;
+}
+
+const readGrounds = (document: MapReadDocument, touchpointId = 't') => deriveTouchpointClientIntentNeighborhood(document, touchpointId)!.grounds;
+const readJobGround = (document: MapReadDocument, jobId = 'j') => readGrounds(document).find(ground => ground.basisKind === 'job' && ground.jobId === jobId);
+
+describe('canonical Touchpoint Client-intent Neighborhood read compatibility', () => {
+  it('preserves normalized legacy scopes, identities and comparisons with only canonical kind metadata changed', () => {
+    const legacy = legacyTouchpointReadFixture();
+    const legacyBefore = structuredClone(legacy);
+    freezeMapReadFixture(legacy);
+    const canonical = normalizeLegacyJobs(legacy);
+    expectTypeOf(deriveTouchpointClientIntentNeighborhood(legacy, 't')).toEqualTypeOf<TouchpointClientIntentNeighborhood | undefined>();
+    expectTypeOf(deriveTouchpointClientIntentNeighborhood(canonical, 't')).toEqualTypeOf<CanonicalTouchpointClientIntentNeighborhood | undefined>();
+    const expected = readGrounds(legacy).map(ground => {
+      if (ground.basisKind !== 'job' || !['core_functional_job', 'related_job'].includes(ground.jobKind)) return ground;
+      return { ...ground, id: `client-intent:functional_job:${ground.jobId}`, groundTypeId: 'functional_job', jobKind: 'functional_job' };
+    });
+    expect(readGrounds(canonical)).toEqual(expected);
+    expect(legacy).toEqual(legacyBefore);
+    expect(readGrounds(canonical).map(ground => ground.id)).toEqual([
+      'client-intent:functional_job:j', 'client-intent:functional_job:rj',
+      'client-intent:consumption_chain_job:ccj', 'client-intent:emotional_job:ej',
+      'client-intent:social_job:sj', 'client-intent:financial_desired_outcome:f',
+    ]);
+    expect(CANONICAL_TOUCHPOINT_CLIENT_INTENT_GROUND_TYPE_IDS).toEqual(['functional_job', 'consumption_chain_job', 'emotional_job', 'social_job', 'financial_desired_outcome']);
+    expect(readJobGround(canonical)).toEqual({
+      id: 'client-intent:functional_job:j', groundTypeId: 'functional_job', basisKind: 'job', basisId: 'j', jobId: 'j', jobKind: 'functional_job',
+      count: 2, neighborTouchpointIds: ['child', 'n'], inspectedContributorOfferIds: ['o', 'o2'],
+      inspectedDesiredOutcomes: [{ desiredOutcomeId: 'a', contributorOfferIds: ['o'] }, { desiredOutcomeId: 'b', contributorOfferIds: ['o2'] }],
+      neighborComparisons: [
+        { touchpointId: 'child', contributorOfferIds: ['o'], desiredOutcomes: [{ desiredOutcomeId: 'a', contributorOfferIds: ['o'] }], commonDesiredOutcomeIds: ['a'], inspectedOnlyDesiredOutcomeIds: ['b'], neighborOnlyDesiredOutcomeIds: [] },
+        { touchpointId: 'n', contributorOfferIds: ['qo'], desiredOutcomes: [{ desiredOutcomeId: 'b', contributorOfferIds: ['qo'] }], commonDesiredOutcomeIds: ['b'], inspectedOnlyDesiredOutcomeIds: ['a'], neighborOnlyDesiredOutcomeIds: [] },
+      ],
+    });
+  });
+
+  it.each(['j', 'ccj', 'ej', 'sj'])('requires nonempty effective locally selected DO for canonical Job %s', jobId => {
+    const document = normalizeLegacyJobs(legacyTouchpointReadFixture());
+    expect(readJobGround(document, jobId)).toBeDefined();
+    for (const selection of document.touchpointJobSelections.filter(selection => selection.touchpointId === 't')) {
+      if (document.productJobIntents.find(intent => intent.id === selection.productJobIntentId)?.jobId === jobId) selection.addressedDesiredOutcomeIds = [];
+    }
+    expect(readJobGround(document, jobId)).toBeUndefined();
+    for (const selection of document.touchpointJobSelections.filter(selection => selection.touchpointId === 't')) {
+      if (document.productJobIntents.find(intent => intent.id === selection.productJobIntentId)?.jobId === jobId) selection.addressedDesiredOutcomeIds = ['missing', 'f', 'p', jobId === 'j' ? 'e-do' : 'a'];
+    }
+    expect(readJobGround(document, jobId)).toBeUndefined();
+    expect(document.productJobIntents).toHaveLength(10);
+  });
+
+  it('keeps disjoint valid local subsets as a shared concrete Job ground', () => {
+    const document = normalizeLegacyJobs(legacyTouchpointReadFixture());
+    document.touchpointJobSelections = document.touchpointJobSelections.filter(selection => selection.id !== 't-j2' && selection.id !== 'child-j');
+    expect(readJobGround(document)).toMatchObject({
+      neighborTouchpointIds: ['n'], count: 1,
+      neighborComparisons: [{ touchpointId: 'n', commonDesiredOutcomeIds: [], inspectedOnlyDesiredOutcomeIds: ['a'], neighborOnlyDesiredOutcomeIds: ['b'] }],
+    });
+  });
+
+  it('unions every matching Offer selection while retaining explicit-empty and omitted-scope compatibility', () => {
+    const document = normalizeLegacyJobs(legacyTouchpointReadFixture());
+    document.touchpointJobSelections.find(selection => selection.id === 't-j')!.addressedDesiredOutcomeIds = ['outside', 'outside'];
+    document.touchpointJobSelections.find(selection => selection.id === 't-j2')!.addressedDesiredOutcomeIds = [];
+    // Explicit selection of an owned DO stays independent of the Product subset in this owner.
+    document.offerJobSelections.push({ id: 'second-os', offerId: 'o', productJobIntentId: 'pi', addressedDesiredOutcomeIds: ['outside'] });
+    expect(readJobGround(document)).toMatchObject({ inspectedContributorOfferIds: ['o'], inspectedDesiredOutcomes: [{ desiredOutcomeId: 'outside', contributorOfferIds: ['o'] }] });
+    document.offerJobSelections.splice(document.offerJobSelections.findIndex(selection => selection.id === 'second-os'), 1);
+    expect(readJobGround(document)).toBeUndefined();
+    document.touchpointJobSelections.find(selection => selection.id === 't-j2')!.addressedDesiredOutcomeIds = ['b'];
+    expect(readJobGround(document)).toMatchObject({ inspectedContributorOfferIds: ['o2'], inspectedDesiredOutcomes: [{ desiredOutcomeId: 'b', contributorOfferIds: ['o2'] }] });
+    document.offerJobSelections.find(selection => selection.id === 'os2')!.addressedDesiredOutcomeIds = [];
+    expect(readJobGround(document)).toBeUndefined();
+  });
+
+  it('does not match distinct same-title Functional Jobs or contextual parents', () => {
+    const document = normalizeLegacyJobs(legacyTouchpointReadFixture());
+    document.touchpointJobSelections = document.touchpointJobSelections.filter(selection =>
+      selection.touchpointId === 't' ? selection.productJobIntentId === 'pi' : selection.productJobIntentId === 'pri' || selection.productJobIntentId === 'q-pri');
+    document.touchpointFinancialSelections = [];
+    expect(readGrounds(document)).toEqual([]);
+    const contextual = setJobContextualParents(document, { targetJobId: 'rj', parentJobIds: ['j', 'ej', 'sj'], newRelationshipIds: ['e-r', 's-r'] });
+    expect(readGrounds(contextual)).toEqual([]);
+  });
+
+  it('ignores multiple contexts, financial contexts and unselected Jobs without manufacturing local scope', () => {
+    const document = normalizeLegacyJobs(legacyTouchpointReadFixture());
+    const expected = readGrounds(document);
+    let contextual = setJobContextualParents(document, { targetJobId: 'rj', parentJobIds: ['j', 'ej', 'sj', 'u'], newRelationshipIds: ['e-r', 's-r', 'u-r'] });
+    contextual = setFinancialDesiredOutcomeJobContexts(contextual, { financialDesiredOutcomeId: 'unselected-f', jobIds: ['j', 'ej', 'sj', 'ccj'], newRelationshipIds: ['j-f', 'e-f', 's-f', 'c-f'] });
+    expect(readGrounds(contextual)).toEqual(expected);
+    contextual.touchpointJobSelections = [];
+    contextual.touchpointFinancialSelections = [];
+    expect(readGrounds(contextual)).toEqual([]);
+  });
+
+  it('requires exact local FDO attribution and preserves independent financial contributor routes', () => {
+    const document = normalizeLegacyJobs(legacyTouchpointReadFixture());
+    const financial = readGrounds(document).find(ground => ground.basisKind === 'financial_desired_outcome');
+    expect(financial).toEqual({ id: 'client-intent:financial_desired_outcome:f', groundTypeId: 'financial_desired_outcome', basisKind: 'financial_desired_outcome', basisId: 'f', financialDesiredOutcomeId: 'f', inspectedContributorOfferIds: ['o'], neighborTouchpointIds: ['child', 'n'], count: 2, neighborComparisons: [{ touchpointId: 'child', contributorOfferIds: ['o'] }, { touchpointId: 'n', contributorOfferIds: ['qo'] }] });
+    document.productJobIntents = []; document.offerJobSelections = []; document.touchpointJobSelections = [];
+    expect(readGrounds(document)).toEqual([financial]);
+    document.touchpointFinancialSelections.find(selection => selection.id === 't-f')!.offerFinancialIntentId = 'q-fi';
+    expect(readGrounds(document)).toEqual([]);
+    document.touchpointFinancialSelections.find(selection => selection.id === 't-f')!.offerFinancialIntentId = 'missing';
+    expect(readGrounds(document)).toEqual([]);
+    document.touchpointFinancialSelections.find(selection => selection.id === 't-f')!.offerFinancialIntentId = 'fi';
+    document.touchpointFinancialSelections.find(selection => selection.id === 't-f')!.financialDesiredOutcomeId = 'unselected-f';
+    expect(readGrounds(document)).toEqual([]);
+  });
+
+  it('ignores stale, wrong-kind, unlinked and misattributed paths without adding contributor provenance', () => {
+    const document = normalizeLegacyJobs(legacyTouchpointReadFixture());
+    const expected = readGrounds(document);
+    document.productJobIntents.push(
+      { id: 'missing-job', productId: 'p', jobId: 'missing', addressedDesiredOutcomeIds: ['a'] },
+      { id: 'wrong-job', productId: 'p', jobId: 'f', addressedDesiredOutcomeIds: ['a'] },
+    );
+    document.offerJobSelections.push(
+      { id: 'missing-selection', offerId: 'o2', productJobIntentId: 'missing-job', addressedDesiredOutcomeIds: ['a'] },
+      { id: 'wrong-selection', offerId: 'o2', productJobIntentId: 'wrong-job', addressedDesiredOutcomeIds: ['a'] },
+    );
+    document.touchpointJobSelections.push(
+      localJob('missing-t', 'missing', 'o2', 'pi', ['a']), localJob('wrong-t', 'o', 'o2', 'pi', ['a']),
+      localJob('missing-o', 't', 'missing', 'pi', ['a']), localJob('wrong-o', 't', 'p', 'pi', ['a']),
+      localJob('unlinked', 'child', 'o2', 'pi', ['a']), localJob('missing-i', 't', 'o2', 'missing', ['a']),
+      localJob('missing-j', 't', 'o2', 'missing-job', ['a']), localJob('wrong-j', 't', 'o2', 'wrong-job', ['a']),
+      localJob('wrong-attribution', 't', 'o2', 'q-pi', ['a']),
+      localJob('invalid-do', 't', 'o2', 'pi', ['missing', 'e-do', 'f', 'p']),
+      { ...document.touchpointJobSelections[0]!, id: 'duplicate-t', addressedDesiredOutcomeIds: ['a', 'a'] },
+    );
+    document.touchpointFinancialSelections.push(
+      { ...document.touchpointFinancialSelections[0]!, id: 'duplicate-f' },
+      { id: 'wrong-f', touchpointId: 't', offerId: 'o2', offerFinancialIntentId: 'fi', financialDesiredOutcomeId: 'f' },
+      { id: 'stale-f', touchpointId: 't', offerId: 'o2', offerFinancialIntentId: 'missing', financialDesiredOutcomeId: 'f' },
+    );
+    expect(readGrounds(document)).toEqual(expected);
+  });
+
+  it('never inherits Parent scope but accepts independently authored Child selections', () => {
+    const document = normalizeLegacyJobs(legacyTouchpointReadFixture());
+    expect(readGrounds(document, 'child')).toHaveLength(6);
+    document.touchpointJobSelections = document.touchpointJobSelections.filter(selection => selection.touchpointId !== 'child');
+    document.touchpointFinancialSelections = document.touchpointFinancialSelections.filter(selection => selection.touchpointId !== 'child');
+    expect(readGrounds(document, 'child')).toEqual([]);
+    expect(readGrounds(document).every(ground => !ground.neighborTouchpointIds.includes('child'))).toBe(true);
+  });
+
+  it('keeps empty/missing inspected states and deterministic title/ID sorting on frozen canonical input', () => {
+    const document = normalizeLegacyJobs(legacyTouchpointReadFixture());
+    for (const id of ['child', 'n']) document.entities.find(entity => entity.id === id)!.title = 'Same Touchpoint';
+    for (const id of ['o', 'o2', 'qo']) document.entities.find(entity => entity.id === id)!.title = 'Same Offer';
+    for (const id of ['a', 'b']) document.entities.find(entity => entity.id === id)!.title = 'Same Outcome';
+    const before = structuredClone(document);
+    const expected = deriveTouchpointClientIntentNeighborhood(freezeMapReadFixture(document), 't');
+    expect(expected!.grounds.every(ground => ground.neighborTouchpointIds.join(',') === 'child,n' && ground.count === 2)).toBe(true);
+    const reversed = structuredClone(before);
+    reversed.entities.reverse(); reversed.relationships.reverse(); reversed.productJobIntents.reverse(); reversed.offerJobSelections.reverse();
+    reversed.offerFinancialIntents.reverse(); reversed.touchpointJobSelections.reverse(); reversed.touchpointFinancialSelections.reverse();
+    expect(deriveTouchpointClientIntentNeighborhood(reversed, 't')).toEqual(expected);
+    expect(document).toEqual(before);
+    expect(deriveTouchpointClientIntentNeighborhood(document, 'missing')).toBeUndefined();
+    expect(deriveTouchpointClientIntentNeighborhood(document, 'o')).toBeUndefined();
+    reversed.touchpointJobSelections = []; reversed.touchpointFinancialSelections = [];
+    expect(deriveTouchpointClientIntentNeighborhood(reversed, 't')).toEqual({ touchpointId: 't', grounds: [] });
+  });
 });
