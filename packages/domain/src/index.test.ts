@@ -2233,7 +2233,7 @@ describe('ordinary Desired Outcomes for all five Jobs', () => {
 
 describe('lossless legacy Job normalization', () => {
   function fixture(): MapDocument {
-    let d = touchpoint(offerDocument());
+    const d = touchpoint(offerDocument());
     d.entities.push(
       { id: 'core', kind: 'core_functional_job', title: '  Literal functional title  ' },
       { id: 'core-2', kind: 'core_functional_job', title: '  Literal functional title  ' },
@@ -2305,6 +2305,19 @@ describe('lossless legacy Job normalization', () => {
     // The canonical output is a separate document; no legacy role is invented.
     normalized.productJobIntents[0]!.addressedDesiredOutcomeIds.push('test-only');
     normalized.entities[0]!.title = 'Changed copy';
+    expect(source).toEqual(before);
+  });
+  it('retains inactive authored mitigation without manufacturing an encounter or pruning', () => {
+    const source = fixture();
+    source.productJobIntents[1]!.addressedDesiredOutcomeIds = [];
+    source.offerJobSelections[1]!.addressedDesiredOutcomeIds = [];
+    source.touchpointJobSelections[0]!.addressedDesiredOutcomeIds = [];
+    source.touchpointFinancialSelections = [];
+    const before = structuredClone(source); freeze(source);
+    const result = normalizeLegacyJobs(source);
+    expect(result.relationships.find(relation => relation.id === 'mitigation')).toEqual(before.relationships.find(relation => relation.id === 'mitigation'));
+    expect(result.touchpointJobSelections).toEqual(before.touchpointJobSelections);
+    expect(result.touchpointFinancialSelections).toEqual([]);
     expect(source).toEqual(before);
   });
   it('is deterministic and idempotent, including an already canonical multi-parent graph', () => {
