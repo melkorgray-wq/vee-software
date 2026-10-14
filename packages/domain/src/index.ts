@@ -1606,7 +1606,8 @@ type CanonicalizedEntity<E> = E extends Entity ? Omit<E, 'kind'> & { kind: Canon
 export type CanonicalEntity = CanonicalizedEntity<Entity>;
 export type CanonicalRelationship =
   | Exclude<Relationship, { kind: 'core_functional_job_has_related_job' | 'core_functional_job_contextualizes_job' }>
-  | { id: string; kind: 'job_contextualizes_job'; sourceJobId: string; targetJobId: string };
+  | { id: string; kind: 'job_contextualizes_job'; sourceJobId: string; targetJobId: string }
+  | { id: string; kind: 'job_contextualizes_financial_desired_outcome'; jobId: string; financialDesiredOutcomeId: string };
 export interface CanonicalMapDocument extends Omit<MapDocument, 'entities' | 'relationships'> {
   entities: CanonicalEntity[];
   relationships: CanonicalRelationship[];
@@ -1662,6 +1663,7 @@ export function normalizeLegacyJobs(document: LegacyJobNormalizationInput): Cano
     if (!entityKinds.has(text(entity.kind))) invalid('Unknown entity kind.');
   }
   const contexts: [string, string][] = [];
+  const financialContexts = new Set<string>();
   const doOwners = new Map<string, string>();
   const offerOwners = new Map<string, string>();
   const presentations = new Set<string>();
@@ -1679,6 +1681,12 @@ export function normalizeLegacyJobs(document: LegacyJobNormalizationInput): Cano
       case 'job_contextualizes_job':
         endpoint(relation.sourceJobId, [...jobs]); endpoint(relation.targetJobId, [...jobs]);
         contexts.push([text(relation.sourceJobId), text(relation.targetJobId)]); break;
+      case 'job_contextualizes_financial_desired_outcome': {
+        endpoint(relation.jobId, [...jobs]); endpoint(relation.financialDesiredOutcomeId, ['financial_desired_outcome']);
+        const key = pair(relation.jobId, relation.financialDesiredOutcomeId);
+        if (financialContexts.has(key)) ambiguous('A direct Job/FDO context may be authored only once.');
+        financialContexts.add(key); break;
+      }
       case 'job_has_desired_outcome': {
         endpoint(relation.jobId, [...jobs]); endpoint(relation.desiredOutcomeId, ['desired_outcome']);
         const outcomeId = text(relation.desiredOutcomeId);
@@ -1818,17 +1826,16 @@ function assertJobContextDag(
   if (visited !== indegree.size) fail('cycle');
 }
 
-/** Sets only the authored direct incoming contexts of one canonical Job. */
-export function setJobContextualParents(
-  document: CanonicalMapDocument,
-  input: { targetJobId: string; parentJobIds: string[]; newRelationshipIds: string[] },
-): CanonicalMapDocument {
+// Shared canonical-context preflight; legacy normalization has its own mixed-input boundary.
+function canonicalContextRecords(document: CanonicalMapDocument) {
+  if (!document || !Array.isArray(document.entities) || !Array.isArray(document.relationships)) throw new DomainError('invalid_job_context_document', 'A canonical document must contain entity and relationship arrays.');
   const identifier = (value: unknown) => {
     if (typeof value !== 'string' || !value.trim()) throw new DomainError('invalid_relationship_reference', 'Contextual IDs must be nonblank strings.');
     return value;
   };
   const entities = new Map<string, CanonicalEntity>();
   for (const entity of document.entities) {
+    if (!entity || typeof entity !== 'object') throw new DomainError('invalid_job_context_document', 'Entity records must be objects.');
     const id = identifier(entity.id);
     if (entities.has(id)) throw new DomainError('ambiguous_job_context_document', 'Entity IDs must be unique.');
     if ((entity.kind as string) === 'core_functional_job' || (entity.kind as string) === 'related_job') throw new DomainError('invalid_job_context_document', 'This operation requires a canonical document.');
@@ -1843,6 +1850,7 @@ export function setJobContextualParents(
   const relationshipIds = new Set<string>();
   const contexts: Extract<CanonicalRelationship, { kind: 'job_contextualizes_job' }>[] = [];
   for (const relation of document.relationships) {
+    if (!relation || typeof relation !== 'object') throw new DomainError('invalid_job_context_document', 'Relationship records must be objects.');
     const id = identifier(relation.id);
     if (relationshipIds.has(id)) throw new DomainError('ambiguous_job_context_document', 'Relationship IDs must be unique.');
     relationshipIds.add(id);
@@ -1857,6 +1865,30 @@ export function setJobContextualParents(
     throw new DomainError('cyclic_job_context', 'Contextual Job relationships must form a DAG.');
   };
   assertJobContextDag(contexts.map(relation => [relation.sourceJobId, relation.targetJobId] as const), invalidGraph);
+  const financialContexts: Extract<CanonicalRelationship, { kind: 'job_contextualizes_financial_desired_outcome' }>[] = [];
+  const financialPairs = new Set<string>();
+  const financialOutcome = (id: string) => {
+    const entity = entities.get(identifier(id));
+    if (!entity) throw new DomainError('invalid_relationship_reference', 'Financial Desired Outcome does not exist.');
+    if (entity.kind !== 'financial_desired_outcome') throw new DomainError('invalid_relationship_endpoint', 'Financial context target must be a Financial Desired Outcome.');
+    return entity;
+  };
+  for (const relation of document.relationships) {
+    if (relation.kind !== 'job_contextualizes_financial_desired_outcome') continue;
+    job(relation.jobId); financialOutcome(relation.financialDesiredOutcomeId);
+    const key = JSON.stringify([relation.jobId, relation.financialDesiredOutcomeId]);
+    if (financialPairs.has(key)) throw new DomainError('duplicate_financial_job_context', 'A direct Job/FDO context may be authored only once.');
+    financialPairs.add(key); financialContexts.push(relation);
+  }
+  return { identifier, job, financialOutcome, relationshipIds, contexts, financialContexts, invalidGraph };
+}
+
+/** Sets only the authored direct incoming contexts of one canonical Job. */
+export function setJobContextualParents(
+  document: CanonicalMapDocument,
+  input: { targetJobId: string; parentJobIds: string[]; newRelationshipIds: string[] },
+): CanonicalMapDocument {
+  const { identifier, job, relationshipIds, contexts, invalidGraph } = canonicalContextRecords(document);
   job(input.targetJobId);
   if (!Array.isArray(input.parentJobIds) || !Array.isArray(input.newRelationshipIds)) throw new DomainError('invalid_relationship_ids', 'Parent and relationship IDs must be arrays.');
   input.parentJobIds.forEach(job);
@@ -1880,5 +1912,37 @@ export function setJobContextualParents(
     })),
   ];
   assertJobContextDag(relationships.flatMap(relation => relation.kind === 'job_contextualizes_job' ? [[relation.sourceJobId, relation.targetJobId] as const] : []), invalidGraph);
+  return { ...document, relationships };
+}
+
+/** Authors direct Job contexts of an independent financial criterion, never ownership or Business intent. */
+export function setFinancialDesiredOutcomeJobContexts(
+  document: CanonicalMapDocument,
+  input: { financialDesiredOutcomeId: string; jobIds: string[]; newRelationshipIds: string[] },
+): CanonicalMapDocument {
+  const { identifier, job, financialOutcome, relationshipIds, financialContexts } = canonicalContextRecords(document);
+  if (!input || typeof input !== 'object') throw new DomainError('invalid_relationship_ids', 'Financial context input must be an object.');
+  financialOutcome(input.financialDesiredOutcomeId);
+  if (!Array.isArray(input.jobIds) || !Array.isArray(input.newRelationshipIds)) throw new DomainError('invalid_relationship_ids', 'Job and relationship IDs must be arrays.');
+  for (const id of input.jobIds) job(id);
+  unique(input.jobIds, 'duplicate_financial_job_context');
+  const existing = financialContexts.filter(relation => relation.financialDesiredOutcomeId === input.financialDesiredOutcomeId);
+  const retained = new Set(existing.map(relation => relation.jobId));
+  const additions = input.jobIds.filter(id => !retained.has(id));
+  if (input.newRelationshipIds.length !== additions.length) throw new DomainError('invalid_relationship_ids', 'Each new Job/FDO context requires exactly one fresh relationship ID.');
+  for (const id of input.newRelationshipIds) identifier(id);
+  unique(input.newRelationshipIds);
+  if (input.newRelationshipIds.some(id => relationshipIds.has(id))) throw new DomainError('duplicate_relationship_id', 'New context IDs must be fresh, including IDs of removed connections.');
+  const jobs = new Set(input.jobIds);
+  if (!additions.length && existing.length === jobs.size) return document;
+  const relationships: CanonicalRelationship[] = [
+    ...document.relationships.filter(relation => relation.kind !== 'job_contextualizes_financial_desired_outcome' || relation.financialDesiredOutcomeId !== input.financialDesiredOutcomeId || jobs.has(relation.jobId)),
+    ...additions.map((jobId, index) => ({
+      id: input.newRelationshipIds[index]!,
+      kind: 'job_contextualizes_financial_desired_outcome' as const,
+      jobId,
+      financialDesiredOutcomeId: input.financialDesiredOutcomeId,
+    })),
+  ];
   return { ...document, relationships };
 }
