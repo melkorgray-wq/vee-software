@@ -1,6 +1,7 @@
 import { isDesiredOutcomeBearingJob,
   effectiveOfferDesiredOutcomeIds,
-  type Entity,
+  type CanonicalMapDocument,
+  type MapReadDocument,
   type MapDocument,
 } from '@vee/domain';
 
@@ -16,14 +17,21 @@ export const TOUCHPOINT_CLIENT_INTENT_GROUND_TYPE_IDS = [
 export type TouchpointClientIntentGroundTypeId = typeof TOUCHPOINT_CLIENT_INTENT_GROUND_TYPE_IDS[number];
 export type TouchpointClientIntentJobKind = Exclude<TouchpointClientIntentGroundTypeId, 'financial_desired_outcome'>;
 
+export const CANONICAL_TOUCHPOINT_CLIENT_INTENT_GROUND_TYPE_IDS = ['functional_job', 'consumption_chain_job', 'emotional_job', 'social_job', 'financial_desired_outcome'] as const;
+export type CanonicalTouchpointClientIntentJobKind = Exclude<typeof CANONICAL_TOUCHPOINT_CLIENT_INTENT_GROUND_TYPE_IDS[number], 'financial_desired_outcome'>;
+type ReadGroundTypeId = TouchpointClientIntentGroundTypeId | 'functional_job';
+type ReadJobKind = Exclude<ReadGroundTypeId, 'financial_desired_outcome'>;
+type ReadEntity = MapReadDocument['entities'][number];
+const READ_GROUND_TYPE_IDS = ['functional_job', ...TOUCHPOINT_CLIENT_INTENT_GROUND_TYPE_IDS] as const;
+
 export interface TouchpointDesiredOutcomeDetail {
   desiredOutcomeId: string;
   contributorOfferIds: string[];
 }
 
-interface TouchpointClientIntentGroundBase {
+interface TouchpointClientIntentGroundBase<K extends ReadGroundTypeId = TouchpointClientIntentGroundTypeId> {
   id: string;
-  groundTypeId: TouchpointClientIntentGroundTypeId;
+  groundTypeId: K;
   basisId: string;
   neighborTouchpointIds: string[];
   count: number;
@@ -38,11 +46,11 @@ export interface TouchpointClientIntentJobComparison {
   neighborOnlyDesiredOutcomeIds: string[];
 }
 
-export interface TouchpointClientIntentJobGround extends TouchpointClientIntentGroundBase {
+export interface TouchpointClientIntentJobGround<K extends ReadJobKind = TouchpointClientIntentJobKind> extends TouchpointClientIntentGroundBase<K> {
   basisKind: 'job';
-  groundTypeId: TouchpointClientIntentJobKind;
+  groundTypeId: K;
   jobId: string;
-  jobKind: TouchpointClientIntentJobKind;
+  jobKind: K;
   inspectedContributorOfferIds: string[];
   inspectedDesiredOutcomes: TouchpointDesiredOutcomeDetail[];
   neighborComparisons: TouchpointClientIntentJobComparison[];
@@ -61,16 +69,18 @@ export interface TouchpointClientIntentFinancialDesiredOutcomeGround extends Tou
   neighborComparisons: TouchpointClientIntentFinancialComparison[];
 }
 
-export type TouchpointClientIntentGround =
-  | TouchpointClientIntentJobGround
+export type TouchpointClientIntentGround<K extends ReadJobKind = TouchpointClientIntentJobKind> =
+  | TouchpointClientIntentJobGround<K>
   | TouchpointClientIntentFinancialDesiredOutcomeGround;
 
-export interface TouchpointClientIntentNeighborhood {
+export interface TouchpointClientIntentNeighborhood<K extends ReadJobKind = TouchpointClientIntentJobKind> {
   touchpointId: string;
-  grounds: TouchpointClientIntentGround[];
+  grounds: TouchpointClientIntentGround<K>[];
 }
 
-type Job = { id: string; title: string; kind: TouchpointClientIntentJobKind };
+export type CanonicalTouchpointClientIntentNeighborhood = TouchpointClientIntentNeighborhood<CanonicalTouchpointClientIntentJobKind>;
+export type TouchpointClientIntentNeighborhoodRead = TouchpointClientIntentNeighborhood<ReadJobKind>;
+type Job = ReadEntity & { kind: ReadJobKind };
 type JobScope = {
   job: Job;
   contributorOfferIds: Set<string>;
@@ -79,18 +89,17 @@ type JobScope = {
 type FinancialDesiredOutcome = { id: string; title: string; kind: 'financial_desired_outcome' };
 type FinancialScope = { outcome: FinancialDesiredOutcome; contributorOfferIds: Set<string> };
 
-const JOB_KINDS = new Set<TouchpointClientIntentJobKind>([
-  'core_functional_job', 'related_job', 'consumption_chain_job', 'emotional_job', 'social_job',
-]);
-const TYPE_ORDER = new Map(TOUCHPOINT_CLIENT_INTENT_GROUND_TYPE_IDS.map((kind, index) => [kind, index]));
+const readJob = (entity: ReadEntity): entity is Job => READ_GROUND_TYPE_IDS.some(kind => kind !== 'financial_desired_outcome' && kind === entity.kind);
+const readFinancialOutcome = (entity: ReadEntity): entity is ReadEntity & FinancialDesiredOutcome => entity.kind === 'financial_desired_outcome';
+const TYPE_ORDER = new Map<ReadGroundTypeId, number>(READ_GROUND_TYPE_IDS.map((kind, index) => [kind, index]));
 const byTitleThenId = <T extends { title: string; id: string }>(left: T, right: T) =>
   left.title.localeCompare(right.title) || left.id.localeCompare(right.id);
 
 /** Derives locally authored Touchpoint Client-intent intersections without mutating domain state. */
-export function deriveTouchpointClientIntentNeighborhood(
-  document: MapDocument,
-  inspectedTouchpointId: string,
-): TouchpointClientIntentNeighborhood | undefined {
+export function deriveTouchpointClientIntentNeighborhood(document: MapDocument, inspectedTouchpointId: string): TouchpointClientIntentNeighborhood | undefined;
+export function deriveTouchpointClientIntentNeighborhood(document: CanonicalMapDocument, inspectedTouchpointId: string): CanonicalTouchpointClientIntentNeighborhood | undefined;
+export function deriveTouchpointClientIntentNeighborhood(document: MapReadDocument, inspectedTouchpointId: string): TouchpointClientIntentNeighborhoodRead | undefined;
+export function deriveTouchpointClientIntentNeighborhood(document: MapReadDocument, inspectedTouchpointId: string): TouchpointClientIntentNeighborhoodRead | undefined {
   const entitiesById = new Map(document.entities.map((entity) => [entity.id, entity]));
   const inspected = entitiesById.get(inspectedTouchpointId);
   if (inspected?.kind !== 'touchpoint') return undefined;
@@ -122,11 +131,11 @@ export function deriveTouchpointClientIntentNeighborhood(
     if (!linkedOfferPaths.has(`${selection.touchpointId}\u0000${selection.offerId}`)) continue;
     const intent = intentsById.get(selection.productJobIntentId);
     const jobEntity = intent ? entitiesById.get(intent.jobId) : undefined;
-    if (!jobEntity || !JOB_KINDS.has(jobEntity.kind as TouchpointClientIntentJobKind)) continue;
+    if (!jobEntity || !readJob(jobEntity)) continue;
     const offerSelections = offerSelectionsByPath.get(`${selection.offerId}\u0000${selection.productJobIntentId}`);
     if (!offerSelections?.length) continue;
 
-    const job = jobEntity as Job;
+    const job = jobEntity;
     const validOutcomeIds = new Set<string>();
     if (isDesiredOutcomeBearingJob(job.kind)) {
       const offerOutcomeIds = new Set(offerSelections.flatMap((offerSelection) =>
@@ -170,10 +179,10 @@ export function deriveTouchpointClientIntentNeighborhood(
     if (!intent || intent.offerId !== selection.offerId
       || intent.financialDesiredOutcomeId !== selection.financialDesiredOutcomeId) continue;
     const outcome = entitiesById.get(selection.financialDesiredOutcomeId);
-    if (outcome?.kind !== 'financial_desired_outcome') continue;
+    if (!outcome || !readFinancialOutcome(outcome)) continue;
     const touchpointScopes = financialScopesByTouchpoint.get(selection.touchpointId) ?? new Map<string, FinancialScope>();
     const scope = touchpointScopes.get(outcome.id) ?? {
-      outcome: outcome as FinancialDesiredOutcome,
+      outcome,
       contributorOfferIds: new Set<string>(),
     };
     scope.contributorOfferIds.add(selection.offerId);
@@ -181,7 +190,7 @@ export function deriveTouchpointClientIntentNeighborhood(
     financialScopesByTouchpoint.set(selection.touchpointId, touchpointScopes);
   }
 
-  const sortEntityIds = <T extends Entity>(ids: Iterable<string>, candidates: Map<string, T>) => [...new Set(ids)]
+  const sortEntityIds = <T extends { id: string; title: string }>(ids: Iterable<string>, candidates: Map<string, T>) => [...new Set(ids)]
     .flatMap((id) => candidates.get(id) ? [candidates.get(id)!] : [])
     .sort(byTitleThenId)
     .map((entity) => entity.id);
@@ -193,7 +202,7 @@ export function deriveTouchpointClientIntentNeighborhood(
     desiredOutcomeId,
     contributorOfferIds: sortOfferIds(scope.desiredOutcomeContributors.get(desiredOutcomeId) ?? []),
   }));
-  const grounds: TouchpointClientIntentGround[] = [];
+  const grounds: TouchpointClientIntentNeighborhoodRead['grounds'] = [];
 
   for (const inspectedScope of scopesByTouchpoint.get(inspected.id)?.values() ?? []) {
     const comparisons = [...touchpointsById.values()].filter((touchpoint) => touchpoint.id !== inspected.id)
