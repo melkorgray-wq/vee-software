@@ -1,3 +1,5 @@
+import { normalizeLegacyJobs, setFinancialDesiredOutcomeJobContexts, setJobContextualParents, type MapReadDocument } from '@vee/domain';
+import { freezeMapReadFixture, legacyMapReadFixture } from './map-read-test-fixture';
 import { createEmptyMapDocument, type MapDocument } from '@vee/domain';
 import { describe, expect, it } from 'vitest';
 import { deriveProductNeighborhood } from './product-neighborhood';
@@ -300,5 +302,113 @@ describe('Product Job Neighborhood', () => {
     expect(jobs(document)).toEqual(before);
     document.productJobIntents = [];
     expect(jobs(document)).toEqual([]);
+  });
+});
+
+
+function productNeighborhoodReadFixture(): MapDocument {
+  const d = legacyMapReadFixture();
+  for (const id of ['j', 'rj']) d.entities.find(entity => entity.id === id)!.title = 'Same activity';
+  d.entities.push(
+    { id: 'q', kind: 'product', title: 'Zulu' }, { id: 'r', kind: 'product', title: 'Alpha' },
+    { id: 'qo', kind: 'offer', title: 'Neighbor Offer', currentContentSource: null },
+    { id: 'r-do', kind: 'desired_outcome', title: 'Related criterion' },
+    { id: 'u', kind: 'core_functional_job', title: 'Same activity' },
+  );
+  d.relationships.push(
+    { id: 'r-owns', kind: 'job_has_desired_outcome', jobId: 'rj', desiredOutcomeId: 'r-do' },
+    { id: 'q-packages', kind: 'product_packaged_as_offer', productId: 'q', offerId: 'qo' },
+    { id: 'q-presents', kind: 'offer_presented_at_touchpoint', offerId: 'qo', touchpointId: 't' },
+  );
+  d.productJobIntents.find(intent => intent.jobId === 'rj')!.addressedDesiredOutcomeIds = ['r-do'];
+  for (const intent of [...d.productJobIntents]) d.productJobIntents.push({ ...intent, id: `q-${intent.id}`, productId: 'q', addressedDesiredOutcomeIds: intent.jobId === 'j' ? ['b'] : [...intent.addressedDesiredOutcomeIds] });
+  d.productJobIntents.push({ id: 'r-pi', productId: 'r', jobId: 'j', addressedDesiredOutcomeIds: ['a'] });
+  return d;
+}
+const readJobGrounds = (d: MapReadDocument) => deriveProductNeighborhood(d, 'p')!.grounds.filter(ground => ground.basisKind === 'job');
+
+describe('canonical Product Neighborhood read compatibility', () => {
+  it('preserves exact Touchpoint provenance and Job comparisons through normalization', () => {
+    const legacy = productNeighborhoodReadFixture(); const d = normalizeLegacyJobs(legacy);
+    const before = structuredClone(d); freezeMapReadFixture(legacy); freezeMapReadFixture(d);
+    const old = deriveProductNeighborhood(legacy, 'p')!;
+    const current = deriveProductNeighborhood(d, 'p')!;
+    expect(current.grounds.filter(ground => ground.basisKind === 'touchpoint')).toEqual(old.grounds.filter(ground => ground.basisKind === 'touchpoint'));
+    expect(current.grounds[0]).toEqual({ id: 'touchpoint:t', basisKind: 'touchpoint', basisId: 't', inspectedContributorOfferIds: ['o', 'o2'], neighbors: [{ productId: 'q', contributorOfferIds: ['qo'] }], count: 1 });
+    const expected = old.grounds.filter(ground => ground.basisKind === 'job').map(ground => {
+      const jobKind = ground.jobKind === 'core_functional_job' || ground.jobKind === 'related_job' ? 'functional_job' : ground.jobKind;
+      return { ...ground, jobKind, id: `client-intent:${jobKind}:${ground.basisId}` };
+    });
+    expect(readJobGrounds(d)).toEqual(expected);
+    expect(readJobGrounds(d).map(ground => [ground.basisId, ground.jobKind])).toEqual([
+      ['j', 'functional_job'], ['rj', 'functional_job'], ['ccj', 'consumption_chain_job'], ['ej', 'emotional_job'], ['sj', 'social_job'],
+    ]);
+    expect(readJobGrounds(d)[0]).toEqual({ id: 'client-intent:functional_job:j', basisKind: 'job', basisId: 'j', jobKind: 'functional_job', count: 2,
+      inspectedDesiredOutcomeIds: ['a', 'b'], neighbors: [
+        { productId: 'r', desiredOutcomeIds: ['a'], commonDesiredOutcomeIds: ['a'], inspectedOnlyDesiredOutcomeIds: ['b'], neighborOnlyDesiredOutcomeIds: [] },
+        { productId: 'q', desiredOutcomeIds: ['b'], commonDesiredOutcomeIds: ['b'], inspectedOnlyDesiredOutcomeIds: ['a'], neighborOnlyDesiredOutcomeIds: [] },
+      ] });
+    expect(d).toEqual(before);
+  });
+
+  it.each([
+    { p: [], q: [], common: [], onlyP: [], onlyQ: [] },
+    { p: ['a'], q: ['a'], common: ['a'], onlyP: [], onlyQ: [] },
+    { p: ['a', 'b'], q: ['b'], common: ['b'], onlyP: ['a'], onlyQ: [] },
+    { p: ['a'], q: ['b'], common: [], onlyP: ['a'], onlyQ: ['b'] },
+  ])('matches a canonical Job independently of DO overlap: $p / $q', scope => {
+    const d = normalizeLegacyJobs(productNeighborhoodReadFixture());
+    d.productJobIntents = [
+      { id: 'p-choice', productId: 'p', jobId: 'j', addressedDesiredOutcomeIds: scope.p },
+      { id: 'q-choice', productId: 'q', jobId: 'j', addressedDesiredOutcomeIds: scope.q },
+    ];
+    freezeMapReadFixture(d);
+    expect(readJobGrounds(d)).toEqual([{ id: 'client-intent:functional_job:j', basisKind: 'job', basisId: 'j', jobKind: 'functional_job', count: 1,
+      inspectedDesiredOutcomeIds: scope.p, neighbors: [{ productId: 'q', desiredOutcomeIds: scope.q, commonDesiredOutcomeIds: scope.common,
+        inspectedOnlyDesiredOutcomeIds: scope.onlyP, neighborOnlyDesiredOutcomeIds: scope.onlyQ }] }]);
+  });
+
+  it('contextual parents and FDO contexts neither create matches nor infer any Product scope', () => {
+    let d = normalizeLegacyJobs(productNeighborhoodReadFixture());
+    const original = deriveProductNeighborhood(d, 'p');
+    d = setJobContextualParents(d, { targetJobId: 'rj', parentJobIds: ['j', 'ej', 'u'], newRelationshipIds: ['e-r', 'u-r'] });
+    d = setFinancialDesiredOutcomeJobContexts(d, { financialDesiredOutcomeId: 'f', jobIds: ['j', 'rj', 'ej', 'sj', 'ccj', 'u'], newRelationshipIds: ['j-f', 'r-f', 'e-f', 's-f', 'c-f', 'u-f'] });
+    expect(deriveProductNeighborhood(d, 'p')).toEqual(original);
+    d.productJobIntents = [{ id: 'p-job', productId: 'p', jobId: 'j', addressedDesiredOutcomeIds: [] }, { id: 'q-context', productId: 'q', jobId: 'u', addressedDesiredOutcomeIds: [] }];
+    const before = structuredClone(d); freezeMapReadFixture(d);
+    expect(readJobGrounds(d)).toEqual([]);
+    expect(d).toEqual(before);
+  });
+
+  it('merges duplicate intents by exact Product/Job ID and excludes malformed references', () => {
+    const d = normalizeLegacyJobs(productNeighborhoodReadFixture());
+    d.productJobIntents.find(intent => intent.id === 'pi')!.addressedDesiredOutcomeIds = ['a'];
+    d.productJobIntents.push(
+      { id: 'p-duplicate', productId: 'p', jobId: 'j', addressedDesiredOutcomeIds: ['b', 'b', 'r-do', 'missing', 'f', 'rep'] },
+      { id: 'q-duplicate', productId: 'q', jobId: 'j', addressedDesiredOutcomeIds: ['a', 'b'] },
+      { id: 'bad-job', productId: 'p', jobId: 'missing', addressedDesiredOutcomeIds: [] },
+      { id: 'wrong-job', productId: 'q', jobId: 'f', addressedDesiredOutcomeIds: [] },
+      { id: 'bad-product', productId: 'missing', jobId: 'j', addressedDesiredOutcomeIds: [] },
+      { id: 'wrong-product', productId: 'o', jobId: 'j', addressedDesiredOutcomeIds: [] },
+    );
+    const before = structuredClone(d); freezeMapReadFixture(d);
+    const j = readJobGrounds(d).find(ground => ground.basisId === 'j')!;
+    expect(j.count).toBe(2); expect(j.inspectedDesiredOutcomeIds).toEqual(['a', 'b']);
+    expect(j.neighbors.find(neighbor => neighbor.productId === 'q')).toEqual({ productId: 'q', desiredOutcomeIds: ['a', 'b'], commonDesiredOutcomeIds: ['a', 'b'], inspectedOnlyDesiredOutcomeIds: [], neighborOnlyDesiredOutcomeIds: [] });
+    expect(readJobGrounds(d).map(ground => ground.basisId)).not.toContain('f');
+    expect(d).toEqual(before);
+  });
+
+  it('retains canonical ordering, absent/empty results and zero mutation after reordered reads', () => {
+    const d = normalizeLegacyJobs(productNeighborhoodReadFixture());
+    d.entities.find(entity => entity.id === 'b')!.title = 'Outcome A';
+    const reversed = { ...d, entities: [...d.entities].reverse(), relationships: [...d.relationships].reverse(), productJobIntents: [...d.productJobIntents].reverse() };
+    const before = structuredClone(d); freezeMapReadFixture(d);
+    const result = deriveProductNeighborhood(d, 'p')!;
+    expect(deriveProductNeighborhood(reversed, 'p')).toEqual(result);
+    expect(deriveProductNeighborhood(d, 'missing')).toBeUndefined(); expect(deriveProductNeighborhood(d, 'j')).toBeUndefined();
+    expect(deriveProductNeighborhood({ ...d, productJobIntents: [], relationships: [] }, 'p')).toEqual({ productId: 'p', grounds: [] });
+    readJobGrounds(d)[0]!.neighbors.pop(); readJobGrounds(d)[0]!.inspectedDesiredOutcomeIds.pop();
+    expect(d).toEqual(before);
   });
 });
