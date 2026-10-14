@@ -1,19 +1,23 @@
-import { isDesiredOutcomeBearingJob, addEntity, addTouchpointContainer, applyTouchpointIntentDraft, commitTouchpointParent as commitDomainTouchpointParent, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getTouchpointLinkedOfferChangeImpact, relevantRepulsorsForTouchpoint, setTouchpointMitigations, updateEntity, type Entity, type MapDocument, type TouchpointIntentDraft as DomainTouchpointIntentDraft, type TouchpointIntentFinancialLeaf, type TouchpointIntentJobLeaf } from '@vee/domain';
+import { isDesiredOutcomeBearingJob, addEntity, addTouchpointContainer, applyTouchpointIntentDraft, commitTouchpointParent as commitDomainTouchpointParent, duplicateEntity, duplicateEntityRelationshipIdCount, effectiveOfferDesiredOutcomeIds, getTouchpointLinkedOfferChangeImpact, relevantRepulsorsForTouchpoint, setTouchpointMitigations, updateEntity, type CanonicalEntity, type CanonicalMapDocument, type Entity, type MapDocument, type MapReadDocument, type TouchpointIntentDraft as DomainTouchpointIntentDraft, type TouchpointIntentFinancialLeaf, type TouchpointIntentJobLeaf } from '@vee/domain';
 import { CLIENT_INTENT_DISCOVERY_KINDS, clientIntentKindShortcutMatches, normalizeClientIntentQuery, type ClientIntentDiscoveryKind } from '../client-intent-discovery';
 
 export type TouchpointJobLeaf = TouchpointIntentJobLeaf;
 export type TouchpointFinancialLeaf = TouchpointIntentFinancialLeaf;
 export type TouchpointIntentDraft = DomainTouchpointIntentDraft & { durableBranchSnapshot: { touchpointIntentLeafIds: string[]; otherClientIntentLeafIds: string[] } };
 
-export type TouchpointClientScope = {
+type ReadEntity = MapReadDocument['entities'][number];
+export type TouchpointClientScope<E extends ReadEntity = Entity> = {
   jobGroups: {
-    job: Entity;
+    job: E;
     semanticLeafId?: string;
     contributorOfferIds?: string[];
-    desiredOutcomes: { entity: Entity; semanticLeafId: string; contributorOfferIds: string[] }[];
+    desiredOutcomes: { entity: E; semanticLeafId: string; contributorOfferIds: string[] }[];
   }[];
-  financialLeaves: { entity: Entity; semanticLeafId: string; contributorOfferIds: string[] }[];
+  financialLeaves: { entity: E; semanticLeafId: string; contributorOfferIds: string[] }[];
 };
+
+export type CanonicalTouchpointClientScope = TouchpointClientScope<CanonicalEntity>;
+export type TouchpointClientScopeRead = TouchpointClientScope<ReadEntity>;
 
 export type UpstreamLeaf = {
   kind: 'job' | 'desired-outcome' | 'financial'; entity: Entity; semanticId: string; sourceId: string;
@@ -182,7 +186,7 @@ export function filterConnectionCandidates(candidates: ConnectionCandidate[], in
 }
 
 /** Client entities own this catalogue; upstream Product/Offer intent only determines whether Apply must complete a path. */
-export function touchpointIntentCatalogue(document: MapDocument): { jobs: TouchpointJobLeaf[]; financial: TouchpointFinancialLeaf[] } {
+export function touchpointIntentCatalogue(document: MapReadDocument): { jobs: TouchpointJobLeaf[]; financial: TouchpointFinancialLeaf[] } {
   const jobs = document.entities.flatMap((entity): TouchpointJobLeaf[] => {
     if (!isDesiredOutcomeBearingJob(entity.kind)) return [];
     return [{ jobId: entity.id, semanticLeafId: entity.id, contributorOfferIds: [] }, ...document.relationships.flatMap((relation) => relation.kind === 'job_has_desired_outcome' && relation.jobId === entity.id
@@ -195,7 +199,8 @@ export function touchpointIntentCatalogue(document: MapDocument): { jobs: Touchp
   return { jobs, financial };
 }
 
-export function createTouchpointIntentDraft(document: MapDocument, touchpointId: string): TouchpointIntentDraft {
+/** Builds a separate mutable membership draft; canonical read support does not enable legacy writes. */
+export function createTouchpointIntentDraft(document: MapReadDocument, touchpointId: string): TouchpointIntentDraft {
   const catalogue = touchpointIntentCatalogue(document);
   const jobs = new Map(catalogue.jobs.map((leaf) => [leaf.semanticLeafId, { ...leaf }]));
   for (const selection of document.touchpointJobSelections.filter((item) => item.touchpointId === touchpointId)) {
@@ -225,11 +230,14 @@ export function createTouchpointIntentDraft(document: MapDocument, touchpointId:
 }
 
 /** Projects only committed Touchpoint intent into an owner-aware Client-side read model. */
-export function touchpointClientScope(document: MapDocument, touchpointId: string): TouchpointClientScope {
+export function touchpointClientScope(document: MapDocument, touchpointId: string): TouchpointClientScope;
+export function touchpointClientScope(document: CanonicalMapDocument, touchpointId: string): CanonicalTouchpointClientScope;
+export function touchpointClientScope(document: MapReadDocument, touchpointId: string): TouchpointClientScopeRead;
+export function touchpointClientScope(document: MapReadDocument, touchpointId: string): TouchpointClientScopeRead {
   const durable = createTouchpointIntentDraft(document, touchpointId);
   const selectedKeys = new Set(durable.durableBranchSnapshot.touchpointIntentLeafIds);
   const selectedJobLeaves = durable.jobLeaves.filter((leaf) => selectedKeys.has(jobLeafKey(leaf)));
-  const jobGroups = document.entities.flatMap((job): TouchpointClientScope['jobGroups'] => {
+  const jobGroups = document.entities.flatMap((job): TouchpointClientScopeRead['jobGroups'] => {
     if (!isDesiredOutcomeBearingJob(job.kind)) return [];
     const leaves = selectedJobLeaves.filter((leaf) => leaf.jobId === job.id);
     if (!leaves.length) return [];
