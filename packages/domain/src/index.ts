@@ -1651,7 +1651,7 @@ export function normalizeLegacyJobs(document: LegacyJobNormalizationInput): Cano
   const entities = index('entities');
   const relationships = index('relationships');
   const entityKinds = new Set<string>([...PROVISIONAL_ENTITY_KINDS, 'functional_job']);
-  const jobs = new Set(['functional_job', 'core_functional_job', 'related_job', 'emotional_job', 'social_job', 'consumption_chain_job']);
+  const jobs = new Set([...CANONICAL_JOB_KINDS, 'core_functional_job', 'related_job']);
   const endpoint = (id: unknown, kinds: readonly string[]) => {
     const entity = entities.get(text(id));
     if (!entity || !kinds.includes(entity.kind as string)) return invalid('Missing or wrong-kind relationship endpoint: ' + String(id));
@@ -1703,24 +1703,7 @@ export function normalizeLegacyJobs(document: LegacyJobNormalizationInput): Cano
       default: invalid('Unknown relationship kind.');
     }
   }
-  const adjacency = new Map<string, string[]>();
-  const edges = new Set<string>();
-  for (const [source, target] of contexts) {
-    const key = pair(source, target);
-    if (source === target || edges.has(key)) ambiguous('Self-link or duplicate contextual edge.');
-    edges.add(key);
-    adjacency.set(source, [...(adjacency.get(source) ?? []), target]);
-  }
-  // Validate the imported graph; general DAG mutation commands belong to CP2.
-  const visiting = new Set<string>(); const visited = new Set<string>();
-  const visit = (id: string) => {
-    if (visiting.has(id)) ambiguous('Cyclic contextual Job graph.');
-    if (visited.has(id)) return;
-    visiting.add(id);
-    for (const child of adjacency.get(id) ?? []) visit(child);
-    visiting.delete(id); visited.add(id);
-  };
-  for (const id of adjacency.keys()) visit(id);
+  assertJobContextDag(contexts, reason => ambiguous(reason === 'cycle' ? 'Cyclic contextual Job graph.' : 'Self-link or duplicate contextual edge.'));
   for (const entity of entities.values()) {
     if (entity.kind === 'desired_outcome' && !doOwners.has(text(entity.id))) invalid('An ordinary Desired Outcome has no owner.');
     if (entity.kind === 'related_job' && contexts.filter(([, target]) => target === entity.id).length !== 1) ambiguous('Legacy Related Job requires exactly one context.');
@@ -1798,4 +1781,104 @@ export function normalizeLegacyJobs(document: LegacyJobNormalizationInput): Cano
       return relation as CanonicalRelationship;
     }),
   };
+}
+
+
+const CANONICAL_JOB_KINDS = ['functional_job', 'emotional_job', 'social_job', 'consumption_chain_job'] as const;
+
+function assertJobContextDag(
+  contexts: readonly (readonly [string, string])[],
+  fail: (reason: 'self' | 'duplicate' | 'cycle') => never,
+): void {
+  const adjacency = new Map<string, string[]>();
+  const indegree = new Map<string, number>();
+  const edges = new Set<string>();
+  for (const [source, target] of contexts) {
+    if (source === target) fail('self');
+    const key = JSON.stringify([source, target]);
+    if (edges.has(key)) fail('duplicate');
+    edges.add(key);
+    const children = adjacency.get(source);
+    if (children) children.push(target);
+    else adjacency.set(source, [target]);
+    if (!indegree.has(source)) indegree.set(source, 0);
+    indegree.set(target, (indegree.get(target) ?? 0) + 1);
+  }
+  // Iterative topological validation avoids a call-stack limit on authored chains.
+  const pending = [...indegree].flatMap(([id, count]) => count === 0 ? [id] : []);
+  let visited = 0;
+  while (pending.length) {
+    const id = pending.pop()!; visited += 1;
+    for (const child of adjacency.get(id) ?? []) {
+      const count = indegree.get(child)! - 1;
+      indegree.set(child, count);
+      if (count === 0) pending.push(child);
+    }
+  }
+  if (visited !== indegree.size) fail('cycle');
+}
+
+/** Sets only the authored direct incoming contexts of one canonical Job. */
+export function setJobContextualParents(
+  document: CanonicalMapDocument,
+  input: { targetJobId: string; parentJobIds: string[]; newRelationshipIds: string[] },
+): CanonicalMapDocument {
+  const identifier = (value: unknown) => {
+    if (typeof value !== 'string' || !value.trim()) throw new DomainError('invalid_relationship_reference', 'Contextual IDs must be nonblank strings.');
+    return value;
+  };
+  const entities = new Map<string, CanonicalEntity>();
+  for (const entity of document.entities) {
+    const id = identifier(entity.id);
+    if (entities.has(id)) throw new DomainError('ambiguous_job_context_document', 'Entity IDs must be unique.');
+    if ((entity.kind as string) === 'core_functional_job' || (entity.kind as string) === 'related_job') throw new DomainError('invalid_job_context_document', 'This operation requires a canonical document.');
+    entities.set(id, entity);
+  }
+  const job = (id: string) => {
+    const entity = entities.get(identifier(id));
+    if (!entity) throw new DomainError('invalid_relationship_reference', 'Contextual Job does not exist.');
+    if (!(CANONICAL_JOB_KINDS as readonly string[]).includes(entity.kind)) throw new DomainError('invalid_relationship_endpoint', 'Context source and target must be canonical Jobs.');
+    return entity;
+  };
+  const relationshipIds = new Set<string>();
+  const contexts: Extract<CanonicalRelationship, { kind: 'job_contextualizes_job' }>[] = [];
+  for (const relation of document.relationships) {
+    const id = identifier(relation.id);
+    if (relationshipIds.has(id)) throw new DomainError('ambiguous_job_context_document', 'Relationship IDs must be unique.');
+    relationshipIds.add(id);
+    if ((relation.kind as string) === 'core_functional_job_has_related_job' || (relation.kind as string) === 'core_functional_job_contextualizes_job') throw new DomainError('invalid_job_context_document', 'Legacy context records must be normalized explicitly.');
+    if (relation.kind === 'job_contextualizes_job') {
+      job(relation.sourceJobId); job(relation.targetJobId); contexts.push(relation);
+    }
+  }
+  const invalidGraph = (reason: 'self' | 'duplicate' | 'cycle'): never => {
+    if (reason === 'self') throw new DomainError('self_contextual_relationship', 'A Job cannot contextualize itself.');
+    if (reason === 'duplicate') throw new DomainError('duplicate_contextual_relationship', 'A direct contextual connection may be authored only once.');
+    throw new DomainError('cyclic_job_context', 'Contextual Job relationships must form a DAG.');
+  };
+  assertJobContextDag(contexts.map(relation => [relation.sourceJobId, relation.targetJobId] as const), invalidGraph);
+  job(input.targetJobId);
+  if (!Array.isArray(input.parentJobIds) || !Array.isArray(input.newRelationshipIds)) throw new DomainError('invalid_relationship_ids', 'Parent and relationship IDs must be arrays.');
+  input.parentJobIds.forEach(job);
+  unique(input.parentJobIds, 'duplicate_contextual_relationship');
+  const existing = contexts.filter(relation => relation.targetJobId === input.targetJobId);
+  const retained = new Map(existing.map(relation => [relation.sourceJobId, relation]));
+  const additions = input.parentJobIds.filter(id => !retained.has(id));
+  if (input.newRelationshipIds.length !== additions.length) throw new DomainError('invalid_relationship_ids', 'Each new direct context requires exactly one fresh relationship ID.');
+  input.newRelationshipIds.forEach(identifier);
+  unique(input.newRelationshipIds);
+  if (input.newRelationshipIds.some(id => relationshipIds.has(id))) throw new DomainError('duplicate_relationship_id', 'New context IDs must be fresh, including IDs of removed connections.');
+  const parents = new Set(input.parentJobIds);
+  if (!additions.length && existing.length === parents.size) return document;
+  const relationships: CanonicalRelationship[] = [
+    ...document.relationships.filter(relation => relation.kind !== 'job_contextualizes_job' || relation.targetJobId !== input.targetJobId || parents.has(relation.sourceJobId)),
+    ...additions.map((sourceJobId, index) => ({
+      id: input.newRelationshipIds[index]!,
+      kind: 'job_contextualizes_job' as const,
+      sourceJobId,
+      targetJobId: input.targetJobId,
+    })),
+  ];
+  assertJobContextDag(relationships.flatMap(relation => relation.kind === 'job_contextualizes_job' ? [[relation.sourceJobId, relation.targetJobId] as const] : []), invalidGraph);
+  return { ...document, relationships };
 }

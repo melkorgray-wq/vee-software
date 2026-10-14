@@ -1,3 +1,4 @@
+import { setJobContextualParents, type CanonicalMapDocument } from './index';
 import { normalizeLegacyJobs, DomainError, type LegacyJobNormalizationInput } from './index';
 import { describe, expect, it } from 'vitest';
 import { applyProductClientIntentCommand, type MapDocument, type ProductClientIntentCommand } from './index';
@@ -2362,5 +2363,146 @@ describe('lossless legacy Job normalization', () => {
     for (const source of [null, {}, { ...fixture(), entities: null }, { ...fixture(), entities: [{ id: 'bad', kind: 'unknown', title: 'Unknown' }] }]) {
       expect(() => normalizeLegacyJobs(source as LegacyJobNormalizationInput)).toThrowError(expect.objectContaining({ code: 'invalid_legacy_job_document' }));
     }
+  });
+});
+
+
+describe('canonical contextual Job authoring', () => {
+  const kinds = ['functional_job', 'emotional_job', 'social_job', 'consumption_chain_job'] as const;
+  function fixture(): CanonicalMapDocument {
+    const d = normalizeLegacyJobs(touchpoint());
+    d.entities.push(
+      { id: 'a', kind: 'functional_job', title: 'Perform work in authored context' },
+      { id: 'b', kind: 'emotional_job', title: 'Feel assured in authored context' },
+      { id: 'c', kind: 'social_job', title: 'Appear capable in authored context' },
+      { id: 'd', kind: 'consumption_chain_job', title: 'Maintain in authored context' },
+      { id: 'outcome', kind: 'desired_outcome', title: 'Improve speed' },
+      { id: 'financial', kind: 'financial_desired_outcome', title: 'Stay affordable' },
+      { id: 'repulsor', kind: 'repulsor', title: 'Friction' },
+    );
+    d.relationships.push(
+      { id: 'owns-outcome', kind: 'job_has_desired_outcome', jobId: 'a', desiredOutcomeId: 'outcome' },
+      { id: 'resists-job', kind: 'repulsor_resists', repulsorId: 'repulsor', targetEntityId: 'a' },
+      { id: 'resists-financial', kind: 'repulsor_resists', repulsorId: 'repulsor', targetEntityId: 'financial' },
+      { id: 'mitigation', kind: 'touchpoint_mitigates_repulsor', touchpointId: 'touch', repulsorId: 'repulsor' },
+    );
+    d.productJobIntents = [{ id: 'intent', productId: 'product', jobId: 'a', addressedDesiredOutcomeIds: ['outcome'] }];
+    d.offerJobSelections = [{ id: 'offer-selection', offerId: 'offer', productJobIntentId: 'intent' }];
+    d.touchpointJobSelections = [{ id: 'local-selection', touchpointId: 'touch', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['outcome'] }];
+    d.offerFinancialIntents = [{ id: 'financial-intent', offerId: 'offer', financialDesiredOutcomeId: 'financial' }];
+    d.touchpointFinancialSelections = [{ id: 'local-financial', touchpointId: 'touch', offerId: 'offer', offerFinancialIntentId: 'financial-intent', financialDesiredOutcomeId: 'financial' }];
+    d.epistemicAnnotations = [{ id: 'annotation', subjectEntityId: 'a', status: 'hypothesis', sourceNote: 'Authored context' }];
+    d.placements.push(...d.entities.slice(3).map((entity, index) => ({ viewId: 'view', entityId: entity.id, x: index * 150, y: -index * 80 })));
+    return d;
+  }
+  function freeze(value: unknown) {
+    if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); }
+  }
+  const edges = (d: CanonicalMapDocument) => d.relationships.filter(relation => relation.kind === 'job_contextualizes_job');
+  it.each(kinds.flatMap(sourceKind => kinds.map(targetKind => [sourceKind, targetKind] as const)))('allows %s to contextualize a distinct %s', (sourceKind, targetKind) => {
+    const source = normalizeLegacyJobs(empty());
+    source.entities.push({ id: 'source', kind: sourceKind, title: 'Source' }, { id: 'target', kind: targetKind, title: 'Target' });
+    const before = structuredClone(source); freeze(source);
+    const result = setJobContextualParents(source, { targetJobId: 'target', parentJobIds: ['source'], newRelationshipIds: ['context'] });
+    expect(edges(result)).toEqual([{ id: 'context', kind: 'job_contextualizes_job', sourceJobId: 'source', targetJobId: 'target' }]);
+    expect(result.entities).toBe(source.entities);
+    expect(source).toEqual(before);
+  });
+  it('adds, retains, replaces and clears parents while preserving retained records and every unrelated value', () => {
+    const source = fixture(); const before = structuredClone(source); freeze(source);
+    const added = setJobContextualParents(source, { targetJobId: 'c', parentJobIds: ['a', 'b'], newRelationshipIds: ['a-c', 'b-c'] });
+    expect(added.relationships.slice(0, source.relationships.length)).toEqual(source.relationships);
+    const retained = edges(added).find(relation => relation.id === 'b-c')!;
+    const withOutgoing = setJobContextualParents(added, { targetJobId: 'd', parentJobIds: ['c'], newRelationshipIds: ['c-d'] });
+    const replaced = setJobContextualParents(withOutgoing, { targetJobId: 'c', parentJobIds: ['b', 'a'], newRelationshipIds: [] });
+    expect(replaced).toBe(withOutgoing);
+    const switched = setJobContextualParents(withOutgoing, { targetJobId: 'c', parentJobIds: ['b'], newRelationshipIds: [] });
+    expect(edges(switched).find(relation => relation.id === 'b-c')).toBe(retained);
+    expect(edges(switched).map(relation => relation.id)).toEqual(['b-c', 'c-d']);
+    const otherParent = setJobContextualParents(switched, { targetJobId: 'c', parentJobIds: ['a'], newRelationshipIds: ['new-a-c'] });
+    expect(edges(otherParent).map(relation => relation.id)).toEqual(['c-d', 'new-a-c']);
+    const cleared = setJobContextualParents(otherParent, { targetJobId: 'c', parentJobIds: [], newRelationshipIds: [] });
+    expect(edges(cleared).map(relation => relation.id)).toEqual(['c-d']);
+    expect({ ...cleared, relationships: before.relationships }).toEqual(before);
+    expect(cleared.relationships.filter(relation => relation.kind !== 'job_contextualizes_job')).toEqual(before.relationships);
+    for (const state of [added, withOutgoing, switched, otherParent, cleared]) {
+      expect(state.entities).toBe(source.entities);
+      expect(state.productJobIntents).toBe(source.productJobIntents);
+      expect(state.touchpointJobSelections).toBe(source.touchpointJobSelections);
+    }
+    expect(source).toEqual(before);
+  });
+  it('supports a simultaneous multi-parent replacement with fresh IDs in additions order', () => {
+    const source = setJobContextualParents(fixture(), { targetJobId: 'c', parentJobIds: ['a'], newRelationshipIds: ['a-c'] });
+    const result = setJobContextualParents(source, { targetJobId: 'c', parentJobIds: ['b', 'd'], newRelationshipIds: ['b-c', 'd-c'] });
+    expect(edges(result)).toEqual([
+      { id: 'b-c', kind: 'job_contextualizes_job', sourceJobId: 'b', targetJobId: 'c' },
+      { id: 'd-c', kind: 'job_contextualizes_job', sourceJobId: 'd', targetJobId: 'c' },
+    ]);
+  });
+  it('returns the original document for a validated empty-parent no-op', () => {
+    const source = fixture(); freeze(source);
+    expect(setJobContextualParents(source, { targetJobId: 'a', parentJobIds: [], newRelationshipIds: [] })).toBe(source);
+  });
+  it('allows an explicit transitive shortcut without automatically persisting reachability', () => {
+    let d = setJobContextualParents(fixture(), { targetJobId: 'b', parentJobIds: ['a'], newRelationshipIds: ['a-b'] });
+    d = setJobContextualParents(d, { targetJobId: 'c', parentJobIds: ['b'], newRelationshipIds: ['b-c'] });
+    expect(edges(d).map(relation => relation.id)).toEqual(['a-b', 'b-c']);
+    const shortcut = setJobContextualParents(d, { targetJobId: 'c', parentJobIds: ['b', 'a'], newRelationshipIds: ['a-c'] });
+    expect(edges(shortcut).map(relation => relation.id)).toEqual(['a-b', 'b-c', 'a-c']);
+    expect(normalizeLegacyJobs(shortcut)).toEqual(shortcut);
+  });
+  it.each([
+    ['stale target', { targetJobId: 'missing', parentJobIds: ['a'], newRelationshipIds: ['new'] }],
+    ['non-Job target', { targetJobId: 'financial', parentJobIds: ['a'], newRelationshipIds: ['new'] }],
+    ['stale parent', { targetJobId: 'c', parentJobIds: ['missing'], newRelationshipIds: ['new'] }],
+    ['non-Job parent', { targetJobId: 'c', parentJobIds: ['outcome'], newRelationshipIds: ['new'] }],
+    ['duplicate parents', { targetJobId: 'c', parentJobIds: ['a', 'a'], newRelationshipIds: ['new', 'other'] }],
+    ['self-link', { targetJobId: 'c', parentJobIds: ['c'], newRelationshipIds: ['new'] }],
+    ['missing fresh ID', { targetJobId: 'c', parentJobIds: ['a'], newRelationshipIds: [] }],
+    ['extra fresh ID', { targetJobId: 'c', parentJobIds: ['a'], newRelationshipIds: ['new', 'other'] }],
+    ['blank fresh ID', { targetJobId: 'c', parentJobIds: ['a'], newRelationshipIds: ['  '] }],
+    ['repeated fresh ID', { targetJobId: 'c', parentJobIds: ['a', 'b'], newRelationshipIds: ['new', 'new'] }],
+    ['collision with another relationship kind', { targetJobId: 'c', parentJobIds: ['a'], newRelationshipIds: ['owns-outcome'] }],
+  ] as const)('rejects %s without mutating the source', (_name, input) => {
+    const source = fixture(); const before = structuredClone(source); freeze(source);
+    expect(() => setJobContextualParents(source, { ...input, parentJobIds: [...input.parentJobIds], newRelationshipIds: [...input.newRelationshipIds] })).toThrow(DomainError);
+    expect(source).toEqual(before);
+  });
+  it('requires fresh IDs even when replacing and removing an occupied context ID', () => {
+    const source = setJobContextualParents(fixture(), { targetJobId: 'c', parentJobIds: ['a'], newRelationshipIds: ['a-c'] });
+    freeze(source);
+    expect(() => setJobContextualParents(source, { targetJobId: 'c', parentJobIds: ['b'], newRelationshipIds: ['a-c'] })).toThrowError(expect.objectContaining({ code: 'duplicate_relationship_id' }));
+    expect(edges(source).map(relation => relation.id)).toEqual(['a-c']);
+  });
+  it('rejects reciprocal and longer cycles atomically', () => {
+    let d = setJobContextualParents(fixture(), { targetJobId: 'b', parentJobIds: ['a'], newRelationshipIds: ['a-b'] });
+    expect(() => setJobContextualParents(d, { targetJobId: 'a', parentJobIds: ['b'], newRelationshipIds: ['b-a'] })).toThrowError(expect.objectContaining({ code: 'cyclic_job_context' }));
+    d = setJobContextualParents(d, { targetJobId: 'c', parentJobIds: ['b'], newRelationshipIds: ['b-c'] });
+    d = setJobContextualParents(d, { targetJobId: 'd', parentJobIds: ['c'], newRelationshipIds: ['c-d'] });
+    const before = structuredClone(d); freeze(d);
+    expect(() => setJobContextualParents(d, { targetJobId: 'a', parentJobIds: ['d'], newRelationshipIds: ['d-a'] })).toThrowError(expect.objectContaining({ code: 'cyclic_job_context' }));
+    expect(d).toEqual(before);
+  });
+  it.each([
+    ['duplicate entity identity', (d: CanonicalMapDocument) => { d.entities.push({ ...d.entities[0]! }); }],
+    ['duplicate relationship identity', (d: CanonicalMapDocument) => { d.relationships.push({ ...d.relationships[0]! }); }],
+    ['duplicate direct connection', (d: CanonicalMapDocument) => { d.relationships.push({ id: 'ab-1', kind: 'job_contextualizes_job', sourceJobId: 'a', targetJobId: 'b' }, { id: 'ab-2', kind: 'job_contextualizes_job', sourceJobId: 'a', targetJobId: 'b' }); }],
+    ['invalid existing endpoint', (d: CanonicalMapDocument) => { d.relationships.push({ id: 'bad', kind: 'job_contextualizes_job', sourceJobId: 'missing', targetJobId: 'c' }); }],
+    ['existing cycle', (d: CanonicalMapDocument) => { d.relationships.push({ id: 'ab', kind: 'job_contextualizes_job', sourceJobId: 'a', targetJobId: 'b' }, { id: 'ba', kind: 'job_contextualizes_job', sourceJobId: 'b', targetJobId: 'a' }); }],
+  ] as const)('refuses %s even for a no-op instead of repairing the graph', (_name, corrupt) => {
+    const source = fixture(); corrupt(source); const before = structuredClone(source); freeze(source);
+    expect(() => setJobContextualParents(source, { targetJobId: 'c', parentJobIds: [], newRelationshipIds: [] })).toThrow(DomainError);
+    expect(source).toEqual(before);
+  });
+  it('validates very deep graphs iteratively in both authoring and normalization', () => {
+    const source = normalizeLegacyJobs(empty()); const count = 12000;
+    source.entities = Array.from({ length: count }, (_, index) => ({ id: 'j' + index, kind: 'functional_job' as const, title: 'Job ' + index }));
+    source.relationships = Array.from({ length: count - 1 }, (_, index) => ({ id: 'r' + index, kind: 'job_contextualizes_job' as const, sourceJobId: 'j' + index, targetJobId: 'j' + (index + 1) }));
+    freeze(source);
+    expect(setJobContextualParents(source, { targetJobId: 'j' + (count - 1), parentJobIds: ['j' + (count - 2)], newRelationshipIds: [] })).toBe(source);
+    expect(normalizeLegacyJobs(source)).toEqual(source);
+    expect(() => setJobContextualParents(source, { targetJobId: 'j0', parentJobIds: ['j' + (count - 1)], newRelationshipIds: ['closing-edge'] })).toThrowError(expect.objectContaining({ code: 'cyclic_job_context' }));
+    expect(source.relationships).toHaveLength(count - 1);
   });
 });
