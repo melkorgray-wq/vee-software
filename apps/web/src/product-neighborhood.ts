@@ -1,4 +1,4 @@
-import { isDesiredOutcomeBearingJob, type Entity, type MapDocument, type Relationship } from '@vee/domain';
+import { isDesiredOutcomeBearingJob, type CanonicalMapDocument, type MapDocument, type MapReadDocument } from '@vee/domain';
 
 export interface ProductNeighborhoodNeighbor {
   productId: string;
@@ -18,7 +18,10 @@ export const PRODUCT_JOB_GROUND_KINDS = [
   'core_functional_job', 'related_job', 'consumption_chain_job', 'emotional_job', 'social_job',
 ] as const;
 export type ProductJobGroundKind = typeof PRODUCT_JOB_GROUND_KINDS[number];
-type OutcomeBearingJobKind = ProductJobGroundKind;
+export const CANONICAL_PRODUCT_JOB_GROUND_KINDS = ['functional_job', 'consumption_chain_job', 'emotional_job', 'social_job'] as const;
+export type CanonicalProductJobGroundKind = typeof CANONICAL_PRODUCT_JOB_GROUND_KINDS[number];
+type ReadJobGroundKind = ProductJobGroundKind | CanonicalProductJobGroundKind;
+const READ_JOB_GROUND_KINDS = ['functional_job', ...PRODUCT_JOB_GROUND_KINDS] as const;
 
 export interface ProductJobNeighborhoodNeighbor {
   productId: string;
@@ -38,29 +41,34 @@ interface ProductJobGroundBase {
   count: number;
 }
 
-export type ProductJobNeighborhoodGround = ProductJobGroundBase & (
-  | { jobKind: OutcomeBearingJobKind; inspectedDesiredOutcomeIds: string[]; neighbors: ProductJobDesiredOutcomeComparison[] }
+export type ProductJobNeighborhoodGround<K extends ReadJobGroundKind = ProductJobGroundKind> = ProductJobGroundBase & (
+  | { jobKind: K; inspectedDesiredOutcomeIds: string[]; neighbors: ProductJobDesiredOutcomeComparison[] }
 );
 
-export type ProductNeighborhoodGround = ProductTouchpointNeighborhoodGround | ProductJobNeighborhoodGround;
+export type ProductNeighborhoodGround<K extends ReadJobGroundKind = ProductJobGroundKind> = ProductTouchpointNeighborhoodGround | ProductJobNeighborhoodGround<K>;
 
-export interface ProductNeighborhood {
+export interface ProductNeighborhood<K extends ReadJobGroundKind = ProductJobGroundKind> {
   productId: string;
-  grounds: ProductNeighborhoodGround[];
+  grounds: ProductNeighborhoodGround<K>[];
 }
 
-const byTitleThenId = (left: Entity, right: Entity) =>
+export type CanonicalProductNeighborhood = ProductNeighborhood<CanonicalProductJobGroundKind>;
+export type ProductNeighborhoodRead = ProductNeighborhood<ReadJobGroundKind>;
+type ReadEntity = MapReadDocument['entities'][number];
+const jobEntity = (entity: ReadEntity): entity is ReadEntity & { kind: ReadJobGroundKind } => READ_JOB_GROUND_KINDS.some(kind => kind === entity.kind);
+
+const byTitleThenId = (left: Pick<ReadEntity, 'title' | 'id'>, right: Pick<ReadEntity, 'title' | 'id'>) =>
   left.title.localeCompare(right.title) || left.id.localeCompare(right.id);
 
 /** Projects committed shared Touchpoints and direct Product Job intent without authoring relationships. */
-export function deriveProductNeighborhood(
-  document: MapDocument,
-  productId: string,
-): ProductNeighborhood | undefined {
+export function deriveProductNeighborhood(document: MapDocument, productId: string): ProductNeighborhood | undefined;
+export function deriveProductNeighborhood(document: CanonicalMapDocument, productId: string): CanonicalProductNeighborhood | undefined;
+export function deriveProductNeighborhood(document: MapReadDocument, productId: string): ProductNeighborhoodRead | undefined;
+export function deriveProductNeighborhood(document: MapReadDocument, productId: string): ProductNeighborhoodRead | undefined {
   const entities = new Map(document.entities.map((entity) => [entity.id, entity]));
   if (entities.get(productId)?.kind !== 'product') return undefined;
 
-  const ownershipByOffer = new Map<string, Extract<Relationship, { kind: 'product_packaged_as_offer' }>[]>();
+  const ownershipByOffer = new Map<string, Extract<MapReadDocument['relationships'][number], { kind: 'product_packaged_as_offer' }>[]>();
   for (const relationship of document.relationships) {
     if (relationship.kind !== 'product_packaged_as_offer') continue;
     const ownership = ownershipByOffer.get(relationship.offerId) ?? [];
@@ -116,7 +124,7 @@ export function deriveProductNeighborhood(
   for (const intent of document.productJobIntents) {
     const job = entities.get(intent.jobId);
     if (entities.get(intent.productId)?.kind !== 'product'
-      || !job || !PRODUCT_JOB_GROUND_KINDS.some((kind) => kind === job.kind)) continue;
+      || !job || !jobEntity(job)) continue;
     const products = jobScopes.get(job.id) ?? new Map<string, Set<string>>();
     const outcomes = products.get(intent.productId) ?? new Set<string>();
     if (isDesiredOutcomeBearingJob(job.kind)) {
@@ -128,13 +136,15 @@ export function deriveProductNeighborhood(
     jobScopes.set(job.id, products);
   }
 
-  const jobGrounds: ProductJobNeighborhoodGround[] = [];
+  const jobGrounds: ProductJobNeighborhoodGround<ReadJobGroundKind>[] = [];
   for (const [jobId, products] of jobScopes) {
     const inspectedOutcomes = products.get(productId);
     if (!inspectedOutcomes) continue;
     const neighborIds = sortIds([...products.keys()].filter((id) => id !== productId));
     if (!neighborIds.length) continue;
-    const jobKind = entities.get(jobId)!.kind as ProductJobGroundKind;
+    const job = entities.get(jobId);
+    if (!job || !jobEntity(job)) continue;
+    const jobKind = job.kind;
     const base: ProductJobGroundBase = {
       id: `client-intent:${jobKind}:${jobId}`, basisKind: 'job', basisId: jobId, count: neighborIds.length,
     };
@@ -152,7 +162,7 @@ export function deriveProductNeighborhood(
         }),
     });
   }
-  jobGrounds.sort((left, right) => PRODUCT_JOB_GROUND_KINDS.indexOf(left.jobKind) - PRODUCT_JOB_GROUND_KINDS.indexOf(right.jobKind)
+  jobGrounds.sort((left, right) => READ_JOB_GROUND_KINDS.indexOf(left.jobKind) - READ_JOB_GROUND_KINDS.indexOf(right.jobKind)
     || byTitleThenId(entities.get(left.basisId)!, entities.get(right.basisId)!));
   return { productId, grounds: [...grounds, ...jobGrounds] };
 }
