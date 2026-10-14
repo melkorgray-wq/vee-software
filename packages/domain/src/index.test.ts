@@ -1,4 +1,4 @@
-import { setJobContextualParents, type CanonicalMapDocument } from './index';
+import { setFinancialDesiredOutcomeJobContexts, setJobContextualParents, type CanonicalMapDocument } from './index';
 import { normalizeLegacyJobs, DomainError, type LegacyJobNormalizationInput } from './index';
 import { describe, expect, it } from 'vitest';
 import { applyProductClientIntentCommand, type MapDocument, type ProductClientIntentCommand } from './index';
@@ -2495,6 +2495,16 @@ describe('canonical contextual Job authoring', () => {
     expect(() => setJobContextualParents(source, { targetJobId: 'c', parentJobIds: [], newRelationshipIds: [] })).toThrow(DomainError);
     expect(source).toEqual(before);
   });
+  it.each(['parentJobIds', 'newRelationshipIds'] as const)('rejects sparse %s before altering existing parents', field => {
+    const d = setJobContextualParents(fixture(), { targetJobId: 'c', parentJobIds: ['a', 'b'], newRelationshipIds: ['a-c', 'b-c'] });
+    const before = structuredClone(d); freeze(d);
+    const input = field === 'parentJobIds'
+      ? { targetJobId: 'c', parentJobIds: Array<string>(1), newRelationshipIds: [] }
+      : { targetJobId: 'c', parentJobIds: ['d'], newRelationshipIds: Array<string>(1) };
+    expect(() => setJobContextualParents(d, input)).toThrow(DomainError);
+    expect(edges(d).map(relation => relation.id)).toEqual(['a-c', 'b-c']);
+    expect(d).toEqual(before);
+  });
   it('validates very deep graphs iteratively in both authoring and normalization', () => {
     const source = normalizeLegacyJobs(empty()); const count = 12000;
     source.entities = Array.from({ length: count }, (_, index) => ({ id: 'j' + index, kind: 'functional_job' as const, title: 'Job ' + index }));
@@ -2504,5 +2514,155 @@ describe('canonical contextual Job authoring', () => {
     expect(normalizeLegacyJobs(source)).toEqual(source);
     expect(() => setJobContextualParents(source, { targetJobId: 'j0', parentJobIds: ['j' + (count - 1)], newRelationshipIds: ['closing-edge'] })).toThrowError(expect.objectContaining({ code: 'cyclic_job_context' }));
     expect(source.relationships).toHaveLength(count - 1);
+  });
+});
+
+describe('canonical Job contexts of Financial Desired Outcomes', () => {
+  const kinds = ['functional_job', 'emotional_job', 'social_job', 'consumption_chain_job'] as const;
+  function fixture(): CanonicalMapDocument {
+    const d = normalizeLegacyJobs(touchpoint());
+    d.entities.push(
+      { id: 'a', kind: 'functional_job', title: 'Perform in authored context' },
+      { id: 'b', kind: 'emotional_job', title: 'Feel assured in authored context' },
+      { id: 'c', kind: 'social_job', title: 'Appear capable in authored context' },
+      { id: 'd', kind: 'consumption_chain_job', title: 'Maintain in authored context' },
+      { id: 'ordinary', kind: 'desired_outcome', title: 'Improve speed' },
+      { id: 'financial', kind: 'financial_desired_outcome', title: 'Stay affordable' },
+      { id: 'other-financial', kind: 'financial_desired_outcome', title: 'Reduce cost' },
+      { id: 'repulsor', kind: 'repulsor', title: 'Friction' },
+    );
+    d.relationships.push(
+      { id: 'owns-ordinary', kind: 'job_has_desired_outcome', jobId: 'a', desiredOutcomeId: 'ordinary' },
+      { id: 'a-b', kind: 'job_contextualizes_job', sourceJobId: 'a', targetJobId: 'b' },
+      { id: 'other-context', kind: 'job_contextualizes_financial_desired_outcome', jobId: 'b', financialDesiredOutcomeId: 'other-financial' },
+      { id: 'resists-job', kind: 'repulsor_resists', repulsorId: 'repulsor', targetEntityId: 'a' },
+      { id: 'resists-financial', kind: 'repulsor_resists', repulsorId: 'repulsor', targetEntityId: 'financial' },
+      { id: 'mitigation', kind: 'touchpoint_mitigates_repulsor', touchpointId: 'touch', repulsorId: 'repulsor' },
+    );
+    d.productJobIntents = [{ id: 'intent', productId: 'product', jobId: 'a', addressedDesiredOutcomeIds: ['ordinary'] }];
+    d.offerJobSelections = [{ id: 'offer-selection', offerId: 'offer', productJobIntentId: 'intent' }];
+    d.touchpointJobSelections = [{ id: 'local-selection', touchpointId: 'touch', offerId: 'offer', productJobIntentId: 'intent', addressedDesiredOutcomeIds: ['ordinary'] }];
+    d.offerFinancialIntents = [{ id: 'financial-intent', offerId: 'offer', financialDesiredOutcomeId: 'financial' }];
+    d.touchpointFinancialSelections = [{ id: 'local-financial', touchpointId: 'touch', offerId: 'offer', offerFinancialIntentId: 'financial-intent', financialDesiredOutcomeId: 'financial' }];
+    d.epistemicAnnotations = [{ id: 'annotation', subjectEntityId: 'financial', status: 'hypothesis', sourceNote: 'Authored criterion' }];
+    d.placements.push(...d.entities.slice(3).map((entity, index) => ({ viewId: 'view', entityId: entity.id, x: index * 130, y: -index * 80 })));
+    return d;
+  }
+  function freeze(value: unknown) {
+    if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); }
+  }
+  const financialEdges = (d: CanonicalMapDocument) => d.relationships.filter(relation => relation.kind === 'job_contextualizes_financial_desired_outcome');
+  it.each(kinds)('supports %s context for an independent FDO without Business routes', kind => {
+    const d = normalizeLegacyJobs(empty());
+    d.entities.push({ id: 'job', kind, title: 'Job' }, { id: 'fdo', kind: 'financial_desired_outcome', title: 'Criterion' });
+    const before = structuredClone(d); freeze(d);
+    const result = setFinancialDesiredOutcomeJobContexts(d, { financialDesiredOutcomeId: 'fdo', jobIds: ['job'], newRelationshipIds: ['context'] });
+    expect(result.relationships).toEqual([{ id: 'context', kind: 'job_contextualizes_financial_desired_outcome', jobId: 'job', financialDesiredOutcomeId: 'fdo' }]);
+    expect({ ...result, relationships: before.relationships }).toEqual(before);
+    const root = setFinancialDesiredOutcomeJobContexts(result, { financialDesiredOutcomeId: 'fdo', jobIds: [], newRelationshipIds: [] });
+    expect(root).toEqual(before);
+    expect(normalizeLegacyJobs(result)).toEqual(result);
+    expect(d).toEqual(before);
+  });
+  it('retains exact IDs, records and order while adding, replacing and clearing contexts', () => {
+    const source = fixture(); const before = structuredClone(source); freeze(source);
+    const added = setFinancialDesiredOutcomeJobContexts(source, { financialDesiredOutcomeId: 'financial', jobIds: ['a', 'b'], newRelationshipIds: ['a-f', 'b-f'] });
+    const retained = financialEdges(added).find(relation => relation.id === 'b-f')!;
+    expect(setFinancialDesiredOutcomeJobContexts(added, { financialDesiredOutcomeId: 'financial', jobIds: ['b', 'a'], newRelationshipIds: [] })).toBe(added);
+    const replaced = setFinancialDesiredOutcomeJobContexts(added, { financialDesiredOutcomeId: 'financial', jobIds: ['b', 'd'], newRelationshipIds: ['d-f'] });
+    expect(financialEdges(replaced).map(relation => relation.id)).toEqual(['other-context', 'b-f', 'd-f']);
+    expect(financialEdges(replaced).find(relation => relation.id === 'b-f')).toBe(retained);
+    const cleared = setFinancialDesiredOutcomeJobContexts(replaced, { financialDesiredOutcomeId: 'financial', jobIds: [], newRelationshipIds: [] });
+    expect(cleared).toEqual(before);
+    expect(financialEdges(replaced).find(relation => relation.id === 'other-context')).toBe(financialEdges(source)[0]);
+    for (const state of [added, replaced, cleared]) {
+      expect({ ...state, relationships: before.relationships }).toEqual(before);
+      expect(state.entities).toBe(source.entities);
+      expect(state.offerFinancialIntents).toBe(source.offerFinancialIntents);
+      expect(state.touchpointFinancialSelections).toBe(source.touchpointFinancialSelections);
+    }
+    expect(source).toEqual(before);
+  });
+  it('returns the original document for a valid empty-set no-op', () => {
+    const source = fixture(); freeze(source);
+    expect(setFinancialDesiredOutcomeJobContexts(source, { financialDesiredOutcomeId: 'financial', jobIds: [], newRelationshipIds: [] })).toBe(source);
+  });
+  it('keeps both context families independent and never infers A to FDO through A to B', () => {
+    const source = fixture();
+    const financial = setFinancialDesiredOutcomeJobContexts(source, { financialDesiredOutcomeId: 'financial', jobIds: ['b'], newRelationshipIds: ['b-f'] });
+    expect(financialEdges(financial).some(relation => relation.jobId === 'a')).toBe(false);
+    const jobContexts = setJobContextualParents(financial, { targetJobId: 'c', parentJobIds: ['a', 'b'], newRelationshipIds: ['a-c', 'b-c'] });
+    expect(financialEdges(jobContexts)).toEqual(financialEdges(financial));
+    expect(financialEdges(jobContexts)[1]).toBe(financialEdges(financial)[1]);
+    const twoCriteria = setFinancialDesiredOutcomeJobContexts(jobContexts, { financialDesiredOutcomeId: 'other-financial', jobIds: ['a', 'b'], newRelationshipIds: ['a-other'] });
+    expect(twoCriteria.relationships.filter(relation => relation.kind === 'job_contextualizes_job')).toEqual(jobContexts.relationships.filter(relation => relation.kind === 'job_contextualizes_job'));
+    expect(financialEdges(twoCriteria).filter(relation => relation.jobId === 'b')).toHaveLength(2);
+    expect(normalizeLegacyJobs(twoCriteria)).toEqual(twoCriteria);
+  });
+  it('normalizes mixed CFJ/RJ references without changing Job/FDO record identity or metadata', () => {
+    const d: LegacyJobNormalizationInput = fixture();
+    d.entities.find(entity => entity.id === 'a')!.kind = 'core_functional_job';
+    d.entities.find(entity => entity.id === 'b')!.kind = 'related_job';
+    d.relationships[3] = { id: 'a-b', kind: 'core_functional_job_has_related_job', coreFunctionalJobId: 'a', relatedJobId: 'b' };
+    d.relationships.push({ id: 'legacy-financial-context', kind: 'job_contextualizes_financial_desired_outcome', jobId: 'a', financialDesiredOutcomeId: 'financial' });
+    const before = structuredClone(d); freeze(d);
+    const result = normalizeLegacyJobs(d);
+    expect(result.entities.find(entity => entity.id === 'a')?.kind).toBe('functional_job');
+    expect(result.entities.find(entity => entity.id === 'b')?.kind).toBe('functional_job');
+    expect(financialEdges(result)).toEqual(before.relationships.filter(relation => relation.kind === 'job_contextualizes_financial_desired_outcome'));
+    expect(normalizeLegacyJobs(result)).toEqual(result);
+    expect(d).toEqual(before);
+  });
+  it.each([
+    ['missing target', { financialDesiredOutcomeId: 'missing', jobIds: ['a'], newRelationshipIds: ['new'] }],
+    ['ordinary DO target', { financialDesiredOutcomeId: 'ordinary', jobIds: ['a'], newRelationshipIds: ['new'] }],
+    ['Job target', { financialDesiredOutcomeId: 'b', jobIds: ['a'], newRelationshipIds: ['new'] }],
+    ['missing Job', { financialDesiredOutcomeId: 'financial', jobIds: ['missing'], newRelationshipIds: ['new'] }],
+    ['FDO source', { financialDesiredOutcomeId: 'financial', jobIds: ['other-financial'], newRelationshipIds: ['new'] }],
+    ['ordinary DO source', { financialDesiredOutcomeId: 'financial', jobIds: ['ordinary'], newRelationshipIds: ['new'] }],
+    ['duplicate Jobs', { financialDesiredOutcomeId: 'financial', jobIds: ['a', 'a'], newRelationshipIds: ['new', 'extra'] }],
+    ['missing ID', { financialDesiredOutcomeId: 'financial', jobIds: ['a'], newRelationshipIds: [] }],
+    ['extra ID', { financialDesiredOutcomeId: 'financial', jobIds: ['a'], newRelationshipIds: ['new', 'extra'] }],
+    ['blank ID', { financialDesiredOutcomeId: 'financial', jobIds: ['a'], newRelationshipIds: ['  '] }],
+    ['duplicate IDs', { financialDesiredOutcomeId: 'financial', jobIds: ['a', 'b'], newRelationshipIds: ['new', 'new'] }],
+    ['occupied other-kind ID', { financialDesiredOutcomeId: 'financial', jobIds: ['a'], newRelationshipIds: ['a-b'] }],
+  ] as const)('rejects %s atomically', (_name, input) => {
+    const d = fixture(); const before = structuredClone(d); freeze(d);
+    expect(() => setFinancialDesiredOutcomeJobContexts(d, { ...input, jobIds: [...input.jobIds], newRelationshipIds: [...input.newRelationshipIds] })).toThrow(DomainError);
+    expect(d).toEqual(before);
+  });
+  it('does not recycle IDs of removed contexts', () => {
+    const d = setFinancialDesiredOutcomeJobContexts(fixture(), { financialDesiredOutcomeId: 'financial', jobIds: ['a'], newRelationshipIds: ['a-f'] });
+    freeze(d);
+    expect(() => setFinancialDesiredOutcomeJobContexts(d, { financialDesiredOutcomeId: 'financial', jobIds: ['b'], newRelationshipIds: ['a-f'] })).toThrowError(expect.objectContaining({ code: 'duplicate_relationship_id' }));
+    expect(financialEdges(d).map(relation => relation.id)).toEqual(['other-context', 'a-f']);
+  });
+  it.each([
+    ['duplicate entity identity', (d: CanonicalMapDocument) => { d.entities.push({ ...d.entities[0]! }); }],
+    ['duplicate relationship identity', (d: CanonicalMapDocument) => { d.relationships.push({ ...d.relationships[0]! }); }],
+    ['duplicate financial pair', (d: CanonicalMapDocument) => { d.relationships.push({ id: 'duplicate', kind: 'job_contextualizes_financial_desired_outcome', jobId: 'b', financialDesiredOutcomeId: 'other-financial' }); }],
+    ['stale financial endpoint', (d: CanonicalMapDocument) => { d.relationships.push({ id: 'stale', kind: 'job_contextualizes_financial_desired_outcome', jobId: 'a', financialDesiredOutcomeId: 'missing' }); }],
+    ['wrong-kind financial endpoint', (d: CanonicalMapDocument) => { d.relationships.push({ id: 'wrong', kind: 'job_contextualizes_financial_desired_outcome', jobId: 'a', financialDesiredOutcomeId: 'ordinary' }); }],
+    ['wrong-kind Job endpoint', (d: CanonicalMapDocument) => { d.relationships.push({ id: 'wrong', kind: 'job_contextualizes_financial_desired_outcome', jobId: 'financial', financialDesiredOutcomeId: 'other-financial' }); }],
+    ['stale Job endpoint', (d: CanonicalMapDocument) => { d.relationships.push({ id: 'stale', kind: 'job_contextualizes_financial_desired_outcome', jobId: 'missing', financialDesiredOutcomeId: 'financial' }); }],
+    ['malformed Job DAG', (d: CanonicalMapDocument) => { d.relationships.push({ id: 'cycle', kind: 'job_contextualizes_job', sourceJobId: 'b', targetJobId: 'a' }); }],
+  ] as const)('refuses %s in both setters and normalization without repair', (_name, corrupt) => {
+    const d = fixture(); corrupt(d); const before = structuredClone(d); freeze(d);
+    expect(() => setFinancialDesiredOutcomeJobContexts(d, { financialDesiredOutcomeId: 'financial', jobIds: [], newRelationshipIds: [] })).toThrow(DomainError);
+    expect(() => setJobContextualParents(d, { targetJobId: 'c', parentJobIds: [], newRelationshipIds: [] })).toThrow(DomainError);
+    expect(() => normalizeLegacyJobs(d)).toThrow(DomainError);
+    expect(d).toEqual(before);
+  });
+  it('rejects malformed argument shapes and sparse ID arrays through DomainError', () => {
+    const d = fixture(); const before = structuredClone(d); freeze(d);
+    const inputs: unknown[] = [
+      null, {}, { financialDesiredOutcomeId: 'financial', jobIds: null, newRelationshipIds: [] },
+      { financialDesiredOutcomeId: 'financial', jobIds: [], newRelationshipIds: null },
+      { financialDesiredOutcomeId: 'financial', jobIds: Array(1), newRelationshipIds: [] },
+      { financialDesiredOutcomeId: 'financial', jobIds: ['a'], newRelationshipIds: Array(1) },
+      { financialDesiredOutcomeId: 'financial', jobIds: [3], newRelationshipIds: ['new'] },
+    ];
+    for (const input of inputs) expect(() => setFinancialDesiredOutcomeJobContexts(d, input as Parameters<typeof setFinancialDesiredOutcomeJobContexts>[1])).toThrow(DomainError);
+    expect(d).toEqual(before);
   });
 });
