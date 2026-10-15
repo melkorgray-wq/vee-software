@@ -106,13 +106,24 @@ export function touchpointUpstreamSources(document: MapReadDocument, touchpointI
   return offers;
 }
 
-export type GlobalIntentGroup = { job: Entity; leaves: UpstreamLeaf[] };
-export type GlobalIntentMatches = { jobGroups: GlobalIntentGroup[]; directLeaves: UpstreamLeaf[] };
-export type GlobalIntentDiscovery = GlobalIntentMatches & {
-  titleMatches: GlobalIntentMatches;
-  kindShortcutMatches: { kind: ConnectionPickerKind; label: string }[];
+export type CanonicalGlobalIntentKind = Exclude<ConnectionPickerKind, 'core_functional_job' | 'related_job'> | 'functional_job';
+type GlobalIntentReadKind = ConnectionPickerKind | CanonicalGlobalIntentKind;
+export type GlobalIntentGroup<E extends ReadEntity = Entity> = { job: E; leaves: UpstreamLeaf<E>[] };
+export type GlobalIntentMatches<E extends ReadEntity = Entity> = { jobGroups: GlobalIntentGroup<E>[]; directLeaves: UpstreamLeaf<E>[] };
+export type GlobalIntentDiscovery<E extends ReadEntity = Entity, K extends GlobalIntentReadKind = ConnectionPickerKind> = GlobalIntentMatches<E> & {
+  titleMatches: GlobalIntentMatches<E>;
+  kindShortcutMatches: { kind: K; label: string }[];
 };
-export function globalIntentDiscovery(document: MapDocument, input: { query: string; kind?: ConnectionPickerKind | undefined; touchpointId?: string | undefined }): GlobalIntentDiscovery {
+export type CanonicalGlobalIntentDiscovery = GlobalIntentDiscovery<CanonicalEntity, CanonicalGlobalIntentKind>;
+export type GlobalIntentDiscoveryRead = GlobalIntentDiscovery<ReadEntity, GlobalIntentReadKind>;
+export type GlobalIntentDiscoveryInput = { query: string; kind?: ConnectionPickerKind | undefined; touchpointId?: string | undefined; readModel?: 'legacy' };
+export type CanonicalGlobalIntentDiscoveryInput = { query: string; kind?: CanonicalGlobalIntentKind | undefined; touchpointId?: string | undefined; readModel: 'canonical' };
+
+// Documents have no runtime taxonomy tag; canonical shortcut metadata requires an explicit read mode.
+export function globalIntentDiscovery(document: MapDocument, input: GlobalIntentDiscoveryInput): GlobalIntentDiscovery;
+export function globalIntentDiscovery(document: CanonicalMapDocument, input: CanonicalGlobalIntentDiscoveryInput): CanonicalGlobalIntentDiscovery;
+export function globalIntentDiscovery(document: MapReadDocument, input: CanonicalGlobalIntentDiscoveryInput): GlobalIntentDiscovery<ReadEntity, CanonicalGlobalIntentKind>;
+export function globalIntentDiscovery(document: MapReadDocument, input: GlobalIntentDiscoveryInput | CanonicalGlobalIntentDiscoveryInput): GlobalIntentDiscoveryRead {
   const query = normalizeClientIntentQuery(input.query);
   const scope = input.touchpointId ? touchpointClientScope(document, input.touchpointId) : undefined;
   const pathsFor = (semanticId: string, owningJobId?: string): IntentContributorPath[] => {
@@ -129,7 +140,7 @@ export function globalIntentDiscovery(document: MapDocument, input: { query: str
       ? [{ id: pathId(input.touchpointId!, 'discovery', 'local', selection.offerId, semanticId), offerId: selection.offerId, offerFinancialIntentId: selection.offerFinancialIntentId }]
       : []);
   };
-  const discoveryLeaf = (leaf: UpstreamLeaf): UpstreamLeaf => {
+  const discoveryLeaf = (leaf: UpstreamLeaf<ReadEntity>): UpstreamLeaf<ReadEntity> => {
     const contributorPaths = pathsFor(leaf.semanticId, leaf.kind === 'financial' ? undefined : leaf.owningJobId ?? leaf.semanticId);
     // Scope is the semantic membership owner; paths retain the concrete attribution needed by mutation commands.
     const checked = leaf.kind === 'financial'
@@ -138,8 +149,8 @@ export function globalIntentDiscovery(document: MapDocument, input: { query: str
           && (group.semanticLeafId === leaf.semanticId || group.desiredOutcomes.some(item => item.semanticLeafId === leaf.semanticId))));
     return { ...leaf, checked, checkedContributorOfferIds: contributorPaths.map(path => path.offerId), contributorPaths };
   };
-  const project = (kind: ConnectionPickerKind | undefined, titleQuery: string): GlobalIntentMatches => {
-    const jobGroups: GlobalIntentGroup[] = []; const directLeaves: UpstreamLeaf[] = [];
+  const project = (kind: GlobalIntentReadKind | undefined, titleQuery: string): GlobalIntentMatches<ReadEntity> => {
+    const jobGroups: GlobalIntentGroup<ReadEntity>[] = []; const directLeaves: UpstreamLeaf<ReadEntity>[] = [];
     for (const entity of document.entities) {
     if (isDesiredOutcomeBearingJob(entity.kind)) {
       if (kind && kind !== 'desired_outcome' && kind !== entity.kind) continue;
@@ -155,7 +166,15 @@ export function globalIntentDiscovery(document: MapDocument, input: { query: str
     return { jobGroups, directLeaves };
   };
   const titleMatches = query ? project(undefined, query) : { jobGroups: [], directLeaves: [] };
-  const kindShortcutMatches = clientIntentKindShortcutMatches(query);
+  const legacyShortcuts = clientIntentKindShortcutMatches(query);
+  const canonicalShortcuts: { kind: CanonicalGlobalIntentKind; label: string }[] = [];
+  if (input.readModel === 'canonical') {
+    if (query && 'functional job'.includes(query)) canonicalShortcuts.push({ kind: 'functional_job', label: 'Functional Job' });
+    canonicalShortcuts.push(...legacyShortcuts.flatMap(({ kind, label }) =>
+      kind === 'core_functional_job' || kind === 'related_job' ? [] : [{ kind, label }],
+    ));
+  }
+  const kindShortcutMatches = input.readModel === 'canonical' ? canonicalShortcuts : legacyShortcuts;
   const visible = input.kind ? project(input.kind, '') : titleMatches;
   return { ...visible, titleMatches, kindShortcutMatches };
 }

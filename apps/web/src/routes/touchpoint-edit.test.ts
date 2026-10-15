@@ -1,8 +1,9 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { createEmptyMapDocument, relevantRepulsorsForTouchpoint, normalizeLegacyJobs, setJobContextualParents, setFinancialDesiredOutcomeJobContexts, applyTouchpointIntentDraft, type CanonicalMapDocument, type MapDocument, type MapReadDocument } from '@vee/domain';
 import { applyTouchpointEditDraft, collisionSafeOfferTitle, collisionSafeProductTitle, collisionSafeTouchpointTitle, commitOfferConnectedTouchpoint, commitTouchpointBusinessProperty, commitTouchpointLinkedOffers, commitTouchpointMitigation, commitTouchpointParent, connectionPickerCatalogue, createSiblingOfferAndReplace, createTouchpointIntentDraft, duplicateOfferAndReplace, equalTouchpointIntentDraft, filterConnectionCandidates, globalIntentDiscovery, planFutureTouchpointOfferReplacement, replaceTouchpointLinkedOffer, selectCurrentOfferIntent, touchpointClientScope, touchpointIntentCatalogue, touchpointUpstreamSources, validateTouchpointIntentDraft } from './touchpoint-edit';
-import type { CanonicalTouchpointClientScope, CanonicalTouchpointUpstreamBlock, TouchpointClientScope, TouchpointIntentDraft, TouchpointUpstreamBlock } from './touchpoint-edit';
+import type { CanonicalGlobalIntentDiscovery, CanonicalGlobalIntentDiscoveryInput, CanonicalGlobalIntentKind, GlobalIntentDiscovery, CanonicalTouchpointClientScope, CanonicalTouchpointUpstreamBlock, TouchpointClientScope, TouchpointIntentDraft, TouchpointUpstreamBlock } from './touchpoint-edit';
 import { freezeMapReadFixture, legacyOfferReadFixture } from '../map-read-test-fixture';
+import { CLIENT_INTENT_DISCOVERY_KINDS, clientIntentKindShortcutMatches } from '../client-intent-discovery';
 import { deriveTouchpointClientIntentNeighborhood } from '../touchpoint-client-intent-neighborhood';
 
 function fixture(): MapDocument {
@@ -847,7 +848,7 @@ describe('canonical Touchpoint Upstream Sources read compatibility', () => {
     const document = normalizeLegacyJobs(legacy);
     expectTypeOf(touchpointUpstreamSources(legacy, 'child')).toEqualTypeOf<TouchpointUpstreamBlock[]>();
     expectTypeOf(touchpointUpstreamSources(document, 'child')).toEqualTypeOf<CanonicalTouchpointUpstreamBlock[]>();
-    expectTypeOf<Parameters<typeof globalIntentDiscovery>[0]>().toEqualTypeOf<MapDocument>();
+    expectTypeOf(globalIntentDiscovery(legacy, { query: '' })).toEqualTypeOf<GlobalIntentDiscovery>();
     expectTypeOf<Parameters<typeof applyTouchpointEditDraft>[0]>().toEqualTypeOf<MapDocument>();
     const canonicalEntity = (entity: MapDocument['entities'][number]) => ({ ...entity, kind: entity.kind === 'core_functional_job' || entity.kind === 'related_job' ? 'functional_job' : entity.kind });
     const expected = touchpointUpstreamSources(legacy, 'child').map(block => ({
@@ -989,6 +990,158 @@ describe('canonical Touchpoint Upstream Sources read compatibility', () => {
     expect(upstreamParent(document).jobGroups[0]!.leaves[0]).toMatchObject({ provenanceOfferIds: ['o2', 'o'], childContributorOfferIds: ['qo'] });
     expect(touchpointUpstreamSources(document, 'missing')).toEqual([]);
     expect(touchpointUpstreamSources(document, 'qo')).toEqual([]);
+    expect(document).toEqual(before);
+  });
+});
+
+const canonicalDiscovery = (document: MapReadDocument, input: Omit<CanonicalGlobalIntentDiscoveryInput, 'readModel'>) =>
+  globalIntentDiscovery(document, { ...input, readModel: 'canonical' });
+
+describe('canonical Touchpoint Global Client-intent Discovery read compatibility', () => {
+  it('preserves normalized title results, individual same-title FJs, owned DO leaves and legacy return types', () => {
+    const legacy = legacyUpstreamReadFixture();
+    const document = normalizeLegacyJobs(legacy);
+    expectTypeOf(globalIntentDiscovery(legacy, { query: 'same activity' })).toEqualTypeOf<GlobalIntentDiscovery>();
+    expectTypeOf(globalIntentDiscovery(document, { query: 'same activity', readModel: 'canonical' })).toEqualTypeOf<CanonicalGlobalIntentDiscovery>();
+    expectTypeOf<CanonicalGlobalIntentDiscoveryInput>().toExtend<{ readModel: 'canonical' }>();
+    expectTypeOf<CanonicalGlobalIntentDiscoveryInput['kind']>().toEqualTypeOf<CanonicalGlobalIntentKind | undefined>();
+    expectTypeOf<Extract<CanonicalGlobalIntentKind, 'core_functional_job' | 'related_job'>>().toEqualTypeOf<never>();
+    const old = globalIntentDiscovery(legacy, { query: 'same activity', touchpointId: 'child' });
+    const result = canonicalDiscovery(document, { query: 'same activity', touchpointId: 'child' });
+    const canonicalEntity = (entity: MapDocument['entities'][number]) => ({ ...entity, kind: entity.kind === 'core_functional_job' || entity.kind === 'related_job' ? 'functional_job' : entity.kind });
+    const expectedGroups = old.jobGroups.map(group => ({ job: canonicalEntity(group.job), leaves: group.leaves.map(leaf => ({ ...leaf, entity: canonicalEntity(leaf.entity) })) }));
+    expect(result).toEqual({ ...old, jobGroups: expectedGroups, titleMatches: { ...old.titleMatches, jobGroups: expectedGroups } });
+    expect(result.jobGroups.map(group => [group.job.id, group.job.kind, group.leaves.map(leaf => leaf.semanticId)])).toEqual([
+      ['j', 'functional_job', ['j', 'a', 'b', 'outside']], ['rj', 'functional_job', ['rj', 'r-do']], ['u', 'functional_job', ['u']],
+    ]);
+    expect(result.jobGroups[0]!.leaves.find(leaf => leaf.semanticId === 'b')).toEqual({
+      kind: 'desired-outcome', entity: { id: 'b', title: 'Outcome B', kind: 'desired_outcome' }, semanticId: 'b', sourceId: 'global', contributorOfferId: '', checkboxId: 'global:j:b',
+      checked: true, available: true, owningJobId: 'j', checkedContributorOfferIds: ['qo'],
+      contributorPaths: [{ id: 'child:discovery:local:qo:b', offerId: 'qo', productJobIntentId: 'q-pi' }],
+    });
+    expect(result.jobGroups[1]!.leaves.every(leaf => !leaf.checked && leaf.contributorPaths!.length === 0)).toBe(true);
+  });
+
+  it('keeps DO-only title matches in their owning Job and kind browsing separate from title matches', () => {
+    const document = normalizeLegacyJobs(legacyUpstreamReadFixture());
+    const outcome = canonicalDiscovery(document, { query: '  OUTCOME B ', touchpointId: 'child' });
+    expect(outcome.jobGroups.map(group => [group.job.id, group.leaves.map(leaf => leaf.semanticId)])).toEqual([['j', ['j', 'b']]]);
+    const functional = canonicalDiscovery(document, { query: 'financial', kind: 'functional_job', touchpointId: 'child' });
+    expect(functional.jobGroups.map(group => group.job.id)).toEqual(['j', 'rj', 'u']);
+    expect(functional.directLeaves).toEqual([]);
+    expect(functional.titleMatches.directLeaves.map(leaf => leaf.semanticId)).toEqual(['f']);
+    expect(functional.titleMatches.jobGroups).toEqual([]);
+    const desired = canonicalDiscovery(document, { query: 'unmatched query', kind: 'desired_outcome' });
+    expect(desired.jobGroups.map(group => group.job.id)).toEqual(['j', 'rj', 'ej', 'sj', 'ccj', 'u']);
+    expect(desired.jobGroups.find(group => group.job.id === 'u')!.leaves.map(leaf => leaf.semanticId)).toEqual(['u']);
+    expect(desired.directLeaves).toEqual([]);
+    expect(canonicalDiscovery(document, { query: '' })).toEqual({ jobGroups: [], directLeaves: [], titleMatches: { jobGroups: [], directLeaves: [] }, kindShortcutMatches: [] });
+  });
+
+  it.each(['consumption_chain_job', 'emotional_job', 'social_job'] as const)('preserves canonical %s kind filtering', kind => {
+    const document = normalizeLegacyJobs(legacyUpstreamReadFixture());
+    const result = canonicalDiscovery(document, { query: 'not a title', kind });
+    expect(result.jobGroups.map(group => group.job.kind)).toEqual([kind]);
+    expect(result.jobGroups[0]!.leaves).toHaveLength(2);
+    expect(result.directLeaves).toEqual([]);
+    expect(result.titleMatches).toEqual({ jobGroups: [], directLeaves: [] });
+  });
+
+  it('discovers independent FDOs without financial intent, marking only locally authored membership', () => {
+    const document = normalizeLegacyJobs(legacyUpstreamReadFixture());
+    const result = canonicalDiscovery(document, { query: 'financial', kind: 'financial_desired_outcome', touchpointId: 'child' });
+    expect(result.directLeaves.map(leaf => [leaf.semanticId, leaf.checked])).toEqual([['f', true], ['unselected-f', false]]);
+    expect(result.directLeaves[0]).toMatchObject({ checkboxId: 'global:f', sourceId: 'global', contributorOfferId: '', checkedContributorOfferIds: ['qo'], contributorPaths: [{ id: 'child:discovery:local:qo:f', offerId: 'qo', offerFinancialIntentId: 'q-fi' }] });
+    document.productJobIntents = []; document.offerFinancialIntents = [];
+    expect(canonicalDiscovery(document, { query: '', kind: 'financial_desired_outcome', touchpointId: 'child' }).directLeaves).toEqual(result.directLeaves);
+    document.touchpointFinancialSelections = [];
+    expect(canonicalDiscovery(document, { query: '', kind: 'financial_desired_outcome', touchpointId: 'child' }).directLeaves.every(leaf => !leaf.checked && leaf.contributorPaths!.length === 0)).toBe(true);
+  });
+
+  it('keeps Job-only checked membership distinct from selected outcomes and isolates Touchpoint identity', () => {
+    const document = normalizeLegacyJobs(legacyUpstreamReadFixture());
+    document.touchpointJobSelections.find(selection => selection.id === 'child-q-job')!.addressedDesiredOutcomeIds = [];
+    const result = canonicalDiscovery(document, { query: 'same activity', touchpointId: 'child' });
+    const leaves = result.jobGroups[0]!.leaves;
+    expect(leaves[0]).toMatchObject({ checkboxId: 'global:j', checked: true, checkedContributorOfferIds: ['qo'], contributorPaths: [{ id: 'child:discovery:local:qo:j', offerId: 'qo', productJobIntentId: 'q-pi' }] });
+    expect(leaves.slice(1).every(leaf => !leaf.checked && leaf.contributorPaths!.length === 0)).toBe(true);
+    for (const touchpointId of ['missing', 'qo', undefined]) {
+      const absent = canonicalDiscovery(document, { query: 'same activity', touchpointId });
+      expect(absent.jobGroups.flatMap(group => group.leaves).every(leaf => !leaf.checked && leaf.contributorPaths!.length === 0)).toBe(true);
+    }
+  });
+
+  it.each([
+    { query: 'functional', functional: true }, { query: 'Functional Job', functional: true }, { query: 'job', functional: true },
+    { query: 'core', functional: false }, { query: 'related', functional: false }, { query: 'FJ', functional: false }, { query: '', functional: false },
+  ])('uses canonical read-only label matching for "$query" without Core/Related aliases', ({ query, functional }) => {
+    const document = normalizeLegacyJobs(legacyUpstreamReadFixture());
+    const shortcuts = canonicalDiscovery(document, { query }).kindShortcutMatches;
+    expect(shortcuts.some(shortcut => shortcut.kind === 'functional_job')).toBe(functional);
+    expect(shortcuts.map(shortcut => shortcut.kind)).not.toContain('core_functional_job');
+    expect(shortcuts.map(shortcut => shortcut.kind)).not.toContain('related_job');
+    expect(shortcuts.filter(shortcut => shortcut.kind !== 'functional_job')).toEqual(clientIntentKindShortcutMatches(query).filter(shortcut => shortcut.kind !== 'core_functional_job' && shortcut.kind !== 'related_job'));
+    if (functional) expect(shortcuts[0]).toEqual({ kind: 'functional_job', label: 'Functional Job' });
+  });
+
+  it.each(['empty', 'emotional-social-only'] as const)('uses explicit mode for indistinguishable %s document shapes and preserves shared legacy grammar', shape => {
+    const legacy = createEmptyMapDocument({ mapId: 'empty', title: 'Empty', viewId: 'v', viewTitle: 'View' });
+    if (shape === 'emotional-social-only') legacy.entities.push({ id: 'e', title: 'Feel assured', kind: 'emotional_job' }, { id: 's', title: 'Belong', kind: 'social_job' });
+    const document = normalizeLegacyJobs(legacy);
+    expect(document).toEqual(legacy);
+    expect(globalIntentDiscovery(legacy, { query: 'functional' }).kindShortcutMatches).toEqual([{ kind: 'core_functional_job', label: 'Core Functional Job' }]);
+    expect(canonicalDiscovery(document, { query: 'functional' }).kindShortcutMatches).toEqual([{ kind: 'functional_job', label: 'Functional Job' }]);
+    expect(globalIntentDiscovery(legacy, { query: 'related' }).kindShortcutMatches).toEqual([{ kind: 'related_job', label: 'Related Job' }]);
+    expect(canonicalDiscovery(document, { query: 'related' }).kindShortcutMatches).toEqual([]);
+    expect(CLIENT_INTENT_DISCOVERY_KINDS).toEqual(['core_functional_job', 'related_job', 'consumption_chain_job', 'desired_outcome', 'emotional_job', 'social_job', 'financial_desired_outcome']);
+    expect(clientIntentKindShortcutMatches('functional')).toEqual([{ kind: 'core_functional_job', label: 'Core Functional Job' }]);
+  });
+
+  it('does not infer checked membership or paths from Parent, Job contexts or Job-to-FDO links', () => {
+    let document = normalizeLegacyJobs(legacyUpstreamReadFixture());
+    document.touchpointJobSelections = document.touchpointJobSelections.filter(selection => selection.touchpointId !== 'child');
+    document.touchpointFinancialSelections = document.touchpointFinancialSelections.filter(selection => selection.touchpointId !== 'child');
+    const input = { query: '', kind: 'desired_outcome', touchpointId: 'child' } as const;
+    const expected = canonicalDiscovery(document, input);
+    document = setJobContextualParents(document, { targetJobId: 'rj', parentJobIds: ['j', 'ej', 'sj', 'u'], newRelationshipIds: ['e-r', 's-r', 'u-r'] });
+    document = setFinancialDesiredOutcomeJobContexts(document, { financialDesiredOutcomeId: 'unselected-f', jobIds: ['j', 'ej', 'sj', 'ccj'], newRelationshipIds: ['j-f', 'e-f', 's-f', 'c-f'] });
+    expect(canonicalDiscovery(document, input)).toEqual(expected);
+    expect(expected.jobGroups.flatMap(group => group.leaves).every(leaf => !leaf.checked && leaf.contributorPaths!.length === 0)).toBe(true);
+    expect(canonicalDiscovery(document, { query: '', kind: 'financial_desired_outcome', touchpointId: 'child' }).directLeaves.every(leaf => !leaf.checked && leaf.contributorPaths!.length === 0)).toBe(true);
+    expect(canonicalDiscovery(document, { query: 'related criterion' }).jobGroups.map(group => [group.job.id, group.leaves.map(leaf => leaf.semanticId)])).toEqual([['rj', ['rj', 'r-do']]]);
+  });
+
+  it.each(['legacy', 'canonical'] as const)('%s retains duplicate paths, catalogue ordering and stale-reference read policy', representation => {
+    const source = legacyUpstreamReadFixture();
+    const document = representation === 'legacy' ? source : normalizeLegacyJobs(source);
+    document.relationships.push({ id: 'duplicate-owned-b', kind: 'job_has_desired_outcome', jobId: 'j', desiredOutcomeId: 'b' }, { id: 'stale-owned', kind: 'job_has_desired_outcome', jobId: 'j', desiredOutcomeId: 'missing' });
+    document.touchpointJobSelections.push(
+      { id: 'duplicate-child', touchpointId: 'child', offerId: 'qo', productJobIntentId: 'q-pi', addressedDesiredOutcomeIds: ['b'] },
+      { id: 'stale-intent', touchpointId: 'child', offerId: 'qo', productJobIntentId: 'missing', addressedDesiredOutcomeIds: ['b'] },
+      { id: 'stale-offer', touchpointId: 'child', offerId: 'missing-offer', productJobIntentId: 'q-pi', addressedDesiredOutcomeIds: ['b'] },
+    );
+    document.touchpointFinancialSelections.push({ id: 'stale-financial', touchpointId: 'child', offerId: 'missing-offer', offerFinancialIntentId: 'missing-fi', financialDesiredOutcomeId: 'f' });
+    const result = representation === 'legacy' ? globalIntentDiscovery(source, { query: 'outcome b', touchpointId: 'child' }) : canonicalDiscovery(document, { query: 'outcome b', touchpointId: 'child' });
+    expect(result.jobGroups[0]!.leaves.map(leaf => leaf.semanticId)).toEqual(['j', 'b', 'b']);
+    expect(result.jobGroups[0]!.leaves[1]).toMatchObject({ checked: true, checkedContributorOfferIds: ['qo', 'qo', 'missing-offer'], contributorPaths: [
+      { id: 'child:discovery:local:qo:b', offerId: 'qo', productJobIntentId: 'q-pi' },
+      { id: 'child:discovery:local:qo:b', offerId: 'qo', productJobIntentId: 'q-pi' },
+      { id: 'child:discovery:local:missing-offer:b', offerId: 'missing-offer', productJobIntentId: 'q-pi' },
+    ] });
+    const financial = representation === 'legacy' ? globalIntentDiscovery(source, { query: 'financial', touchpointId: 'child' }) : canonicalDiscovery(document, { query: 'financial', touchpointId: 'child' });
+    expect(financial.directLeaves[0]).toMatchObject({ checked: true, contributorPaths: [{ offerId: 'qo', offerFinancialIntentId: 'q-fi' }, { offerId: 'missing-offer', offerFinancialIntentId: 'missing-fi' }] });
+  });
+
+  it.each(['legacy', 'canonical'] as const)('%s reads frozen source deterministically and keeps returned path arrays independent', representation => {
+    const source = legacyUpstreamReadFixture();
+    const document = representation === 'legacy' ? source : normalizeLegacyJobs(source);
+    const before = structuredClone(document); freezeMapReadFixture(document);
+    const read = () => representation === 'legacy' ? globalIntentDiscovery(source, { query: 'same activity', touchpointId: 'child' }) : canonicalDiscovery(document, { query: 'same activity', touchpointId: 'child' });
+    const expected = read();
+    expect(read()).toEqual(expected);
+    expected.jobGroups[0]!.leaves[0]!.contributorPaths!.pop();
+    expected.jobGroups[0]!.leaves[1]!.checkedContributorOfferIds!.push('pending-offer');
+    expect(read().jobGroups[0]!.leaves[0]!.contributorPaths).toEqual([{ id: 'child:discovery:local:qo:j', offerId: 'qo', productJobIntentId: 'q-pi' }]);
     expect(document).toEqual(before);
   });
 });
