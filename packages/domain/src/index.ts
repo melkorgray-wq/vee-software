@@ -116,13 +116,13 @@ function validateProductJobIntent(document: MapReadDocument, input: { productId:
     if (!document.relationships.some(relation => relation.kind === 'job_has_desired_outcome' && relation.jobId === job.id && relation.desiredOutcomeId === outcomeId)) throw new DomainError('desired_outcome_not_owned_by_job', 'Every addressed Desired Outcome must belong to the selected Job.');
   }
 }
-export function addProductJobIntent(document: CanonicalMapDocument, input: ProductJobIntent): CanonicalMapDocument;
+export function addProductJobIntent(document: CanonicalMapDocument, input: ProductJobIntent, options: { writeModel: 'canonical' }): CanonicalMapDocument;
 // Preserve the legacy return type for existing ReturnType-based consumers.
 export function addProductJobIntent(document: MapDocument, input: ProductJobIntent): MapDocument;
-export function addProductJobIntent(document: MapReadDocument, input: ProductJobIntent): MapReadDocument {
+export function addProductJobIntent(document: MapReadDocument, input: ProductJobIntent, options?: { writeModel: 'canonical' }): MapReadDocument {
   if (document.productJobIntents.some(intent => intent.id === input.id)) throw new DomainError('duplicate_product_job_intent_id', 'Product Job Intent ID already exists.');
-  // Only explicit addition opts into canonical eligibility; other validator callers stay legacy-owned.
-  validateProductJobIntent(document, input, undefined, [...PRODUCT_JOB_KINDS, ...CANONICAL_JOB_KINDS]);
+  // Document shape cannot identify its model; canonical writes require an explicit opt-in.
+  validateProductJobIntent(document, input, undefined, options?.writeModel === 'canonical' ? CANONICAL_JOB_KINDS : PRODUCT_JOB_KINDS);
   return { ...document, productJobIntents: [...document.productJobIntents, { ...input, addressedDesiredOutcomeIds: [...input.addressedDesiredOutcomeIds] }] };
 }
 export function updateProductJobIntent(document: MapDocument, input: ProductJobIntent): MapDocument {

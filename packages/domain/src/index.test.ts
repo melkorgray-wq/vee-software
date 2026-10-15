@@ -2753,11 +2753,36 @@ describe('canonical Product Job Intent addition', () => {
   }
   const input: ProductJobIntent = { id: 'new-intent', productId: 'product', jobId: 'core', addressedDesiredOutcomeIds: ['core-do'] };
 
+  it.each([{ addressedDesiredOutcomeIds: [] }, { addressedDesiredOutcomeIds: ['core-do'] }])('rejects Functional Job in the two-argument legacy call with scope $addressedDesiredOutcomeIds', ({ addressedDesiredOutcomeIds }) => {
+    const source = fixture();
+    Object.assign(source.entities.find(entity => entity.id === 'core')!, { kind: 'functional_job' });
+    const before = structuredClone(source); freeze(source);
+    const intent = { ...input, addressedDesiredOutcomeIds }; freeze(intent);
+    expect(() => addProductJobIntent(source, intent)).toThrowError(expect.objectContaining({ code: 'invalid_product_job_kind' }));
+    expect(source).toEqual(before);
+  });
+
+  it.each(['core_functional_job', 'related_job'] as const)('rejects selected legacy %s in explicit canonical mode', kind => {
+    const source = normalizeLegacyJobs(fixture());
+    Object.assign(source.entities.find(entity => entity.id === 'core')!, { kind });
+    const before = structuredClone(source); freeze(source);
+    for (const addressedDesiredOutcomeIds of [[], ['core-do']]) {
+      const intent = { ...input, addressedDesiredOutcomeIds }; freeze(intent);
+      expect(() => addProductJobIntent(source, intent, { writeModel: 'canonical' })).toThrowError(expect.objectContaining({ code: 'invalid_product_job_kind' }));
+      expect(source).toEqual(before);
+    }
+  });
+
   it('returns the exact document model type while other Business writes remain legacy-only', () => {
     const legacy = fixture(); const canonical = normalizeLegacyJobs(legacy);
     expectTypeOf(addProductJobIntent(legacy, input)).toEqualTypeOf<MapDocument>();
-    expectTypeOf(addProductJobIntent(canonical, input)).toEqualTypeOf<CanonicalMapDocument>();
+    expectTypeOf(addProductJobIntent(canonical, input, { writeModel: 'canonical' })).toEqualTypeOf<CanonicalMapDocument>();
     expectTypeOf<ReturnType<typeof addProductJobIntent>>().toEqualTypeOf<MapDocument>();
+    expectTypeOf<Parameters<typeof addProductJobIntent>>().toEqualTypeOf<[document: MapDocument, input: ProductJobIntent]>();
+    expect(() => {
+      // @ts-expect-error Canonical writes require explicit third-argument opt-in.
+      addProductJobIntent(canonical, input);
+    }).toThrowError(expect.objectContaining({ code: 'invalid_product_job_kind' }));
     expectTypeOf<Parameters<typeof updateProductJobIntent>[0]>().toEqualTypeOf<MapDocument>();
     expectTypeOf<Parameters<typeof removeProductJobIntent>[0]>().toEqualTypeOf<MapDocument>();
     expectTypeOf<Parameters<typeof applyProductClientIntentCommand>[0]>().toEqualTypeOf<MapDocument>();
@@ -2772,7 +2797,7 @@ describe('canonical Product Job Intent addition', () => {
     const source = normalizeLegacyJobs(fixture()); const before = structuredClone(source); freeze(source);
     for (const addressedDesiredOutcomeIds of [[], [`${jobId}-do`]]) {
       const intent = { ...input, jobId, addressedDesiredOutcomeIds }; freeze(intent);
-      const result = addProductJobIntent(source, intent);
+      const result = addProductJobIntent(source, intent, { writeModel: 'canonical' });
       expect(result.productJobIntents).toEqual([...before.productJobIntents, intent]);
       expect(result.productJobIntents.at(-1)).not.toBe(intent);
       expect(result.productJobIntents.at(-1)!.addressedDesiredOutcomeIds).not.toBe(intent.addressedDesiredOutcomeIds);
@@ -2786,16 +2811,16 @@ describe('canonical Product Job Intent addition', () => {
     const legacy = fixture(); const canonical = normalizeLegacyJobs(legacy); freeze(legacy); freeze(canonical);
     const intent = { ...input, jobId, addressedDesiredOutcomeIds: [`${jobId}-do`] }; freeze(intent);
     const legacyResult = addProductJobIntent(legacy, intent);
-    const canonicalResult = addProductJobIntent(canonical, intent);
+    const canonicalResult = addProductJobIntent(canonical, intent, { writeModel: 'canonical' });
     expect(canonicalResult).toEqual(normalizeLegacyJobs(legacyResult));
     expect(canonicalResult.productJobIntents.at(-1)).toEqual(legacyResult.productJobIntents.at(-1));
   });
 
   it('keeps same-title former Core and Related Jobs as separate memberships and allows another Product', () => {
     const source = normalizeLegacyJobs(fixture()); freeze(source);
-    let result = addProductJobIntent(source, input);
-    result = addProductJobIntent(result, { id: 'related-intent', productId: 'product', jobId: 'related', addressedDesiredOutcomeIds: ['related-do'] });
-    result = addProductJobIntent(result, { id: 'other-intent', productId: 'other-product', jobId: 'core', addressedDesiredOutcomeIds: [] });
+    let result = addProductJobIntent(source, input, { writeModel: 'canonical' });
+    result = addProductJobIntent(result, { id: 'related-intent', productId: 'product', jobId: 'related', addressedDesiredOutcomeIds: ['related-do'] }, { writeModel: 'canonical' });
+    result = addProductJobIntent(result, { id: 'other-intent', productId: 'other-product', jobId: 'core', addressedDesiredOutcomeIds: [] }, { writeModel: 'canonical' });
     expect(result.productJobIntents.slice(1)).toEqual([
       input,
       { id: 'related-intent', productId: 'product', jobId: 'related', addressedDesiredOutcomeIds: ['related-do'] },
@@ -2803,8 +2828,8 @@ describe('canonical Product Job Intent addition', () => {
     ]);
     expect(result.entities.filter(entity => ['core', 'related'].includes(entity.id)).map(entity => [entity.kind, entity.title])).toEqual([['functional_job', 'Same Job'], ['functional_job', 'Same Job']]);
     const before = structuredClone(result); freeze(result);
-    expect(() => addProductJobIntent(result, { ...input, id: 'fresh-but-duplicate' })).toThrowError(expect.objectContaining({ code: 'duplicate_product_job_intent' }));
-    expect(() => addProductJobIntent(result, { ...input, productId: 'other-product', jobId: 'social' })).toThrowError(expect.objectContaining({ code: 'duplicate_product_job_intent_id' }));
+    expect(() => addProductJobIntent(result, { ...input, id: 'fresh-but-duplicate' }, { writeModel: 'canonical' })).toThrowError(expect.objectContaining({ code: 'duplicate_product_job_intent' }));
+    expect(() => addProductJobIntent(result, { ...input, productId: 'other-product', jobId: 'social' }, { writeModel: 'canonical' })).toThrowError(expect.objectContaining({ code: 'duplicate_product_job_intent_id' }));
     expect(result).toEqual(before);
   });
 
@@ -2828,7 +2853,7 @@ describe('canonical Product Job Intent addition', () => {
     const legacy = fixture(); const canonical = normalizeLegacyJobs(legacy);
     const intent = { ...input, ...changes }; freeze(intent);
     const beforeLegacy = structuredClone(legacy); const beforeCanonical = structuredClone(canonical); freeze(legacy); freeze(canonical);
-    for (const attempt of [() => addProductJobIntent(legacy, intent), () => addProductJobIntent(canonical, intent)]) {
+    for (const attempt of [() => addProductJobIntent(legacy, intent), () => addProductJobIntent(canonical, intent, { writeModel: 'canonical' })]) {
       expect(attempt).toThrow(DomainError);
       expect(attempt).toThrowError(expect.objectContaining({ code }));
     }
@@ -2840,11 +2865,11 @@ describe('canonical Product Job Intent addition', () => {
     source = setJobContextualParents(source, { targetJobId: 'related', parentJobIds: ['core', 'emotional'], newRelationshipIds: ['emotion-context'] });
     source = setFinancialDesiredOutcomeJobContexts(source, { financialDesiredOutcomeId: 'financial', jobIds: ['related', 'core'], newRelationshipIds: ['related-financial', 'core-financial'] });
     const before = structuredClone(source); freeze(source);
-    const result = addProductJobIntent(source, { ...input, jobId: 'related', addressedDesiredOutcomeIds: ['related-do'] });
+    const result = addProductJobIntent(source, { ...input, jobId: 'related', addressedDesiredOutcomeIds: ['related-do'] }, { writeModel: 'canonical' });
     expect(result.productJobIntents.map(intent => intent.jobId)).toEqual(['background', 'related']);
     expect(result).toEqual({ ...before, productJobIntents: [...before.productJobIntents, { ...input, jobId: 'related', addressedDesiredOutcomeIds: ['related-do'] }] });
     for (const outcomeId of ['core-do', 'emotional-do', 'financial']) {
-      expect(() => addProductJobIntent(source, { ...input, jobId: 'related', addressedDesiredOutcomeIds: [outcomeId] })).toThrow(DomainError);
+      expect(() => addProductJobIntent(source, { ...input, jobId: 'related', addressedDesiredOutcomeIds: [outcomeId] }, { writeModel: 'canonical' })).toThrow(DomainError);
     }
     expect(source).toEqual(before);
   });
@@ -2852,7 +2877,7 @@ describe('canonical Product Job Intent addition', () => {
   it('copies the new scope without sorting, sharing caller arrays, or changing downstream records', () => {
     const source = normalizeLegacyJobs(fixture()); const before = structuredClone(source); freeze(source);
     const intent = { ...input, addressedDesiredOutcomeIds: ['core-extra', 'core-do'] };
-    const result = addProductJobIntent(source, intent);
+    const result = addProductJobIntent(source, intent, { writeModel: 'canonical' });
     expect(result.productJobIntents).not.toBe(source.productJobIntents);
     expect(result.productJobIntents[0]).toBe(source.productJobIntents[0]);
     expect(result.productJobIntents.at(-1)!.addressedDesiredOutcomeIds).toEqual(['core-extra', 'core-do']);
@@ -2870,6 +2895,32 @@ describe('canonical Product Job Intent addition', () => {
     const before = structuredClone(source); freeze(source);
     expect(() => updateProductJobIntent(source, source.productJobIntents[0]!)).toThrowError(expect.objectContaining({ code: 'invalid_product_job_kind' }));
     expect(() => applyProductClientIntentCommand(source, { productId: 'product', command: { kind: 'select-job', jobId: 'background' } })).toThrowError(expect.objectContaining({ code: 'invalid_product_job_kind' }));
+    expect(source).toEqual(before);
+  });
+
+  it('uses explicit mode on identical shared-kind documents without storing the write option', () => {
+    let legacy = offerDocument();
+    legacy = addEntity(legacy, { ...place, entityId: 'emotional', title: 'Emotional', kind: 'emotional_job' });
+    legacy = addEntity(legacy, { ...place, entityId: 'emotional-do', title: 'Outcome', kind: 'desired_outcome', parentEntityId: 'emotional', relationshipId: 'owns-emotional' });
+    const canonical = normalizeLegacyJobs(legacy); expect(canonical).toEqual(legacy);
+    const before = structuredClone(legacy); freeze(legacy); freeze(canonical);
+    for (const addressedDesiredOutcomeIds of [[], ['emotional-do']]) {
+      const intent = { ...input, jobId: 'emotional', addressedDesiredOutcomeIds }; freeze(intent);
+      const legacyResult = addProductJobIntent(legacy, intent);
+      const canonicalResult = addProductJobIntent(canonical, intent, { writeModel: 'canonical' });
+      expectTypeOf(legacyResult).toEqualTypeOf<MapDocument>();
+      expectTypeOf(canonicalResult).toEqualTypeOf<CanonicalMapDocument>();
+      expect(canonicalResult).toEqual(legacyResult);
+      expect(canonicalResult).toEqual({ ...before, productJobIntents: [intent] });
+    }
+    expect(legacy).toEqual(before); expect(canonical).toEqual(before);
+  });
+
+  it('does not infer canonical mode from an unrelated Functional Job in a legacy document', () => {
+    const source = fixture();
+    Object.assign(source.entities.find(entity => entity.id === 'background')!, { kind: 'functional_job' });
+    const before = structuredClone(source); freeze(source); freeze(input);
+    expect(addProductJobIntent(source, input)).toEqual({ ...before, productJobIntents: [...before.productJobIntents, input] });
     expect(source).toEqual(before);
   });
 });
