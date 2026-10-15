@@ -9,6 +9,8 @@ type ReadJobKind = ProductClientIntentKind | CanonicalProductClientIntentKind;
 const READ_JOB_KINDS = ['functional_job', ...PRODUCT_CLIENT_INTENT_KINDS] as const;
 type OutcomeJobKind = ProductClientIntentKind;
 type DiscoveryKind = ProductClientIntentKind | 'desired_outcome';
+export type CanonicalProductDiscoveryKind = CanonicalProductClientIntentKind | 'desired_outcome';
+type ReadDiscoveryKind = DiscoveryKind | CanonicalProductDiscoveryKind;
 type Job = Entity & { kind: ProductClientIntentKind };
 type Outcome = Entity & { kind: 'desired_outcome' };
 type ReadEntity = MapReadDocument['entities'][number];
@@ -59,8 +61,24 @@ export interface ProductClientIntentDiscovery {
   kindShortcutMatches: { kind: DiscoveryKind; label: string }[];
   createChoices: ProductCreateChoice[];
 }
+export interface CanonicalProductDiscoveryJob extends Omit<ProductDiscoveryJob, 'job' | 'contextualCoreJob'> {
+  job: CanonicalJob;
+}
+interface ProductDiscoveryJobRead extends Omit<ProductDiscoveryJob, 'job'> { job: ReadJob }
+export interface CanonicalProductClientIntentDiscovery extends Omit<ProductClientIntentDiscovery, 'jobGroups' | 'kindShortcutMatches' | 'createChoices'> {
+  jobGroups: CanonicalProductDiscoveryJob[];
+  kindShortcutMatches: { kind: CanonicalProductDiscoveryKind; label: string }[];
+  createChoices: [];
+}
+export interface ProductClientIntentDiscoveryRead extends Omit<ProductClientIntentDiscovery, 'jobGroups' | 'kindShortcutMatches'> {
+  jobGroups: ProductDiscoveryJobRead[];
+  kindShortcutMatches: { kind: ReadDiscoveryKind; label: string }[];
+}
+export type ProductClientIntentDiscoveryInput = { query: string; kind?: DiscoveryKind; jobId?: string; readModel?: 'legacy' };
+export type CanonicalProductClientIntentDiscoveryInput = { query: string; kind?: CanonicalProductDiscoveryKind; jobId?: string; readModel: 'canonical' };
+
 const byTitleThenId = (a: Pick<ReadEntity, 'id' | 'title'>, b: Pick<ReadEntity, 'id' | 'title'>) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id);
-const eligible = (entity: Entity): entity is Job => PRODUCT_CLIENT_INTENT_KINDS.some(kind => kind === entity.kind);
+const eligible = (entity: ReadEntity): entity is Job => PRODUCT_CLIENT_INTENT_KINDS.some(kind => kind === entity.kind);
 
 function ownedOutcomes(document: MapReadDocument, jobId: string): Outcome[] {
   const ids = new Set(document.relationships.flatMap(relation => relation.kind === 'job_has_desired_outcome' && relation.jobId === jobId ? [relation.desiredOutcomeId] : []));
@@ -91,10 +109,12 @@ function legacyContext(document: MapReadDocument, job: ReadJob): Entity | undefi
   return parent?.kind === 'core_functional_job' ? parent : undefined;
 }
 
-function universe(document: MapDocument, productId: string) {
-  const jobs = document.entities.filter(eligible).sort((a, b) => PRODUCT_CLIENT_INTENT_KINDS.indexOf(a.kind) - PRODUCT_CLIENT_INTENT_KINDS.indexOf(b.kind) || byTitleThenId(a, b));
-  const state = (job: Job) => {
-    const contextualCoreJob = legacyContext(document, job);
+function universe(document: MapReadDocument, productId: string, readModel: 'legacy' | 'canonical') {
+  const kindOrder: readonly ReadJobKind[] = readModel === 'canonical' ? CANONICAL_PRODUCT_CLIENT_INTENT_KINDS : PRODUCT_CLIENT_INTENT_KINDS;
+  const jobs = document.entities.filter(readJob).filter(job => kindOrder.some(kind => kind === job.kind))
+    .sort((a, b) => kindOrder.indexOf(a.kind) - kindOrder.indexOf(b.kind) || byTitleThenId(a, b));
+  const state = (job: ReadJob) => {
+    const contextualCoreJob = readModel === 'canonical' ? undefined : legacyContext(document, job);
     return { ...membershipState(document, productId, job.id), job, ...(contextualCoreJob ? { contextualCoreJob } : {}) };
   };
   const entities = new Map(document.entities.map(entity => [entity.id, entity]));
@@ -130,15 +150,27 @@ export function productClientIntent(document: MapReadDocument, productId: string
 }
 
 /** Search and creation eligibility only; no drafts, contributor paths or domain commands. */
-export function productClientIntentDiscovery(document: MapDocument, productId: string, input: { query: string; kind?: DiscoveryKind; jobId?: string }): ProductClientIntentDiscovery {
-  const source = universe(document, productId);
+export function productClientIntentDiscovery(document: CanonicalMapDocument, productId: string, input: CanonicalProductClientIntentDiscoveryInput): CanonicalProductClientIntentDiscovery;
+export function productClientIntentDiscovery(document: MapReadDocument, productId: string, input: CanonicalProductClientIntentDiscoveryInput): CanonicalProductClientIntentDiscovery;
+// Keep the legacy overload last for existing ReturnType-based consumers.
+export function productClientIntentDiscovery(document: MapDocument, productId: string, input: ProductClientIntentDiscoveryInput): ProductClientIntentDiscovery;
+export function productClientIntentDiscovery(document: MapReadDocument, productId: string, input: ProductClientIntentDiscoveryInput | CanonicalProductClientIntentDiscoveryInput): ProductClientIntentDiscoveryRead {
+  const source = universe(document, productId, input.readModel ?? 'legacy');
   const query = normalizeClientIntentQuery(input.query);
   const title = input.query.trim();
-  const result: ProductClientIntentDiscovery = { status: 'unavailable', productId, query, title, jobGroups: [], kindShortcutMatches: [], createChoices: [] };
+  const result: ProductClientIntentDiscoveryRead = { status: 'unavailable', productId, query, title, jobGroups: [], kindShortcutMatches: [], createChoices: [] };
   const branch = input.jobId === undefined ? undefined : source.jobs.find(job => job.id === input.jobId && isDesiredOutcomeBearingJob(job.kind));
   if (!source.valid || (input.jobId !== undefined && !branch)) return result;
   result.status = 'available';
   result.kindShortcutMatches = clientIntentKindShortcutMatches(query).filter((match): match is { kind: DiscoveryKind; label: string } => match.kind !== 'financial_desired_outcome');
+  if (input.readModel === 'canonical') {
+    const shortcuts: CanonicalProductClientIntentDiscovery['kindShortcutMatches'] = [];
+    if (query && 'functional job'.includes(query)) shortcuts.push({ kind: 'functional_job', label: 'Functional Job' });
+    shortcuts.push(...result.kindShortcutMatches.flatMap(({ kind, label }) =>
+      kind === 'core_functional_job' || kind === 'related_job' ? [] : [{ kind, label }],
+    ));
+    result.kindShortcutMatches = shortcuts;
+  }
   const titleQuery = input.kind ? '' : query;
   result.jobGroups = (branch ? [branch] : source.jobs).flatMap(job => {
     const { outcomes, ...base } = source.state(job);
@@ -147,10 +179,17 @@ export function productClientIntentDiscovery(document: MapDocument, productId: s
     const desiredOutcomes = !input.kind || input.kind === 'desired_outcome' ? outcomes.filter(outcome => matches || clientIntentTitleMatches(outcome.entity.title, titleQuery)) : [];
     return showJobCandidate || desiredOutcomes.length ? [{ ...base, showJobCandidate, ...(isDesiredOutcomeBearingJob(job.kind) ? { desiredOutcomes } : {}) }] : [];
   });
+  // Canonical discovery is read-only, including branch-local and nonblank-query continuations.
+  if (input.readModel === 'canonical') {
+    const createChoices: [] = [];
+    return { ...result, createChoices };
+  }
   if (!title) return result;
+  const legacyJobs = source.jobs.filter(eligible);
+  const legacyBranch = branch && eligible(branch) ? branch : undefined;
   result.createChoices = ['core_functional_job', 'consumption_chain_job', 'emotional_job', 'social_job'].map(kind => ({ kind } as ProductCreateChoice));
   for (const kind of ['related_job', 'desired_outcome'] as const) {
-    const candidates = (kind === 'related_job' ? source.jobs.filter(job => job.kind === 'core_functional_job') : branch ? [branch] : source.jobs.filter(job => isDesiredOutcomeBearingJob(job.kind))).slice().sort(byTitleThenId);
+    const candidates = (kind === 'related_job' ? legacyJobs.filter(job => job.kind === 'core_functional_job') : legacyBranch ? [legacyBranch] : legacyJobs.filter(job => isDesiredOutcomeBearingJob(job.kind))).slice().sort(byTitleThenId);
     if (candidates.length) result.createChoices.push({ kind, resolution: candidates.length === 1 ? { status: 'resolved', owner: candidates[0]! } : { status: 'requires-choice', candidates } });
   }
   return result;
