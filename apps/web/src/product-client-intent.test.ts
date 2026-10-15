@@ -1,8 +1,9 @@
 import { normalizeLegacyJobs, setFinancialDesiredOutcomeJobContexts, setJobContextualParents, type MapReadDocument } from '@vee/domain';
 import { freezeMapReadFixture, legacyMapReadFixture } from './map-read-test-fixture';
 import { createEmptyMapDocument, type MapDocument } from '@vee/domain';
-import { describe, expect, it } from 'vitest';
-import { PRODUCT_CLIENT_INTENT_KINDS, productClientIntent, productClientIntentDiscovery } from './product-client-intent';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+import { PRODUCT_CLIENT_INTENT_KINDS, productClientIntent, productClientIntentDiscovery, type ProductClientIntentDiscovery, type ProductCreateChoice, type CanonicalProductClientIntentDiscovery, type CanonicalProductClientIntentDiscoveryInput, type CanonicalProductDiscoveryKind } from './product-client-intent';
+import { CLIENT_INTENT_DISCOVERY_KINDS, clientIntentKindShortcutMatches } from './client-intent-discovery';
 function fixture(): MapDocument {
   const d = createEmptyMapDocument({ mapId: 'm', title: 'Map', viewId: 'v', viewTitle: 'View' });
   d.entities.push({ id: 'p', kind: 'product', title: 'Product' });
@@ -216,4 +217,147 @@ it('reads canonical EJ/SJ contexts without requiring any Functional Job or selec
     id: 'product-intent:p:s', job: { id: 's', kind: 'social_job', title: 'Social' }, kind: 'social_job', productJobIntentIds: ['selected'],
     desiredOutcomes: [], outcomeKnowledge: 'empty', contextualParentJobs: [{ id: 'e', kind: 'emotional_job', title: 'Emotional' }],
   }] }] });
+});
+
+
+const canonicalProductDiscovery = (document: MapReadDocument, query = '', extra: Omit<CanonicalProductClientIntentDiscoveryInput, 'query' | 'readModel'> = {}) =>
+  productClientIntentDiscovery(document, 'p', { query, ...extra, readModel: 'canonical' });
+
+describe('canonical Product Client-intent Discovery read compatibility', () => {
+  it('preserves normalized discovery state and strict legacy results with canonical creation unavailable', () => {
+    const legacy = productReadFixture(); const document = normalizeLegacyJobs(legacy);
+    expectTypeOf(productClientIntentDiscovery(legacy, 'p', { query: '' })).toEqualTypeOf<ProductClientIntentDiscovery>();
+    expectTypeOf<ReturnType<typeof productClientIntentDiscovery>>().toEqualTypeOf<ProductClientIntentDiscovery>();
+    expectTypeOf(productClientIntentDiscovery(legacy, 'p', { query: 'New' }).createChoices).toEqualTypeOf<ProductCreateChoice[]>();
+    expectTypeOf(productClientIntentDiscovery(document, 'p', { query: '', readModel: 'canonical' })).toEqualTypeOf<CanonicalProductClientIntentDiscovery>();
+    expectTypeOf(canonicalProductDiscovery(document).createChoices).toEqualTypeOf<[]>();
+    expectTypeOf<CanonicalProductClientIntentDiscoveryInput>().toExtend<{ readModel: 'canonical' }>();
+    expectTypeOf<Extract<CanonicalProductDiscoveryKind, 'core_functional_job' | 'related_job' | 'financial_desired_outcome'>>().toEqualTypeOf<never>();
+    const old = productClientIntentDiscovery(legacy, 'p', { query: '' });
+    const result = canonicalProductDiscovery(document);
+    const expected = old.jobGroups.map(group => {
+      const base = { ...group };
+      delete base.contextualCoreJob;
+      return { ...base, job: { ...group.job, kind: group.job.kind === 'core_functional_job' || group.job.kind === 'related_job' ? 'functional_job' : group.job.kind } };
+    });
+    expect(result).toEqual({ ...old, jobGroups: expected });
+    expect(result.jobGroups.map(group => [group.job.id, group.job.kind])).toEqual([
+      ['u', 'functional_job'], ['j', 'functional_job'], ['rj', 'functional_job'], ['ccj', 'consumption_chain_job'], ['ej', 'emotional_job'], ['sj', 'social_job'],
+    ]);
+    expect(result.jobGroups.find(group => group.job.id === 'j')).toEqual({ id: 'product-intent:p:j', job: { id: 'j', title: 'Same activity', kind: 'functional_job' }, productJobIntentIds: ['pi'], checked: true, showJobCandidate: true,
+      desiredOutcomes: [{ id: 'a', owningJobId: 'j', entity: { id: 'a', kind: 'desired_outcome', title: 'Outcome A' }, checked: true }, { id: 'b', owningJobId: 'j', entity: { id: 'b', kind: 'desired_outcome', title: 'Outcome B' }, checked: true }] });
+    expect(result.jobGroups.find(group => group.job.id === 'u')).toMatchObject({ checked: false, productJobIntentIds: [], desiredOutcomes: [] });
+    expect(result.jobGroups.every(group => !('contextualCoreJob' in group))).toBe(true);
+    expect(productClientIntentDiscovery(legacy, 'p', { query: '' }).jobGroups.find(group => group.job.id === 'rj')).toHaveProperty('contextualCoreJob');
+  });
+
+  it('keeps direct DO search, selected state and same-title Job identities separate', () => {
+    const document = normalizeLegacyJobs(productReadFixture());
+    expect(canonicalProductDiscovery(document, 'Same activity').jobGroups.map(group => group.job.id)).toEqual(['j', 'rj']);
+    expect(canonicalProductDiscovery(document, '  RELATED CRITERION ').jobGroups).toMatchObject([{ job: { id: 'rj' }, checked: true, showJobCandidate: false, desiredOutcomes: [{ id: 'r-do', owningJobId: 'rj', checked: true }] }]);
+    document.productJobIntents = document.productJobIntents.filter(intent => intent.jobId !== 'rj');
+    expect(canonicalProductDiscovery(document, 'Related criterion').jobGroups[0]).toMatchObject({ job: { id: 'rj' }, checked: false, productJobIntentIds: [], showJobCandidate: false, desiredOutcomes: [{ id: 'r-do', checked: false }] });
+    expect(canonicalProductDiscovery(document, '').jobGroups.find(group => group.job.id === 'ej')).toMatchObject({ checked: true, desiredOutcomes: [{ id: 'e-do', checked: false }] });
+  });
+
+  it.each(['functional_job', 'consumption_chain_job', 'emotional_job', 'social_job'] as const)('browses canonical %s without legacy kind mapping', kind => {
+    const document = normalizeLegacyJobs(productReadFixture());
+    const result = canonicalProductDiscovery(document, 'unmatched title', { kind });
+    expect(result.jobGroups.map(group => group.job.kind)).toEqual(kind === 'functional_job' ? [kind, kind, kind] : [kind]);
+    expect(result.jobGroups.every(group => group.showJobCandidate && group.desiredOutcomes!.length === 0)).toBe(true);
+    expect(result.createChoices).toEqual([]);
+  });
+
+  it('preserves branch-local Desired Outcome browsing and never falls back from invalid owners', () => {
+    const document = normalizeLegacyJobs(productReadFixture());
+    const branch = canonicalProductDiscovery(document, 'New title', { jobId: 'rj', kind: 'desired_outcome' });
+    expect(branch).toMatchObject({ status: 'available', createChoices: [], jobGroups: [{ job: { id: 'rj' }, showJobCandidate: false, desiredOutcomes: [{ id: 'r-do', owningJobId: 'rj', checked: true }] }] });
+    expect(canonicalProductDiscovery(document, 'Outcome A', { jobId: 'rj' }).jobGroups).toEqual([]);
+    expect(canonicalProductDiscovery(document, '', { jobId: 'u' })).toMatchObject({ status: 'available', jobGroups: [{ job: { id: 'u' }, checked: false }] });
+    for (const jobId of ['missing', 'a', 'f', 'p', '']) expect(canonicalProductDiscovery(document, ' New Title ', { jobId })).toEqual({ status: 'unavailable', productId: 'p', query: 'new title', title: 'New Title', jobGroups: [], kindShortcutMatches: [], createChoices: [] });
+    for (const productId of ['missing', 'j', 'f']) expect(productClientIntentDiscovery(document, productId, { query: 'New', readModel: 'canonical' })).toMatchObject({ status: 'unavailable', jobGroups: [], kindShortcutMatches: [], createChoices: [] });
+  });
+
+  it.each(['', '  ', ' New Title ', 'Same activity', 'Related criterion'])('never offers canonical creation for query "%s" globally or under a valid owner', query => {
+    const legacy = productReadFixture(); const document = normalizeLegacyJobs(legacy);
+    for (const jobId of [undefined, 'j', 'rj', 'u']) {
+      const result = jobId === undefined ? canonicalProductDiscovery(document, query) : canonicalProductDiscovery(document, query, { jobId });
+      expect(result.status).toBe('available'); expect(result.createChoices).toEqual([]);
+      expect(result.query).toBe(query.trim().toLocaleLowerCase()); expect(result.title).toBe(query.trim());
+    }
+    if (query.trim()) expect(productClientIntentDiscovery(legacy, 'p', { query }).createChoices.map(choice => choice.kind)).toEqual(['core_functional_job', 'consumption_chain_job', 'emotional_job', 'social_job', 'related_job', 'desired_outcome']);
+  });
+
+  it('merges exact intent identities while ignoring stale, wrong-kind and foreign ordinary DO selections', () => {
+    const document = normalizeLegacyJobs(productReadFixture());
+    document.productJobIntents.find(intent => intent.id === 'pi')!.addressedDesiredOutcomeIds = ['a'];
+    document.productJobIntents.push(
+      { id: 'duplicate', productId: 'p', jobId: 'j', addressedDesiredOutcomeIds: ['b', 'b', 'r-do', 'f', 'rep', 'missing'] },
+      { id: 'other-product', productId: 'missing-product', jobId: 'u', addressedDesiredOutcomeIds: [] },
+      { id: 'missing-job', productId: 'p', jobId: 'missing', addressedDesiredOutcomeIds: [] },
+      { id: 'wrong-job', productId: 'p', jobId: 'f', addressedDesiredOutcomeIds: [] },
+    );
+    document.relationships.push({ id: 'duplicate-owner', kind: 'job_has_desired_outcome', jobId: 'j', desiredOutcomeId: 'a' }, { id: 'stale-owner', kind: 'job_has_desired_outcome', jobId: 'j', desiredOutcomeId: 'missing' }, { id: 'wrong-owner', kind: 'job_has_desired_outcome', jobId: 'j', desiredOutcomeId: 'f' });
+    const result = canonicalProductDiscovery(document);
+    expect(result.jobGroups.find(group => group.job.id === 'j')).toMatchObject({ id: 'product-intent:p:j', checked: true, productJobIntentIds: ['duplicate', 'pi'], desiredOutcomes: [{ id: 'a', owningJobId: 'j', checked: true }, { id: 'b', owningJobId: 'j', checked: true }] });
+    expect(result.jobGroups.find(group => group.job.id === 'u')).toMatchObject({ checked: false, productJobIntentIds: [] });
+    expect(result.jobGroups.map(group => group.job.id)).not.toContain('f');
+  });
+
+  it('does not infer Product membership or outcomes from contextual parents or financial contexts', () => {
+    let document = normalizeLegacyJobs(productReadFixture());
+    document.productJobIntents = document.productJobIntents.filter(intent => intent.jobId === 'rj');
+    const expected = canonicalProductDiscovery(document);
+    document = setJobContextualParents(document, { targetJobId: 'rj', parentJobIds: ['j', 'ej', 'u'], newRelationshipIds: ['e-r', 'u-r'] });
+    document = setFinancialDesiredOutcomeJobContexts(document, { financialDesiredOutcomeId: 'unselected-f', jobIds: ['j', 'rj', 'u'], newRelationshipIds: ['j-f', 'r-f', 'u-f'] });
+    expect(canonicalProductDiscovery(document)).toEqual(expected);
+    expect(canonicalProductDiscovery(document).jobGroups.filter(group => group.checked).map(group => group.job.id)).toEqual(['rj']);
+    expect(canonicalProductDiscovery(document, 'Outcome A', { jobId: 'rj' }).jobGroups).toEqual([]);
+    expect(canonicalProductDiscovery(document).jobGroups.every(group => !('contextualCoreJob' in group) && !('contextualParentJobs' in group))).toBe(true);
+  });
+
+  it.each(['empty', 'emotional-social-only'] as const)('uses explicit read mode for %s canonical graphs without exposing creation', shape => {
+    const legacy = createEmptyMapDocument({ mapId: 'empty', title: 'Empty', viewId: 'v', viewTitle: 'View' });
+    legacy.entities.push({ id: 'p', title: 'Product', kind: 'product' });
+    if (shape === 'emotional-social-only') legacy.entities.push({ id: 'e', title: 'Emotional', kind: 'emotional_job' }, { id: 's', title: 'Social', kind: 'social_job' });
+    const document = normalizeLegacyJobs(legacy);
+    expect(document).toEqual(legacy);
+    expect(canonicalProductDiscovery(document, 'functional').kindShortcutMatches).toEqual([{ kind: 'functional_job', label: 'Functional Job' }]);
+    expect(canonicalProductDiscovery(document, 'functional').createChoices).toEqual([]);
+    expect(productClientIntentDiscovery(legacy, 'p', { query: 'functional' }).kindShortcutMatches).toEqual([{ kind: 'core_functional_job', label: 'Core Functional Job' }]);
+    expect(productClientIntentDiscovery(legacy, 'p', { query: 'functional' }).createChoices.length).toBeGreaterThan(0);
+    expect(canonicalProductDiscovery(document).jobGroups).toHaveLength(shape === 'empty' ? 0 : 2);
+  });
+
+  it.each(['functional', 'Functional Job', 'job', 'core', 'related', 'FJ', 'desired', 'financial'])('keeps Product-specific canonical shortcuts and excludes FDO for query "%s"', query => {
+    const document = normalizeLegacyJobs(productReadFixture());
+    const result = canonicalProductDiscovery(document, query);
+    expect(result.kindShortcutMatches.some(shortcut => shortcut.kind === 'functional_job')).toBe('functional job'.includes(query.toLocaleLowerCase()));
+    expect(result.kindShortcutMatches.filter(shortcut => shortcut.kind !== 'functional_job')).toEqual(clientIntentKindShortcutMatches(query).filter(shortcut => !['core_functional_job', 'related_job', 'financial_desired_outcome'].includes(shortcut.kind)));
+    expect(result.kindShortcutMatches.map(shortcut => shortcut.kind)).not.toContain('financial_desired_outcome');
+    expect(result.kindShortcutMatches.map(shortcut => shortcut.kind)).not.toContain('core_functional_job');
+    expect(result.kindShortcutMatches.map(shortcut => shortcut.kind)).not.toContain('related_job');
+    expect(result.jobGroups.map(group => group.job.kind)).not.toContain('financial_desired_outcome');
+    expect(result.createChoices).toEqual([]);
+    expect(CLIENT_INTENT_DISCOVERY_KINDS).toContain('core_functional_job');
+    expect(clientIntentKindShortcutMatches('related')).toEqual([{ kind: 'related_job', label: 'Related Job' }]);
+  });
+
+  it.each(['legacy', 'canonical'] as const)('%s is deterministic on frozen documents and retains sorted IDs and selection isolation', representation => {
+    const legacy = productReadFixture(); const document = representation === 'legacy' ? legacy : normalizeLegacyJobs(legacy);
+    document.entities.find(entity => entity.id === 'b')!.title = 'Outcome A';
+    const reversed = structuredClone(document);
+    reversed.entities.reverse(); reversed.relationships.reverse(); reversed.productJobIntents.reverse();
+    const read = (source: MapReadDocument) => canonicalProductDiscovery(source);
+    const before = structuredClone(document); freezeMapReadFixture(document);
+    const result = representation === 'legacy' ? productClientIntentDiscovery(legacy, 'p', { query: '' }) : read(document);
+    if (representation === 'legacy') {
+      const reversedLegacy = { ...legacy, entities: [...legacy.entities].reverse(), relationships: [...legacy.relationships].reverse(), productJobIntents: [...legacy.productJobIntents].reverse() };
+      expect(productClientIntentDiscovery(reversedLegacy, 'p', { query: '' })).toEqual(result);
+    } else expect(read(reversed)).toEqual(result);
+    const job = result.jobGroups.find(group => group.job.id === 'j')!;
+    expect(job.desiredOutcomes!.map(outcome => outcome.id)).toEqual(['a', 'b']);
+    job.productJobIntentIds.pop(); job.desiredOutcomes![0]!.checked = false;
+    expect(document).toEqual(before);
+  });
 });
