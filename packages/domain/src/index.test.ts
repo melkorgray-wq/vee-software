@@ -1,7 +1,7 @@
 import { setFinancialDesiredOutcomeJobContexts, setJobContextualParents, type CanonicalMapDocument } from './index';
 import { normalizeLegacyJobs, DomainError, type LegacyJobNormalizationInput } from './index';
-import { describe, expect, it } from 'vitest';
-import { applyProductClientIntentCommand, type MapDocument, type ProductClientIntentCommand } from './index';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+import { applyProductClientIntentCommand, type MapDocument, type ProductClientIntentCommand, type ProductJobIntent } from './index';
 import { addProductDefinitionBlock, productDefinitionSourceState, productDefinitionWholeText, removeProductDefinitionBlock, reorderProductDefinitionBlocks, setProductCurrentDefinitionSource, setProductDefinitionExternalCopyUrl, updateProductDefinition, updateProductDefinitionBlock } from './index';
 import { CLIENT_ROOT_ENTITY_KINDS, addEntity, addOfferContentBlock, addProductJobIntent, removeOfferContentBlock, removeProductJobIntent, reorderOfferContentBlocks, setOfferContentExternalCopyUrl, setOfferCurrentContentSource, setOfferJobSelections, setContextualCoreFunctionalJobs, setOfferFinancialIntents, updateOfferContentBlock, updateProductJobIntent, addTouchpointContainer, applyTouchpointIntentDraft, changeOfferProduct, createEmptyMapDocument, duplicateEntity, duplicateEntityRelationshipIdCount, movePlacement, offerContentSourceState, offerContentWholeText, updateEntity, updateOfferContent, updateRepulsorTargets, authorTouchpointIntentBottomUp, selectAllLinkedOfferIntentsForTouchpoint, setTouchpointIntentSelections, setTouchpointMitigations, getIntentRemovalImpact, getOfferIntentChangeImpact, getProductIntentChangeImpact, getTouchpointLinkedOfferChangeImpact, removeOfferIntentConfirmed, distributeProductJobIntent, distributeOfferJobIntent, resistanceImpactForOffer, resistanceImpactForProduct, resistanceExposureForProduct, planTouchpointIntentPathChange, commitTouchpointIntentPathPlan, commitTouchpointParent, planTouchpointStructuralChange } from './index';
 
@@ -2720,5 +2720,156 @@ describe('legacy and canonical shared read selectors', () => {
     expect(relevantRepulsorsForTouchpoint({ ...empty, offerFinancialIntents: [] }, 'touch')).toEqual([]);
     expect(() => relevantRepulsorsForTouchpoint(document, 'missing')).toThrowError(expect.objectContaining({ code: 'invalid_relationship_reference' }));
     expect(() => relevantRepulsorsForTouchpoint(document, 'job')).toThrowError(expect.objectContaining({ code: 'invalid_relationship_endpoint' }));
+  });
+});
+
+describe('canonical Product Job Intent addition', () => {
+  function fixture(): MapDocument {
+    let d = offerDocument();
+    d = addEntity(d, { ...place, entityId: 'other-product', title: 'Other Product', kind: 'product' });
+    for (const [id, kind] of [['core', 'core_functional_job'], ['chain', 'consumption_chain_job'], ['emotional', 'emotional_job'], ['social', 'social_job'], ['background', 'core_functional_job']] as const) {
+      d = addEntity(d, { ...place, entityId: id, title: id === 'core' ? 'Same Job' : id, kind });
+      d = addEntity(d, { ...place, entityId: `${id}-do`, title: `${id} outcome`, kind: 'desired_outcome', parentEntityId: id, relationshipId: `owns-${id}` });
+    }
+    d = addEntity(d, { ...place, entityId: 'related', title: 'Same Job', kind: 'related_job', parentEntityId: 'core', relationshipId: 'core-related' });
+    d = addEntity(d, { ...place, entityId: 'related-do', title: 'Related outcome', kind: 'desired_outcome', parentEntityId: 'related', relationshipId: 'owns-related' });
+    d = addEntity(d, { ...place, entityId: 'core-extra', title: 'Extra outcome', kind: 'desired_outcome', parentEntityId: 'core', relationshipId: 'owns-extra' });
+    d = addProductJobIntent(d, { id: 'existing', productId: 'product', jobId: 'background', addressedDesiredOutcomeIds: ['background-do'] });
+    d = setOfferJobSelections(d, { offerId: 'offer', selections: [{ productJobIntentId: 'existing', addressedDesiredOutcomeIds: ['background-do'] }], newSelectionIds: ['existing-offer-selection'] });
+    d = addEntity(d, { ...place, entityId: 'touch', title: 'Touchpoint', kind: 'touchpoint', linkedOfferIds: ['offer'], relationshipIds: ['presents'] });
+    d = addEntity(d, { ...place, entityId: 'financial', title: 'Financial criterion', kind: 'financial_desired_outcome' });
+    d = setOfferFinancialIntents(d, { offerId: 'offer', financialDesiredOutcomeIds: ['financial'], newIntentIds: ['financial-intent'] });
+    d = setTouchpointIntentSelections(d, { touchpointId: 'touch', selections: [
+      { id: 'existing-touch-selection', kind: 'job', offerId: 'offer', productJobIntentId: 'existing', addressedDesiredOutcomeIds: ['background-do'] },
+      { id: 'financial-selection', kind: 'financial', offerId: 'offer', offerFinancialIntentId: 'financial-intent' },
+    ] });
+    d = addEntity(d, { ...place, entityId: 'repulsor', title: 'Concern', kind: 'repulsor', resistedTargetIds: ['background'], relationshipIds: ['resists'] });
+    d = setTouchpointMitigations(d, { touchpointId: 'touch', repulsorIds: ['repulsor'], newRelationshipIds: ['mitigates'] });
+    d.epistemicAnnotations.push({ id: 'note', subjectEntityId: 'core', status: 'hypothesis', sourceNote: 'Synthetic fixture' });
+    return d;
+  }
+  function freeze(value: unknown): void {
+    if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); }
+  }
+  const input: ProductJobIntent = { id: 'new-intent', productId: 'product', jobId: 'core', addressedDesiredOutcomeIds: ['core-do'] };
+
+  it('returns the exact document model type while other Business writes remain legacy-only', () => {
+    const legacy = fixture(); const canonical = normalizeLegacyJobs(legacy);
+    expectTypeOf(addProductJobIntent(legacy, input)).toEqualTypeOf<MapDocument>();
+    expectTypeOf(addProductJobIntent(canonical, input)).toEqualTypeOf<CanonicalMapDocument>();
+    expectTypeOf<ReturnType<typeof addProductJobIntent>>().toEqualTypeOf<MapDocument>();
+    expectTypeOf<Parameters<typeof updateProductJobIntent>[0]>().toEqualTypeOf<MapDocument>();
+    expectTypeOf<Parameters<typeof removeProductJobIntent>[0]>().toEqualTypeOf<MapDocument>();
+    expectTypeOf<Parameters<typeof applyProductClientIntentCommand>[0]>().toEqualTypeOf<MapDocument>();
+    expectTypeOf<Parameters<typeof authorTouchpointIntentBottomUp>[0]>().toEqualTypeOf<MapDocument>();
+    expectTypeOf<Parameters<typeof distributeProductJobIntent>[0]>().toEqualTypeOf<MapDocument>();
+    expectTypeOf<Parameters<typeof duplicateEntity>[0]>().toEqualTypeOf<MapDocument>();
+    expectTypeOf<Parameters<typeof setOfferJobSelections>[0]>().toEqualTypeOf<MapDocument>();
+    expectTypeOf<Parameters<typeof setTouchpointIntentSelections>[0]>().toEqualTypeOf<MapDocument>();
+  });
+
+  it.each(['core', 'chain', 'emotional', 'social'] as const)('adds explicit %s membership with empty and nonempty scopes', jobId => {
+    const source = normalizeLegacyJobs(fixture()); const before = structuredClone(source); freeze(source);
+    for (const addressedDesiredOutcomeIds of [[], [`${jobId}-do`]]) {
+      const intent = { ...input, jobId, addressedDesiredOutcomeIds }; freeze(intent);
+      const result = addProductJobIntent(source, intent);
+      expect(result.productJobIntents).toEqual([...before.productJobIntents, intent]);
+      expect(result.productJobIntents.at(-1)).not.toBe(intent);
+      expect(result.productJobIntents.at(-1)!.addressedDesiredOutcomeIds).not.toBe(intent.addressedDesiredOutcomeIds);
+      expect(result).toEqual({ ...before, productJobIntents: [...before.productJobIntents, intent] });
+      expect(normalizeLegacyJobs(result)).toEqual(result);
+      expect(source).toEqual(before);
+    }
+  });
+
+  it.each(['core', 'related', 'chain', 'emotional', 'social'] as const)('preserves %s intent and owned DO identities across normalization', jobId => {
+    const legacy = fixture(); const canonical = normalizeLegacyJobs(legacy); freeze(legacy); freeze(canonical);
+    const intent = { ...input, jobId, addressedDesiredOutcomeIds: [`${jobId}-do`] }; freeze(intent);
+    const legacyResult = addProductJobIntent(legacy, intent);
+    const canonicalResult = addProductJobIntent(canonical, intent);
+    expect(canonicalResult).toEqual(normalizeLegacyJobs(legacyResult));
+    expect(canonicalResult.productJobIntents.at(-1)).toEqual(legacyResult.productJobIntents.at(-1));
+  });
+
+  it('keeps same-title former Core and Related Jobs as separate memberships and allows another Product', () => {
+    const source = normalizeLegacyJobs(fixture()); freeze(source);
+    let result = addProductJobIntent(source, input);
+    result = addProductJobIntent(result, { id: 'related-intent', productId: 'product', jobId: 'related', addressedDesiredOutcomeIds: ['related-do'] });
+    result = addProductJobIntent(result, { id: 'other-intent', productId: 'other-product', jobId: 'core', addressedDesiredOutcomeIds: [] });
+    expect(result.productJobIntents.slice(1)).toEqual([
+      input,
+      { id: 'related-intent', productId: 'product', jobId: 'related', addressedDesiredOutcomeIds: ['related-do'] },
+      { id: 'other-intent', productId: 'other-product', jobId: 'core', addressedDesiredOutcomeIds: [] },
+    ]);
+    expect(result.entities.filter(entity => ['core', 'related'].includes(entity.id)).map(entity => [entity.kind, entity.title])).toEqual([['functional_job', 'Same Job'], ['functional_job', 'Same Job']]);
+    const before = structuredClone(result); freeze(result);
+    expect(() => addProductJobIntent(result, { ...input, id: 'fresh-but-duplicate' })).toThrowError(expect.objectContaining({ code: 'duplicate_product_job_intent' }));
+    expect(() => addProductJobIntent(result, { ...input, productId: 'other-product', jobId: 'social' })).toThrowError(expect.objectContaining({ code: 'duplicate_product_job_intent_id' }));
+    expect(result).toEqual(before);
+  });
+
+  const invalidInputs: [string, Partial<ProductJobIntent>, string][] = [
+    ['missing Product', { productId: 'missing' }, 'invalid_relationship_reference'],
+    ['wrong-kind Product', { productId: 'core' }, 'invalid_relationship_endpoint'],
+    ['missing Job', { jobId: 'missing' }, 'invalid_product_job_reference'],
+    ['Business entity as Job', { jobId: 'offer' }, 'invalid_product_job_kind'],
+    ['Repulsor as Job', { jobId: 'repulsor' }, 'invalid_product_job_kind'],
+    ['FDO as Job', { jobId: 'financial' }, 'invalid_product_job_kind'],
+    ['ordinary DO as Job', { jobId: 'core-do' }, 'invalid_product_job_kind'],
+    ['duplicate intent ID', { id: 'existing' }, 'duplicate_product_job_intent_id'],
+    ['duplicate Product/Job', { jobId: 'background' }, 'duplicate_product_job_intent'],
+    ['duplicate DO IDs', { addressedDesiredOutcomeIds: ['core-do', 'core-do'] }, 'duplicate_addressed_desired_outcome'],
+    ['missing DO', { addressedDesiredOutcomeIds: ['missing'] }, 'invalid_relationship_reference'],
+    ['Job as DO', { addressedDesiredOutcomeIds: ['core'] }, 'invalid_relationship_endpoint'],
+    ['FDO as ordinary DO', { addressedDesiredOutcomeIds: ['financial'] }, 'invalid_relationship_endpoint'],
+    ['foreign DO', { addressedDesiredOutcomeIds: ['emotional-do'] }, 'desired_outcome_not_owned_by_job'],
+  ];
+  it.each(invalidInputs)('rejects %s atomically with the existing DomainError code in both models', (_label, changes, code) => {
+    const legacy = fixture(); const canonical = normalizeLegacyJobs(legacy);
+    const intent = { ...input, ...changes }; freeze(intent);
+    const beforeLegacy = structuredClone(legacy); const beforeCanonical = structuredClone(canonical); freeze(legacy); freeze(canonical);
+    for (const attempt of [() => addProductJobIntent(legacy, intent), () => addProductJobIntent(canonical, intent)]) {
+      expect(attempt).toThrow(DomainError);
+      expect(attempt).toThrowError(expect.objectContaining({ code }));
+    }
+    expect(legacy).toEqual(beforeLegacy); expect(canonical).toEqual(beforeCanonical);
+  });
+
+  it('requires direct ownership even when the selected Job has multiple contextual parents and FDO links', () => {
+    let source = normalizeLegacyJobs(fixture());
+    source = setJobContextualParents(source, { targetJobId: 'related', parentJobIds: ['core', 'emotional'], newRelationshipIds: ['emotion-context'] });
+    source = setFinancialDesiredOutcomeJobContexts(source, { financialDesiredOutcomeId: 'financial', jobIds: ['related', 'core'], newRelationshipIds: ['related-financial', 'core-financial'] });
+    const before = structuredClone(source); freeze(source);
+    const result = addProductJobIntent(source, { ...input, jobId: 'related', addressedDesiredOutcomeIds: ['related-do'] });
+    expect(result.productJobIntents.map(intent => intent.jobId)).toEqual(['background', 'related']);
+    expect(result).toEqual({ ...before, productJobIntents: [...before.productJobIntents, { ...input, jobId: 'related', addressedDesiredOutcomeIds: ['related-do'] }] });
+    for (const outcomeId of ['core-do', 'emotional-do', 'financial']) {
+      expect(() => addProductJobIntent(source, { ...input, jobId: 'related', addressedDesiredOutcomeIds: [outcomeId] })).toThrow(DomainError);
+    }
+    expect(source).toEqual(before);
+  });
+
+  it('copies the new scope without sorting, sharing caller arrays, or changing downstream records', () => {
+    const source = normalizeLegacyJobs(fixture()); const before = structuredClone(source); freeze(source);
+    const intent = { ...input, addressedDesiredOutcomeIds: ['core-extra', 'core-do'] };
+    const result = addProductJobIntent(source, intent);
+    expect(result.productJobIntents).not.toBe(source.productJobIntents);
+    expect(result.productJobIntents[0]).toBe(source.productJobIntents[0]);
+    expect(result.productJobIntents.at(-1)!.addressedDesiredOutcomeIds).toEqual(['core-extra', 'core-do']);
+    for (const key of ['entities', 'relationships', 'offerJobSelections', 'offerFinancialIntents', 'touchpointJobSelections', 'touchpointFinancialSelections', 'touchpointContainers', 'placements', 'views', 'epistemicAnnotations'] as const) expect(result[key]).toBe(source[key]);
+    intent.addressedDesiredOutcomeIds.pop(); intent.jobId = 'social';
+    expect(result.productJobIntents.at(-1)).toEqual({ ...input, addressedDesiredOutcomeIds: ['core-extra', 'core-do'] });
+    result.productJobIntents.at(-1)!.addressedDesiredOutcomeIds.pop();
+    expect(source).toEqual(before);
+  });
+
+  it('keeps the shared validator legacy default for callers outside explicit addition', () => {
+    const source = fixture();
+    // Deliberately malformed legacy input verifies the private default without casting a canonical document.
+    Object.assign(source.entities.find(entity => entity.id === 'background')!, { kind: 'functional_job' });
+    const before = structuredClone(source); freeze(source);
+    expect(() => updateProductJobIntent(source, source.productJobIntents[0]!)).toThrowError(expect.objectContaining({ code: 'invalid_product_job_kind' }));
+    expect(() => applyProductClientIntentCommand(source, { productId: 'product', command: { kind: 'select-job', jobId: 'background' } })).toThrowError(expect.objectContaining({ code: 'invalid_product_job_kind' }));
+    expect(source).toEqual(before);
   });
 });

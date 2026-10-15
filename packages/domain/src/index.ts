@@ -103,11 +103,11 @@ export function isDesiredOutcomeBearingJob(kind: ProvisionalEntityKind | Canonic
 export function effectiveOfferDesiredOutcomeIds(document: Pick<MapDocument, 'productJobIntents'>, selection: OfferJobSelection): string[] {
   return [...(selection.addressedDesiredOutcomeIds ?? document.productJobIntents.find(intent => intent.id === selection.productJobIntentId)?.addressedDesiredOutcomeIds ?? [])];
 }
-function validateProductJobIntent(document: MapDocument, input: { productId: string; jobId: string; addressedDesiredOutcomeIds: string[] }, ignoredId?: string) {
+function validateProductJobIntent(document: MapReadDocument, input: { productId: string; jobId: string; addressedDesiredOutcomeIds: string[] }, ignoredId?: string, eligibleJobKinds: readonly string[] = PRODUCT_JOB_KINDS) {
   entityOfKind(document, input.productId, 'product', 'Product');
   const job = document.entities.find(entity => entity.id === input.jobId);
   if (!job) throw new DomainError('invalid_product_job_reference', 'Job does not reference an existing entity.');
-  if (!(PRODUCT_JOB_KINDS as readonly string[]).includes(job.kind)) throw new DomainError('invalid_product_job_kind', 'Product intent must reference an eligible Client Job.');
+  if (!eligibleJobKinds.includes(job.kind)) throw new DomainError('invalid_product_job_kind', 'Product intent must reference an eligible Client Job.');
   if (document.productJobIntents.some(intent => intent.id !== ignoredId && intent.productId === input.productId && intent.jobId === input.jobId)) throw new DomainError('duplicate_product_job_intent', 'A Product may address a Job only once.');
   unique(input.addressedDesiredOutcomeIds, 'duplicate_addressed_desired_outcome');
   if (!isDesiredOutcomeBearingJob(job.kind) && input.addressedDesiredOutcomeIds.length) throw new DomainError('desired_outcome_not_allowed', 'This Job kind cannot select Desired Outcomes.');
@@ -116,9 +116,13 @@ function validateProductJobIntent(document: MapDocument, input: { productId: str
     if (!document.relationships.some(relation => relation.kind === 'job_has_desired_outcome' && relation.jobId === job.id && relation.desiredOutcomeId === outcomeId)) throw new DomainError('desired_outcome_not_owned_by_job', 'Every addressed Desired Outcome must belong to the selected Job.');
   }
 }
-export function addProductJobIntent(document: MapDocument, input: ProductJobIntent): MapDocument {
+export function addProductJobIntent(document: CanonicalMapDocument, input: ProductJobIntent): CanonicalMapDocument;
+// Preserve the legacy return type for existing ReturnType-based consumers.
+export function addProductJobIntent(document: MapDocument, input: ProductJobIntent): MapDocument;
+export function addProductJobIntent(document: MapReadDocument, input: ProductJobIntent): MapReadDocument {
   if (document.productJobIntents.some(intent => intent.id === input.id)) throw new DomainError('duplicate_product_job_intent_id', 'Product Job Intent ID already exists.');
-  validateProductJobIntent(document, input);
+  // Only explicit addition opts into canonical eligibility; other validator callers stay legacy-owned.
+  validateProductJobIntent(document, input, undefined, [...PRODUCT_JOB_KINDS, ...CANONICAL_JOB_KINDS]);
   return { ...document, productJobIntents: [...document.productJobIntents, { ...input, addressedDesiredOutcomeIds: [...input.addressedDesiredOutcomeIds] }] };
 }
 export function updateProductJobIntent(document: MapDocument, input: ProductJobIntent): MapDocument {
@@ -1607,7 +1611,7 @@ export function applyProductClientIntentCommand(document: MapDocument, input: { 
 
 type CanonicalizedEntityKind<K> = K extends 'core_functional_job' | 'related_job' ? 'functional_job' : K;
 type CanonicalizedEntity<E> = E extends Entity ? Omit<E, 'kind'> & { kind: CanonicalizedEntityKind<E['kind']> } : never;
-/** Transitional normalization output; existing mutation APIs still own legacy MapDocument. */
+/** Canonical normalization output; explicit Product intent addition and contextual operations accept it. Other mutation APIs remain legacy-owned. */
 export type CanonicalEntity = CanonicalizedEntity<Entity>;
 export type CanonicalRelationship =
   | Exclude<Relationship, { kind: 'core_functional_job_has_related_job' | 'core_functional_job_contextualizes_job' }>
@@ -1617,7 +1621,7 @@ export interface CanonicalMapDocument extends Omit<MapDocument, 'entities' | 're
   entities: CanonicalEntity[];
   relationships: CanonicalRelationship[];
 }
-/** Shared read boundary only; legacy and canonical mutation APIs remain separate. */
+/** Shared read boundary; mutation support is declared separately by each operation's public signatures. */
 export type MapReadDocument = MapDocument | CanonicalMapDocument;
 export interface LegacyJobNormalizationInput extends Omit<MapDocument, 'entities' | 'relationships'> {
   entities: (Entity | CanonicalEntity)[];
