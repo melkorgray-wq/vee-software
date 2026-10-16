@@ -2773,7 +2773,7 @@ describe('canonical Product Job Intent addition', () => {
     }
   });
 
-  it('returns the exact document model type while other Business writes remain legacy-only', () => {
+  it('returns the exact document model type and preserves existing two-argument write signatures', () => {
     const legacy = fixture(); const canonical = normalizeLegacyJobs(legacy);
     expectTypeOf(addProductJobIntent(legacy, input)).toEqualTypeOf<MapDocument>();
     expectTypeOf(addProductJobIntent(canonical, input, { writeModel: 'canonical' })).toEqualTypeOf<CanonicalMapDocument>();
@@ -2888,7 +2888,7 @@ describe('canonical Product Job Intent addition', () => {
     expect(source).toEqual(before);
   });
 
-  it('keeps the shared validator legacy default for callers outside explicit addition', () => {
+  it('keeps the shared validator legacy default for two-argument callers', () => {
     const source = fixture();
     // Deliberately malformed legacy input verifies the private default without casting a canonical document.
     Object.assign(source.entities.find(entity => entity.id === 'background')!, { kind: 'functional_job' });
@@ -2922,5 +2922,270 @@ describe('canonical Product Job Intent addition', () => {
     const before = structuredClone(source); freeze(source); freeze(input);
     expect(addProductJobIntent(source, input)).toEqual({ ...before, productJobIntents: [...before.productJobIntents, input] });
     expect(source).toEqual(before);
+  });
+});
+
+describe('canonical Product Job Intent update', () => {
+  type LegacyJobKind = 'core_functional_job' | 'related_job' | 'consumption_chain_job' | 'emotional_job' | 'social_job';
+  function fixture(kind: LegacyJobKind = 'core_functional_job'): MapDocument {
+    let d = offerDocument();
+    if (kind === 'related_job') {
+      d = addEntity(d, { ...place, entityId: 'context', title: 'Context', kind: 'core_functional_job' });
+      d = addEntity(d, { ...place, entityId: 'job', title: 'Job', kind, parentEntityId: 'context', relationshipId: 'context-job' });
+    } else d = addEntity(d, { ...place, entityId: 'job', title: 'Job', kind });
+    for (const id of ['a', 'b', 'c']) d = addEntity(d, { ...place, entityId: id, title: id, kind: 'desired_outcome', parentEntityId: 'job', relationshipId: `owns-${id}` });
+    d = addEntity(d, { ...place, entityId: 'other-job', title: 'Other Job', kind: 'core_functional_job' });
+    d = addEntity(d, { ...place, entityId: 'u', title: 'Unrelated outcome', kind: 'desired_outcome', parentEntityId: 'other-job', relationshipId: 'owns-u' });
+    d = addProductJobIntent(d, { id: 'pi', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds: ['a', 'b'] });
+    d = addProductJobIntent(d, { id: 'other-intent', productId: 'product', jobId: 'other-job', addressedDesiredOutcomeIds: ['u'] });
+    d = addEntity(d, { ...place, entityId: 'offer2', title: 'Second Offer', kind: 'offer', linkedProductId: 'product', relationshipId: 'packaged2' });
+    d = setOfferJobSelections(d, { offerId: 'offer', selections: [{ productJobIntentId: 'pi', addressedDesiredOutcomeIds: ['a', 'b'] }, { productJobIntentId: 'other-intent', addressedDesiredOutcomeIds: ['u'] }], newSelectionIds: ['os', 'other-os'] });
+    d = setOfferJobSelections(d, { offerId: 'offer2', selections: [{ productJobIntentId: 'pi', addressedDesiredOutcomeIds: ['b'] }], newSelectionIds: ['os2'] });
+    d = addEntity(d, { ...place, entityId: 'financial', title: 'Financial criterion', kind: 'financial_desired_outcome' });
+    d = setOfferFinancialIntents(d, { offerId: 'offer', financialDesiredOutcomeIds: ['financial'], newIntentIds: ['fi'] });
+    d = addEntity(d, { ...place, entityId: 'touch', title: 'Touchpoint', kind: 'touchpoint', linkedOfferIds: ['offer', 'offer2'], relationshipIds: ['presents', 'presents2'] });
+    d = addEntity(d, { ...place, entityId: 'touch2', title: 'Second Touchpoint', kind: 'touchpoint', linkedOfferIds: ['offer'], relationshipIds: ['presents3'] });
+    d = setTouchpointIntentSelections(d, { touchpointId: 'touch', selections: [
+      { id: 'ts', kind: 'job', offerId: 'offer', productJobIntentId: 'pi', addressedDesiredOutcomeIds: ['a', 'b'] },
+      { id: 'ts2', kind: 'job', offerId: 'offer2', productJobIntentId: 'pi', addressedDesiredOutcomeIds: ['b'] },
+      { id: 'other-ts', kind: 'job', offerId: 'offer', productJobIntentId: 'other-intent', addressedDesiredOutcomeIds: ['u'] },
+      { id: 'fs', kind: 'financial', offerId: 'offer', offerFinancialIntentId: 'fi' },
+    ] });
+    d = setTouchpointIntentSelections(d, { touchpointId: 'touch2', selections: [{ id: 'ts3', kind: 'job', offerId: 'offer', productJobIntentId: 'pi', addressedDesiredOutcomeIds: ['b'] }] });
+    for (const [id, target] of [['rep', 'job'], ['other-rep', 'other-job'], ['financial-rep', 'financial']] as const) d = addEntity(d, { ...place, entityId: id, title: id, kind: 'repulsor', resistedTargetIds: [target], relationshipIds: [`resists-${id}`] });
+    d = setTouchpointMitigations(d, { touchpointId: 'touch', repulsorIds: ['rep', 'other-rep', 'financial-rep'], newRelationshipIds: ['mit', 'other-mit', 'financial-mit'] });
+    d = setTouchpointMitigations(d, { touchpointId: 'touch2', repulsorIds: ['rep'], newRelationshipIds: ['mit2'] });
+    d.epistemicAnnotations.push({ id: 'note', subjectEntityId: 'job', status: 'hypothesis', sourceNote: 'Synthetic update fixture' });
+    return d;
+  }
+  function freeze(value: unknown): void {
+    if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); }
+  }
+  const change = (addressedDesiredOutcomeIds: string[]): ProductJobIntent => ({ id: 'pi', productId: 'product', jobId: 'job', addressedDesiredOutcomeIds });
+  const update = (document: CanonicalMapDocument, outcomes: string[]) => updateProductJobIntent(document, change(outcomes), { writeModel: 'canonical' });
+  const mitigationIds = (document: CanonicalMapDocument) => document.relationships.filter(relation => relation.kind === 'touchpoint_mitigates_repulsor').map(relation => relation.id);
+
+  it('requires canonical opt-in, preserves exact returns and leaves other write signatures unchanged', () => {
+    const legacy = fixture(); const canonical = normalizeLegacyJobs(legacy);
+    expectTypeOf(updateProductJobIntent(legacy, change(['a']))).toEqualTypeOf<MapDocument>();
+    expectTypeOf(update(canonical, ['a'])).toEqualTypeOf<CanonicalMapDocument>();
+    expectTypeOf<ReturnType<typeof updateProductJobIntent>>().toEqualTypeOf<MapDocument>();
+    expectTypeOf<Parameters<typeof updateProductJobIntent>>().toEqualTypeOf<[document: MapDocument, input: ProductJobIntent]>();
+    expectTypeOf<Parameters<typeof removeProductJobIntent>[0]>().toEqualTypeOf<MapDocument>();
+    expectTypeOf<Parameters<typeof applyProductClientIntentCommand>[0]>().toEqualTypeOf<MapDocument>();
+    expectTypeOf<Parameters<typeof setOfferJobSelections>[0]>().toEqualTypeOf<MapDocument>();
+    expectTypeOf<Parameters<typeof setTouchpointIntentSelections>[0]>().toEqualTypeOf<MapDocument>();
+    expect(() => {
+      // @ts-expect-error Canonical update requires explicit third-argument opt-in.
+      updateProductJobIntent(canonical, change(['a']));
+    }).toThrowError(expect.objectContaining({ code: 'invalid_product_job_kind' }));
+  });
+
+  it.each(['core_functional_job', 'related_job', 'consumption_chain_job', 'emotional_job', 'social_job'] as const)('preserves %s legacy/canonical parity for narrowing, clearing and widening', kind => {
+    const legacy = fixture(kind); const canonical = normalizeLegacyJobs(legacy);
+    const before = structuredClone(canonical); freeze(legacy); freeze(canonical);
+    for (const outcomes of [['a'], [], ['c', 'b', 'a']]) {
+      const input = change(outcomes); freeze(input);
+      const result = updateProductJobIntent(canonical, input, { writeModel: 'canonical' });
+      expect(result).toEqual(normalizeLegacyJobs(updateProductJobIntent(legacy, input)));
+      expect(result.productJobIntents.find(intent => intent.id === 'pi')).toEqual(input);
+      expect(result.offerJobSelections.map(selection => selection.id)).toEqual(before.offerJobSelections.map(selection => selection.id));
+      expect(result.touchpointJobSelections.map(selection => selection.id)).toEqual(before.touchpointJobSelections.map(selection => selection.id));
+      expect(result.offerFinancialIntents).toBe(canonical.offerFinancialIntents);
+      expect(result.touchpointFinancialSelections).toBe(canonical.touchpointFinancialSelections);
+      expect(result.entities).toBe(canonical.entities); expect(result.placements).toBe(canonical.placements);
+      expect(result.epistemicAnnotations).toBe(canonical.epistemicAnnotations);
+      expect(canonical).toEqual(before);
+    }
+  });
+
+  it('narrows each attributed Offer/Touchpoint path and prunes only mitigation losing its last relevant route', () => {
+    const source = normalizeLegacyJobs(fixture()); const before = structuredClone(source); freeze(source);
+    const result = update(source, ['a']);
+    expect(result.offerJobSelections.map(selection => [selection.id, selection.addressedDesiredOutcomeIds])).toEqual([['os', ['a']], ['other-os', ['u']], ['os2', []]]);
+    expect(result.touchpointJobSelections.map(selection => [selection.id, selection.addressedDesiredOutcomeIds])).toEqual([['ts', ['a']], ['ts2', []], ['other-ts', ['u']], ['ts3', []]]);
+    expect(mitigationIds(result)).toEqual(['mit', 'other-mit', 'financial-mit']);
+    expect(mitigationIds(update(source, []))).toEqual(['other-mit', 'financial-mit']);
+    expect(result.relationships.filter(relation => relation.kind !== 'touchpoint_mitigates_repulsor')).toEqual(source.relationships.filter(relation => relation.kind !== 'touchpoint_mitigates_repulsor'));
+    expect(source).toEqual(before);
+  });
+
+  it.each(['omitted', 'empty'] as const)('preserves %s Offer scope policy from the previous document', scope => {
+    const legacy = fixture(); const canonical = normalizeLegacyJobs(legacy);
+    for (const source of [legacy, canonical]) {
+      const selection = source.offerJobSelections.find(item => item.id === 'os')!;
+      if (scope === 'omitted') delete selection.addressedDesiredOutcomeIds;
+      else selection.addressedDesiredOutcomeIds = [];
+    }
+    const before = structuredClone(canonical); freeze(legacy); freeze(canonical);
+    for (const outcomes of [['a'], ['a', 'b', 'c']]) {
+      const result = update(canonical, outcomes);
+      const expected = scope === 'empty' ? [] : outcomes.filter(id => ['a', 'b'].includes(id));
+      expect(result.offerJobSelections.find(item => item.id === 'os')!.addressedDesiredOutcomeIds).toEqual(expected);
+      expect(result.touchpointJobSelections.find(item => item.id === 'ts')!.addressedDesiredOutcomeIds).toEqual(expected);
+      expect(result).toEqual(normalizeLegacyJobs(updateProductJobIntent(legacy, change(outcomes))));
+      expect(canonical).toEqual(before);
+    }
+  });
+
+  it('widens only Product scope and never initializes missing downstream selections', () => {
+    const source = normalizeLegacyJobs(fixture()); freeze(source);
+    const result = update(source, ['a', 'b', 'c']);
+    expect(result.offerJobSelections).toEqual(source.offerJobSelections);
+    expect(result.touchpointJobSelections).toEqual(source.touchpointJobSelections);
+    expect(result.relationships).toEqual(source.relationships);
+    const missing = structuredClone(source);
+    missing.offerJobSelections = missing.offerJobSelections.filter(item => item.productJobIntentId !== 'pi');
+    missing.touchpointJobSelections = missing.touchpointJobSelections.filter(item => item.productJobIntentId !== 'pi');
+    freeze(missing);
+    const widened = update(missing, ['a', 'b', 'c']);
+    expect(widened.offerJobSelections).toEqual(missing.offerJobSelections);
+    expect(widened.touchpointJobSelections).toEqual(missing.touchpointJobSelections);
+  });
+
+  it('retains existing normalization of stale paths and malformed duplicate/out-of-scope outcomes', () => {
+    const source = normalizeLegacyJobs(fixture());
+    source.offerJobSelections.find(item => item.id === 'os')!.addressedDesiredOutcomeIds = ['a', 'a', 'c', 'missing'];
+    source.touchpointJobSelections.find(item => item.id === 'ts')!.addressedDesiredOutcomeIds = ['a', 'a', 'c', 'u', 'missing'];
+    source.touchpointJobSelections.push(
+      { id: 'stale-intent', touchpointId: 'touch', offerId: 'offer', productJobIntentId: 'missing', addressedDesiredOutcomeIds: ['a'] },
+      { id: 'stale-offer', touchpointId: 'touch', offerId: 'missing', productJobIntentId: 'pi', addressedDesiredOutcomeIds: ['a'] },
+    );
+    const before = structuredClone(source); freeze(source);
+    const result = update(source, ['a']);
+    expect(result.offerJobSelections.find(item => item.id === 'os')!.addressedDesiredOutcomeIds).toEqual(['a', 'a']);
+    expect(result.touchpointJobSelections.find(item => item.id === 'ts')!.addressedDesiredOutcomeIds).toEqual(['a']);
+    expect(result.touchpointJobSelections.map(item => item.id)).toEqual(['ts', 'ts2', 'other-ts', 'ts3']);
+    expect(source).toEqual(before);
+  });
+
+  it.each(['other-job', 'financial'] as const)('keeps mitigation supported by an independent %s route while clearing the Product Job scope', targetEntityId => {
+    const source = normalizeLegacyJobs(fixture());
+    source.relationships.push({ id: 'additional-resistance', kind: 'repulsor_resists', repulsorId: 'rep', targetEntityId });
+    const before = structuredClone(source); freeze(source);
+    const result = update(source, []);
+    expect(mitigationIds(result)).toEqual(['mit', 'other-mit', 'financial-mit']);
+    expect(result.offerFinancialIntents).toEqual(before.offerFinancialIntents);
+    expect(result.touchpointFinancialSelections).toEqual(before.touchpointFinancialSelections);
+    expect(source).toEqual(before);
+  });
+
+  it.each(['emotional_job', 'social_job'] as const)('preserves inactive legacy %s mitigation only while exact Job-only support survives', async kind => {
+    const { relevantRepulsorsForTouchpoint } = await import('./index');
+    const legacy = fixture();
+    legacy.entities.push({ id: 'inactive-job', kind, title: 'Inactive Job' }, { id: 'inactive-do', kind: 'desired_outcome', title: 'Outcome' }, { id: 'inactive-rep', kind: 'repulsor', title: 'Inactive concern' });
+    legacy.relationships.push(
+      { id: 'inactive-owns', kind: 'job_has_desired_outcome', jobId: 'inactive-job', desiredOutcomeId: 'inactive-do' },
+      { id: 'inactive-resists', kind: 'repulsor_resists', repulsorId: 'inactive-rep', targetEntityId: 'inactive-job' },
+      { id: 'inactive-mit', kind: 'touchpoint_mitigates_repulsor', touchpointId: 'touch', repulsorId: 'inactive-rep' },
+    );
+    const intent = { id: 'inactive-intent', productId: 'product', jobId: 'inactive-job', addressedDesiredOutcomeIds: [] };
+    legacy.productJobIntents.push(intent);
+    legacy.offerJobSelections.push({ id: 'inactive-os', offerId: 'offer', productJobIntentId: intent.id, addressedDesiredOutcomeIds: [] });
+    legacy.touchpointJobSelections.push({ id: 'inactive-ts', touchpointId: 'touch', offerId: 'offer', productJobIntentId: intent.id, addressedDesiredOutcomeIds: [] });
+    const canonical = normalizeLegacyJobs(legacy); const before = structuredClone(canonical); freeze(legacy); freeze(canonical);
+    const unrelated = update(canonical, ['a']);
+    expect(unrelated).toEqual(normalizeLegacyJobs(updateProductJobIntent(legacy, change(['a']))));
+    expect(mitigationIds(unrelated)).toContain('inactive-mit');
+    expect(relevantRepulsorsForTouchpoint(unrelated, 'touch').map(entity => entity.id)).not.toContain('inactive-rep');
+    const unchanged = updateProductJobIntent(canonical, intent, { writeModel: 'canonical' });
+    expect(mitigationIds(unchanged)).toContain('inactive-mit');
+    const changedIntent = { ...intent, addressedDesiredOutcomeIds: ['inactive-do'] };
+    const changed = updateProductJobIntent(canonical, changedIntent, { writeModel: 'canonical' });
+    expect(changed).toEqual(normalizeLegacyJobs(updateProductJobIntent(legacy, changedIntent)));
+    expect(mitigationIds(changed)).not.toContain('inactive-mit');
+    expect(changed.offerJobSelections.find(item => item.id === 'inactive-os')!.addressedDesiredOutcomeIds).toEqual([]);
+    expect(canonical).toEqual(before);
+  });
+
+  it.each(['core_functional_job', 'consumption_chain_job'] as const)('does not extend inactive EJ/SJ protection to normalized %s', kind => {
+    const legacy = fixture(kind);
+    legacy.productJobIntents.find(item => item.id === 'pi')!.addressedDesiredOutcomeIds = [];
+    for (const item of [...legacy.offerJobSelections, ...legacy.touchpointJobSelections]) if (item.productJobIntentId === 'pi') item.addressedDesiredOutcomeIds = [];
+    const canonical = normalizeLegacyJobs(legacy); freeze(legacy); freeze(canonical);
+    const other = { ...legacy.productJobIntents.find(item => item.id === 'other-intent')!, addressedDesiredOutcomeIds: ['u'] };
+    const result = updateProductJobIntent(canonical, other, { writeModel: 'canonical' });
+    expect(result).toEqual(normalizeLegacyJobs(updateProductJobIntent(legacy, other)));
+    expect(mitigationIds(result)).not.toContain('mit'); expect(mitigationIds(result)).not.toContain('mit2');
+  });
+
+  const invalidInputs: [string, Partial<ProductJobIntent>, string][] = [
+    ['unknown intent', { id: 'missing' }, 'unknown_product_job_intent'],
+    ['missing Product', { productId: 'missing' }, 'invalid_relationship_reference'],
+    ['wrong-kind Product', { productId: 'offer' }, 'invalid_relationship_endpoint'],
+    ['missing Job', { jobId: 'missing' }, 'invalid_product_job_reference'],
+    ['wrong-kind Job', { jobId: 'offer' }, 'invalid_product_job_kind'],
+    ['FDO as Job', { jobId: 'financial' }, 'invalid_product_job_kind'],
+    ['DO as Job', { jobId: 'a' }, 'invalid_product_job_kind'],
+    ['duplicate membership', { jobId: 'other-job', addressedDesiredOutcomeIds: ['u'] }, 'duplicate_product_job_intent'],
+    ['duplicate DOs', { addressedDesiredOutcomeIds: ['a', 'a'] }, 'duplicate_addressed_desired_outcome'],
+    ['missing DO', { addressedDesiredOutcomeIds: ['missing'] }, 'invalid_relationship_reference'],
+    ['wrong-kind DO', { addressedDesiredOutcomeIds: ['job'] }, 'invalid_relationship_endpoint'],
+    ['FDO as ordinary DO', { addressedDesiredOutcomeIds: ['financial'] }, 'invalid_relationship_endpoint'],
+    ['foreign DO', { addressedDesiredOutcomeIds: ['u'] }, 'desired_outcome_not_owned_by_job'],
+  ];
+  it.each(invalidInputs)('rejects %s atomically with unchanged legacy/canonical DomainError codes', (_label, overrides, code) => {
+    const legacy = fixture(); const canonical = normalizeLegacyJobs(legacy); const input = { ...change(['a']), ...overrides };
+    const beforeLegacy = structuredClone(legacy); const beforeCanonical = structuredClone(canonical); freeze(legacy); freeze(canonical); freeze(input);
+    for (const run of [() => updateProductJobIntent(legacy, input), () => updateProductJobIntent(canonical, input, { writeModel: 'canonical' })]) expect(run).toThrowError(expect.objectContaining({ code }));
+    expect(legacy).toEqual(beforeLegacy); expect(canonical).toEqual(beforeCanonical);
+  });
+
+  it('rejects Functional Job in the two-argument legacy call without mutating source', () => {
+    const source = fixture(); Object.assign(source.entities.find(item => item.id === 'job')!, { kind: 'functional_job' });
+    const before = structuredClone(source); freeze(source);
+    expect(() => updateProductJobIntent(source, change(['a']))).toThrowError(expect.objectContaining({ code: 'invalid_product_job_kind' }));
+    expect(source).toEqual(before);
+  });
+
+  it.each(['core_functional_job', 'related_job'] as const)('rejects malformed canonical selected %s even with explicit opt-in', kind => {
+    const source = normalizeLegacyJobs(fixture()); Object.assign(source.entities.find(item => item.id === 'job')!, { kind });
+    const before = structuredClone(source); freeze(source);
+    expect(() => update(source, ['a'])).toThrowError(expect.objectContaining({ code: 'invalid_product_job_kind' }));
+    expect(source).toEqual(before);
+  });
+
+  it('does not infer Product membership or outcomes from contextual Jobs or Job-to-FDO links', () => {
+    let source = normalizeLegacyJobs(fixture());
+    source.entities.push({ id: 'parent-job', kind: 'functional_job', title: 'Parent' }, { id: 'parent-do', kind: 'desired_outcome', title: 'Parent outcome' });
+    source.relationships.push({ id: 'parent-owns', kind: 'job_has_desired_outcome', jobId: 'parent-job', desiredOutcomeId: 'parent-do' });
+    source = setJobContextualParents(source, { targetJobId: 'job', parentJobIds: ['parent-job', 'other-job'], newRelationshipIds: ['parent-context', 'other-context'] });
+    source = setFinancialDesiredOutcomeJobContexts(source, { financialDesiredOutcomeId: 'financial', jobIds: ['job', 'parent-job'], newRelationshipIds: ['job-financial', 'parent-financial'] });
+    const before = structuredClone(source); freeze(source);
+    const result = update(source, ['c']);
+    expect(result.productJobIntents.map(item => item.jobId)).toEqual(['job', 'other-job']);
+    expect(result.relationships.filter(item => item.kind === 'job_contextualizes_job' || item.kind === 'job_contextualizes_financial_desired_outcome')).toEqual(source.relationships.filter(item => item.kind === 'job_contextualizes_job' || item.kind === 'job_contextualizes_financial_desired_outcome'));
+    for (const id of ['parent-do', 'u', 'financial']) expect(() => update(source, [id])).toThrow(DomainError);
+    expect(source).toEqual(before);
+  });
+
+  it('copies the authored subset without sorting or sharing input arrays on frozen source', () => {
+    const source = normalizeLegacyJobs(fixture()); const before = structuredClone(source); freeze(source);
+    const input = change(['c', 'a']); const result = updateProductJobIntent(source, input, { writeModel: 'canonical' });
+    expect(result.productJobIntents.find(item => item.id === 'pi')).not.toBe(input);
+    expect(result.productJobIntents.find(item => item.id === 'pi')!.addressedDesiredOutcomeIds).not.toBe(input.addressedDesiredOutcomeIds);
+    input.addressedDesiredOutcomeIds.pop();
+    expect(result.productJobIntents.find(item => item.id === 'pi')!.addressedDesiredOutcomeIds).toEqual(['c', 'a']);
+    result.productJobIntents.find(item => item.id === 'pi')!.addressedDesiredOutcomeIds.pop();
+    expect(source).toEqual(before);
+  });
+
+  it.each(['emotional_job', 'social_job'] as const)('uses explicit mode for identical %s document shapes', kind => {
+    let legacy = offerDocument();
+    legacy = addEntity(legacy, { ...place, entityId: 'job', title: 'Job', kind });
+    for (const id of ['a', 'b']) legacy = addEntity(legacy, { ...place, entityId: id, title: id, kind: 'desired_outcome', parentEntityId: 'job', relationshipId: `owns-${id}` });
+    legacy = addProductJobIntent(legacy, change(['a', 'b']));
+    legacy = setOfferJobSelections(legacy, { offerId: 'offer', selections: [{ productJobIntentId: 'pi', addressedDesiredOutcomeIds: ['a', 'b'] }], newSelectionIds: ['os'] });
+    legacy = addEntity(legacy, { ...place, entityId: 'touch', title: 'Touchpoint', kind: 'touchpoint', linkedOfferIds: ['offer'], relationshipIds: ['presents'] });
+    legacy = setTouchpointIntentSelections(legacy, { touchpointId: 'touch', selections: [{ id: 'ts', kind: 'job', offerId: 'offer', productJobIntentId: 'pi', addressedDesiredOutcomeIds: ['a', 'b'] }] });
+    const canonical = normalizeLegacyJobs(legacy); const before = structuredClone(legacy);
+    expect(canonical).toEqual(legacy); freeze(legacy); freeze(canonical);
+    const legacyResult = updateProductJobIntent(legacy, change(['a'])); const canonicalResult = update(canonical, ['a']);
+    expectTypeOf(legacyResult).toEqualTypeOf<MapDocument>(); expectTypeOf(canonicalResult).toEqualTypeOf<CanonicalMapDocument>();
+    expect(canonicalResult).toEqual(legacyResult);
+    expect(canonicalResult.offerJobSelections[0]!.addressedDesiredOutcomeIds).toEqual(['a']);
+    expect(canonicalResult.touchpointJobSelections[0]!.addressedDesiredOutcomeIds).toEqual(['a']);
+    expect(canonicalResult).not.toHaveProperty('writeModel');
+    expect(legacy).toEqual(before); expect(canonical).toEqual(before);
   });
 });
