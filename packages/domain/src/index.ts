@@ -221,8 +221,34 @@ export function setOfferJobSelections(document: MapReadDocument, input: SetOffer
   return pruneIrrelevantTouchpointMitigations({ ...document, offerJobSelections: [...document.offerJobSelections.filter(selection => selection.offerId !== input.offerId), ...replacement], touchpointJobSelections }, document);
 }
 
-export function setOfferFinancialIntents(document: MapDocument, input: { offerId: string; financialDesiredOutcomeIds: string[]; newIntentIds: string[] }): MapDocument {
+type SetOfferFinancialIntentsInput = { offerId: string; financialDesiredOutcomeIds: string[]; newIntentIds: string[] };
+
+// Canonical preflight rejects ambiguous touched state before the legacy retained-record Map can collapse it.
+function validateCanonicalOfferFinancialIntents(document: MapReadDocument, input: SetOfferFinancialIntentsInput): void {
+  function ids(value: unknown): asserts value is string[] {
+    if (!Array.isArray(value)) throw new DomainError('invalid_offer_financial_intent_ids', 'Financial intent IDs must be arrays.');
+    for (const id of value) if (typeof id !== 'string' || !id.trim()) throw new DomainError('invalid_offer_financial_intent_ids', 'Financial intents require nonempty IDs at every array position.');
+  }
+  ids([input.offerId]); ids(input.financialDesiredOutcomeIds); ids(input.newIntentIds);
+  for (const id of [input.offerId, ...input.financialDesiredOutcomeIds]) {
+    if (document.entities.filter(entity => entity.id === id).length > 1) throw new DomainError('ambiguous_offer_financial_intent', 'Financial intent endpoints must have unambiguous identities.');
+  }
+  const outcomes = new Set<string>();
+  for (const intent of document.offerFinancialIntents.filter(record => record.offerId === input.offerId)) {
+    ids([intent.id, intent.financialDesiredOutcomeId]);
+    if (outcomes.has(intent.financialDesiredOutcomeId) || document.offerFinancialIntents.filter(record => record.id === intent.id).length !== 1) {
+      throw new DomainError('ambiguous_offer_financial_intent', 'Financial intent mutation requires unambiguous FDO memberships and record IDs.');
+    }
+    outcomes.add(intent.financialDesiredOutcomeId);
+  }
+}
+
+export function setOfferFinancialIntents(document: CanonicalMapDocument, input: SetOfferFinancialIntentsInput, options: { writeModel: 'canonical' }): CanonicalMapDocument;
+// Preserve the legacy overload last for ReturnType/Parameters consumers.
+export function setOfferFinancialIntents(document: MapDocument, input: SetOfferFinancialIntentsInput): MapDocument;
+export function setOfferFinancialIntents(document: MapReadDocument, input: SetOfferFinancialIntentsInput, options?: { writeModel: 'canonical' }): MapReadDocument {
   entityOfKind(document, input.offerId, 'offer', 'Offer');
+  if (options?.writeModel === 'canonical') validateCanonicalOfferFinancialIntents(document, input);
   unique(input.financialDesiredOutcomeIds, 'duplicate_offer_financial_intent');
   input.financialDesiredOutcomeIds.forEach(id => entityOfKind(document, id, 'financial_desired_outcome', 'Financial Desired Outcome'));
   const existing = document.offerFinancialIntents.filter(intent => intent.offerId === input.offerId);
@@ -1779,7 +1805,7 @@ function completeProductClientIntentCommand<D extends MapReadDocument, C extends
 
 type CanonicalizedEntityKind<K> = K extends 'core_functional_job' | 'related_job' ? 'functional_job' : K;
 type CanonicalizedEntity<E> = E extends Entity ? Omit<E, 'kind'> & { kind: CanonicalizedEntityKind<E['kind']> } : never;
-/** Canonical normalization output; Product intent primitives/selection commands, Offer Job and top-down Touchpoint selections, and contextual operations accept it. Other mutation APIs remain legacy-owned. */
+/** Canonical normalization output; Product intent primitives/selection commands, Offer Job/Financial intent, top-down Touchpoint selections and contextual operations accept it. Other mutation APIs remain legacy-owned. */
 export type CanonicalEntity = CanonicalizedEntity<Entity>;
 export type CanonicalRelationship =
   | Exclude<Relationship, { kind: 'core_functional_job_has_related_job' | 'core_functional_job_contextualizes_job' }>
