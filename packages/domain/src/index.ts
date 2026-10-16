@@ -151,8 +151,53 @@ export function removeProductJobIntent(document: MapReadDocument, intentId: stri
   return pruneIrrelevantTouchpointMitigations({ ...document, productJobIntents: document.productJobIntents.filter(intent => intent.id !== intentId), offerJobSelections: document.offerJobSelections.filter(selection => selection.productJobIntentId !== intentId), touchpointJobSelections: document.touchpointJobSelections.filter(selection => selection.productJobIntentId !== intentId) }, document);
 }
 export type OfferJobSelectionInput = { productJobIntentId: string; addressedDesiredOutcomeIds: string[] };
-export function setOfferJobSelections(document: MapDocument, input: { offerId: string; selections?: OfferJobSelectionInput[]; productJobIntentIds?: string[]; newSelectionIds: string[] }): MapDocument {
+type SetOfferJobSelectionsInput = { offerId: string; selections?: OfferJobSelectionInput[]; productJobIntentIds?: string[]; newSelectionIds: string[] };
+
+// Canonical writes validate touched authoring paths; legacy malformed-record lookup behavior remains unchanged.
+function validateCanonicalOfferJobSelections(document: MapReadDocument, input: SetOfferJobSelectionsInput) {
+  function ids(value: unknown): asserts value is string[] {
+    if (!Array.isArray(value)) throw new DomainError('invalid_offer_selection_ids', 'Offer selection IDs and outcome scopes must be arrays.');
+    for (const id of value) if (typeof id !== 'string' || !id.trim()) throw new DomainError('invalid_offer_selection_ids', 'Offer selections require nonempty IDs at every array position.');
+  }
+  ids(input.newSelectionIds);
+  if (input.selections != null) {
+    if (!Array.isArray(input.selections)) throw new DomainError('invalid_offer_selection_ids', 'Offer selections must be an array.');
+    for (const selection of input.selections) {
+      if (!selection || typeof selection !== 'object') throw new DomainError('invalid_offer_selection_ids', 'Each Offer selection must describe a Product intent and outcome scope.');
+      ids([selection.productJobIntentId]); ids(selection.addressedDesiredOutcomeIds);
+    }
+  } else if (input.productJobIntentIds != null) ids(input.productJobIntentIds);
+
+  const ownership = document.relationships.filter(relation => relation.kind === 'product_packaged_as_offer' && relation.offerId === input.offerId);
+  if (ownership.length !== 1 || ownership[0]?.kind !== 'product_packaged_as_offer') throw new DomainError('invalid_offer_product_relationship', 'Offer must have exactly one valid Product relationship.');
+  const productId = ownership[0].productId;
+  entityOfKind(document, productId, 'product', 'Offer Product');
+  const current = document.offerJobSelections.filter(selection => selection.offerId === input.offerId);
+  const paths = new Set<string>();
+  for (const selection of current) {
+    ids([selection.id, selection.productJobIntentId]);
+    if (paths.has(selection.productJobIntentId) || document.offerJobSelections.filter(record => record.id === selection.id).length !== 1) {
+      throw new DomainError('ambiguous_offer_job_selection', 'Offer selection mutation requires unambiguous intent paths and record IDs.');
+    }
+    paths.add(selection.productJobIntentId);
+  }
+  const requestedIds = input.selections?.map(selection => selection.productJobIntentId) ?? input.productJobIntentIds ?? [];
+  for (const id of requestedIds) {
+    const intents = document.productJobIntents.filter(intent => intent.id === id);
+    if (intents.length > 1) throw new DomainError('ambiguous_product_job_intent', 'Offer selections require unambiguous Product intent IDs.');
+    const intent = intents[0];
+    if (!intent || intent.productId !== productId) throw new DomainError('offer_selection_wrong_product', 'Offer selections must belong to the Offer Product.');
+    ids(intent.addressedDesiredOutcomeIds);
+    validateProductJobIntent(document, intent, intent.id, CANONICAL_JOB_KINDS);
+  }
+}
+
+export function setOfferJobSelections(document: CanonicalMapDocument, input: SetOfferJobSelectionsInput, options: { writeModel: 'canonical' }): CanonicalMapDocument;
+// Preserve the legacy two-argument API and ReturnType/Parameters compatibility.
+export function setOfferJobSelections(document: MapDocument, input: SetOfferJobSelectionsInput): MapDocument;
+export function setOfferJobSelections(document: MapReadDocument, input: SetOfferJobSelectionsInput, options?: { writeModel: 'canonical' }): MapReadDocument {
   entityOfKind(document, input.offerId, 'offer', 'Offer');
+  if (options?.writeModel === 'canonical') validateCanonicalOfferJobSelections(document, input);
   const selections = input.selections ?? (input.productJobIntentIds ?? []).map(productJobIntentId => ({ productJobIntentId, addressedDesiredOutcomeIds: [...(document.productJobIntents.find(intent => intent.id === productJobIntentId)?.addressedDesiredOutcomeIds ?? [])] }));
   const intentIds = selections.map(selection => selection.productJobIntentId); unique(intentIds, 'duplicate_offer_job_selection');
   const productId = document.relationships.find((relation): relation is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => relation.kind === 'product_packaged_as_offer' && relation.offerId === input.offerId)?.productId;
@@ -1658,7 +1703,7 @@ function completeProductClientIntentCommand<D extends MapReadDocument, C extends
 
 type CanonicalizedEntityKind<K> = K extends 'core_functional_job' | 'related_job' ? 'functional_job' : K;
 type CanonicalizedEntity<E> = E extends Entity ? Omit<E, 'kind'> & { kind: CanonicalizedEntityKind<E['kind']> } : never;
-/** Canonical normalization output; Product intent primitives, non-creating Product intent commands and contextual operations accept it. Other mutation APIs remain legacy-owned. */
+/** Canonical normalization output; Product intent primitives/selection commands, Offer Job selections and contextual operations accept it. Other mutation APIs remain legacy-owned. */
 export type CanonicalEntity = CanonicalizedEntity<Entity>;
 export type CanonicalRelationship =
   | Exclude<Relationship, { kind: 'core_functional_job_has_related_job' | 'core_functional_job_contextualizes_job' }>
