@@ -524,17 +524,17 @@ export function reorderOfferContentBlocks(document: MapDocument, input: { offerI
   return replaceOffer(document, { ...offer, contentBlocks: input.blockIds.map(id => byId.get(id)!) });
 }
 
-function linkedOfferIds(document: MapDocument, touchpointId: string): Set<string> {
+function linkedOfferIds(document: MapReadDocument, touchpointId: string): Set<string> {
   entityOfKind(document, touchpointId, 'touchpoint', 'Touchpoint');
   return new Set(document.relationships.flatMap(relation => relation.kind === 'offer_presented_at_touchpoint' && relation.touchpointId === touchpointId ? [relation.offerId] : []));
 }
-function productForOffer(document: MapDocument, offerId: string): string {
+function productForOffer(document: MapReadDocument, offerId: string): string {
   entityOfKind(document, offerId, 'offer', 'Contributing Offer');
   const productId = document.relationships.find((relation): relation is Extract<Relationship, { kind: 'product_packaged_as_offer' }> => relation.kind === 'product_packaged_as_offer' && relation.offerId === offerId)?.productId;
   if (!productId) throw new DomainError('offer_without_product', 'A contributing Offer must belong to a Product.');
   return productId;
 }
-function validateTouchpointOutcomeScope(document: MapDocument, intent: ProductJobIntent, outcomeIds: string[], offerSelection?: OfferJobSelection): void {
+function validateTouchpointOutcomeScope(document: MapReadDocument, intent: ProductJobIntent, outcomeIds: string[], offerSelection?: OfferJobSelection): void {
   unique(outcomeIds, 'duplicate_touchpoint_desired_outcome');
   const job = document.entities.find(entity => entity.id === intent.jobId)!;
   if (!isDesiredOutcomeBearingJob(job.kind) && outcomeIds.length) throw new DomainError('desired_outcome_not_allowed', 'This Job kind cannot select Desired Outcomes.');
@@ -545,7 +545,7 @@ function validateTouchpointOutcomeScope(document: MapDocument, intent: ProductJo
     if (!upstream.has(outcomeId)) throw new DomainError('touchpoint_outcome_outside_upstream_scope', 'A Touchpoint outcome must be present in its immediate Offer scope.');
   }
 }
-function assertFreshRecordIds(document: MapDocument, ids: string[]): void {
+function assertFreshRecordIds(document: MapReadDocument, ids: string[]): void {
   unique(ids, 'duplicate_selection_id');
   const used = new Set([...document.productJobIntents, ...document.offerJobSelections, ...document.offerFinancialIntents, ...document.touchpointJobSelections, ...document.touchpointFinancialSelections].map(record => record.id));
   if (ids.some(id => used.has(id))) throw new DomainError('duplicate_selection_id', 'A generated record ID is already in use.');
@@ -554,6 +554,78 @@ function assertFreshRecordIds(document: MapDocument, ids: string[]): void {
 export type TouchpointTopDownSelection =
   | { id: string; kind: 'job'; offerId: string; productJobIntentId: string; addressedDesiredOutcomeIds: string[] }
   | { id: string; kind: 'financial'; offerId: string; offerFinancialIntentId: string };
+type SetTouchpointIntentSelectionsInput = { touchpointId: string; selections: TouchpointTopDownSelection[] };
+
+// Canonical validation is opt-in: legacy first-match and split-scope policies remain in the shared writer.
+function validateCanonicalTouchpointIntentSelections(document: MapReadDocument, input: SetTouchpointIntentSelectionsInput, linked: Set<string>): void {
+  function identifier(value: unknown): asserts value is string {
+    if (typeof value !== 'string' || !value.trim()) throw new DomainError('invalid_touchpoint_selection', 'Touchpoint selections require nonempty IDs.');
+  }
+  function ids(value: unknown): asserts value is string[] {
+    if (!Array.isArray(value)) throw new DomainError('invalid_touchpoint_selection', 'Touchpoint outcome scopes must be arrays.');
+    for (const id of value) identifier(id);
+  }
+  function unambiguousEntity(id: string) {
+    if (document.entities.filter(entity => entity.id === id).length > 1) throw new DomainError('ambiguous_touchpoint_selection', 'Selected path endpoints must have unambiguous identities.');
+  }
+  identifier(input.touchpointId); unambiguousEntity(input.touchpointId);
+  if (!Array.isArray(input.selections)) throw new DomainError('invalid_touchpoint_selection', 'Touchpoint selections must be an array.');
+  const allRecords = [...document.productJobIntents, ...document.offerJobSelections, ...document.offerFinancialIntents, ...document.touchpointJobSelections, ...document.touchpointFinancialSelections];
+  const paths = new Set<string>();
+  for (const record of [
+    ...document.touchpointJobSelections.filter(selection => selection.touchpointId === input.touchpointId),
+    ...document.touchpointFinancialSelections.filter(selection => selection.touchpointId === input.touchpointId),
+  ]) {
+    identifier(record.id); identifier(record.offerId);
+    const key = 'productJobIntentId' in record
+      ? JSON.stringify(['job', record.offerId, record.productJobIntentId])
+      : JSON.stringify(['financial', record.offerId, record.financialDesiredOutcomeId]);
+    if (paths.has(key) || allRecords.filter(candidate => candidate.id === record.id).length !== 1) throw new DomainError('ambiguous_touchpoint_selection', 'Touchpoint mutation requires unambiguous current path and record identities.');
+    paths.add(key);
+  }
+  const requested = new Set<string>();
+  for (const selection of input.selections) {
+    if (!selection || typeof selection !== 'object' || (selection.kind !== 'job' && selection.kind !== 'financial')) throw new DomainError('invalid_touchpoint_selection', 'Each selection must identify a Job or Financial path.');
+    identifier(selection.id); identifier(selection.offerId);
+    if (!linked.has(selection.offerId)) throw new DomainError('contributing_offer_not_linked', 'A contributing Offer must be linked to the Touchpoint.');
+    unambiguousEntity(selection.offerId);
+    entityOfKind(document, selection.offerId, 'offer', 'Contributing Offer');
+    if (selection.kind === 'job') {
+      identifier(selection.productJobIntentId); ids(selection.addressedDesiredOutcomeIds);
+      const key = JSON.stringify([selection.offerId, selection.productJobIntentId]);
+      // Match the normalizer's one-record-per-path rule, rather than merging distinct authored subsets.
+      if (requested.has(key)) throw new DomainError('duplicate_touchpoint_selection', 'A canonical Touchpoint Job path may be selected only once.');
+      requested.add(key);
+      const offered = document.offerJobSelections.filter(candidate => candidate.offerId === selection.offerId && candidate.productJobIntentId === selection.productJobIntentId);
+      if (!offered.length) throw new DomainError('missing_offer_job_selection', 'The Offer must select the Product Job Intent.');
+      if (offered.length !== 1 || document.offerJobSelections.filter(candidate => candidate.id === offered[0]!.id).length !== 1) throw new DomainError('ambiguous_offer_job_selection', 'Contributing Offer selection must be unambiguous.');
+      identifier(offered[0]!.id);
+      if (offered[0]!.addressedDesiredOutcomeIds !== undefined) ids(offered[0]!.addressedDesiredOutcomeIds);
+      const intents = document.productJobIntents.filter(candidate => candidate.id === selection.productJobIntentId);
+      if (intents.length > 1) throw new DomainError('ambiguous_product_job_intent', 'Contributing Product intent must be unambiguous.');
+      const ownership = document.relationships.filter(relation => relation.kind === 'product_packaged_as_offer' && relation.offerId === selection.offerId);
+      if (ownership.length !== 1 || ownership[0]?.kind !== 'product_packaged_as_offer') throw new DomainError('invalid_offer_product_relationship', 'A contributing Offer must have exactly one Product relationship.');
+      const productId = ownership[0].productId; unambiguousEntity(productId);
+      entityOfKind(document, productId, 'product', 'Contributing Product');
+      const intent = intents[0];
+      if (!intent || intent.productId !== productId) throw new DomainError('offer_selection_wrong_product', 'Product Job Intent must belong to the contributing Offer Product.');
+      identifier(intent.jobId); unambiguousEntity(intent.jobId); ids(intent.addressedDesiredOutcomeIds);
+      for (const id of intent.addressedDesiredOutcomeIds) unambiguousEntity(id);
+      validateProductJobIntent(document, intent, intent.id, CANONICAL_JOB_KINDS);
+      const outcomes = effectiveOfferDesiredOutcomeIds(document, offered[0]!); ids(outcomes);
+      unique(outcomes, 'duplicate_addressed_desired_outcome');
+      if (outcomes.some(id => !intent.addressedDesiredOutcomeIds.includes(id))) throw new DomainError('offer_outcome_outside_product_scope', 'A contributing Offer outcome must be present in Product intent scope.');
+    } else {
+      identifier(selection.offerFinancialIntentId);
+      const intents = document.offerFinancialIntents.filter(candidate => candidate.id === selection.offerFinancialIntentId);
+      if (intents.length > 1) throw new DomainError('ambiguous_touchpoint_selection', 'Contributing Financial intent must be unambiguous.');
+      const intent = intents[0];
+      if (!intent || intent.offerId !== selection.offerId) throw new DomainError('missing_offer_financial_intent', 'The Financial Desired Outcome must belong to the contributing Offer intent.');
+      identifier(intent.financialDesiredOutcomeId); unambiguousEntity(intent.financialDesiredOutcomeId);
+      entityOfKind(document, intent.financialDesiredOutcomeId, 'financial_desired_outcome', 'Touchpoint Financial Desired Outcome');
+    }
+  }
+}
 
 export interface TouchpointIntentJobLeaf { jobId: string; semanticLeafId: string; desiredOutcomeId?: string; contributorOfferIds: string[] }
 export interface TouchpointIntentFinancialLeaf { financialDesiredOutcomeId: string; contributorOfferIds: string[] }
@@ -573,8 +645,12 @@ function touchpointIntentResolutionMessage(document: MapDocument, result: { touc
 }
 
 /** Replaces the authored local scope; upstream Product and Offer intent is never mutated. */
-export function setTouchpointIntentSelections(document: MapDocument, input: { touchpointId: string; selections: TouchpointTopDownSelection[] }): MapDocument {
+export function setTouchpointIntentSelections(document: CanonicalMapDocument, input: SetTouchpointIntentSelectionsInput, options: { writeModel: 'canonical' }): CanonicalMapDocument;
+// Preserve the legacy overload last for ReturnType/Parameters consumers.
+export function setTouchpointIntentSelections(document: MapDocument, input: SetTouchpointIntentSelectionsInput): MapDocument;
+export function setTouchpointIntentSelections(document: MapReadDocument, input: SetTouchpointIntentSelectionsInput, options?: { writeModel: 'canonical' }): MapReadDocument {
   const linked = linkedOfferIds(document, input.touchpointId);
+  if (options?.writeModel === 'canonical') validateCanonicalTouchpointIntentSelections(document, input, linked);
   const currentIds = new Set([
     ...document.touchpointJobSelections.filter(selection => selection.touchpointId === input.touchpointId).map(selection => selection.id),
     ...document.touchpointFinancialSelections.filter(selection => selection.touchpointId === input.touchpointId).map(selection => selection.id),
@@ -1703,7 +1779,7 @@ function completeProductClientIntentCommand<D extends MapReadDocument, C extends
 
 type CanonicalizedEntityKind<K> = K extends 'core_functional_job' | 'related_job' ? 'functional_job' : K;
 type CanonicalizedEntity<E> = E extends Entity ? Omit<E, 'kind'> & { kind: CanonicalizedEntityKind<E['kind']> } : never;
-/** Canonical normalization output; Product intent primitives/selection commands, Offer Job selections and contextual operations accept it. Other mutation APIs remain legacy-owned. */
+/** Canonical normalization output; Product intent primitives/selection commands, Offer Job and top-down Touchpoint selections, and contextual operations accept it. Other mutation APIs remain legacy-owned. */
 export type CanonicalEntity = CanonicalizedEntity<Entity>;
 export type CanonicalRelationship =
   | Exclude<Relationship, { kind: 'core_functional_job_has_related_job' | 'core_functional_job_contextualizes_job' }>
