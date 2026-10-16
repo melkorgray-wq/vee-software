@@ -125,9 +125,12 @@ export function addProductJobIntent(document: MapReadDocument, input: ProductJob
   validateProductJobIntent(document, input, undefined, options?.writeModel === 'canonical' ? CANONICAL_JOB_KINDS : PRODUCT_JOB_KINDS);
   return { ...document, productJobIntents: [...document.productJobIntents, { ...input, addressedDesiredOutcomeIds: [...input.addressedDesiredOutcomeIds] }] };
 }
-export function updateProductJobIntent(document: MapDocument, input: ProductJobIntent): MapDocument {
+export function updateProductJobIntent(document: CanonicalMapDocument, input: ProductJobIntent, options: { writeModel: 'canonical' }): CanonicalMapDocument;
+// Preserve the two-argument legacy API and ReturnType compatibility.
+export function updateProductJobIntent(document: MapDocument, input: ProductJobIntent): MapDocument;
+export function updateProductJobIntent(document: MapReadDocument, input: ProductJobIntent, options?: { writeModel: 'canonical' }): MapReadDocument {
   if (!document.productJobIntents.some(intent => intent.id === input.id)) throw new DomainError('unknown_product_job_intent', 'Product Job Intent does not exist.');
-  validateProductJobIntent(document, input, input.id);
+  validateProductJobIntent(document, input, input.id, options?.writeModel === 'canonical' ? CANONICAL_JOB_KINDS : PRODUCT_JOB_KINDS);
   const allowed = new Set(input.addressedDesiredOutcomeIds);
   const offerJobSelections = document.offerJobSelections.map(selection => selection.productJobIntentId === input.id
     ? { ...selection, addressedDesiredOutcomeIds: effectiveOfferDesiredOutcomeIds(document, selection).filter(id => allowed.has(id)) }
@@ -1158,10 +1161,10 @@ export function setTouchpointMitigations(document: MapDocument, input: { touchpo
   return { ...document, relationships: [...document.relationships.filter(relation => !(relation.kind === 'touchpoint_mitigates_repulsor' && relation.touchpointId === input.touchpointId)), ...replacement] };
 }
 
-function pruneIrrelevantTouchpointMitigations(document: MapDocument, previous: MapDocument): MapDocument {
+function pruneIrrelevantTouchpointMitigations<T extends MapReadDocument>(document: T, previous: MapReadDocument): T {
   // Preserve already-inactive legacy EJ/SJ authored mitigation only while its
   // exact Job-only attributed scope survives unchanged. This is not relevance.
-  function legacySupports(source: MapDocument, touchpointId: string, repulsorId: string): string[] {
+  function legacySupports(source: MapReadDocument, touchpointId: string, repulsorId: string): string[] {
     return source.touchpointJobSelections.flatMap(selection => {
       if (selection.touchpointId !== touchpointId || selection.addressedDesiredOutcomeIds.length) return [];
       const intent = source.productJobIntents.find(item => item.id === selection.productJobIntentId);
@@ -1611,7 +1614,7 @@ export function applyProductClientIntentCommand(document: MapDocument, input: { 
 
 type CanonicalizedEntityKind<K> = K extends 'core_functional_job' | 'related_job' ? 'functional_job' : K;
 type CanonicalizedEntity<E> = E extends Entity ? Omit<E, 'kind'> & { kind: CanonicalizedEntityKind<E['kind']> } : never;
-/** Canonical normalization output; explicit Product intent addition and contextual operations accept it. Other mutation APIs remain legacy-owned. */
+/** Canonical normalization output; explicit Product intent addition/update and contextual operations accept it. Other mutation APIs remain legacy-owned. */
 export type CanonicalEntity = CanonicalizedEntity<Entity>;
 export type CanonicalRelationship =
   | Exclude<Relationship, { kind: 'core_functional_job_has_related_job' | 'core_functional_job_contextualizes_job' }>
