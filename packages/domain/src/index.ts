@@ -143,7 +143,10 @@ export function updateProductJobIntent(document: MapReadDocument, input: Product
   });
   return pruneIrrelevantTouchpointMitigations({ ...document, offerJobSelections, touchpointJobSelections, productJobIntents: document.productJobIntents.map(intent => intent.id === input.id ? { ...input, addressedDesiredOutcomeIds: [...input.addressedDesiredOutcomeIds] } : intent) }, document);
 }
-export function removeProductJobIntent(document: MapDocument, intentId: string): MapDocument {
+export function removeProductJobIntent(document: CanonicalMapDocument, intentId: string, options: { writeModel: 'canonical' }): CanonicalMapDocument;
+// Keep the legacy overload last for ReturnType compatibility. The ID-based cascade is model-independent.
+export function removeProductJobIntent(document: MapDocument, intentId: string): MapDocument;
+export function removeProductJobIntent(document: MapReadDocument, intentId: string): MapReadDocument {
   if (!document.productJobIntents.some(intent => intent.id === intentId)) throw new DomainError('unknown_product_job_intent', 'Product Job Intent does not exist.');
   return pruneIrrelevantTouchpointMitigations({ ...document, productJobIntents: document.productJobIntents.filter(intent => intent.id !== intentId), offerJobSelections: document.offerJobSelections.filter(selection => selection.productJobIntentId !== intentId), touchpointJobSelections: document.touchpointJobSelections.filter(selection => selection.productJobIntentId !== intentId) }, document);
 }
@@ -1614,7 +1617,7 @@ export function applyProductClientIntentCommand(document: MapDocument, input: { 
 
 type CanonicalizedEntityKind<K> = K extends 'core_functional_job' | 'related_job' ? 'functional_job' : K;
 type CanonicalizedEntity<E> = E extends Entity ? Omit<E, 'kind'> & { kind: CanonicalizedEntityKind<E['kind']> } : never;
-/** Canonical normalization output; explicit Product intent addition/update and contextual operations accept it. Other mutation APIs remain legacy-owned. */
+/** Canonical normalization output; explicit Product intent addition/update/removal and contextual operations accept it. Other mutation APIs remain legacy-owned. */
 export type CanonicalEntity = CanonicalizedEntity<Entity>;
 export type CanonicalRelationship =
   | Exclude<Relationship, { kind: 'core_functional_job_has_related_job' | 'core_functional_job_contextualizes_job' }>
