@@ -970,7 +970,7 @@ export function changeOfferProduct(document: MapDocument, input: { offerId: stri
 }
 
 /** Calculates the durable downstream records affected by replacing one Product's Job intent. */
-export function getProductIntentChangeImpact(document: MapDocument, input: { productId: string; intents: { jobId: string; addressedDesiredOutcomeIds: string[] }[] }): ProductIntentChangeImpact {
+export function getProductIntentChangeImpact(document: MapReadDocument, input: { productId: string; intents: { jobId: string; addressedDesiredOutcomeIds: string[] }[] }): ProductIntentChangeImpact {
   entityOfKind(document, input.productId, 'product', 'Product');
   const proposed = new Map(input.intents.map(intent => [intent.jobId, new Set(intent.addressedDesiredOutcomeIds)]));
   const existing = document.productJobIntents.filter(intent => intent.productId === input.productId);
@@ -1553,12 +1553,52 @@ export type ProductClientIntentCommand =
   | { kind: 'create-related-job'; creation: PlacementInput & { parentEntityId: string; relationshipId: string }; newIntentId: string }
   | { kind: 'create-desired-outcome'; creation: PlacementInput & { parentEntityId: string; relationshipId: string }; newIntentId?: string };
 export interface ProductClientIntentCommandImpact extends ProductIntentChangeImpact { mitigationRelationshipIds: string[] }
-export type ProductClientIntentCommandResult =
-  | { status: 'complete'; document: MapDocument }
-  | { status: 'confirmation-required'; productId: string; command: ProductClientIntentCommand; impact: ProductClientIntentCommandImpact };
+export type CanonicalProductClientIntentCommand = Extract<ProductClientIntentCommand, { kind: 'select-job' | 'remove-job' | 'select-desired-outcome' | 'remove-desired-outcome' }>;
+type ProductClientIntentCommandInput<C extends ProductClientIntentCommand> = { productId: string; command: C; confirmedImpact?: boolean };
+type ProductClientIntentResult<D extends MapReadDocument, C extends ProductClientIntentCommand> =
+  | { status: 'complete'; document: D }
+  | { status: 'confirmation-required'; productId: string; command: C; impact: ProductClientIntentCommandImpact };
+export type ProductClientIntentCommandResult = ProductClientIntentResult<MapDocument, ProductClientIntentCommand>;
+export type CanonicalProductClientIntentCommandResult = ProductClientIntentResult<CanonicalMapDocument, CanonicalProductClientIntentCommand>;
 
 /** Completes one Product-owned semantic operation. Confirmation replays the operation against fresh committed state. */
-export function applyProductClientIntentCommand(document: MapDocument, input: { productId: string; command: ProductClientIntentCommand; confirmedImpact?: boolean }): ProductClientIntentCommandResult {
+export function applyProductClientIntentCommand(document: CanonicalMapDocument, input: ProductClientIntentCommandInput<CanonicalProductClientIntentCommand>, options: { writeModel: 'canonical' }): CanonicalProductClientIntentCommandResult;
+// Keep the legacy overload last for existing ReturnType/Parameters consumers.
+export function applyProductClientIntentCommand(document: MapDocument, input: ProductClientIntentCommandInput<ProductClientIntentCommand>): ProductClientIntentCommandResult;
+export function applyProductClientIntentCommand(...args:
+  | [document: CanonicalMapDocument, input: ProductClientIntentCommandInput<CanonicalProductClientIntentCommand>, options: { writeModel: 'canonical' }]
+  | [document: MapDocument, input: ProductClientIntentCommandInput<ProductClientIntentCommand>]
+): CanonicalProductClientIntentCommandResult | ProductClientIntentCommandResult {
+  if (args.length !== 2) {
+    const [document, input, options] = args;
+    // Runtime callers must not reach legacy creation through the typed canonical entry point.
+    if (options?.writeModel !== 'canonical' || !['select-job', 'remove-job', 'select-desired-outcome', 'remove-desired-outcome'].includes(input.command.kind)) {
+      throw new DomainError('unsupported_product_client_intent_command', 'Canonical Product intent commands support only existing Job and Desired Outcome selection/removal.');
+    }
+    return completeProductClientIntentCommand(document, input, CANONICAL_JOB_KINDS, {
+      add: (source, intent) => addProductJobIntent(source, intent, { writeModel: 'canonical' }),
+      update: (source, intent) => updateProductJobIntent(source, intent, { writeModel: 'canonical' }),
+      remove: (source, id) => removeProductJobIntent(source, id, { writeModel: 'canonical' }),
+    });
+  }
+  const [document, input] = args;
+  return completeProductClientIntentCommand(document, input, PRODUCT_JOB_KINDS, {
+    add: addProductJobIntent, update: updateProductJobIntent, remove: removeProductJobIntent, create: addEntity,
+  });
+}
+
+// Model-specific writers retain exact document types; selection, validation and review have one owner.
+function completeProductClientIntentCommand<D extends MapReadDocument, C extends ProductClientIntentCommand>(
+  document: D,
+  input: ProductClientIntentCommandInput<C>,
+  eligibleJobKinds: readonly string[],
+  writers: {
+    add: (source: D, intent: ProductJobIntent) => D;
+    update: (source: D, intent: ProductJobIntent) => D;
+    remove: (source: D, id: string) => D;
+    create?: (source: D, creation: AddEntityInput) => D;
+  },
+): ProductClientIntentResult<D, C> {
   entityOfKind(document, input.productId, 'product', 'Product');
   const { command } = input;
   const owned = document.productJobIntents.filter(intent => intent.productId === input.productId);
@@ -1571,20 +1611,21 @@ export function applyProductClientIntentCommand(document: MapDocument, input: { 
   }
   const findIntent = (jobId: string) => owned.find(intent => intent.jobId === jobId);
   const assertJob = (jobId: string) => {
-    validateProductJobIntent(document, { productId: input.productId, jobId, addressedDesiredOutcomeIds: [] }, findIntent(jobId)?.id);
+    validateProductJobIntent(document, { productId: input.productId, jobId, addressedDesiredOutcomeIds: [] }, findIntent(jobId)?.id, eligibleJobKinds);
     const intent = findIntent(jobId);
-    if (intent) validateProductJobIntent(document, intent, intent.id);
+    if (intent) validateProductJobIntent(document, intent, intent.id, eligibleJobKinds);
   };
-  const select = (source: MapDocument, jobId: string, outcomeId: string | undefined, newIntentId: string | undefined): MapDocument => {
+  const select = (source: D, jobId: string, outcomeId: string | undefined, newIntentId: string | undefined): D => {
     const intent = findIntent(jobId);
     if (intent) {
       if (outcomeId === undefined || intent.addressedDesiredOutcomeIds.includes(outcomeId)) return source;
-      return updateProductJobIntent(source, { ...intent, addressedDesiredOutcomeIds: [...intent.addressedDesiredOutcomeIds, outcomeId] });
+      return writers.update(source, { ...intent, addressedDesiredOutcomeIds: [...intent.addressedDesiredOutcomeIds, outcomeId] });
     }
     if (!newIntentId?.trim()) throw new DomainError('missing_product_job_intent_id', 'New Product Job membership requires a stable ID.');
-    return addProductJobIntent(source, { id: newIntentId, productId: input.productId, jobId, addressedDesiredOutcomeIds: outcomeId === undefined ? [] : [outcomeId] });
+    return writers.add(source, { id: newIntentId, productId: input.productId, jobId, addressedDesiredOutcomeIds: outcomeId === undefined ? [] : [outcomeId] });
   };
   if (command.kind === 'create-job' || command.kind === 'create-related-job' || command.kind === 'create-desired-outcome') {
+    if (!writers.create) throw new DomainError('unsupported_product_client_intent_command', 'Canonical Product intent commands cannot create entities.');
     if (!command.creation.entityId.trim()) throw new DomainError('invalid_product_intent_entity_id', 'Creation requires a stable entity ID.');
     if (command.kind === 'create-job' && !(['core_functional_job', 'consumption_chain_job', 'emotional_job', 'social_job'] as readonly string[]).includes(command.creation.kind)) throw new DomainError('invalid_product_job_kind', 'This operation creates only ordinary eligible Product Jobs.');
     if (command.kind !== 'create-desired-outcome' && findIntent(command.creation.entityId)) throw new DomainError('invalid_product_job_reference', 'Creation cannot repair an existing stale Product Job membership.');
@@ -1593,19 +1634,19 @@ export function applyProductClientIntentCommand(document: MapDocument, input: { 
       if (!command.creation.relationshipId.trim() || document.relationships.some(relation => relation.id === command.creation.relationshipId)) throw new DomainError('invalid_product_intent_relationship_id', 'Creation requires a fresh canonical relationship ID.');
     }
     const creation = command.kind === 'create-job' ? command.creation : { ...command.creation, kind: command.kind === 'create-related-job' ? 'related_job' as const : 'desired_outcome' as const };
-    const candidate = addEntity(document, creation);
+    const candidate = writers.create(document, creation);
     return { status: 'complete', document: select(candidate, command.kind === 'create-desired-outcome' ? command.creation.parentEntityId : command.creation.entityId, command.kind === 'create-desired-outcome' ? command.creation.entityId : undefined, command.newIntentId) };
   }
   assertJob(command.jobId);
   if (command.kind === 'select-desired-outcome' || command.kind === 'remove-desired-outcome') {
-    validateProductJobIntent(document, { productId: input.productId, jobId: command.jobId, addressedDesiredOutcomeIds: [command.desiredOutcomeId] }, findIntent(command.jobId)?.id);
+    validateProductJobIntent(document, { productId: input.productId, jobId: command.jobId, addressedDesiredOutcomeIds: [command.desiredOutcomeId] }, findIntent(command.jobId)?.id, eligibleJobKinds);
   }
   if (command.kind === 'select-job' || command.kind === 'select-desired-outcome') {
     return { status: 'complete', document: select(document, command.jobId, command.kind === 'select-desired-outcome' ? command.desiredOutcomeId : undefined, command.newIntentId) };
   }
   const intent = findIntent(command.jobId);
   if (!intent || (command.kind === 'remove-desired-outcome' && !intent.addressedDesiredOutcomeIds.includes(command.desiredOutcomeId))) return { status: 'complete', document };
-  const candidate = command.kind === 'remove-job' ? removeProductJobIntent(document, intent.id) : updateProductJobIntent(document, { ...intent, addressedDesiredOutcomeIds: intent.addressedDesiredOutcomeIds.filter(id => id !== ('desiredOutcomeId' in command ? command.desiredOutcomeId : undefined)) });
+  const candidate = command.kind === 'remove-job' ? writers.remove(document, intent.id) : writers.update(document, { ...intent, addressedDesiredOutcomeIds: intent.addressedDesiredOutcomeIds.filter(id => id !== ('desiredOutcomeId' in command ? command.desiredOutcomeId : undefined)) });
   const impact: ProductClientIntentCommandImpact = {
     ...getProductIntentChangeImpact(document, { productId: input.productId, intents: candidate.productJobIntents.filter(record => record.productId === input.productId).map(record => ({ jobId: record.jobId, addressedDesiredOutcomeIds: record.addressedDesiredOutcomeIds })) }),
     mitigationRelationshipIds: document.relationships.filter(relation => relation.kind === 'touchpoint_mitigates_repulsor' && !candidate.relationships.some(retained => retained.id === relation.id)).map(relation => relation.id),
@@ -1617,7 +1658,7 @@ export function applyProductClientIntentCommand(document: MapDocument, input: { 
 
 type CanonicalizedEntityKind<K> = K extends 'core_functional_job' | 'related_job' ? 'functional_job' : K;
 type CanonicalizedEntity<E> = E extends Entity ? Omit<E, 'kind'> & { kind: CanonicalizedEntityKind<E['kind']> } : never;
-/** Canonical normalization output; explicit Product intent addition/update/removal and contextual operations accept it. Other mutation APIs remain legacy-owned. */
+/** Canonical normalization output; Product intent primitives, non-creating Product intent commands and contextual operations accept it. Other mutation APIs remain legacy-owned. */
 export type CanonicalEntity = CanonicalizedEntity<Entity>;
 export type CanonicalRelationship =
   | Exclude<Relationship, { kind: 'core_functional_job_has_related_job' | 'core_functional_job_contextualizes_job' }>
